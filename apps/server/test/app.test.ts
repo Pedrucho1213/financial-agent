@@ -3,30 +3,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { crearApp } from "../src/app";
 import { crearDispositivo } from "../src/auth";
 import { entradas, usuarios } from "../src/db/schema";
-import { preparar } from "./ayuda";
-
-const uso = {
-  inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined },
-  outputTokens: { total: 1, text: 1, reasoning: undefined },
-};
-
-function llamada(toolName: string, input: unknown) {
-  return {
-    content: [{ type: "tool-call" as const, toolCallId: crypto.randomUUID(), toolName, input: JSON.stringify(input) }],
-    finishReason: { unified: "tool-calls" as const, raw: undefined },
-    usage: uso,
-    warnings: [],
-  };
-}
-
-function texto(text: string) {
-  return {
-    content: [{ type: "text" as const, text }],
-    finishReason: { unified: "stop" as const, raw: undefined },
-    usage: uso,
-    warnings: [],
-  };
-}
+import { llamada, preparar, texto } from "./ayuda";
 
 function montar(respuestas: Parameters<typeof llamada>[] | ReturnType<typeof texto>[] | unknown[]) {
   const { db, usuario } = preparar();
