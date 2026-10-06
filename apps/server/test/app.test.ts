@@ -49,6 +49,26 @@ describe("API", () => {
     expect(lista.total).toBe(2);
   });
 
+  test("coordenadas con coma y fechas raras del iPhone no rechazan el dictado", async () => {
+    const { hablar, db } = montar([
+      llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 85, categoria: "Café" }] }),
+      texto("Listo."),
+    ]);
+    const r = await hablar({
+      texto: "gasté 85 en café",
+      client_id: "dictado-coma-01",
+      lat: "19,4326",
+      lon: "-99,1332",
+      capturado_en: "6 de octubre de 2026, 17:20",
+    });
+    expect(r.status).toBe(200);
+    const entrada = db.select().from(entradas).get()!;
+    expect(entrada.lat).toBeCloseTo(19.4326);
+    expect(entrada.lon).toBeCloseTo(-99.1332);
+    const r2 = await hablar({ texto: "gasté 85 en café", client_id: "dictado-coma-02", lat: "norte", capturado_en: "2026-10-06T17:20:13-06:00" });
+    expect([200, 202]).toContain(r2.status);
+  });
+
   test("el mismo dictado reenviado por la cola no se registra dos veces", async () => {
     const { hablar, get, modelo } = montar([
       llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 85, categoria: "Café" }] }),

@@ -47,14 +47,28 @@ export type OpcionesApp = Dependencias & {
 
 const MAX_ESPERA_MS = 120_000;
 
+// El Atajo manda números con coma en español ("19,4326") y fechas en el formato del iPhone.
+// Un dato opcional que no se entiende se ignora: rechazar el dictado lo dejaría atorado en la cola.
+const numeroOpcional = (min: number, max: number) =>
+  z.preprocess((v) => {
+    const n = typeof v === "string" ? Number(v.trim().replace(",", ".")) : Number(v);
+    return v !== undefined && Number.isFinite(n) && n >= min && n <= max ? n : undefined;
+  }, z.number().optional());
+
+const fechaOpcional = z.preprocess((v) => {
+  if (typeof v !== "string") return undefined;
+  const fecha = new Date(v.trim());
+  return Number.isNaN(fecha.getTime()) ? undefined : fecha.toISOString();
+}, z.string().optional());
+
 const esquemaHablar = z.object({
   texto: z.string().trim().min(1).max(2000),
   client_id: z.string().trim().min(8).max(100),
   conversacion_id: z.string().trim().max(100).optional(),
-  lat: z.coerce.number().min(-90).max(90).optional(),
-  lon: z.coerce.number().min(-180).max(180).optional(),
+  lat: numeroOpcional(-90, 90),
+  lon: numeroOpcional(-180, 180),
   lugar: z.string().trim().max(300).optional(),
-  capturado_en: z.iso.datetime({ offset: true }).optional(),
+  capturado_en: fechaOpcional,
   // Para clientes que prefieren esperar otra cantidad (la prueba de modelos espera todo).
   espera_ms: z.coerce.number().int().min(0).max(MAX_ESPERA_MS).optional(),
 });
