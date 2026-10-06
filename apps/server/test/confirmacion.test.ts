@@ -63,6 +63,10 @@ describe("confirmación sin otra vuelta del modelo", () => {
       confirmacionDirecta("Borra el último café", HOY, [{ herramienta: "eliminar_movimiento", resultado: { eliminado: mov({ categoria: "Comida > Café" }) } }]),
     ).toBe("Listo, borré café de $85.");
     expect(confirmacionDirecta("Deshaz eso", HOY, [{ herramienta: "deshacer", resultado: { deshecho: true } }])).toBe("Listo, lo deshice.");
+    // En plural puede faltar otro movimiento (lo encontró la prueba de 79 frases).
+    expect(
+      confirmacionDirecta("Borra los dos cafés de ayer", HOY, [{ herramienta: "eliminar_movimiento", resultado: { eliminado: mov({}) } }]),
+    ).toBeUndefined();
     // Con "y" puede venir una segunda parte que el modelo todavía no hizo.
     expect(
       confirmacionDirecta("Borra el café y el Uber", HOY, [{ herramienta: "eliminar_movimiento", resultado: { eliminado: mov({}) } }]),

@@ -33,6 +33,8 @@ const PIDE_MAS = new RegExp(
     ].join("|") +
     ")\\b",
 );
+// La frase habla de varios movimientos.
+const PLURAL = /\b(los|las|estos|estas|esos|esas|unos|unas|ambos|ambas|todos|todas|dos|tres|cuatro|cinco)\b/;
 // Al registrar, además pide corregir o borrar otra cosa ("y registra que el Uber de ayer fue con la Nu").
 const OTRA_ACCION =
   /\b(borra|elimina|quita|cambia|corrige|deshaz|registra que|anota que|apunta que|fue con|fue el|fue del|era de|era del|no era)/;
@@ -87,8 +89,9 @@ export function confirmacionDirecta(texto: string, hoy: string, ejecutadas: Ejec
     return `Listo, ${enumerar(registrados.map((m) => describirMovimiento(m, hoy)))}.${revisar}`;
   }
 
-  // Corregir, borrar o deshacer de un solo golpe; con "y" puede haber una segunda parte.
-  if (ejecutadas.length !== 1 || /\by\b/.test(plano)) return undefined;
+  // Corregir, borrar o deshacer de un solo golpe. Con "y" puede haber una segunda parte, y en plural
+  // ("borra los dos cafés de ayer") puede faltar otro movimiento.
+  if (ejecutadas.length !== 1 || /\by\b/.test(plano) || PLURAL.test(plano)) return undefined;
   const resultado = ejecutadas[0]!.resultado as Record<string, unknown>;
   if (nombre === "editar_movimiento") return `Listo, quedó ${describirMovimiento(resultado.editado as Movimiento, hoy)}.`;
   if (nombre === "eliminar_movimiento") return `Listo, borré ${describirMovimiento(resultado.eliminado as Movimiento, hoy)}.`;
