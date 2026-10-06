@@ -91,12 +91,17 @@ describe("API", () => {
   });
 
   test("la conversación recuerda lo anterior", async () => {
-    const { hablar, modelo } = montar([texto("Gastaste $105 en café."), texto("En Uber gastaste $230.")]);
+    const { hablar, modelo } = montar([
+      llamada("consultar_gastos", { periodo: "este_mes", texto: "café" }),
+      texto("Gastaste $105 en café."),
+      llamada("consultar_gastos", { periodo: "este_mes", texto: "Uber" }),
+      texto("En Uber gastaste $230."),
+    ]);
     const primera = (await (await hablar({ texto: "¿cuánto gasté en café?", client_id: "dictado-0004" })).json()) as {
       conversacion_id: string;
     };
     await hablar({ texto: "¿y en Uber?", client_id: "dictado-0005", conversacion_id: primera.conversacion_id });
-    const prompt = JSON.stringify(modelo.doGenerateCalls[1]?.prompt);
+    const prompt = JSON.stringify(modelo.doGenerateCalls[2]?.prompt);
     expect(prompt).toContain("¿cuánto gasté en café?");
     expect(prompt).toContain("Gastaste $105 en café.");
   });
@@ -109,6 +114,32 @@ describe("API", () => {
       .run();
     expect((await hablar({ texto: "x", client_id: "dictado-0006" })).status).toBe(409);
     expect(modelo.doGenerateCalls).toHaveLength(0);
+  });
+
+  test("un 'Listo' sin haber guardado nada se reintenta una vez", async () => {
+    const { hablar, get, modelo } = montar([
+      texto("Listo, Netflix de $219."),
+      llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 219, categoria: "Streaming" }] }),
+      texto("Listo, Netflix de $219."),
+    ]);
+    const r = (await (await hablar({ texto: "Netflix me cobró 219", client_id: "dictado-0007" })).json()) as { respuesta: string };
+    expect(r.respuesta).toBe("Listo, Netflix de $219.");
+    expect(JSON.stringify(modelo.doGenerateCalls[1]?.prompt)).toContain("no se guardó ni se consultó nada");
+    expect(((await (await get("/v1/movimientos")).json()) as { encontrados: number }).encontrados).toBe(1);
+  });
+
+  test("si insiste en confirmar sin guardar, avisa que no guardó nada", async () => {
+    const { hablar, get, modelo } = montar([texto("Listo, anotado."), texto("Listo, guardado.")]);
+    const r = (await (await hablar({ texto: "gasté 300 en tacos", client_id: "dictado-0008" })).json()) as { respuesta: string };
+    expect(r.respuesta).toBe("No alcancé a guardar nada. ¿Me lo repites?");
+    expect(modelo.doGenerateCalls).toHaveLength(2);
+    expect(((await (await get("/v1/movimientos")).json()) as { encontrados: number }).encontrados).toBe(0);
+  });
+
+  test("la charla sin montos no se reintenta", async () => {
+    const { hablar, modelo } = montar([texto("¡Hola! Listo para ayudarte.")]);
+    await hablar({ texto: "Hola", client_id: "dictado-0009" });
+    expect(modelo.doGenerateCalls).toHaveLength(1);
   });
 
   test("valida la petición", async () => {

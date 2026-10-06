@@ -14,7 +14,7 @@ import {
 } from "../finanzas/movimientos";
 import { crearRecurrente, listarRecurrentes } from "../finanzas/recurrentes";
 import { fechaDelTexto, resolverFecha } from "../lib/fechas";
-import { normalizar } from "../lib/texto";
+import { monedaDelTexto, normalizar } from "../lib/texto";
 
 export type Accion = { herramienta: string; resultado: unknown };
 
@@ -84,10 +84,20 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
       execute: ejecutar("registrar_movimientos", ({ movimientos }) => {
         // Si la frase dice una sola fecha ("ayer", "el viernes"), esa manda sobre una fecha que el
         // modelo calculó u omitió; los modelos chicos se equivocan al calcularla.
-        const dicha = fechaDelTexto(ctx.textoOriginal, ctx.hoy);
+        const fechaDicha = fechaDelTexto(ctx.textoOriginal, ctx.hoy);
         const conFecha = (fecha?: string) =>
-          dicha && (!fecha || !resolverFecha(fecha, ctx.hoy) || /^\d{4}-\d{2}-\d{2}$/.test(fecha.trim())) ? dicha : fecha;
-        return { registrados: movimientos.map((m) => crearMovimiento(ctx, { ...m, fecha: conFecha(m.fecha) })) };
+          fechaDicha && (!fecha || !resolverFecha(fecha, ctx.hoy) || /^\d{4}-\d{2}-\d{2}$/.test(fecha.trim()))
+            ? fechaDicha
+            : fecha;
+        // "Pagué 20 dólares": si el único movimiento quedó sin moneda o en pesos, manda la que dijo.
+        const monedaDicha = movimientos.length === 1 ? monedaDelTexto(ctx.textoOriginal) : undefined;
+        const conMoneda = (moneda?: string) =>
+          monedaDicha && (!moneda || moneda.toUpperCase() === ctx.monedaBase) ? monedaDicha : moneda;
+        return {
+          registrados: movimientos.map((m) =>
+            crearMovimiento(ctx, { ...m, moneda: conMoneda(m.moneda), fecha: conFecha(m.fecha) }),
+          ),
+        };
       }),
     }),
 

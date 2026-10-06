@@ -117,3 +117,20 @@ test("acepta el tipo de recurrente en plural", () => {
   expect(esquema.parse({ tipo: "suscripciones" })).toEqual({ tipo: "suscripcion" });
   expect(esquema.parse({ tipo: "Rentas" })).toEqual({ tipo: "renta" });
 });
+
+test("la moneda dicha en la frase manda si el modelo la omite", async () => {
+  const { ctx } = preparar();
+  await llamar(dictado(ctx, "Pagué 20 dólares de una app"), "registrar_movimientos", {
+    movimientos: [{ tipo: "gasto", monto: 20, moneda: "MXN" }],
+  });
+  await llamar(dictado(ctx, "Pagué 300 pesos, como 15 dólares"), "registrar_movimientos", {
+    movimientos: [{ tipo: "gasto", monto: 300 }],
+  });
+  await llamar(dictado(ctx, "20 dólares de app y 300 de comida"), "registrar_movimientos", {
+    movimientos: [
+      { tipo: "gasto", monto: 20, moneda: "USD" },
+      { tipo: "gasto", monto: 300 },
+    ],
+  });
+  expect(todos(ctx).map((m) => m.monto).sort()).toEqual(["$300", "$300", "20 USD", "20 USD"]);
+});

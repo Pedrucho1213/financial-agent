@@ -17,3 +17,19 @@ const INICIO_PREGUNTA =
 export function esPregunta(texto: string): boolean {
   return texto.includes("?") || INICIO_PREGUNTA.test(normalizar(texto));
 }
+
+const MONEDAS: [RegExp, string][] = [
+  [/\b(peso|pesos|mxn|varos|baros)\b/, "MXN"],
+  [/\b(dolar|dolares|usd|dls)\b/, "USD"],
+  [/\b(euro|euros|eur)\b/, "EUR"],
+  [/\b(libra|libras)\b/, "GBP"],
+  [/\b(yen|yenes)\b/, "JPY"],
+];
+
+/** La moneda que menciona la frase ("20 dólares"), si menciona una sola. */
+export function monedaDelTexto(texto: string | undefined): string | undefined {
+  if (!texto) return undefined;
+  const plano = normalizar(texto);
+  const dichas = MONEDAS.filter(([patron]) => patron.test(plano)).map(([, codigo]) => codigo);
+  return dichas.length === 1 ? dichas[0] : undefined;
+}

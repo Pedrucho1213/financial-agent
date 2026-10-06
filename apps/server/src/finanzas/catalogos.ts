@@ -87,6 +87,15 @@ const SINONIMOS: Record<string, string> = {
   gimnasio: "Gimnasio",
   gym: "Gimnasio",
   restaurante: "Restaurantes",
+  magna: "Gasolina",
+  gasolinera: "Gasolina",
+  telmex: "Internet y teléfono",
+  izzi: "Internet y teléfono",
+  totalplay: "Internet y teléfono",
+  telcel: "Internet y teléfono",
+  comision: "Comisiones e intereses",
+  reembolso: "Reembolsos",
+  devolucion: "Reembolsos",
 };
 
 export function sembrarCategorias(db: Db, usuarioId: string) {

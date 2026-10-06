@@ -8,6 +8,8 @@ Antes de empezar necesitas la dirección de Tailscale de tu Mac (paso 7 de [inst
 
 ## Cómo funciona sin internet
 
+El iPhone espera a la IA como máximo 5 segundos al registrar y 30 al preguntar. Si la Mac tarda más, contesta "Anotado" y lo termina sola, así que el Atajo nunca se queda colgado. En las preguntas, el paso 13 espera la respuesta un poco más.
+
 Cada dictado se guarda primero como archivo en `iCloud Drive/Shortcuts/Finanzas/pendientes/` y se borra solo cuando el servidor confirma. Si el iPhone o la Mac no tienen conexión, el envío falla y verás un aviso de error, pero el dictado ya quedó guardado. El segundo Atajo lo envía después, y el `client_id` evita que se registre dos veces.
 
 ## Atajo 1: Finanzas
@@ -36,7 +38,13 @@ Cada dictado se guarda primero como archivo en `iCloud Drive/Shortcuts/Finanzas/
     9. **Obtener contenido de URL** (Get Contents of URL): `Servidor`/v1/hablar, método POST, encabezados `Authorization` = `Bearer Token` y `Content-Type` = `application/json`, cuerpo **Archivo** = `Pendiente`.
     10. **Obtener valor del diccionario** (Get Dictionary Value) `conversacion_id` y **Establecer variable** `Conversación`.
     11. **Obtener valor del diccionario** `error`. **Si** no tiene ningún valor: **Eliminar archivos** (Delete Files) `Pendiente`, con "Confirmar antes de eliminar" apagado. Fin del Si.
-    12. **Obtener valor del diccionario** `respuesta` del resultado del paso 9 y **Leer texto** (Speak Text).
+    12. **Obtener valor del diccionario** `respuesta` del resultado del paso 9 y **Establecer variable** `Respuesta`.
+    13. **Obtener valor del diccionario** `esperar` del resultado del paso 9. **Si** tiene algún valor (fue una pregunta y la Mac sigue pensando):
+        1. **Obtener contenido de URL**: `Servidor`/v1/entradas/`ClientID`?esperar_ms=45000, método GET, encabezado `Authorization` = `Bearer Token`.
+        2. **Obtener valor del diccionario** `respuesta`. **Si** tiene algún valor: **Establecer variable** `Respuesta`. Fin del Si.
+        
+        Fin del Si.
+    14. **Leer texto** (Speak Text) `Respuesta`.
 7. Fin del Repetir.
 
 Para lanzarlo:

@@ -4,6 +4,7 @@ import type { Db } from "../db/client";
 import { entradas, mensajes } from "../db/schema";
 import { crearContexto } from "../finanzas/contexto";
 import { revertirEntrada } from "../finanzas/movimientos";
+import { esPregunta, normalizar } from "../lib/texto";
 import { construirInstrucciones } from "./instrucciones";
 import { crearHerramientas, type Accion } from "./herramientas";
 
@@ -70,6 +71,32 @@ function cargarHistorial(db: Db, usuarioId: string, conversacionId: string): Mod
   const inicio = recientes.findIndex((m) => m.role === "user");
   return inicio === -1 ? [] : recientes.slice(inicio);
 }
+
+// Palabras con las que el modelo dice que ya hizo algo ("Listo", "registré", "lo borré"), sin acentos.
+const DICE_QUE_HIZO =
+  /\b(listo|hecho|registre|registrado|registrada|registrados|anote|anotado|anotada|guarde|guardado|guardada|apunte|apuntado|elimine|eliminado|eliminada|borre|borrado|borrada|cambie|cambiado|corregi|corregido|corregida|actualice|actualizado|deshice)\b/;
+// La frase trae un monto o pide algo que necesita herramientas.
+const PIDE_ALGO =
+  /\d|\b(mil|cien|ciento|veinte|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa)\b|gast|pag|compr|cobr|deposit|transf|borr|elimin|quit|cambi|corrig|deshaz|cancel/;
+
+const diceQueHizo = (respuesta: string) => !respuesta.includes("?") && DICE_QUE_HIZO.test(normalizar(respuesta));
+
+/**
+ * Sin herramientas no se guardó ni se consultó nada. Si aun así el modelo dice que lo hizo,
+ * o contesta una pregunta con cifras o "no hay registros", su respuesta no es confiable.
+ */
+function respuestaSinSustento(pregunta: string, respuesta: string, acciones: Accion[]): boolean {
+  if (acciones.length > 0 || respuesta.includes("?")) return false;
+  if (esPregunta(pregunta)) return /\d|no (tengo|hay|encuentro|veo|tienes)/i.test(respuesta);
+  return PIDE_ALGO.test(normalizar(pregunta)) && diceQueHizo(respuesta);
+}
+
+const AVISO_SIN_HERRAMIENTAS =
+  "\n\nAviso: en tu intento anterior respondiste sin usar ninguna herramienta, así que no se guardó ni se consultó nada. " +
+  "Si el usuario dictó un gasto o ingreso que ya hizo, regístralo; si pidió corregir o borrar, hazlo; si preguntó por sus finanzas, consúltalas. " +
+  "Si no pidió nada de eso, responde sin decir que guardaste algo.";
+
+const RESPUESTA_NO_GUARDADA = "No alcancé a guardar nada. ¿Me lo repites?";
 
 /** Respuesta hablada cuando el modelo no dejó texto final. */
 function respuestaPorOmision(acciones: Accion[]): string {
@@ -263,21 +290,33 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
 
   const acciones: Accion[] = [];
   const mensajeUsuario: ModelMessage = { role: "user", content: entrada.texto };
-  let texto: string;
-  let mensajesRespuesta: ModelMessage[];
-  try {
-    const resultado = await generateText({
+  const historial = cargarHistorial(db, usuarioId, conversacionId);
+  const generar = (aviso = "") =>
+    generateText({
       model: deps.modelo,
-      instructions: construirInstrucciones(ctx),
-      messages: [...cargarHistorial(db, usuarioId, conversacionId), mensajeUsuario],
+      instructions: construirInstrucciones(ctx) + aviso,
+      messages: [...historial, mensajeUsuario],
       tools: crearHerramientas(ctx, acciones),
       stopWhen: isStepCount(6),
       temperature: 0.2,
       maxRetries: 1,
       abortSignal: AbortSignal.timeout(90_000),
     });
+  let texto: string;
+  let mensajesRespuesta: ModelMessage[];
+  try {
+    let resultado = await generar();
     texto = resultado.text;
+    // Un "Listo" sin haber llamado a ninguna herramienta es una confirmación falsa: se reintenta una vez.
+    if (respuestaSinSustento(entrada.texto, texto, acciones)) {
+      resultado = await generar(AVISO_SIN_HERRAMIENTAS);
+      texto = resultado.text;
+    }
     mensajesRespuesta = resultado.response.messages;
+    if (acciones.length === 0 && PIDE_ALGO.test(normalizar(entrada.texto)) && diceQueHizo(texto)) {
+      texto = RESPUESTA_NO_GUARDADA;
+      mensajesRespuesta = [{ role: "assistant", content: texto }];
+    }
   } catch (error) {
     revertirEntrada(ctx, entrada.id);
     db.update(entradas).set({ estado: "error" }).where(eq(entradas.id, entrada.id)).run();
