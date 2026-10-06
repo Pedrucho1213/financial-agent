@@ -1,3 +1,5 @@
+import { montosDelTexto } from "./numeros";
+
 /** Minúsculas, sin acentos ni espacios repetidos: "Café " -> "cafe". */
 export function normalizar(texto: string): string {
   return texto
@@ -9,20 +11,32 @@ export function normalizar(texto: string): string {
     .trim();
 }
 
+// Muletillas con las que empieza un dictado: "oye, cuánto...", "a ver, y en Uber".
+const MULETILLAS = /^((oye|oiga|hey|a ver|bueno|mira|este|ok|okey|pues|entonces|que onda|y) )+/;
 // Cómo empieza una pregunta dictada: "¿cuánto llevo...?", "dime mis suscripciones".
+// "Tengo que pagar..." y "hay que pagar..." no preguntan nada.
 const INICIO_PREGUNTA =
-  /^(y )?(cuanto|cuantos|cuantas|cual|cuales|que|como|cuando|donde|en que|por que|dime|muestrame|ensename|dame|lista|resumen|hay|tengo|me alcanza|estoy)\b/;
+  /^(cuanto|cuantos|cuantas|cual|cuales|que|como|cuando|donde|en que|por que|dime|muestrame|ensename|dame|lista|resumen|hay(?! que)|tengo(?! que)|me alcanza|estoy)\b/;
+// Frases que piden información aunque no empiecen así: "quiero saber cuánto gasté", "cuéntame cómo voy".
+const PIDE_INFORMACION =
+  /\b(cuanto|cuanta|cuantos|cuantas|cuales|en que|quiero saber|necesito saber|me puedes decir|puedes decirme|me dices|cuentame|dime|muestrame|ensename|como voy|como vamos|como ando|que tal voy|voy bien|vamos bien|me alcanza|puedo gastar)\b/;
 
 /** Si el dictado es una pregunta (la respuesta importa más que la rapidez). */
 export function esPregunta(texto: string): boolean {
-  return texto.includes("?") || INICIO_PREGUNTA.test(normalizar(texto));
+  if (texto.includes("?")) return true;
+  const plano = normalizar(texto);
+  const sinMuletillas = plano.replace(MULETILLAS, "");
+  if (INICIO_PREGUNTA.test(sinMuletillas) || PIDE_INFORMACION.test(sinMuletillas)) return true;
+  // "Y en Uber", "y el mes pasado": sigue la pregunta anterior si no trae un monto que anotar.
+  return /^y /.test(plano) && montosDelTexto(texto).length === 0;
 }
 
 const MONEDAS: [RegExp, string][] = [
   [/\b(peso|pesos|mxn|varos|baros)\b/, "MXN"],
   [/\b(dolar|dolares|usd|dls)\b/, "USD"],
   [/\b(euro|euros|eur)\b/, "EUR"],
-  [/\b(libra|libras)\b/, "GBP"],
+  // "2 libras de carne" es peso, no dinero.
+  [/\b(gbp|libras? esterlinas?)\b|\blibras?\b(?! de\b)/, "GBP"],
   [/\b(yen|yenes)\b/, "JPY"],
 ];
 

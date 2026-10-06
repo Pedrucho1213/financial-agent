@@ -2,6 +2,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { FRECUENCIAS, recurrentes, TIPOS_RECURRENTE } from "../db/schema";
 import { aCentavos, formatearMonto } from "../lib/dinero";
 import { armarFecha, diaSemana, partes, sumarDias, sumarMeses } from "../lib/fechas";
+import { normalizar } from "../lib/texto";
 import { encontrarCategoria, encontrarOCrearCuenta, listarCategorias } from "./catalogos";
 import type { Contexto } from "./contexto";
 import { ErrorFinanzas, registrarEnBitacora } from "./movimientos";
@@ -12,6 +13,7 @@ export type DatosRecurrente = {
   nombre: string;
   tipo: (typeof TIPOS_RECURRENTE)[number];
   monto: number;
+  moneda?: string;
   frecuencia: (typeof FRECUENCIAS)[number];
   dia: number;
   mes?: number;
@@ -72,12 +74,16 @@ function describir(ctx: Contexto, r: Recurrente) {
   };
 }
 
-export function crearRecurrente(ctx: Contexto, datos: DatosRecurrente) {
+function validar(datos: Pick<DatosRecurrente, "monto" | "frecuencia" | "dia">) {
   if (!(datos.monto > 0)) throw new ErrorFinanzas("El monto debe ser mayor a cero.");
   const maximo = datos.frecuencia === "semanal" ? 7 : 31;
   if (!Number.isInteger(datos.dia) || datos.dia < 1 || datos.dia > maximo) {
     throw new ErrorFinanzas(`El día debe estar entre 1 y ${maximo}.`);
   }
+}
+
+export function crearRecurrente(ctx: Contexto, datos: DatosRecurrente) {
+  validar(datos);
   const cats = listarCategorias(ctx.db, ctx.usuarioId);
   const tipoCat = datos.tipo === "ingreso" ? "ingreso" : "gasto";
   const categoria =
@@ -92,7 +98,7 @@ export function crearRecurrente(ctx: Contexto, datos: DatosRecurrente) {
       nombre: datos.nombre.trim(),
       tipo: datos.tipo,
       montoCentavos: aCentavos(datos.monto),
-      moneda: ctx.monedaBase,
+      moneda: datos.moneda?.toUpperCase() || ctx.monedaBase,
       frecuencia: datos.frecuencia,
       dia: datos.dia,
       mes: datos.mes,
@@ -106,15 +112,22 @@ export function crearRecurrente(ctx: Contexto, datos: DatosRecurrente) {
   return describir(ctx, fila);
 }
 
-/** Recurrentes activos ordenados por próximo cobro; con `dias`, solo los que vencen en ese plazo. */
-export function listarRecurrentes(ctx: Contexto, opciones: { dias?: number; tipo?: Recurrente["tipo"] } = {}) {
-  let filas = ctx.db
+function activos(ctx: Contexto) {
+  return ctx.db
     .select()
     .from(recurrentes)
     .where(and(eq(recurrentes.usuarioId, ctx.usuarioId), eq(recurrentes.activo, true), isNull(recurrentes.eliminadoEn)))
     .all();
+}
+
+/** Recurrentes activos ordenados por próximo cobro; con `dias`, solo los que vencen en ese plazo. */
+export function listarRecurrentes(ctx: Contexto, opciones: { dias?: number; tipo?: Recurrente["tipo"] } = {}) {
+  let filas = activos(ctx);
   if (opciones.tipo) filas = filas.filter((r) => r.tipo === opciones.tipo);
   const gastos = filas.filter((r) => r.tipo !== "ingreso");
+  // Los que se cobran en otra moneda no se suman a los pesos: se listan aparte.
+  const enBase = gastos.filter((r) => r.moneda === ctx.monedaBase);
+  const otras = gastos.filter((r) => r.moneda !== ctx.monedaBase).map((r) => `${r.nombre}: ${formatearMonto(montoMensual(r), r.moneda)}`);
   const limite = opciones.dias !== undefined ? sumarDias(ctx.hoy, opciones.dias) : undefined;
   const lista = filas
     .map((r) => describir(ctx, r))
@@ -122,6 +135,83 @@ export function listarRecurrentes(ctx: Contexto, opciones: { dias?: number; tipo
     .sort((a, b) => a.proximo_cobro.localeCompare(b.proximo_cobro));
   return {
     recurrentes: lista,
-    total_mensual_gastos: formatearMonto(gastos.reduce((s, r) => s + montoMensual(r), 0), ctx.monedaBase),
+    total_mensual_gastos: formatearMonto(enBase.reduce((s, r) => s + montoMensual(r), 0), ctx.monedaBase),
+    total_mensual_otras_monedas: otras.length ? otras : undefined,
   };
+}
+
+/** El recurrente que el usuario nombra ("Netflix", "la renta"), o un error que dice cuáles hay. */
+function encontrarRecurrente(ctx: Contexto, nombre: string): Recurrente {
+  const filas = activos(ctx);
+  const buscado = normalizar(nombre).replace(/^(el|la|los|las|mi|mis) /, "");
+  const exactos = filas.filter((r) => normalizar(r.nombre) === buscado);
+  const parecidos = exactos.length ? exactos : filas.filter((r) => normalizar(r.nombre).includes(buscado) || buscado.includes(normalizar(r.nombre)));
+  if (parecidos.length === 1) return parecidos[0]!;
+  const nombres = filas.map((r) => r.nombre).join(", ") || "ninguno";
+  if (parecidos.length === 0) throw new ErrorFinanzas(`No tengo un pago recurrente llamado "${nombre}". Los que hay: ${nombres}.`);
+  throw new ErrorFinanzas(`Coinciden ${parecidos.map((r) => r.nombre).join(", ")}. Pregunta cuál.`);
+}
+
+export type CambiosRecurrente = Partial<Pick<DatosRecurrente, "nombre" | "monto" | "moneda" | "frecuencia" | "dia" | "mes">>;
+
+function darDeBaja(ctx: Contexto, antes: Recurrente) {
+  const despues = ctx.db
+    .update(recurrentes)
+    .set({ eliminadoEn: new Date().toISOString() })
+    .where(eq(recurrentes.id, antes.id))
+    .returning()
+    .get()!;
+  registrarEnBitacora(ctx, "recurrentes", antes.id, "eliminar", antes, despues);
+}
+
+/** "Cancelé Netflix": deja de contarse y de recordarse. Se puede deshacer. */
+export function cancelarRecurrente(ctx: Contexto, nombre: string) {
+  const antes = encontrarRecurrente(ctx, nombre);
+  darDeBaja(ctx, antes);
+  return { nombre: antes.nombre, monto: formatearMonto(antes.montoCentavos, antes.moneda), frecuencia: antes.frecuencia };
+}
+
+/**
+ * "Spotify subió a 129": se cancela el anterior y se crea uno con los cambios, así deshacer
+ * (que restaura o cancela recurrentes completos) también regresa al monto de antes.
+ */
+export function editarRecurrente(ctx: Contexto, nombre: string, cambios: CambiosRecurrente) {
+  const antes = encontrarRecurrente(ctx, nombre);
+  const datos = {
+    nombre: cambios.nombre?.trim() || antes.nombre,
+    monto: cambios.monto ?? antes.montoCentavos / 100,
+    moneda: cambios.moneda?.toUpperCase() || antes.moneda,
+    frecuencia: cambios.frecuencia ?? antes.frecuencia,
+    dia: cambios.dia ?? antes.dia,
+    mes: cambios.mes ?? antes.mes,
+  };
+  validar(datos);
+  if (
+    datos.nombre === antes.nombre &&
+    aCentavos(datos.monto) === antes.montoCentavos &&
+    datos.moneda === antes.moneda &&
+    datos.frecuencia === antes.frecuencia &&
+    datos.dia === antes.dia &&
+    datos.mes === antes.mes
+  ) {
+    throw new ErrorFinanzas("No indicaste qué cambiar.");
+  }
+  darDeBaja(ctx, antes);
+  const { id: _, creadoEn: __, eliminadoEn: ___, ...resto } = antes;
+  const fila = ctx.db
+    .insert(recurrentes)
+    .values({
+      ...resto,
+      nombre: datos.nombre,
+      montoCentavos: aCentavos(datos.monto),
+      moneda: datos.moneda,
+      frecuencia: datos.frecuencia,
+      dia: datos.dia,
+      mes: datos.mes,
+      entradaId: ctx.entradaId,
+    })
+    .returning()
+    .get();
+  registrarEnBitacora(ctx, "recurrentes", fila.id, "crear", undefined, fila);
+  return describir(ctx, fila);
 }

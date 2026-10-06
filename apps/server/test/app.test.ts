@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { MockLanguageModelV4 } from "ai/test";
 import { precalentar } from "../src/ai/asistente";
+import { crearHerramientas } from "../src/ai/herramientas";
 import { crearApp } from "../src/app";
+import { crearContexto } from "../src/finanzas/contexto";
 import { crearDispositivo } from "../src/auth";
 import { entradas, usuarios } from "../src/db/schema";
 import { llamada, preparar, texto } from "./ayuda";
@@ -101,7 +103,8 @@ describe("API", () => {
     await Promise.all([precalentar(deps, usuario.id), precalentar(deps, usuario.id), precalentar(deps, usuario.id)]);
     expect(modelo.doGenerateCalls).toHaveLength(1);
     expect(modelo.doGenerateCalls[0]?.maxOutputTokens).toBe(1);
-    expect(modelo.doGenerateCalls[0]?.tools).toHaveLength(8);
+    const ctx = crearContexto({ ...deps, usuarioId: usuario.id });
+    expect(modelo.doGenerateCalls[0]?.tools).toHaveLength(Object.keys(crearHerramientas(ctx, [])).length);
     const app = crearApp(deps);
     const token = crearDispositivo(db, usuario.id, "iPhone");
     const lista = await app.request("/v1/movimientos", { headers: { authorization: `Bearer ${token}` } });

@@ -48,9 +48,9 @@ function modeloFalso(
   return { modelo, vistos, intentos, maxActivos: () => maxActivos };
 }
 
-function montar(modelo: MockLanguageModelV4, espera?: OpcionesApp["espera"]) {
+function montar(modelo: MockLanguageModelV4, espera?: OpcionesApp["espera"], reintentosMs = [20, 20]) {
   const { db, usuario } = preparar();
-  const deps = { db, modelo, zonaHoraria: "America/Mexico_City", monedaBase: "MXN", reintentosMs: [20, 20] };
+  const deps = { db, modelo, zonaHoraria: "America/Mexico_City", monedaBase: "MXN", reintentosMs };
   const app = crearApp({ ...deps, espera });
   const cliente = (token: string) => {
     const get = async <T = Record<string, unknown>>(ruta: string) => {
@@ -167,17 +167,29 @@ describe("cola de dictados", () => {
     expect(await montos()).toEqual([450]);
   });
 
-  test("si se acaban los reintentos queda en error y el reenvío del iPhone lo recupera", async () => {
+  test("si la IA sigue caída no lo da por perdido: lo termina cuando vuelve", async () => {
     let caido = true;
     const { modelo, intentos } = modeloFalso({ falla: () => caido });
     const { hablar, get, montos } = montar(modelo, { registroMs: 0, preguntaMs: 0 });
     expect((await hablar({ texto: "agua 200", client_id: "dictado-7001" })).status).toBe(202);
-    await dormir(150); // primer intento y dos reintentos de 20 ms
-    expect(intentos.get("agua 200")).toBe(3);
-    expect((await get("/v1/entradas/dictado-7001")).cuerpo.estado).toBe("error");
+    await dormir(150); // varios intentos con pausas de 20 ms
+    expect(intentos.get("agua 200")).toBeGreaterThanOrEqual(3);
+    expect((await get("/v1/entradas/dictado-7001")).cuerpo.estado).toBe("procesando");
     expect(await montos()).toEqual([]);
     caido = false;
-    const reenvio = await hablar({ texto: "agua 200", client_id: "dictado-7001", espera_ms: 2000 });
+    await dormir(100);
+    expect((await get("/v1/entradas/dictado-7001")).cuerpo.estado).toBe("listo");
+    expect(await montos()).toEqual([200]);
+  });
+
+  test("un reenvío del iPhone mientras espera su reintento lo adelanta", async () => {
+    let caido = true;
+    const { modelo } = modeloFalso({ falla: () => caido });
+    const { hablar, montos } = montar(modelo, { registroMs: 0, preguntaMs: 0 }, [60_000]);
+    expect((await hablar({ texto: "agua 200", client_id: "dictado-7002" })).status).toBe(202);
+    await dormir(30);
+    caido = false;
+    const reenvio = await hablar({ texto: "agua 200", client_id: "dictado-7002", espera_ms: 2000 });
     expect(reenvio.status).toBe(200);
     expect(await montos()).toEqual([200]);
   });

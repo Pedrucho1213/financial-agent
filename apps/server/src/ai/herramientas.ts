@@ -12,7 +12,7 @@ import {
   idDelMovimiento,
   resumir,
 } from "../finanzas/movimientos";
-import { crearRecurrente, listarRecurrentes } from "../finanzas/recurrentes";
+import { cancelarRecurrente, crearRecurrente, editarRecurrente, listarRecurrentes } from "../finanzas/recurrentes";
 import { fechaDelTexto, fechasDelTexto, mencionaFecha, resolverFecha } from "../lib/fechas";
 import { montoConPalabras, montosDelTexto } from "../lib/numeros";
 import { monedaDelTexto, normalizar, tipoDelTexto } from "../lib/texto";
@@ -29,7 +29,7 @@ const fecha = z
 const periodo = z
   .string()
   .describe(
-    'hoy, ayer, esta_semana, semana_pasada, este_mes, mes_pasado, este_anio, ultimos_30_dias, un mes YYYY-MM o un rango YYYY-MM-DD..YYYY-MM-DD',
+    'hoy, ayer, esta_semana, semana_pasada, esta_quincena, quincena_pasada, este_mes, mes_pasado, este_anio, ultimos_30_dias, un mes (septiembre o YYYY-MM) o un rango YYYY-MM-DD..YYYY-MM-DD',
   );
 
 const datosMovimiento = z.object({
@@ -77,6 +77,12 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         throw error;
       }
     };
+
+  // "Spotify me cobra 10 dólares": la moneda de la frase manda si el modelo no dijo otra.
+  const monedaDicha = (moneda?: string) => {
+    const dicha = monedaDelTexto(ctx.textoOriginal);
+    return dicha && (!moneda || moneda.toUpperCase() === ctx.monedaBase) ? dicha : moneda;
+  };
 
   return {
     registrar_movimientos: tool({
@@ -195,13 +201,46 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         nombre: z.string().describe("Netflix, Renta, Quincena"),
         tipo: tipoRecurrente,
         monto: z.number().positive(),
+        moneda: z.string().optional().describe("Solo si no es MXN, por ejemplo USD."),
         frecuencia: z.enum(FRECUENCIAS),
         dia: z.number().int().describe("Día del mes (1-31); en semanal, día de la semana (1 lunes ... 7 domingo)."),
         mes: z.number().int().optional().describe("Solo para anual (1-12)."),
         categoria: z.string().optional(),
         cuenta: z.string().optional(),
       }),
-      execute: ejecutar("registrar_recurrente", (datos) => ({ registrado: crearRecurrente(ctx, datos) })),
+      execute: ejecutar("registrar_recurrente", (datos) => ({
+        registrado: crearRecurrente(ctx, { ...datos, moneda: monedaDicha(datos.moneda) }),
+      })),
+    }),
+
+    editar_recurrente: tool({
+      description:
+        'Cambia o cancela un cobro o ingreso que se repite: "cancelé Netflix", "Spotify subió a 129", "la renta ahora se paga el día 5".',
+      inputSchema: z.object({
+        nombre: z.string().describe("Cuál: Netflix, Renta, Quincena"),
+        cancelar: z.boolean().optional().describe("true si lo canceló o ya no lo paga"),
+        cambios: z
+          .object({
+            nombre: z.string().optional(),
+            monto: z.number().positive().optional(),
+            moneda: z.string().optional(),
+            frecuencia: z.enum(FRECUENCIAS).optional(),
+            dia: z.number().int().optional(),
+            mes: z.number().int().optional(),
+          })
+          .optional()
+          .describe("Solo lo que cambia, con su valor nuevo."),
+      }),
+      execute: ejecutar("editar_recurrente", ({ nombre, cancelar, cambios }) =>
+        cancelar
+          ? { cancelado: cancelarRecurrente(ctx, nombre) }
+          : {
+              cambiado: editarRecurrente(ctx, nombre, {
+                ...cambios,
+                moneda: cambios?.monto !== undefined ? monedaDicha(cambios.moneda) : cambios?.moneda,
+              }),
+            },
+      ),
     }),
 
     listar_recurrentes: tool({
