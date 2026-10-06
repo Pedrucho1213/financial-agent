@@ -41,7 +41,17 @@ export const requiereToken = (db: Db) =>
           .where(and(eq(dispositivos.tokenHash, hashToken(token)), isNull(dispositivos.revocadoEn)))
           .get()
       : undefined;
-    if (!dispositivo) return c.json({ error: "Token inválido o revocado." }, 401);
+    if (!dispositivo) {
+      // El Atajo conserva sus dictados pendientes (reintentar) y lee la respuesta en voz alta.
+      return c.json(
+        {
+          error: "Token inválido o revocado.",
+          respuesta: "Este Atajo ya no tiene acceso. Vuelve a instalarlo desde la app.",
+          reintentar: true,
+        },
+        401,
+      );
+    }
     db.update(dispositivos)
       .set({ ultimoUso: new Date().toISOString() })
       .where(eq(dispositivos.id, dispositivo.id))

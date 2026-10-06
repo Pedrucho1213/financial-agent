@@ -53,6 +53,8 @@ describe("API", () => {
     const { hablar, db } = montar([
       llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 85, categoria: "Café" }] }),
       texto("Listo."),
+      llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 85, categoria: "Café" }] }),
+      texto("Listo."),
     ]);
     const r = await hablar({
       texto: "gasté 85 en café",
@@ -66,7 +68,7 @@ describe("API", () => {
     expect(entrada.lat).toBeCloseTo(19.4326);
     expect(entrada.lon).toBeCloseTo(-99.1332);
     const r2 = await hablar({ texto: "gasté 85 en café", client_id: "dictado-coma-02", lat: "norte", capturado_en: "2026-10-06T17:20:13-0600" });
-    expect([200, 202]).toContain(r2.status);
+    expect(r2.status).toBe(200);
   });
 
   test("un dictado vacío contesta algo para leer en voz alta en vez de un error", async () => {
@@ -171,6 +173,7 @@ describe("API", () => {
 
   test("valida la petición", async () => {
     const { hablar } = montar([]);
-    expect((await hablar({ texto: "", client_id: "x" })).status).toBe(400);
+    expect((await hablar({ texto: "café 50", client_id: "x" })).status).toBe(400);
+    expect((await hablar({ texto: "café 50" })).status).toBe(400);
   });
 });
