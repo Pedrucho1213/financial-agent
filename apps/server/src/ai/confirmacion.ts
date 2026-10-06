@@ -20,10 +20,22 @@ export type Ejecutada = { herramienta: string; resultado: unknown };
 const NOMBRES_DIA = ["", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
 const NOMBRES_MES = ["", "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 
-// La frase pide algo más que lo que hizo la herramienta: algo que se repite, otra cosa o una pregunta.
-const PIDE_MAS = /\b(cada|mensual|semanal|quincenal|anual|diario|tambien|ademas|luego|despues|cuanto|cuanta|cuantos)\b/;
-// Al registrar, además pide corregir o borrar otra cosa.
-const OTRA_ACCION = /\b(borra|elimina|quita|cambia|corrige|deshaz)/;
+// La frase pide algo más que lo que hizo la herramienta: algo que se repite o una pregunta
+// en cualquier parte ("..., ¿cómo voy?").
+const PIDE_MAS = new RegExp(
+  "\\b(" +
+    [
+      "cada", "al mes", "por mes", "a la semana", "por semana", "al ano", "mensual", "semanal", "quincenal", "anual", "diario",
+      "meses sin intereses", "msi", "a \\d+ meses",
+      "cuanto", "cuanta", "cuantos", "cuantas", "como voy", "como vamos", "como ando", "cual", "cuales", "dime", "muestrame",
+      "ensename", "cuentame", "resumen",
+      "tambien", "ademas", "luego", "despues", "recuerdame", "avisame",
+    ].join("|") +
+    ")\\b",
+);
+// Al registrar, además pide corregir o borrar otra cosa ("y registra que el Uber de ayer fue con la Nu").
+const OTRA_ACCION =
+  /\b(borra|elimina|quita|cambia|corrige|deshaz|registra que|anota que|apunta que|fue con|fue el|fue del|era de|era del|no era)/;
 
 function fechaHablada(fecha: string, hoy: string): string {
   if (fecha === hoy) return "";

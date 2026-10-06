@@ -97,7 +97,8 @@ describe("API", () => {
       doGenerate: [llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 50 }] }), texto("Listo.")] as never,
     });
     const deps = { db, modelo, zonaHoraria: "America/Mexico_City", monedaBase: "MXN" };
-    await precalentar(deps, usuario.id);
+    // Abrir el Atajo varias veces seguidas precalienta una sola vez.
+    await Promise.all([precalentar(deps, usuario.id), precalentar(deps, usuario.id), precalentar(deps, usuario.id)]);
     expect(modelo.doGenerateCalls).toHaveLength(1);
     expect(modelo.doGenerateCalls[0]?.maxOutputTokens).toBe(1);
     expect(modelo.doGenerateCalls[0]?.tools).toHaveLength(8);

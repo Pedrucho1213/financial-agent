@@ -37,6 +37,16 @@ describe("confirmación sin otra vuelta del modelo", () => {
     expect(confirmacionDirecta("Gasté 200 en tacos, ¿cuánto llevo?", HOY, [registro({})])).toBeUndefined();
     expect(confirmacionDirecta("Netflix me cobra 219 cada mes", HOY, [registro({})])).toBeUndefined();
     expect(confirmacionDirecta("Anota 50 de pan y borra el café", HOY, [registro({})])).toBeUndefined();
+    // Frases compuestas que encontró QA: una pregunta al final, algo que se repite o una corrección aparte.
+    for (const frase of [
+      "Gasté 85 en café y registra que el Uber de ayer fue con la Nu",
+      "Gasté 85 en café, apúntalo y dime cómo voy",
+      "Gasté 85 en café. Cómo voy este mes",
+      "Pago Netflix 219 al mes",
+      "Compré una tele de 12 mil a 12 meses sin intereses",
+    ]) {
+      expect(confirmacionDirecta(frase, HOY, [registro({})])).toBeUndefined();
+    }
     expect(confirmacionDirecta("Gasté 85", HOY, [{ herramienta: "registrar_movimientos", resultado: { error: "x" } }])).toBeUndefined();
     expect(confirmacionDirecta("¿Cuánto gasté hoy?", HOY, [{ herramienta: "consultar_gastos", resultado: { total: "$85" } }])).toBeUndefined();
     expect(confirmacionDirecta("Gasté 85", HOY, [])).toBeUndefined();
@@ -46,6 +56,9 @@ describe("confirmación sin otra vuelta del modelo", () => {
     expect(
       confirmacionDirecta("Fueron 95, no 85", HOY, [{ herramienta: "editar_movimiento", resultado: { editado: mov({ monto: "$95", comercio: "Starbucks", categoria: "Comida > Café" }) } }]),
     ).toBe("Listo, quedó Starbucks de $95 en Café.");
+    expect(
+      confirmacionDirecta("Era del viernes", HOY, [{ herramienta: "editar_movimiento", resultado: { editado: mov({ fecha: "2026-10-02", comercio: "Oxxo" }) } }]),
+    ).toBe("Listo, quedó Oxxo de $85 del viernes 2 de octubre.");
     expect(
       confirmacionDirecta("Borra el último café", HOY, [{ herramienta: "eliminar_movimiento", resultado: { eliminado: mov({ categoria: "Comida > Café" }) } }]),
     ).toBe("Listo, borré café de $85.");

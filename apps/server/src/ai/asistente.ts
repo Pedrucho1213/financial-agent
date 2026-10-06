@@ -246,13 +246,19 @@ export function reanudarPendientes(deps: Dependencias): number {
   return pendientes.length;
 }
 
+const PRECALENTADO_VIGENTE_MS = 60_000;
+const precalentados = new Map<string, { desde: number; trabajo: Promise<unknown> }>();
+
 /**
  * Carga el modelo y deja procesadas las instrucciones y herramientas del usuario, que son iguales
  * en cada dictado: Ollama reutiliza ese prefijo y el primer dictado solo procesa la frase nueva.
  * Va por la misma cola para no competir con un dictado que ya está en curso.
  */
 export function precalentar(deps: Dependencias, usuarioId: string): Promise<unknown> {
-  return enCola(async () => {
+  // Si el Atajo se abre varias veces seguidas, basta con un precalentado.
+  const previo = precalentados.get(usuarioId);
+  if (previo && Date.now() - previo.desde < PRECALENTADO_VIGENTE_MS) return previo.trabajo;
+  const trabajo = enCola(async () => {
     const ctx = crearContexto({ db: deps.db, usuarioId, zonaHoraria: deps.zonaHoraria, monedaBase: deps.monedaBase });
     // Las mismas definiciones, pero sin poder ejecutar nada.
     const herramientas = Object.fromEntries(
@@ -268,6 +274,8 @@ export function precalentar(deps: Dependencias, usuarioId: string): Promise<unkn
       abortSignal: AbortSignal.timeout(60_000),
     }).catch(() => undefined);
   });
+  precalentados.set(usuarioId, { desde: Date.now(), trabajo });
+  return trabajo;
 }
 
 export type EstadoEntrada = { estado: Entrada["estado"] } & Partial<Respuesta>;
