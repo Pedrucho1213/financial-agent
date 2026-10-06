@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit",
     "setup": "bun scripts/setup.ts",
     "eval": "bun eval/run.ts",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "invitar": "bun scripts/invitar.ts",
+    "atajo": "bun scripts/atajo.ts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.63",

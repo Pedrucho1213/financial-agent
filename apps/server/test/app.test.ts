@@ -45,8 +45,8 @@ describe("API", () => {
     const cuerpo = (await r.json()) as { respuesta: string; conversacion_id: string; acciones: unknown[] };
     expect(cuerpo.respuesta).toBe("Listo, café de $60 y gasolina de $800.");
     expect(cuerpo.acciones).toHaveLength(1);
-    const lista = (await (await get("/v1/movimientos")).json()) as { encontrados: number };
-    expect(lista.encontrados).toBe(2);
+    const lista = (await (await get("/v1/movimientos")).json()) as { total: number };
+    expect(lista.total).toBe(2);
   });
 
   test("el mismo dictado reenviado por la cola no se registra dos veces", async () => {
@@ -59,7 +59,7 @@ describe("API", () => {
     const segunda = (await (await hablar(cuerpo)).json()) as { duplicado?: boolean };
     expect(segunda.duplicado).toBe(true);
     expect(modelo.doGenerateCalls).toHaveLength(2);
-    expect(((await (await get("/v1/movimientos")).json()) as { encontrados: number }).encontrados).toBe(1);
+    expect(((await (await get("/v1/movimientos")).json()) as { total: number }).total).toBe(1);
   });
 
   test("si la IA falla responde 503, no deja registros a medias y el reintento funciona", async () => {
@@ -84,10 +84,10 @@ describe("API", () => {
       });
     expect((await pedir()).status).toBe(503);
     const vacia = await app.request("/v1/movimientos", { headers: { authorization: `Bearer ${token}` } });
-    expect(((await vacia.json()) as { encontrados: number }).encontrados).toBe(0);
+    expect(((await vacia.json()) as { total: number }).total).toBe(0);
     expect((await pedir()).status).toBe(200);
     const llena = await app.request("/v1/movimientos", { headers: { authorization: `Bearer ${token}` } });
-    expect(((await llena.json()) as { encontrados: number }).encontrados).toBe(1);
+    expect(((await llena.json()) as { total: number }).total).toBe(1);
   });
 
   test("la conversación recuerda lo anterior", async () => {
@@ -125,7 +125,7 @@ describe("API", () => {
     const r = (await (await hablar({ texto: "Netflix me cobró 219", client_id: "dictado-0007" })).json()) as { respuesta: string };
     expect(r.respuesta).toBe("Listo, Netflix de $219.");
     expect(JSON.stringify(modelo.doGenerateCalls[1]?.prompt)).toContain("no se guardó ni se consultó nada");
-    expect(((await (await get("/v1/movimientos")).json()) as { encontrados: number }).encontrados).toBe(1);
+    expect(((await (await get("/v1/movimientos")).json()) as { total: number }).total).toBe(1);
   });
 
   test("si insiste en confirmar sin guardar, avisa que no guardó nada", async () => {
@@ -133,7 +133,7 @@ describe("API", () => {
     const r = (await (await hablar({ texto: "gasté 300 en tacos", client_id: "dictado-0008" })).json()) as { respuesta: string };
     expect(r.respuesta).toBe("No alcancé a guardar nada. ¿Me lo repites?");
     expect(modelo.doGenerateCalls).toHaveLength(2);
-    expect(((await (await get("/v1/movimientos")).json()) as { encontrados: number }).encontrados).toBe(0);
+    expect(((await (await get("/v1/movimientos")).json()) as { total: number }).total).toBe(0);
   });
 
   test("la charla sin montos no se reintenta", async () => {

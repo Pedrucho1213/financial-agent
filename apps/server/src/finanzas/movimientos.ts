@@ -32,7 +32,19 @@ export type DatosMovimiento = {
   descripcion?: string;
   cuenta?: string;
   fecha?: string;
+  /** La app elige la categoría de una lista; la IA la nombra con texto (`categoria`). */
+  categoriaId?: string;
+  origen?: Movimiento["origen"];
 };
+
+/** La categoría elegida en la app, si es del usuario y del tipo correcto. */
+function categoriaElegida(cats: Categoria[], tipo: TipoMovimiento, categoriaId: string) {
+  const cat = cats.find((c) => c.id === categoriaId);
+  if (!cat) throw new ErrorFinanzas("Esa categoría no existe.");
+  const tipoCat = tipo === "ingreso" ? "ingreso" : "gasto";
+  if (cat.tipo !== tipoCat) throw new ErrorFinanzas(`"${cat.nombre}" es una categoría de ${cat.tipo}.`);
+  return cat;
+}
 
 /** Cómo se le muestra un movimiento a la IA y a la app. */
 export function describir(ctx: Contexto, m: Movimiento, cats = listarCategorias(ctx.db, ctx.usuarioId)) {
@@ -110,11 +122,13 @@ export function crearMovimiento(ctx: Contexto, datos: DatosMovimiento) {
   const fecha = fechaResuelta ?? ctx.hoy;
   const cats = listarCategorias(ctx.db, ctx.usuarioId);
   const comercio = encontrarOCrearComercio(ctx.db, ctx.usuarioId, datos.comercio);
-  const categoria = elegirCategoria(cats, datos.tipo, datos.categoria, comercio?.categoriaId, [
-    datos.comercio,
-    datos.descripcion,
-    ctx.textoOriginal,
-  ]);
+  const categoria = datos.categoriaId
+    ? { id: categoriaElegida(cats, datos.tipo, datos.categoriaId).id, revisar: false }
+    : elegirCategoria(cats, datos.tipo, datos.categoria, comercio?.categoriaId, [
+        datos.comercio,
+        datos.descripcion,
+        ctx.textoOriginal,
+      ]);
   if (comercio && !comercio.categoriaId && categoria.id && !categoria.revisar) {
     ctx.db.update(comercios).set({ categoriaId: categoria.id }).where(eq(comercios.id, comercio.id)).run();
   }
@@ -136,6 +150,7 @@ export function crearMovimiento(ctx: Contexto, datos: DatosMovimiento) {
       lat: ctx.ubicacion?.lat,
       lon: ctx.ubicacion?.lon,
       lugar: ctx.ubicacion?.lugar,
+      origen: datos.origen,
       textoOriginal: ctx.textoOriginal,
       entradaId: ctx.entradaId,
       revisar: categoria.revisar || fechaResuelta === null,
@@ -146,7 +161,7 @@ export function crearMovimiento(ctx: Contexto, datos: DatosMovimiento) {
   return { ...describir(ctx, fila, cats), revisar: fila.revisar || undefined };
 }
 
-function obtenerPropio(ctx: Contexto, id: string): Movimiento {
+export function obtenerPropio(ctx: Contexto, id: string): Movimiento {
   const fila = ctx.db
     .select()
     .from(movimientos)
@@ -260,10 +275,15 @@ export function editarMovimiento(ctx: Contexto, id: string, cambios: Partial<Dat
     nuevo.fecha = fecha;
     nuevo.ocurridoEn = mediodiaUtc(fecha, ctx.zonaHoraria);
   }
-  if (cambios.comercio) nuevo.comercioId = encontrarOCrearComercio(ctx.db, ctx.usuarioId, cambios.comercio)?.id;
-  if (cambios.cuenta) nuevo.cuentaId = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, cambios.cuenta)?.id;
-  if (cambios.categoria) {
-    const cat = encontrarCategoria(cats, cambios.categoria, tipo === "ingreso" ? "ingreso" : "gasto");
+  // Vacío borra el dato (la app lo permite); sin el campo, no se toca.
+  if (cambios.comercio !== undefined)
+    nuevo.comercioId = cambios.comercio ? encontrarOCrearComercio(ctx.db, ctx.usuarioId, cambios.comercio)?.id : null;
+  if (cambios.cuenta !== undefined)
+    nuevo.cuentaId = cambios.cuenta ? encontrarOCrearCuenta(ctx.db, ctx.usuarioId, cambios.cuenta)?.id : null;
+  if (cambios.categoria || cambios.categoriaId) {
+    const cat = cambios.categoriaId
+      ? categoriaElegida(cats, tipo, cambios.categoriaId)
+      : encontrarCategoria(cats, cambios.categoria, tipo === "ingreso" ? "ingreso" : "gasto");
     if (!cat) throw new ErrorFinanzas(`No existe la categoría "${cambios.categoria}".`);
     nuevo.categoriaId = cat.id;
     nuevo.revisar = false;

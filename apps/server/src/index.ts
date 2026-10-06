@@ -6,7 +6,12 @@ import { abrirBaseDatos } from "./db/client";
 
 const db = abrirBaseDatos(config.baseDatos);
 const deps = { db, modelo: crearModelo(config.ia), zonaHoraria: config.zonaHoraria, monedaBase: config.moneda };
-const app = crearApp({ ...deps, espera: config.espera, despertar: () => despertarModelo(config.ia) });
+const app = crearApp({
+  ...deps,
+  espera: config.espera,
+  despertar: () => despertarModelo(config.ia),
+  carpetaWeb: config.carpetaWeb,
+});
 
 Bun.serve({ hostname: config.host, port: config.puerto, fetch: app.fetch, idleTimeout: 120 });
 const retomados = reanudarPendientes(deps);
