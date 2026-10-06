@@ -580,7 +580,11 @@ export const CASOS: Caso[] = [
     (frase): Caso => ({
       grupo: "charla",
       frase,
-      verificar: (r) => motivo(r.movimientos.length === 0 && r.recurrentes.length === 0 && r.respuesta.length > 0, r),
+      verificar: (r) =>
+        motivo(r.movimientos.length === 0 && r.recurrentes.length === 0 && r.respuesta.length > 0, {
+          movimientos: r.movimientos,
+          recurrentes: r.recurrentes,
+        }),
     }),
   ),
 

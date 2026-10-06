@@ -13,8 +13,9 @@ import {
   resumir,
 } from "../finanzas/movimientos";
 import { crearRecurrente, listarRecurrentes } from "../finanzas/recurrentes";
-import { fechaDelTexto, resolverFecha } from "../lib/fechas";
-import { monedaDelTexto, normalizar } from "../lib/texto";
+import { fechaDelTexto, mencionaFecha, resolverFecha } from "../lib/fechas";
+import { montoConPalabras, montosDelTexto } from "../lib/numeros";
+import { monedaDelTexto, normalizar, tipoDelTexto } from "../lib/texto";
 
 export type Accion = { herramienta: string; resultado: unknown };
 
@@ -82,20 +83,37 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         "Registra uno o varios gastos o ingresos. Si el usuario menciona varios, mándalos todos en una sola llamada.",
       inputSchema: z.object({ movimientos: z.array(datosMovimiento).min(1) }),
       execute: ejecutar("registrar_movimientos", ({ movimientos }) => {
+        const texto = ctx.textoOriginal;
         // Si la frase dice una sola fecha ("ayer", "el viernes"), esa manda sobre una fecha que el
-        // modelo calculó u omitió; los modelos chicos se equivocan al calcularla.
-        const fechaDicha = fechaDelTexto(ctx.textoOriginal, ctx.hoy);
-        const conFecha = (fecha?: string) =>
-          fechaDicha && (!fecha || !resolverFecha(fecha, ctx.hoy) || /^\d{4}-\d{2}-\d{2}$/.test(fecha.trim()))
-            ? fechaDicha
-            : fecha;
-        // "Pagué 20 dólares": si el único movimiento quedó sin moneda o en pesos, manda la que dijo.
-        const monedaDicha = movimientos.length === 1 ? monedaDelTexto(ctx.textoOriginal) : undefined;
+        // modelo calculó u omitió; los modelos chicos se equivocan al calcularla. Si la frase no
+        // habla de ningún momento, una fecha calculada por el modelo es inventada.
+        const fechaDicha = fechaDelTexto(texto, ctx.hoy);
+        const esIso = (fecha?: string) => !!fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha.trim());
+        const conFecha = (fecha?: string) => {
+          if (fechaDicha && (!fecha || !resolverFecha(fecha, ctx.hoy) || esIso(fecha))) return fechaDicha;
+          if (texto && esIso(fecha) && !mencionaFecha(texto)) return undefined;
+          return fecha;
+        };
+        // Con un solo movimiento, lo que dice la frase corrige al modelo en lo que suele fallar:
+        // "Pagué 20 dólares" (moneda), "mil doscientos cincuenta" (monto) y "cargué 650" (gasto).
+        const unico = movimientos.length === 1 && !!texto;
+        const monedaDicha = unico ? monedaDelTexto(texto) : undefined;
         const conMoneda = (moneda?: string) =>
           monedaDicha && (!moneda || moneda.toUpperCase() === ctx.monedaBase) ? monedaDicha : moneda;
+        const montos = unico && montoConPalabras(texto!) ? montosDelTexto(texto!) : [];
+        const montoDicho = montos.length === 1 ? montos[0] : undefined;
+        const tipoDicho = unico ? tipoDelTexto(texto) : undefined;
+        const conTipo = (tipo: (typeof movimientos)[number]["tipo"]) =>
+          tipoDicho && (tipo === "gasto" || tipo === "ingreso") ? tipoDicho : tipo;
         return {
           registrados: movimientos.map((m) =>
-            crearMovimiento(ctx, { ...m, moneda: conMoneda(m.moneda), fecha: conFecha(m.fecha) }),
+            crearMovimiento(ctx, {
+              ...m,
+              tipo: conTipo(m.tipo),
+              monto: montoDicho ?? m.monto,
+              moneda: conMoneda(m.moneda),
+              fecha: conFecha(m.fecha),
+            }),
           ),
         };
       }),
@@ -167,7 +185,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
 
     registrar_recurrente: tool({
       description:
-        "Guarda un cobro o ingreso que se repite: suscripciones, renta, servicios, préstamos o la quincena. Sirve para recordatorios.",
+        "Guarda un cobro o ingreso que se repite (suscripciones, renta, servicios, préstamos, la quincena) para recordatorios. Úsala solo si el usuario dice que se repite (\"cada mes\", \"cada día 15\"); un cobro que ya pasó, como \"Netflix me cobró 219\", se registra con registrar_movimientos.",
       inputSchema: z.object({
         nombre: z.string().describe("Netflix, Renta, Quincena"),
         tipo: tipoRecurrente,

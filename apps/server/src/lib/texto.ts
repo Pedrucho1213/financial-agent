@@ -33,3 +33,16 @@ export function monedaDelTexto(texto: string | undefined): string | undefined {
   const dichas = MONEDAS.filter(([patron]) => patron.test(plano)).map(([, codigo]) => codigo);
   return dichas.length === 1 ? dichas[0] : undefined;
 }
+
+// Verbos que dicen si el dinero salió o entró: "pagué", "cargué" contra "me pagaron", "cobré".
+const SALIDA = /\b(gaste|pague|compre|cargue|me cobraron|me cobro|me eche|se me fueron|pedi|invite)\b/;
+const ENTRADA = /\b(me pagaron|me pago|me depositaron|me deposito|cobre|me devolvieron|me regresaron|me transfirieron|me dieron|gane|recibi|me cayo|me cayeron|vendi)\b/;
+
+/** "gasto" o "ingreso" si los verbos de la frase solo apuntan a uno de los dos. */
+export function tipoDelTexto(texto: string | undefined): "gasto" | "ingreso" | undefined {
+  if (!texto) return undefined;
+  const plano = normalizar(texto);
+  const sale = SALIDA.test(plano);
+  const entra = ENTRADA.test(plano);
+  return sale === entra ? undefined : sale ? "gasto" : "ingreso";
+}

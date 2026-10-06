@@ -8,6 +8,8 @@ import {
   encontrarCategoria,
   encontrarOCrearComercio,
   encontrarOCrearCuenta,
+  fraseRespalda,
+  hojasMencionadas,
   idsConHijas,
   inferirSubcategoria,
   listarCategorias,
@@ -65,7 +67,9 @@ function elegirCategoria(
   // Lo aprendido de tus correcciones manda sobre la suposición del modelo.
   const aprendida = categoriaDelComercio ? cats.find((c) => c.id === categoriaDelComercio) : undefined;
   if (aprendida && aprendida.tipo === tipoCat) return { id: aprendida.id, revisar: false };
-  const encontrada = encontrarCategoria(cats, categoria, tipoCat);
+  // Una categoría de ingreso en un gasto (o al revés) no sirve.
+  const nombrada = encontrarCategoria(cats, categoria, tipoCat);
+  const encontrada = nombrada?.tipo === tipoCat ? nombrada : undefined;
   const porDefecto = categoriaPorDefecto(cats, tipoCat);
   // Los modelos chicos suelen quedarse en la categoría general ("Transporte"); las palabras
   // de la frase dicen cuál hija es ("Uber" es Taxi y apps).
@@ -74,7 +78,15 @@ function elegirCategoria(
     const hija = inferirSubcategoria(cats, pistas, tipoCat, esPadre ? encontrada : undefined);
     if (hija) return { id: hija.id, revisar: false };
   }
-  if (encontrada) return { id: encontrada.id, revisar: false };
+  if (encontrada) {
+    // El modelo eligió una hija que la frase no menciona ("gasolina" para "pagué el gas"), pero
+    // la frase nombra otra sin ambigüedad: manda la frase.
+    const frase = pistas.at(-1);
+    const dichas = hojasMencionadas(cats, frase, tipoCat);
+    const apoyada = [pistas[0], frase].some((p) => fraseRespalda(cats, encontrada, p));
+    if (!esPadre && !apoyada && dichas.length === 1) return { id: dichas[0]!.id, revisar: false };
+    return { id: encontrada.id, revisar: false };
+  }
   return { id: porDefecto?.id ?? null, revisar: true };
 }
 

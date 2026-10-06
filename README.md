@@ -63,6 +63,6 @@ La IA corre en una sola Mac, así que los dictados se procesan de uno en uno y e
 ## Pruebas
 
 ```bash
-bun run test        # 56 pruebas, no necesitan Ollama
+bun run test        # 61 pruebas, no necesitan Ollama
 bun run typecheck
 ```

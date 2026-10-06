@@ -44,7 +44,16 @@ function baseVacia() {
   return { db, usuarioId: usuario.id, zonaHoraria: config.zonaHoraria, monedaBase: config.moneda };
 }
 
-type Resultado = { grupo: string; frase: string; ok: boolean; ms: number; respuesta: string; fallo?: string };
+type Resultado = {
+  grupo: string;
+  frase: string;
+  ok: boolean;
+  ms: number;
+  respuesta: string;
+  /** Las herramientas que llamó el modelo, para entender un fallo. */
+  herramientas: string[];
+  fallo?: string;
+};
 
 async function correrCaso(modelo: ReturnType<typeof crearModelo>, caso: Caso): Promise<Resultado> {
   const base = baseVacia();
@@ -52,6 +61,7 @@ async function correrCaso(modelo: ReturnType<typeof crearModelo>, caso: Caso): P
   caso.preparar?.(ctx);
   const deps = { ...base, modelo };
   let respuesta = "";
+  let herramientas: string[] = [];
   let estado: true | string;
   let ms = 0;
   try {
@@ -65,6 +75,7 @@ async function correrCaso(modelo: ReturnType<typeof crearModelo>, caso: Caso): P
     const r = await hablar(deps, base.usuarioId, { texto: caso.frase, clientId: crypto.randomUUID(), conversacionId });
     ms = Math.round(performance.now() - inicio);
     respuesta = r.respuesta;
+    herramientas = r.acciones.map((a) => `${a.herramienta} ${JSON.stringify(a.resultado ?? null).slice(0, 160)}`);
     estado = caso.verificar({
       ...r,
       ctx,
@@ -74,7 +85,15 @@ async function correrCaso(modelo: ReturnType<typeof crearModelo>, caso: Caso): P
   } catch (error) {
     estado = `error: ${error instanceof Error ? error.message : String(error)}`;
   }
-  return { grupo: caso.grupo, frase: caso.frase, ok: estado === true, ms, respuesta, fallo: estado === true ? undefined : estado };
+  return {
+    grupo: caso.grupo,
+    frase: caso.frase,
+    ok: estado === true,
+    ms,
+    respuesta,
+    herramientas,
+    fallo: estado === true ? undefined : estado,
+  };
 }
 
 /**
@@ -139,7 +158,10 @@ for (const entrada of values.modelos!.split(",").map((m) => m.trim()).filter(Boo
       const r = await correrCaso(modelo, caso);
       resultados.push({ ...r, repeticion });
       console.log(`${r.ok ? "✓" : "✗"} ${String(r.ms).padStart(6)} ms  [${r.grupo}] ${r.frase}`);
-      if (!r.ok) console.log(`           ${String(r.fallo).slice(0, 300)}\n           respuesta: ${r.respuesta}`);
+      if (!r.ok) {
+        console.log(`           ${String(r.fallo).slice(0, 300)}\n           respuesta: ${r.respuesta}`);
+        console.log(`           herramientas: ${r.herramientas.length ? r.herramientas.map((h) => h.split(" ")[0]).join(", ") : "ninguna"}`);
+      }
     }
   }
 

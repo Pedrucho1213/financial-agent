@@ -134,3 +134,33 @@ test("la moneda dicha en la frase manda si el modelo la omite", async () => {
   });
   expect(todos(ctx).map((m) => m.monto).sort()).toEqual(["$300", "$300", "20 USD", "20 USD"]);
 });
+
+test("la frase corrige monto, tipo, fecha y subcategoría cuando el modelo se equivoca", async () => {
+  const { ctx } = preparar();
+  const registrar = async (texto: string, movimiento: Record<string, unknown>) =>
+    (await llamar(dictado(ctx, texto), "registrar_movimientos", { movimientos: [movimiento] })).registrados[0];
+  // Pierde el "mil".
+  expect(await registrar("Mil doscientos cincuenta en la farmacia", { tipo: "gasto", monto: 250 })).toMatchObject({
+    monto: "$1,250",
+    categoria: "Salud > Farmacia",
+  });
+  // "Cargué" es un gasto aunque el modelo diga ingreso.
+  expect(await registrar("Cargué 650 de magna", { tipo: "ingreso", monto: 650, categoria: "Freelance" })).toMatchObject({
+    tipo: "gasto",
+    categoria: "Transporte > Gasolina",
+  });
+  // Fecha inventada sin que la frase hable de ningún día: queda hoy.
+  expect((await registrar("Compré unos tenis de 1,899 en Liverpool", { tipo: "gasto", monto: 1899, fecha: "2026-10-05" })).fecha).toBe(
+    ctx.hoy,
+  );
+  expect((await registrar("El 1 de este mes pagué 350 de internet", { tipo: "gasto", monto: 350 })).fecha).toBe("2026-10-01");
+  // "gas" no es "gasolina".
+  expect((await registrar("Antier pagué el gas, 480", { tipo: "gasto", monto: 480, categoria: "Gasolina" })).categoria).toBe(
+    "Vivienda > Gas",
+  );
+  // Si la frase no dice cuál, se respeta la del modelo; con cantidades ("dos cafés") no se toca el monto.
+  expect(await registrar("Compré dos cafés de 60", { tipo: "gasto", monto: 120, categoria: "Café" })).toMatchObject({
+    monto: "$120",
+    categoria: "Comida > Café",
+  });
+});
