@@ -40,10 +40,15 @@ function cifra(token: string): number | undefined {
 export function montosDelTexto(texto: string): number[] {
   const tokens = plano(texto);
   const montos: number[] = [];
+  // Lo que va antes de "millón" se guarda aparte: "un millón doscientos mil" = 1,000,000 + 200 × 1000.
+  let millones = 0;
   let actual: number | undefined;
   let soloArticulo = false;
   const cerrar = (siguiente?: string) => {
-    if (actual !== undefined && !soloArticulo && !(siguiente && NO_MONTO.test(siguiente))) montos.push(actual);
+    const valor = millones + (actual ?? 0);
+    const hay = millones > 0 || (actual !== undefined && !soloArticulo);
+    if (hay && !(siguiente && NO_MONTO.test(siguiente))) montos.push(valor);
+    millones = 0;
     actual = undefined;
     soloArticulo = false;
   };
@@ -51,14 +56,20 @@ export function montosDelTexto(texto: string): number[] {
     const t = tokens[i]!;
     const numero = cifra(t);
     if (numero !== undefined) {
-      cerrar();
+      // "un millón 200 mil" sigue siendo un solo monto.
+      if (!(millones > 0 && actual === undefined)) cerrar();
       actual = numero;
       continue;
     }
-    if (t === "mil" || t === "millon" || t === "millones") {
-      const factor = t === "mil" ? 1000 : 1_000_000;
-      // "mil" solo es 1000; "doscientos mil" multiplica todo lo anterior.
-      actual = (actual === undefined || soloArticulo ? 1 : actual) * factor;
+    if (t === "millon" || t === "millones") {
+      millones += (actual === undefined || soloArticulo ? 1 : actual) * 1_000_000;
+      actual = undefined;
+      soloArticulo = false;
+      continue;
+    }
+    if (t === "mil") {
+      // "mil" solo es 1000; "doscientos mil" multiplica lo anterior.
+      actual = (actual === undefined || soloArticulo ? 1 : actual) * 1000;
       soloArticulo = false;
       continue;
     }
@@ -67,7 +78,7 @@ export function montosDelTexto(texto: string): number[] {
       const articulo = t === "un" || t === "una" || t === "uno";
       if (actual === undefined) {
         actual = valor;
-        soloArticulo = articulo;
+        soloArticulo = articulo && millones === 0;
       } else if (actual % 1000 === 0 || (actual % 100 === 0 && valor < 100) || (actual % 10 === 0 && actual % 100 !== 0 && valor < 10)) {
         // "mil" + "doscientos", "doscientos" + "cincuenta", "cincuenta" + "y" + "cinco".
         actual += valor;
@@ -80,6 +91,8 @@ export function montosDelTexto(texto: string): number[] {
       continue;
     }
     if (t === "y" && actual !== undefined && actual % 10 === 0 && UNIDADES[tokens[i + 1] ?? ""] !== undefined) continue;
+    // "un millón de pesos": el "de" no corta el monto.
+    if (t === "de" && millones > 0 && actual === undefined) continue;
     cerrar(t);
   }
   cerrar();
@@ -88,5 +101,5 @@ export function montosDelTexto(texto: string): number[] {
 
 /** Si la frase dice el monto con palabras o con "mil"/"k", que es donde los modelos se equivocan. */
 export function montoConPalabras(texto: string): boolean {
-  return plano(texto).some((t) => t === "mil" || /^\d+(?:\.\d+)?k$/.test(t) || (t in UNIDADES && !["un", "una", "uno"].includes(t)));
+  return plano(texto).some((t) => t === "mil" || t === "millon" || t === "millones" || /^\d+(?:\.\d+)?k$/.test(t) || (t in UNIDADES && !["un", "una", "uno"].includes(t)));
 }
