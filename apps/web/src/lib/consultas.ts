@@ -1,0 +1,164 @@
+import { QueryClient, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
+import { api, ErrorApi } from "./api";
+import { alCerrarSesion } from "./sesion";
+import type { Categoria, DatosMovimiento, MovimientoApp, Tablero, TipoMovimiento, Yo } from "./tipos";
+import { rangoDelMes } from "./formato";
+
+const DIA = 24 * 60 * 60 * 1000;
+
+export const clienteConsultas = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      gcTime: 7 * DIA,
+      retry: (intentos, error) => !(error instanceof ErrorApi && error.estado >= 400 && error.estado < 500) && intentos < 2,
+      refetchOnWindowFocus: true,
+    },
+  },
+});
+
+export const persistidor = createSyncStoragePersister({
+  storage: typeof window === "undefined" ? undefined : window.localStorage,
+  key: "fa_cache",
+});
+
+alCerrarSesion(() => {
+  clienteConsultas.clear();
+  try {
+    localStorage.removeItem("fa_cache");
+  } catch {
+    // nada
+  }
+});
+
+export const claves = {
+  yo: ["yo"] as const,
+  categorias: ["categorias"] as const,
+  tablero: (mes: string) => ["tablero", mes] as const,
+  movimientos: (f: FiltrosMovimientos) => ["movimientos", f] as const,
+};
+
+export function useYo() {
+  return useQuery({ queryKey: claves.yo, queryFn: () => api<Yo>("/v1/yo") });
+}
+
+export function useCategorias() {
+  return useQuery({
+    queryKey: claves.categorias,
+    queryFn: () => api<{ categorias: Categoria[] }>("/v1/categorias").then((r) => r.categorias),
+    staleTime: 60 * 60 * 1000,
+  });
+}
+
+export function useTablero(mes: string) {
+  return useQuery({
+    queryKey: claves.tablero(mes),
+    queryFn: () => api<Tablero>(`/v1/tablero?mes=${mes}`),
+    placeholderData: (previo) => previo,
+  });
+}
+
+export type FiltrosMovimientos = {
+  /** YYYY-MM o "todo" */
+  mes: string;
+  tipo?: TipoMovimiento;
+  categoria?: string;
+  texto?: string;
+  revisar?: boolean;
+};
+
+export const POR_PAGINA = 50;
+
+export function parametrosMovimientos(f: FiltrosMovimientos, offset: number) {
+  const p = new URLSearchParams();
+  if (f.mes === "todo") {
+    // El contrato no tiene "todo": se pide un rango amplio.
+    p.set("desde", "2000-01-01");
+    p.set("hasta", "2099-12-31");
+  } else {
+    const { desde, hasta } = rangoDelMes(f.mes);
+    p.set("desde", desde);
+    p.set("hasta", hasta);
+  }
+  if (f.tipo) p.set("tipo", f.tipo);
+  if (f.categoria) p.set("categoria_id", f.categoria);
+  if (f.texto) p.set("texto", f.texto);
+  if (f.revisar) p.set("revisar", "1");
+  p.set("limite", String(POR_PAGINA));
+  p.set("offset", String(offset));
+  return p;
+}
+
+type PaginaMovimientos = { total: number; movimientos: MovimientoApp[] };
+
+export function useMovimientos(f: FiltrosMovimientos) {
+  return useInfiniteQuery({
+    queryKey: claves.movimientos(f),
+    initialPageParam: 0,
+    queryFn: ({ pageParam, signal }) =>
+      api<PaginaMovimientos>(`/v1/movimientos?${parametrosMovimientos(f, pageParam)}`, { signal }),
+    getNextPageParam: (ultima, paginas) => {
+      const cargados = paginas.reduce((n, p) => n + p.movimientos.length, 0);
+      return cargados < ultima.total && ultima.movimientos.length > 0 ? cargados : undefined;
+    },
+    placeholderData: (previo) => previo,
+  });
+}
+
+/** Después de cualquier cambio: tablero y listas se vuelven a pedir. */
+export function useRefrescarDatos() {
+  const qc = useQueryClient();
+  return () =>
+    Promise.all([
+      qc.invalidateQueries({ queryKey: ["tablero"] }),
+      qc.invalidateQueries({ queryKey: ["movimientos"] }),
+    ]);
+}
+
+export function useGuardarMovimiento() {
+  const refrescar = useRefrescarDatos();
+  return useMutation({
+    mutationFn: ({ id, datos }: { id?: string; datos: DatosMovimiento }) =>
+      id
+        ? api<MovimientoApp>(`/v1/movimientos/${encodeURIComponent(id)}`, { method: "PATCH", body: datos })
+        : api<MovimientoApp>("/v1/movimientos", { method: "POST", body: datos }),
+    onSuccess: () => refrescar(),
+  });
+}
+
+type DatosInfinitos = { pages: PaginaMovimientos[]; pageParams: number[] };
+
+export function useEliminarMovimiento() {
+  const qc = useQueryClient();
+  const refrescar = useRefrescarDatos();
+  return useMutation({
+    mutationFn: (id: string) => api<{ ok: true }>(`/v1/movimientos/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    // Desaparece de la lista al instante; si falla, vuelve.
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: ["movimientos"] });
+      const previos = qc.getQueriesData<DatosInfinitos>({ queryKey: ["movimientos"] });
+      qc.setQueriesData<DatosInfinitos>({ queryKey: ["movimientos"] }, (d) => {
+        if (!d) return d;
+        const quitados = d.pages.reduce((n, p) => n + p.movimientos.filter((m) => m.id === id).length, 0);
+        return {
+          ...d,
+          pages: d.pages.map((p) => ({ total: p.total - quitados, movimientos: p.movimientos.filter((m) => m.id !== id) })),
+        };
+      });
+      return { previos };
+    },
+    onError: (_e, _id, ctx) => {
+      for (const [clave, datos] of ctx?.previos ?? []) qc.setQueryData(clave, datos);
+    },
+    onSettled: () => refrescar(),
+  });
+}
+
+export function useDeshacer() {
+  const refrescar = useRefrescarDatos();
+  return useMutation({
+    mutationFn: () => api<{ deshecho: boolean; mensaje?: string }>("/v1/deshacer", { method: "POST" }),
+    onSuccess: () => refrescar(),
+  });
+}
