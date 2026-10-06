@@ -48,8 +48,9 @@ test("funciona con una API compatible con OpenAI", async () => {
   const deps = { db, modelo, zonaHoraria: "America/Mexico_City", monedaBase: "MXN" };
   const r = await hablar(deps, usuario.id, { texto: "gasté 85 en café", clientId: "dictado-proveedor" });
 
+  // Solo registró: la confirmación se arma con lo guardado, sin otra vuelta del modelo.
   expect(r.respuesta).toBe("Listo, café de $85.");
-  expect(peticiones).toHaveLength(2);
+  expect(peticiones).toHaveLength(1);
   expect(peticiones[0]?.tools).toHaveLength(8);
   expect(peticiones[0]?.reasoning_effort).toBe(config.ia.razonamiento);
   const ctx = crearContexto({ ...deps, usuarioId: usuario.id });

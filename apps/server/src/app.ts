@@ -7,8 +7,8 @@ import { buscarMovimientos, ErrorFinanzas, resumir } from "./finanzas/movimiento
 import { esPregunta } from "./lib/texto";
 
 export type OpcionesApp = Dependencias & {
-  /** Precarga el modelo de IA; en pruebas no hace nada. */
-  despertar?: () => Promise<unknown>;
+  /** Precarga el modelo de IA con las instrucciones del usuario; en pruebas no hace nada. */
+  despertar?: (usuarioId: string) => Promise<unknown>;
   /**
    * Cuánto espera el iPhone antes de que la Mac conteste "pendiente" y termine sola.
    * Sin valor, espera a que la IA termine.
@@ -94,7 +94,7 @@ export function crearApp(opciones: OpcionesApp) {
 
   // El Atajo lo llama al abrirse para que el modelo ya esté cargado cuando termines de hablar.
   v1.post("/despertar", (c) => {
-    void opciones.despertar?.();
+    void opciones.despertar?.(c.get("usuarioId"));
     return c.json({ ok: true });
   });
 

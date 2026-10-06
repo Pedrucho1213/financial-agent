@@ -5,6 +5,7 @@ import { entradas, mensajes } from "../db/schema";
 import { crearContexto } from "../finanzas/contexto";
 import { revertirEntrada } from "../finanzas/movimientos";
 import { esPregunta, normalizar } from "../lib/texto";
+import { confirmacionDirecta, type Ejecutada } from "./confirmacion";
 import { construirInstrucciones } from "./instrucciones";
 import { crearHerramientas, type Accion } from "./herramientas";
 
@@ -245,6 +246,30 @@ export function reanudarPendientes(deps: Dependencias): number {
   return pendientes.length;
 }
 
+/**
+ * Carga el modelo y deja procesadas las instrucciones y herramientas del usuario, que son iguales
+ * en cada dictado: Ollama reutiliza ese prefijo y el primer dictado solo procesa la frase nueva.
+ * Va por la misma cola para no competir con un dictado que ya está en curso.
+ */
+export function precalentar(deps: Dependencias, usuarioId: string): Promise<unknown> {
+  return enCola(async () => {
+    const ctx = crearContexto({ db: deps.db, usuarioId, zonaHoraria: deps.zonaHoraria, monedaBase: deps.monedaBase });
+    // Las mismas definiciones, pero sin poder ejecutar nada.
+    const herramientas = Object.fromEntries(
+      Object.entries(crearHerramientas(ctx, [])).map(([nombre, h]) => [nombre, { ...h, execute: undefined }]),
+    );
+    await generateText({
+      model: deps.modelo,
+      instructions: construirInstrucciones(ctx),
+      messages: [{ role: "user", content: "Hola" }],
+      tools: herramientas,
+      maxOutputTokens: 1,
+      maxRetries: 0,
+      abortSignal: AbortSignal.timeout(60_000),
+    }).catch(() => undefined);
+  });
+}
+
 export type EstadoEntrada = { estado: Entrada["estado"] } & Partial<Respuesta>;
 
 /**
@@ -291,28 +316,44 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   const acciones: Accion[] = [];
   const mensajeUsuario: ModelMessage = { role: "user", content: entrada.texto };
   const historial = cargarHistorial(db, usuarioId, conversacionId);
-  const generar = (aviso = "") =>
-    generateText({
+  // Si un paso solo guardó, corrigió o borró, la confirmación se arma aquí y el modelo no da otra vuelta.
+  let confirmacion: string | undefined;
+  const generar = (aviso = "") => {
+    confirmacion = undefined;
+    return generateText({
       model: deps.modelo,
       instructions: construirInstrucciones(ctx) + aviso,
       messages: [...historial, mensajeUsuario],
       tools: crearHerramientas(ctx, acciones),
-      stopWhen: isStepCount(6),
+      stopWhen: [
+        isStepCount(6),
+        ({ steps }) => {
+          const ejecutadas: Ejecutada[] = (steps.at(-1)?.content ?? []).flatMap((parte) =>
+            parte.type === "tool-result" ? [{ herramienta: parte.toolName, resultado: parte.output }] : parte.type === "tool-error" ? [{ herramienta: parte.toolName, resultado: { error: true } }] : [],
+          );
+          confirmacion = confirmacionDirecta(entrada.texto, ctx.hoy, ejecutadas);
+          return confirmacion !== undefined;
+        },
+      ],
       temperature: 0.2,
+      // Las respuestas son de una o dos frases; esto solo frena a un modelo que no para de escribir.
+      maxOutputTokens: 600,
       maxRetries: 1,
       abortSignal: AbortSignal.timeout(90_000),
     });
+  };
   let texto: string;
   let mensajesRespuesta: ModelMessage[];
   try {
     let resultado = await generar();
-    texto = resultado.text;
+    texto = confirmacion ?? resultado.text;
     // Un "Listo" sin haber llamado a ninguna herramienta es una confirmación falsa: se reintenta una vez.
     if (respuestaSinSustento(entrada.texto, texto, acciones)) {
       resultado = await generar(AVISO_SIN_HERRAMIENTAS);
-      texto = resultado.text;
+      texto = confirmacion ?? resultado.text;
     }
     mensajesRespuesta = resultado.response.messages;
+    if (confirmacion) mensajesRespuesta = [...mensajesRespuesta, { role: "assistant", content: confirmacion }];
     if (acciones.length === 0 && PIDE_ALGO.test(normalizar(entrada.texto)) && diceQueHizo(texto)) {
       texto = RESPUESTA_NO_GUARDADA;
       mensajesRespuesta = [{ role: "assistant", content: texto }];
