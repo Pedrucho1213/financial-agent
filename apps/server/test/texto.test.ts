@@ -31,6 +31,8 @@ describe("esPregunta", () => {
       "Pagué 400 en que se llama, el Oxxo",
       "Borra el último",
       "Estoy pagando 200 de gym",
+      "Netflix me cobró",
+      "Me cobraron la anualidad",
     ]) {
       expect(esPregunta(frase)).toBe(false);
     }
