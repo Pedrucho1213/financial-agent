@@ -8,11 +8,15 @@ import type { Config } from "../config";
  */
 export function crearModelo(ia: Config["ia"], modelo = ia.modelo): LanguageModel {
   const base = createOpenAICompatible({ name: "local", baseURL: ia.url, apiKey: ia.apiKey }).chatModel(modelo);
-  if (!ia.razonamiento || ia.razonamiento === "no") return base;
+  const opciones: Record<string, string> = {};
   // Se manda como reasoning_effort; Ollama lo usa en los modelos que razonan.
+  if (ia.razonamiento && ia.razonamiento !== "no") opciones.reasoningEffort = ia.razonamiento;
+  // keep_alive solo lo entiende Ollama; a otro proveedor no se le manda.
+  if (ia.url.startsWith(ia.ollamaUrl)) opciones.keep_alive = ia.mantenerCargado;
+  if (Object.keys(opciones).length === 0) return base;
   return wrapLanguageModel({
     model: base,
-    middleware: defaultSettingsMiddleware({ settings: { providerOptions: { local: { reasoningEffort: ia.razonamiento } } } }),
+    middleware: defaultSettingsMiddleware({ settings: { providerOptions: { local: opciones } } }),
   });
 }
 
