@@ -65,8 +65,15 @@ describe("API", () => {
     const entrada = db.select().from(entradas).get()!;
     expect(entrada.lat).toBeCloseTo(19.4326);
     expect(entrada.lon).toBeCloseTo(-99.1332);
-    const r2 = await hablar({ texto: "gasté 85 en café", client_id: "dictado-coma-02", lat: "norte", capturado_en: "2026-10-06T17:20:13-06:00" });
+    const r2 = await hablar({ texto: "gasté 85 en café", client_id: "dictado-coma-02", lat: "norte", capturado_en: "2026-10-06T17:20:13-0600" });
     expect([200, 202]).toContain(r2.status);
+  });
+
+  test("un dictado vacío contesta algo para leer en voz alta en vez de un error", async () => {
+    const { hablar } = montar([]);
+    const r = await hablar({ texto: "  ", client_id: "dictado-vacio-01", conversacion_id: "c1" });
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ respuesta: "No te escuché. ¿Me lo repites?", conversacion_id: "c1", acciones: [] });
   });
 
   test("el mismo dictado reenviado por la cola no se registra dos veces", async () => {

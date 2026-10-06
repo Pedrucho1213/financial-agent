@@ -170,7 +170,14 @@ export function crearApp(opciones: OpcionesApp) {
 
   // Punto de entrada único: registrar o preguntar, por voz o texto.
   v1.post("/hablar", async (c) => {
-    const cuerpo = esquemaHablar.safeParse(sinVacios(await c.req.json().catch(() => null)));
+    const crudo = await c.req.json().catch(() => null);
+    // Un dictado vacío (Siri no escuchó nada) no es un error: si fuera 400, el Atajo dejaría
+    // el archivo en la cola para siempre y no diría nada.
+    if (crudo && typeof crudo === "object" && typeof crudo.texto === "string" && !crudo.texto.trim()) {
+      const conversacion = typeof crudo.conversacion_id === "string" ? crudo.conversacion_id : "";
+      return c.json({ respuesta: "No te escuché. ¿Me lo repites?", conversacion_id: conversacion, acciones: [] });
+    }
+    const cuerpo = esquemaHablar.safeParse(sinVacios(crudo));
     if (!cuerpo.success) {
       return c.json({ error: "Petición inválida.", detalles: z.flattenError(cuerpo.error).fieldErrors }, 400);
     }
