@@ -65,6 +65,8 @@ La IA corre en una sola Mac, así que los dictados se procesan de uno en uno y e
 ## Pruebas
 
 ```bash
-bun run test        # 63 pruebas, no necesitan Ollama
+bun run test        # no necesitan Ollama
 bun run typecheck
 ```
+
+Las dos corren solas en GitHub en cada PR y en cada cambio a `main` (`.github/workflows/ci.yml`).
