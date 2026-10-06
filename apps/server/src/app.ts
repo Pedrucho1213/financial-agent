@@ -1,20 +1,22 @@
-import type { LanguageModel } from "ai";
 import { Hono } from "hono";
 import { z } from "zod";
-import { ErrorEnProceso, ErrorIA, hablar } from "./ai/asistente";
+import { consultarEntrada, type Dependencias, ErrorEnProceso, ErrorIA, hablar } from "./ai/asistente";
 import { requiereToken, type VariablesAuth } from "./auth";
-import type { Db } from "./db/client";
 import { crearContexto } from "./finanzas/contexto";
 import { buscarMovimientos, ErrorFinanzas, resumir } from "./finanzas/movimientos";
+import { esPregunta } from "./lib/texto";
 
-export type OpcionesApp = {
-  db: Db;
-  modelo: LanguageModel;
-  zonaHoraria: string;
-  monedaBase: string;
+export type OpcionesApp = Dependencias & {
   /** Precarga el modelo de IA; en pruebas no hace nada. */
   despertar?: () => Promise<unknown>;
+  /**
+   * Cuánto espera el iPhone antes de que la Mac conteste "pendiente" y termine sola.
+   * Sin valor, espera a que la IA termine.
+   */
+  espera?: { registroMs: number; preguntaMs: number };
 };
+
+const MAX_ESPERA_MS = 120_000;
 
 const esquemaHablar = z.object({
   texto: z.string().trim().min(1).max(2000),
@@ -24,6 +26,8 @@ const esquemaHablar = z.object({
   lon: z.coerce.number().min(-180).max(180).optional(),
   lugar: z.string().trim().max(300).optional(),
   capturado_en: z.iso.datetime({ offset: true }).optional(),
+  // Para clientes que prefieren esperar otra cantidad (la prueba de modelos espera todo).
+  espera_ms: z.coerce.number().int().min(0).max(MAX_ESPERA_MS).optional(),
 });
 
 // Los Atajos mandan "" en los campos vacíos; se tratan como ausentes.
@@ -48,17 +52,25 @@ export function crearApp(opciones: OpcionesApp) {
       return c.json({ error: "Petición inválida.", detalles: z.flattenError(cuerpo.error).fieldErrors }, 400);
     }
     const p = cuerpo.data;
+    const pregunta = esPregunta(p.texto);
+    const esperaMs = p.espera_ms ?? (pregunta ? opciones.espera?.preguntaMs : opciones.espera?.registroMs);
     try {
-      const respuesta = await hablar(opciones, c.get("usuarioId"), {
-        texto: p.texto,
-        clientId: p.client_id,
-        conversacionId: p.conversacion_id,
-        lat: p.lat,
-        lon: p.lon,
-        lugar: p.lugar,
-        capturadoEn: p.capturado_en,
-      });
-      return c.json(respuesta);
+      const respuesta = await hablar(
+        opciones,
+        c.get("usuarioId"),
+        {
+          texto: p.texto,
+          clientId: p.client_id,
+          conversacionId: p.conversacion_id,
+          lat: p.lat,
+          lon: p.lon,
+          lugar: p.lugar,
+          capturadoEn: p.capturado_en,
+        },
+        { esperaMs, esPregunta: pregunta },
+      );
+      // 202: la Mac ya lo guardó y lo termina sola; el Atajo no debe reenviarlo.
+      return c.json(respuesta, respuesta.pendiente ? 202 : 200);
     } catch (error) {
       if (error instanceof ErrorEnProceso) {
         return c.json({ error: error.message, respuesta: "Ese mensaje todavía se está procesando." }, 409);
@@ -70,6 +82,14 @@ export function crearApp(opciones: OpcionesApp) {
       }
       throw error;
     }
+  });
+
+  // Estado de un dictado que quedó pendiente. Con ?esperar_ms= espera a que termine.
+  v1.get("/entradas/:client_id", async (c) => {
+    const esperaMs = Math.min(Math.max(Number(c.req.query("esperar_ms") ?? 0) || 0, 0), MAX_ESPERA_MS);
+    const estado = await consultarEntrada(db, c.get("usuarioId"), c.req.param("client_id"), esperaMs);
+    if (!estado) return c.json({ error: "No conozco ese dictado." }, 404);
+    return c.json(estado);
   });
 
   // El Atajo lo llama al abrirse para que el modelo ya esté cargado cuando termines de hablar.

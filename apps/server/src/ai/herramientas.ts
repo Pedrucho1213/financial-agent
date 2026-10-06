@@ -9,11 +9,16 @@ import {
   editarMovimiento,
   eliminarMovimiento,
   ErrorFinanzas,
+  idDelMovimiento,
   resumir,
 } from "../finanzas/movimientos";
 import { crearRecurrente, listarRecurrentes } from "../finanzas/recurrentes";
+import { fechaDelTexto, fechasDelTexto, mencionaFecha, resolverFecha } from "../lib/fechas";
+import { montoConPalabras, montosDelTexto } from "../lib/numeros";
+import { monedaDelTexto, normalizar, tipoDelTexto } from "../lib/texto";
 
-export type Accion = { herramienta: string; resultado: unknown };
+/** Lo que hizo una herramienta: con qué la llamó el modelo y qué resultó. */
+export type Accion = { herramienta: string; argumentos: unknown; resultado: unknown };
 
 const tipoMovimiento = z
   .enum(["gasto", "ingreso", "transferencia", "pago_tarjeta"])
@@ -38,6 +43,25 @@ const datosMovimiento = z.object({
   fecha: fecha.optional(),
 });
 
+// Cómo encontrar el movimiento a editar o eliminar sin buscarlo antes.
+const busqueda = z
+  .object({
+    texto: z.string().optional().describe("Comercio o palabra: café, Uber, Liverpool."),
+    categoria: z.string().optional(),
+    periodo: periodo.optional(),
+    monto: z.number().optional().describe("El monto que tiene ahora, no el nuevo."),
+    mas_reciente: z.boolean().optional().describe('true si dice "el último" o si basta el más reciente.'),
+  })
+  .describe("Datos del movimiento tal como está guardado ahora.");
+
+// Acepta "suscripciones" o "rentas" aunque el tipo sea singular.
+const tipoRecurrente = z.preprocess((valor) => {
+  if (typeof valor !== "string") return valor;
+  const t = normalizar(valor).replace(/ /g, "_");
+  const tipos: readonly string[] = TIPOS_RECURRENTE;
+  return [t, t.replace(/es$/, ""), t.replace(/s$/, "")].find((x) => tipos.includes(x)) ?? t;
+}, z.enum(TIPOS_RECURRENTE));
+
 /** Las herramientas que la IA puede usar. Cada una solo toca datos del usuario del contexto. */
 export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
   // Los errores de validación regresan a la IA como texto para que corrija o pregunte.
@@ -46,7 +70,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
     async (args: A) => {
       try {
         const resultado = fn(args);
-        acciones.push({ herramienta: nombre, resultado });
+        acciones.push({ herramienta: nombre, argumentos: args, resultado });
         return resultado;
       } catch (error) {
         if (error instanceof ErrorFinanzas) return { error: error.message };
@@ -59,9 +83,45 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
       description:
         "Registra uno o varios gastos o ingresos. Si el usuario menciona varios, mándalos todos en una sola llamada.",
       inputSchema: z.object({ movimientos: z.array(datosMovimiento).min(1) }),
-      execute: ejecutar("registrar_movimientos", ({ movimientos }) => ({
-        registrados: movimientos.map((m) => crearMovimiento(ctx, m)),
-      })),
+      execute: ejecutar("registrar_movimientos", ({ movimientos }) => {
+        const texto = ctx.textoOriginal;
+        // Si la frase dice una sola fecha ("ayer", "el viernes"), esa manda sobre una fecha que el
+        // modelo calculó u omitió; los modelos chicos se equivocan al calcularla. Si la frase no
+        // habla de ningún momento, una fecha calculada por el modelo es inventada.
+        const fechaDicha = fechaDelTexto(texto, ctx.hoy);
+        const esIso = (fecha?: string) => !!fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha.trim());
+        // "El lunes gasté 80 en café y el martes 120 en el súper": una fecha por movimiento, en orden.
+        const fechasDichas = fechasDelTexto(texto, ctx.hoy);
+        const enOrden = movimientos.length > 1 && fechasDichas.length === movimientos.length;
+        const conFecha = (fecha: string | undefined, i: number) => {
+          if (fechaDicha && (!fecha || !resolverFecha(fecha, ctx.hoy) || esIso(fecha))) return fechaDicha;
+          if (enOrden && (!fecha || !resolverFecha(fecha, ctx.hoy))) return fechasDichas[i];
+          if (texto && esIso(fecha) && !mencionaFecha(texto)) return undefined;
+          return fecha;
+        };
+        // Con un solo movimiento, lo que dice la frase corrige al modelo en lo que suele fallar:
+        // "Pagué 20 dólares" (moneda), "mil doscientos cincuenta" (monto) y "cargué 650" (gasto).
+        const unico = movimientos.length === 1 && !!texto;
+        const monedaDicha = unico ? monedaDelTexto(texto) : undefined;
+        const conMoneda = (moneda?: string) =>
+          monedaDicha && (!moneda || moneda.toUpperCase() === ctx.monedaBase) ? monedaDicha : moneda;
+        const montos = unico && montoConPalabras(texto!) ? montosDelTexto(texto!) : [];
+        const montoDicho = montos.length === 1 ? montos[0] : undefined;
+        const tipoDicho = unico ? tipoDelTexto(texto) : undefined;
+        const conTipo = (tipo: (typeof movimientos)[number]["tipo"]) =>
+          tipoDicho && (tipo === "gasto" || tipo === "ingreso") ? tipoDicho : tipo;
+        return {
+          registrados: movimientos.map((m, i) =>
+            crearMovimiento(ctx, {
+              ...m,
+              tipo: conTipo(m.tipo),
+              monto: montoDicho ?? m.monto,
+              moneda: conMoneda(m.moneda),
+              fecha: conFecha(m.fecha, i),
+            }),
+          ),
+        };
+      }),
     }),
 
     buscar_movimientos: tool({
@@ -72,23 +132,34 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         categoria: z.string().optional(),
         periodo: periodo.optional(),
         tipo: tipoMovimiento.optional(),
+        monto: z.number().optional(),
         limite: z.number().int().optional().describe("Cuántos regresar, 5 por omisión."),
       }),
       execute: ejecutar("buscar_movimientos", (filtro) => buscarMovimientos(ctx, filtro)),
     }),
 
     editar_movimiento: tool({
-      description: "Cambia datos de un movimiento existente. Manda solo los campos que cambian.",
-      inputSchema: datosMovimiento.partial().extend({ id: z.string().describe("id de buscar_movimientos") }),
-      execute: ejecutar("editar_movimiento", ({ id, ...cambios }) => ({
-        editado: editarMovimiento(ctx, id, cambios),
+      description:
+        'Corrige un movimiento ya registrado: "fueron 95, no 85", "lo pagué con la Nu", "cámbialo a Regalos". Identifícalo con id o con buscar; en cambios manda solo lo nuevo.',
+      inputSchema: z.object({
+        id: z.string().optional().describe("id, si ya lo tienes"),
+        buscar: busqueda.optional(),
+        cambios: datosMovimiento.partial().describe("Solo los campos que cambian, con su valor nuevo."),
+      }),
+      execute: ejecutar("editar_movimiento", ({ id, buscar, cambios }) => ({
+        editado: editarMovimiento(ctx, idDelMovimiento(ctx, id, buscar), cambios),
       })),
     }),
 
     eliminar_movimiento: tool({
-      description: "Elimina un movimiento. Se puede deshacer.",
-      inputSchema: z.object({ id: z.string().describe("id de buscar_movimientos") }),
-      execute: ejecutar("eliminar_movimiento", ({ id }) => ({ eliminado: eliminarMovimiento(ctx, id) })),
+      description: "Elimina un movimiento; se puede deshacer. Identifícalo con id o con buscar.",
+      inputSchema: z.object({
+        id: z.string().optional().describe("id, si ya lo tienes"),
+        buscar: busqueda.optional(),
+      }),
+      execute: ejecutar("eliminar_movimiento", ({ id, buscar }) => ({
+        eliminado: eliminarMovimiento(ctx, idDelMovimiento(ctx, id, buscar)),
+      })),
     }),
 
     deshacer: tool({
@@ -99,7 +170,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
 
     consultar_gastos: tool({
       description:
-        "Calcula totales de gastos o ingresos en un periodo, con filtros y agrupación. Úsala para cualquier pregunta de cuánto; nunca sumes tú.",
+        "Calcula totales de gastos o ingresos ya registrados en un periodo, con filtros y agrupación. Para suscripciones o pagos fijos usa listar_recurrentes.",
       inputSchema: z.object({
         periodo: periodo.describe("Periodo a consultar; este_mes por omisión."),
         tipo: z.enum(["gasto", "ingreso"]).optional().describe("gasto por omisión"),
@@ -107,17 +178,22 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         texto: z.string().optional().describe("Comercio o palabra: Uber, café."),
         agrupar_por: z.enum(["ninguno", "categoria", "subcategoria", "comercio", "dia"]).optional(),
       }),
-      execute: ejecutar("consultar_gastos", ({ agrupar_por, ...filtro }) =>
-        resumir(ctx, { ...filtro, agruparPor: agrupar_por }),
-      ),
+      execute: ejecutar("consultar_gastos", ({ agrupar_por, ...filtro }) => {
+        const resumen = resumir(ctx, { ...filtro, agruparPor: agrupar_por });
+        // Sin gastos registrados, la pregunta suele ser por pagos fijos ("¿cuánto pago de suscripciones?").
+        if (resumen.cantidad === 0 && !resumen.otras_monedas && listarRecurrentes(ctx).recurrentes.length > 0) {
+          return { ...resumen, nota: "No hay movimientos registrados; si pregunta por pagos fijos o suscripciones, usa listar_recurrentes." };
+        }
+        return resumen;
+      }),
     }),
 
     registrar_recurrente: tool({
       description:
-        "Guarda un cobro o ingreso que se repite: suscripciones, renta, servicios, préstamos o la quincena. Sirve para recordatorios.",
+        "Guarda un cobro o ingreso que se repite (suscripciones, renta, servicios, préstamos, la quincena) para recordatorios. Úsala solo si el usuario dice que se repite (\"cada mes\", \"cada día 15\"); un cobro que ya pasó, como \"Netflix me cobró 219\", se registra con registrar_movimientos.",
       inputSchema: z.object({
         nombre: z.string().describe("Netflix, Renta, Quincena"),
-        tipo: z.enum(TIPOS_RECURRENTE),
+        tipo: tipoRecurrente,
         monto: z.number().positive(),
         frecuencia: z.enum(FRECUENCIAS),
         dia: z.number().int().describe("Día del mes (1-31); en semanal, día de la semana (1 lunes ... 7 domingo)."),
@@ -130,10 +206,10 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
 
     listar_recurrentes: tool({
       description:
-        "Lista suscripciones, rentas y otros cobros que se repiten, con su próximo cobro y el total mensual.",
+        "Lista suscripciones, rentas y otros cobros que se repiten, con su próximo cobro y el total mensual. Úsala para cualquier pregunta sobre suscripciones o pagos fijos.",
       inputSchema: z.object({
         dias: z.number().int().optional().describe("Solo los que se cobran en los próximos N días."),
-        tipo: z.enum(TIPOS_RECURRENTE).optional(),
+        tipo: tipoRecurrente.optional(),
       }),
       execute: ejecutar("listar_recurrentes", (opciones) => listarRecurrentes(ctx, opciones)),
     }),

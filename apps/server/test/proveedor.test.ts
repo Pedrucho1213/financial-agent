@@ -7,7 +7,7 @@ import { buscarMovimientos } from "../src/finanzas/movimientos";
 import { preparar } from "./ayuda";
 
 // Servidor falso con el formato de /v1/chat/completions que exponen Ollama, LM Studio y Osaurus.
-const peticiones: { tools?: unknown[]; messages: { role: string }[] }[] = [];
+const peticiones: { tools?: unknown[]; messages: { role: string }[]; reasoning_effort?: string }[] = [];
 const servidor = Bun.serve({
   port: 0,
   async fetch(req) {
@@ -51,6 +51,7 @@ test("funciona con una API compatible con OpenAI", async () => {
   expect(r.respuesta).toBe("Listo, café de $85.");
   expect(peticiones).toHaveLength(2);
   expect(peticiones[0]?.tools).toHaveLength(8);
+  expect(peticiones[0]?.reasoning_effort).toBe(config.ia.razonamiento);
   const ctx = crearContexto({ ...deps, usuarioId: usuario.id });
   expect(buscarMovimientos(ctx, { periodo: "todo" }).movimientos[0]).toMatchObject({ monto: "$85", categoria: "Comida > Café" });
 });

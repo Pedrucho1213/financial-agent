@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { fechaLocal, mediodiaUtc, resolverFecha, resolverPeriodo } from "../src/lib/fechas";
+import { fechaDelTexto, fechaLocal, mediodiaUtc, mencionaFecha, resolverFecha, resolverPeriodo } from "../src/lib/fechas";
+import { montoConPalabras, montosDelTexto } from "../src/lib/numeros";
 import { montoMensual, proximoCobro } from "../src/finanzas/recurrentes";
 
 const HOY = "2026-10-07"; // miércoles
@@ -59,5 +60,55 @@ describe("recurrentes", () => {
   test("monto mensual equivalente", () => {
     expect(montoMensual({ frecuencia: "anual", montoCentavos: 120000 })).toBe(10000);
     expect(montoMensual({ frecuencia: "quincenal", montoCentavos: 500000 })).toBe(1000000);
+  });
+});
+
+describe("fechas dichas de otras formas", () => {
+  test("día del mes, hace N días y meses por nombre", () => {
+    expect(fechaDelTexto("El 1 de este mes pagué 350", HOY)).toBe("2026-10-01");
+    expect(fechaDelTexto("el primero pagué la renta", HOY)).toBe("2026-10-01");
+    expect(fechaDelTexto("el 15 de septiembre fui al cine", HOY)).toBe("2026-09-15");
+    // Un mes que todavía no llega es del año pasado.
+    expect(fechaDelTexto("el 20 de diciembre", HOY)).toBe("2025-12-20");
+    expect(fechaDelTexto("hace 3 días gasté 200", HOY)).toBe("2026-10-04");
+    expect(fechaDelTexto("hace una semana", HOY)).toBe("2026-09-30");
+    expect(fechaDelTexto("Pago 9,500 de renta cada primero de mes", HOY)).toBeNull();
+    expect(resolverFecha("el 15", HOY)).toBeNull();
+  });
+
+  test("entiende las fechas que mandan los modelos en otros formatos", () => {
+    expect(resolverFecha("05/10/2026", HOY)).toBe("2026-10-05");
+    expect(resolverFecha("5/10", HOY)).toBe("2026-10-05");
+    expect(resolverFecha("2026-10-05T00:00:00", HOY)).toBe("2026-10-05");
+    expect(resolverFecha("lunes 5 de octubre", HOY)).toBe("2026-10-05");
+    expect(resolverFecha("1 de octubre", HOY)).toBe("2026-10-01");
+    expect(resolverFecha("31/02", HOY)).toBe("2026-02-28");
+    expect(resolverFecha("13/13", HOY)).toBeNull();
+  });
+
+  test("sabe si la frase habla de algún momento", () => {
+    expect(mencionaFecha("la semana pasada pagué 300")).toBe(true);
+    expect(mencionaFecha("Compré unos tenis de 1,899 en Liverpool")).toBe(false);
+  });
+});
+
+describe("montos dichos con palabras", () => {
+  test("junta palabras, mil y k", () => {
+    expect(montosDelTexto("Mil doscientos cincuenta de súper")).toEqual([1250]);
+    expect(montosDelTexto("Dos mil quinientos de luz")).toEqual([2500]);
+    expect(montosDelTexto("ochenta y cinco pesos en un café")).toEqual([85]);
+    expect(montosDelTexto("veintitrés mil cuatrocientos")).toEqual([23400]);
+    expect(montosDelTexto("Me pagaron la quincena, 12 mil")).toEqual([12000]);
+    expect(montosDelTexto("Gasté 1.5k en ropa")).toEqual([1500]);
+    expect(montosDelTexto("Cobré 2,350.75 de una factura")).toEqual([2350.75]);
+    expect(montosDelTexto("Una coca de 25, unas papas de 18")).toEqual([25, 18]);
+  });
+
+  test("ignora artículos, días y centavos", () => {
+    expect(montosDelTexto("un café de sesenta")).toEqual([60]);
+    expect(montosDelTexto("hace dos días gasté 300")).toEqual([300]);
+    expect(montosDelTexto("Pagué 199 pesos con 90 centavos")).toEqual([199]);
+    expect(montoConPalabras("Compré unos tenis de 1,899")).toBe(false);
+    expect(montoConPalabras("3 mil")).toBe(true);
   });
 });

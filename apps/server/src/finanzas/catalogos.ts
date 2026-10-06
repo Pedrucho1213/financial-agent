@@ -62,6 +62,40 @@ const SINONIMOS: Record<string, string> = {
   comisiones: "Comisiones e intereses",
   intereses: "Comisiones e intereses",
   otros: "Otros gastos",
+  renta: "Renta",
+  casero: "Renta",
+  luz: "Luz",
+  cfe: "Luz",
+  agua: "Agua",
+  gas: "Gas",
+  cafe: "Café",
+  starbucks: "Café",
+  super: "Súper",
+  walmart: "Súper",
+  soriana: "Súper",
+  chedraui: "Súper",
+  costco: "Súper",
+  gasolina: "Gasolina",
+  pemex: "Gasolina",
+  caseta: "Casetas",
+  casetas: "Casetas",
+  estacionamiento: "Estacionamiento",
+  cine: "Cine",
+  cinepolis: "Cine",
+  cinemex: "Cine",
+  farmacia: "Farmacia",
+  gimnasio: "Gimnasio",
+  gym: "Gimnasio",
+  restaurante: "Restaurantes",
+  magna: "Gasolina",
+  gasolinera: "Gasolina",
+  telmex: "Internet y teléfono",
+  izzi: "Internet y teléfono",
+  totalplay: "Internet y teléfono",
+  telcel: "Internet y teléfono",
+  comision: "Comisiones e intereses",
+  reembolso: "Reembolsos",
+  devolucion: "Reembolsos",
 };
 
 export function sembrarCategorias(db: Db, usuarioId: string) {
@@ -112,6 +146,52 @@ export function encontrarCategoria(
     candidatas.find((c) => normalizar(c.nombre).split(" ").includes(buscado)) ??
     candidatas.find((c) => buscado.startsWith(normalizar(c.nombre)))
   );
+}
+
+/** Hojas del tipo dado (o hijas de `padre`) que la frase nombra por su nombre o un sinónimo. */
+export function hojasMencionadas(
+  lista: Categoria[],
+  texto: string | null | undefined,
+  tipo: "gasto" | "ingreso",
+  padre?: Categoria,
+): Categoria[] {
+  if (!texto) return [];
+  const plano = ` ${normalizar(texto)} `;
+  const dice = (palabra: string) => plano.includes(` ${normalizar(palabra)} `);
+  return lista.filter(
+    (c) =>
+      c.tipo === tipo &&
+      (padre ? c.padreId === padre.id : !lista.some((h) => h.padreId === c.id)) &&
+      (dice(c.nombre) || Object.entries(SINONIMOS).some(([palabra, nombre]) => nombre === c.nombre && dice(palabra))),
+  );
+}
+
+/** Si la frase respalda la categoría: la nombra, usa un sinónimo o una palabra parecida ("regalo" y "Regalos"). */
+export function fraseRespalda(lista: Categoria[], categoria: Categoria, texto: string | null | undefined): boolean {
+  if (!texto) return false;
+  if (hojasMencionadas(lista, texto, categoria.tipo as "gasto" | "ingreso").some((c) => c.id === categoria.id)) return true;
+  const palabras = normalizar(texto).split(" ").filter((p) => p.length >= 4);
+  return normalizar(categoria.nombre)
+    .split(" ")
+    .filter((n) => n.length >= 4)
+    .some((n) => palabras.some((p) => p.startsWith(n) || n.startsWith(p)));
+}
+
+/**
+ * Subcategoría que se adivina por las palabras de la frase ("luz", "Uber", "cine").
+ * Con `padre`, solo considera sus hijas. Responde solo si hay una única candidata.
+ */
+export function inferirSubcategoria(
+  lista: Categoria[],
+  textos: (string | null | undefined)[],
+  tipo: "gasto" | "ingreso",
+  padre?: Categoria,
+): Categoria | undefined {
+  for (const texto of textos) {
+    const candidatas = hojasMencionadas(lista, texto, tipo, padre);
+    if (candidatas.length === 1) return candidatas[0];
+  }
+  return undefined;
 }
 
 export function categoriaPorDefecto(lista: Categoria[], tipo: "gasto" | "ingreso") {

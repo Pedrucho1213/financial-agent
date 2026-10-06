@@ -8,7 +8,10 @@ import {
   encontrarCategoria,
   encontrarOCrearComercio,
   encontrarOCrearCuenta,
+  fraseRespalda,
+  hojasMencionadas,
   idsConHijas,
+  inferirSubcategoria,
   listarCategorias,
   nombreCompleto,
   type Categoria,
@@ -57,15 +60,34 @@ function elegirCategoria(
   tipo: TipoMovimiento,
   categoria: string | undefined,
   categoriaDelComercio: string | null | undefined,
+  pistas: (string | null | undefined)[],
 ) {
   if (tipo === "transferencia" || tipo === "pago_tarjeta") return { id: null, revisar: false };
   const tipoCat = tipo === "ingreso" ? "ingreso" : "gasto";
   // Lo aprendido de tus correcciones manda sobre la suposición del modelo.
   const aprendida = categoriaDelComercio ? cats.find((c) => c.id === categoriaDelComercio) : undefined;
   if (aprendida && aprendida.tipo === tipoCat) return { id: aprendida.id, revisar: false };
-  const encontrada = encontrarCategoria(cats, categoria, tipoCat);
-  if (encontrada) return { id: encontrada.id, revisar: false };
-  return { id: categoriaPorDefecto(cats, tipoCat)?.id ?? null, revisar: true };
+  // Una categoría de ingreso en un gasto (o al revés) no sirve.
+  const nombrada = encontrarCategoria(cats, categoria, tipoCat);
+  const encontrada = nombrada?.tipo === tipoCat ? nombrada : undefined;
+  const porDefecto = categoriaPorDefecto(cats, tipoCat);
+  // Los modelos chicos suelen quedarse en la categoría general ("Transporte"); las palabras
+  // de la frase dicen cuál hija es ("Uber" es Taxi y apps).
+  const esPadre = !!encontrada && cats.some((c) => c.padreId === encontrada.id);
+  if (!encontrada || esPadre || encontrada.id === porDefecto?.id) {
+    const hija = inferirSubcategoria(cats, pistas, tipoCat, esPadre ? encontrada : undefined);
+    if (hija) return { id: hija.id, revisar: false };
+  }
+  if (encontrada) {
+    // El modelo eligió una hija que la frase no menciona ("gasolina" para "pagué el gas"), pero
+    // la frase nombra otra sin ambigüedad: manda la frase.
+    const frase = pistas.at(-1);
+    const dichas = hojasMencionadas(cats, frase, tipoCat);
+    const apoyada = [pistas[0], frase].some((p) => fraseRespalda(cats, encontrada, p));
+    if (!esPadre && !apoyada && dichas.length === 1) return { id: dichas[0]!.id, revisar: false };
+    return { id: encontrada.id, revisar: false };
+  }
+  return { id: porDefecto?.id ?? null, revisar: true };
 }
 
 export function registrarEnBitacora(
@@ -88,7 +110,11 @@ export function crearMovimiento(ctx: Contexto, datos: DatosMovimiento) {
   const fecha = fechaResuelta ?? ctx.hoy;
   const cats = listarCategorias(ctx.db, ctx.usuarioId);
   const comercio = encontrarOCrearComercio(ctx.db, ctx.usuarioId, datos.comercio);
-  const categoria = elegirCategoria(cats, datos.tipo, datos.categoria, comercio?.categoriaId);
+  const categoria = elegirCategoria(cats, datos.tipo, datos.categoria, comercio?.categoriaId, [
+    datos.comercio,
+    datos.descripcion,
+    ctx.textoOriginal,
+  ]);
   if (comercio && !comercio.categoriaId && categoria.id && !categoria.revisar) {
     ctx.db.update(comercios).set({ categoriaId: categoria.id }).where(eq(comercios.id, comercio.id)).run();
   }
@@ -135,8 +161,14 @@ export type FiltroMovimientos = {
   categoria?: string;
   periodo?: string;
   tipo?: TipoMovimiento;
+  monto?: number;
   limite?: number;
 };
+
+// Palabras que no ayudan a encontrar un movimiento: "el Uber de ayer" busca solo "uber".
+const PALABRAS_VACIAS = new Set(
+  "de del la el los las lo un una en con y que mi mis por para al hoy ayer antier anteayer gasto gastos pago compra".split(" "),
+);
 
 function filtrar(ctx: Contexto, filtro: FiltroMovimientos, cats: Categoria[]) {
   const periodo = filtro.periodo ? resolverPeriodo(filtro.periodo, ctx.hoy) : null;
@@ -144,6 +176,7 @@ function filtrar(ctx: Contexto, filtro: FiltroMovimientos, cats: Categoria[]) {
   const condiciones = [eq(movimientos.usuarioId, ctx.usuarioId), isNull(movimientos.eliminadoEn)];
   if (periodo) condiciones.push(gte(movimientos.fecha, periodo.desde), lte(movimientos.fecha, periodo.hasta));
   if (filtro.tipo) condiciones.push(eq(movimientos.tipo, filtro.tipo));
+  if (filtro.monto !== undefined) condiciones.push(eq(movimientos.montoCentavos, aCentavos(filtro.monto)));
   let filas = ctx.db
     .select()
     .from(movimientos)
@@ -157,8 +190,10 @@ function filtrar(ctx: Contexto, filtro: FiltroMovimientos, cats: Categoria[]) {
     const ids = new Set(idsConHijas(cats, cat.id));
     filas = filas.filter((m) => m.categoriaId && ids.has(m.categoriaId));
   }
-  if (filtro.texto?.trim()) {
-    const buscado = normalizar(filtro.texto);
+  const palabras = normalizar(filtro.texto ?? "")
+    .split(" ")
+    .filter((p) => p && !PALABRAS_VACIAS.has(p));
+  if (palabras.length) {
     const nombresComercio = new Map(
       ctx.db
         .select()
@@ -174,7 +209,8 @@ function filtrar(ctx: Contexto, filtro: FiltroMovimientos, cats: Categoria[]) {
         m.textoOriginal,
         nombreCompleto(cats, m.categoriaId),
       ];
-      return textos.some((t) => t && normalizar(t).includes(buscado));
+      const plano = normalizar(textos.filter(Boolean).join(" "));
+      return palabras.every((p) => plano.includes(p));
     });
   }
   return { filas, periodo };
@@ -185,6 +221,25 @@ export function buscarMovimientos(ctx: Contexto, filtro: FiltroMovimientos) {
   const { filas } = filtrar(ctx, filtro, cats);
   const limite = Math.min(Math.max(filtro.limite ?? 5, 1), 50);
   return { encontrados: filas.length, movimientos: filas.slice(0, limite).map((m) => describir(ctx, m, cats)) };
+}
+
+export type Busqueda = FiltroMovimientos & { mas_reciente?: boolean };
+
+/** El movimiento a editar o eliminar: por id, o con una búsqueda que deje uno solo. */
+export function idDelMovimiento(ctx: Contexto, id?: string, buscar?: Busqueda): string {
+  if (id) return id;
+  if (!buscar) throw new ErrorFinanzas("Indica el id o qué buscar.");
+  const cats = listarCategorias(ctx.db, ctx.usuarioId);
+  const { filas } = filtrar(ctx, buscar, cats);
+  if (filas.length === 0) {
+    throw new ErrorFinanzas("No encontré ningún movimiento con esos datos. Prueba con menos filtros.");
+  }
+  if (filas.length === 1 || buscar.mas_reciente) return filas[0]!.id;
+  const opciones = filas.slice(0, 5).map((m) => {
+    const d = describir(ctx, m, cats);
+    return `${d.comercio ?? d.categoria ?? d.tipo} de ${d.monto} del ${d.fecha} (id ${d.id})`;
+  });
+  throw new ErrorFinanzas(`Coinciden ${filas.length}: ${opciones.join("; ")}. Pregunta cuál o usa su id.`);
 }
 
 export function editarMovimiento(ctx: Contexto, id: string, cambios: Partial<DatosMovimiento>) {
