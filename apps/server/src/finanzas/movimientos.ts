@@ -1,0 +1,353 @@
+import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { bitacora, comercios, cuentas, movimientos, recurrentes, TIPOS_MOVIMIENTO } from "../db/schema";
+import { aCentavos, formatearMonto } from "../lib/dinero";
+import { mediodiaUtc, resolverFecha, resolverPeriodo } from "../lib/fechas";
+import { normalizar } from "../lib/texto";
+import {
+  categoriaPorDefecto,
+  encontrarCategoria,
+  encontrarOCrearComercio,
+  encontrarOCrearCuenta,
+  idsConHijas,
+  listarCategorias,
+  nombreCompleto,
+  type Categoria,
+} from "./catalogos";
+import type { Contexto } from "./contexto";
+
+export type TipoMovimiento = (typeof TIPOS_MOVIMIENTO)[number];
+export type Movimiento = typeof movimientos.$inferSelect;
+
+export class ErrorFinanzas extends Error {}
+
+export type DatosMovimiento = {
+  tipo: TipoMovimiento;
+  monto: number;
+  moneda?: string;
+  categoria?: string;
+  comercio?: string;
+  descripcion?: string;
+  cuenta?: string;
+  fecha?: string;
+};
+
+/** Cómo se le muestra un movimiento a la IA y a la app. */
+export function describir(ctx: Contexto, m: Movimiento, cats = listarCategorias(ctx.db, ctx.usuarioId)) {
+  const comercio = m.comercioId
+    ? ctx.db.select().from(comercios).where(eq(comercios.id, m.comercioId)).get()?.nombre
+    : undefined;
+  const cuenta = m.cuentaId
+    ? ctx.db.select().from(cuentas).where(eq(cuentas.id, m.cuentaId)).get()?.nombre
+    : undefined;
+  return {
+    id: m.id,
+    fecha: m.fecha,
+    tipo: m.tipo,
+    monto: formatearMonto(m.montoCentavos, m.moneda),
+    categoria: nombreCompleto(cats, m.categoriaId) ?? undefined,
+    comercio,
+    descripcion: m.descripcion ?? undefined,
+    cuenta,
+    lugar: m.lugar ?? undefined,
+  };
+}
+
+function elegirCategoria(
+  cats: Categoria[],
+  tipo: TipoMovimiento,
+  categoria: string | undefined,
+  categoriaDelComercio: string | null | undefined,
+) {
+  if (tipo === "transferencia" || tipo === "pago_tarjeta") return { id: null, revisar: false };
+  const tipoCat = tipo === "ingreso" ? "ingreso" : "gasto";
+  // Lo aprendido de tus correcciones manda sobre la suposición del modelo.
+  const aprendida = categoriaDelComercio ? cats.find((c) => c.id === categoriaDelComercio) : undefined;
+  if (aprendida && aprendida.tipo === tipoCat) return { id: aprendida.id, revisar: false };
+  const encontrada = encontrarCategoria(cats, categoria, tipoCat);
+  if (encontrada) return { id: encontrada.id, revisar: false };
+  return { id: categoriaPorDefecto(cats, tipoCat)?.id ?? null, revisar: true };
+}
+
+export function registrarEnBitacora(
+  ctx: Contexto,
+  tabla: "movimientos" | "recurrentes",
+  registroId: string,
+  accion: "crear" | "editar" | "eliminar",
+  antes?: Record<string, unknown>,
+  despues?: Record<string, unknown>,
+) {
+  ctx.db
+    .insert(bitacora)
+    .values({ usuarioId: ctx.usuarioId, entradaId: ctx.entradaId, tabla, registroId, accion, antes, despues })
+    .run();
+}
+
+export function crearMovimiento(ctx: Contexto, datos: DatosMovimiento) {
+  if (!(datos.monto > 0)) throw new ErrorFinanzas("El monto debe ser mayor a cero.");
+  const fechaResuelta = resolverFecha(datos.fecha, ctx.hoy);
+  const fecha = fechaResuelta ?? ctx.hoy;
+  const cats = listarCategorias(ctx.db, ctx.usuarioId);
+  const comercio = encontrarOCrearComercio(ctx.db, ctx.usuarioId, datos.comercio);
+  const categoria = elegirCategoria(cats, datos.tipo, datos.categoria, comercio?.categoriaId);
+  if (comercio && !comercio.categoriaId && categoria.id && !categoria.revisar) {
+    ctx.db.update(comercios).set({ categoriaId: categoria.id }).where(eq(comercios.id, comercio.id)).run();
+  }
+  const cuenta = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, datos.cuenta);
+
+  const fila = ctx.db
+    .insert(movimientos)
+    .values({
+      usuarioId: ctx.usuarioId,
+      tipo: datos.tipo,
+      montoCentavos: aCentavos(datos.monto),
+      moneda: datos.moneda?.toUpperCase() || ctx.monedaBase,
+      categoriaId: categoria.id,
+      comercioId: comercio?.id,
+      cuentaId: cuenta?.id,
+      descripcion: datos.descripcion?.trim() || null,
+      fecha,
+      ocurridoEn: fecha === ctx.hoy ? ctx.ahoraIso : mediodiaUtc(fecha, ctx.zonaHoraria),
+      lat: ctx.ubicacion?.lat,
+      lon: ctx.ubicacion?.lon,
+      lugar: ctx.ubicacion?.lugar,
+      textoOriginal: ctx.textoOriginal,
+      entradaId: ctx.entradaId,
+      revisar: categoria.revisar || fechaResuelta === null,
+    })
+    .returning()
+    .get();
+  registrarEnBitacora(ctx, "movimientos", fila.id, "crear", undefined, fila);
+  return { ...describir(ctx, fila, cats), revisar: fila.revisar || undefined };
+}
+
+function obtenerPropio(ctx: Contexto, id: string): Movimiento {
+  const fila = ctx.db
+    .select()
+    .from(movimientos)
+    .where(and(eq(movimientos.id, id), eq(movimientos.usuarioId, ctx.usuarioId), isNull(movimientos.eliminadoEn)))
+    .get();
+  if (!fila) throw new ErrorFinanzas(`No encontré el movimiento ${id}. Búscalo primero con buscar_movimientos.`);
+  return fila;
+}
+
+export type FiltroMovimientos = {
+  texto?: string;
+  categoria?: string;
+  periodo?: string;
+  tipo?: TipoMovimiento;
+  limite?: number;
+};
+
+function filtrar(ctx: Contexto, filtro: FiltroMovimientos, cats: Categoria[]) {
+  const periodo = filtro.periodo ? resolverPeriodo(filtro.periodo, ctx.hoy) : null;
+  if (filtro.periodo && !periodo) throw new ErrorFinanzas(`No entendí el periodo "${filtro.periodo}".`);
+  const condiciones = [eq(movimientos.usuarioId, ctx.usuarioId), isNull(movimientos.eliminadoEn)];
+  if (periodo) condiciones.push(gte(movimientos.fecha, periodo.desde), lte(movimientos.fecha, periodo.hasta));
+  if (filtro.tipo) condiciones.push(eq(movimientos.tipo, filtro.tipo));
+  let filas = ctx.db
+    .select()
+    .from(movimientos)
+    .where(and(...condiciones))
+    .orderBy(desc(movimientos.ocurridoEn), desc(movimientos.creadoEn))
+    .all();
+
+  if (filtro.categoria) {
+    const cat = encontrarCategoria(cats, filtro.categoria, filtro.tipo === "ingreso" ? "ingreso" : "gasto");
+    if (!cat) throw new ErrorFinanzas(`No existe la categoría "${filtro.categoria}".`);
+    const ids = new Set(idsConHijas(cats, cat.id));
+    filas = filas.filter((m) => m.categoriaId && ids.has(m.categoriaId));
+  }
+  if (filtro.texto?.trim()) {
+    const buscado = normalizar(filtro.texto);
+    const nombresComercio = new Map(
+      ctx.db
+        .select()
+        .from(comercios)
+        .where(eq(comercios.usuarioId, ctx.usuarioId))
+        .all()
+        .map((c) => [c.id, c.nombreNormalizado]),
+    );
+    filas = filas.filter((m) => {
+      const textos = [
+        m.comercioId ? nombresComercio.get(m.comercioId) : undefined,
+        m.descripcion,
+        m.textoOriginal,
+        nombreCompleto(cats, m.categoriaId),
+      ];
+      return textos.some((t) => t && normalizar(t).includes(buscado));
+    });
+  }
+  return { filas, periodo };
+}
+
+export function buscarMovimientos(ctx: Contexto, filtro: FiltroMovimientos) {
+  const cats = listarCategorias(ctx.db, ctx.usuarioId);
+  const { filas } = filtrar(ctx, filtro, cats);
+  const limite = Math.min(Math.max(filtro.limite ?? 5, 1), 50);
+  return { encontrados: filas.length, movimientos: filas.slice(0, limite).map((m) => describir(ctx, m, cats)) };
+}
+
+export function editarMovimiento(ctx: Contexto, id: string, cambios: Partial<DatosMovimiento>) {
+  const antes = obtenerPropio(ctx, id);
+  const cats = listarCategorias(ctx.db, ctx.usuarioId);
+  const nuevo: Partial<Movimiento> = {};
+  const tipo = cambios.tipo ?? antes.tipo;
+  if (cambios.tipo) nuevo.tipo = cambios.tipo;
+  if (cambios.monto !== undefined) {
+    if (!(cambios.monto > 0)) throw new ErrorFinanzas("El monto debe ser mayor a cero.");
+    nuevo.montoCentavos = aCentavos(cambios.monto);
+  }
+  if (cambios.moneda) nuevo.moneda = cambios.moneda.toUpperCase();
+  if (cambios.descripcion !== undefined) nuevo.descripcion = cambios.descripcion || null;
+  if (cambios.fecha) {
+    const fecha = resolverFecha(cambios.fecha, ctx.hoy);
+    if (!fecha) throw new ErrorFinanzas(`No entendí la fecha "${cambios.fecha}".`);
+    nuevo.fecha = fecha;
+    nuevo.ocurridoEn = mediodiaUtc(fecha, ctx.zonaHoraria);
+  }
+  if (cambios.comercio) nuevo.comercioId = encontrarOCrearComercio(ctx.db, ctx.usuarioId, cambios.comercio)?.id;
+  if (cambios.cuenta) nuevo.cuentaId = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, cambios.cuenta)?.id;
+  if (cambios.categoria) {
+    const cat = encontrarCategoria(cats, cambios.categoria, tipo === "ingreso" ? "ingreso" : "gasto");
+    if (!cat) throw new ErrorFinanzas(`No existe la categoría "${cambios.categoria}".`);
+    nuevo.categoriaId = cat.id;
+    nuevo.revisar = false;
+    // Aprende: la próxima vez este comercio irá a esta categoría.
+    const comercioId = nuevo.comercioId ?? antes.comercioId;
+    if (comercioId) ctx.db.update(comercios).set({ categoriaId: cat.id }).where(eq(comercios.id, comercioId)).run();
+  }
+  if (Object.keys(nuevo).length === 0) throw new ErrorFinanzas("No indicaste qué cambiar.");
+  const despues = ctx.db
+    .update(movimientos)
+    .set({ ...nuevo, actualizadoEn: new Date().toISOString() })
+    .where(eq(movimientos.id, id))
+    .returning()
+    .get()!;
+  registrarEnBitacora(ctx, "movimientos", id, "editar", antes, despues);
+  return describir(ctx, despues, cats);
+}
+
+export function eliminarMovimiento(ctx: Contexto, id: string) {
+  const antes = obtenerPropio(ctx, id);
+  const despues = ctx.db
+    .update(movimientos)
+    .set({ eliminadoEn: new Date().toISOString() })
+    .where(eq(movimientos.id, id))
+    .returning()
+    .get()!;
+  registrarEnBitacora(ctx, "movimientos", id, "eliminar", antes, despues);
+  return describir(ctx, antes);
+}
+
+export type AgruparPor = "ninguno" | "categoria" | "subcategoria" | "comercio" | "dia";
+
+/** Sumas y conteos calculados por código: la IA nunca suma por su cuenta. */
+export function resumir(
+  ctx: Contexto,
+  opciones: FiltroMovimientos & { agruparPor?: AgruparPor },
+) {
+  const cats = listarCategorias(ctx.db, ctx.usuarioId);
+  const tipo = opciones.tipo ?? "gasto";
+  const { filas, periodo } = filtrar(ctx, { ...opciones, tipo, periodo: opciones.periodo ?? "este_mes" }, cats);
+  const enBase = filas.filter((m) => m.moneda === ctx.monedaBase);
+  const total = enBase.reduce((s, m) => s + m.montoCentavos, 0);
+
+  const nombreComercio = (id: string | null) =>
+    id ? ctx.db.select().from(comercios).where(eq(comercios.id, id)).get()?.nombre : undefined;
+  const clave = (m: Movimiento): string => {
+    switch (opciones.agruparPor) {
+      case "categoria": {
+        const c = cats.find((x) => x.id === m.categoriaId);
+        const padre = c?.padreId ? cats.find((x) => x.id === c.padreId) : c;
+        return padre?.nombre ?? "Sin categoría";
+      }
+      case "subcategoria":
+        return nombreCompleto(cats, m.categoriaId) ?? "Sin categoría";
+      case "comercio":
+        return nombreComercio(m.comercioId) ?? "Sin comercio";
+      case "dia":
+        return m.fecha;
+      default:
+        return "";
+    }
+  };
+  let grupos: { nombre: string; total: string; cantidad: number }[] | undefined;
+  if (opciones.agruparPor && opciones.agruparPor !== "ninguno") {
+    const acumulado = new Map<string, { centavos: number; cantidad: number }>();
+    for (const m of enBase) {
+      const k = clave(m);
+      const g = acumulado.get(k) ?? { centavos: 0, cantidad: 0 };
+      g.centavos += m.montoCentavos;
+      g.cantidad += 1;
+      acumulado.set(k, g);
+    }
+    grupos = [...acumulado.entries()]
+      .sort((a, b) => b[1].centavos - a[1].centavos)
+      .slice(0, 10)
+      .map(([nombre, g]) => ({ nombre, total: formatearMonto(g.centavos, ctx.monedaBase), cantidad: g.cantidad }));
+  }
+  const otrasMonedas = filas
+    .filter((m) => m.moneda !== ctx.monedaBase)
+    .map((m) => formatearMonto(m.montoCentavos, m.moneda));
+  return {
+    tipo,
+    desde: periodo?.desde,
+    hasta: periodo?.hasta,
+    total: formatearMonto(total, ctx.monedaBase),
+    cantidad: enBase.length,
+    grupos,
+    otras_monedas: otrasMonedas.length ? otrasMonedas : undefined,
+  };
+}
+
+type CambioBitacora = typeof bitacora.$inferSelect;
+
+function revertir(ctx: Contexto, grupo: CambioBitacora[]) {
+  const ahora = new Date().toISOString();
+  const revertidos: string[] = [];
+  ctx.db.transaction((tx) => {
+    // El grupo ya viene del más reciente al más antiguo: una edición posterior no pisa a una anterior.
+    for (const cambio of grupo) {
+      if (cambio.tabla === "movimientos") {
+        if (cambio.accion === "crear") {
+          tx.update(movimientos).set({ eliminadoEn: ahora }).where(eq(movimientos.id, cambio.registroId)).run();
+        } else if (cambio.antes) {
+          const { id: _, ...valores } = cambio.antes as Movimiento;
+          tx.update(movimientos).set(valores).where(eq(movimientos.id, cambio.registroId)).run();
+        }
+      } else {
+        tx.update(recurrentes)
+          .set({ eliminadoEn: cambio.accion === "crear" ? ahora : null })
+          .where(eq(recurrentes.id, cambio.registroId))
+          .run();
+      }
+      tx.update(bitacora).set({ deshechoEn: ahora }).where(eq(bitacora.id, cambio.id)).run();
+      revertidos.push(`${cambio.accion} en ${cambio.tabla}`);
+    }
+  });
+  return revertidos;
+}
+
+function pendientesDeDeshacer(ctx: Contexto) {
+  return ctx.db
+    .select()
+    .from(bitacora)
+    .where(and(eq(bitacora.usuarioId, ctx.usuarioId), isNull(bitacora.deshechoEn)))
+    .orderBy(desc(bitacora.creadoEn), desc(sql`rowid`))
+    .all();
+}
+
+/** Revierte todo lo que hizo la entrada anterior (la última cosa que dijiste). */
+export function deshacer(ctx: Contexto) {
+  const pendientes = pendientesDeDeshacer(ctx).filter((b) => !ctx.entradaId || b.entradaId !== ctx.entradaId);
+  const ultima = pendientes[0];
+  if (!ultima) return { deshecho: false, mensaje: "No hay nada que deshacer." };
+  const grupo = ultima.entradaId ? pendientes.filter((b) => b.entradaId === ultima.entradaId) : [ultima];
+  return { deshecho: true, cambios_revertidos: revertir(ctx, grupo) };
+}
+
+/** Revierte lo que alcanzó a hacer una entrada que falló, antes de reintentarla. */
+export function revertirEntrada(ctx: Contexto, entradaId: string) {
+  const grupo = pendientesDeDeshacer(ctx).filter((b) => b.entradaId === entradaId);
+  return grupo.length ? revertir(ctx, grupo) : [];
+}

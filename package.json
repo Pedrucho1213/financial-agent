@@ -1,0 +1,13 @@
+{
+  "name": "financial-agent",
+  "private": true,
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev": "bun run --cwd apps/server dev",
+    "start": "bun run --cwd apps/server start",
+    "test": "bun run --cwd apps/server test",
+    "typecheck": "bun run --cwd apps/server typecheck",
+    "setup": "bun run --cwd apps/server setup",
+    "eval": "bun run --cwd apps/server eval"
+  }
+}

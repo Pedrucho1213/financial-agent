@@ -1,0 +1,63 @@
+import { describe, expect, test } from "bun:test";
+import { fechaLocal, mediodiaUtc, resolverFecha, resolverPeriodo } from "../src/lib/fechas";
+import { montoMensual, proximoCobro } from "../src/finanzas/recurrentes";
+
+const HOY = "2026-10-07"; // miércoles
+
+describe("resolverFecha", () => {
+  test("entiende hoy, ayer y antier", () => {
+    expect(resolverFecha(undefined, HOY)).toBe(HOY);
+    expect(resolverFecha("hoy", HOY)).toBe(HOY);
+    expect(resolverFecha("ayer", HOY)).toBe("2026-10-06");
+    expect(resolverFecha("antier", HOY)).toBe("2026-10-05");
+  });
+  test("un día de la semana es el más reciente", () => {
+    expect(resolverFecha("el viernes", HOY)).toBe("2026-10-02");
+    expect(resolverFecha("lunes", HOY)).toBe("2026-10-05");
+    expect(resolverFecha("miércoles", HOY)).toBe(HOY);
+    expect(resolverFecha("el miércoles pasado", HOY)).toBe("2026-09-30");
+  });
+  test("acepta fechas exactas y rechaza lo que no entiende", () => {
+    expect(resolverFecha("2026-09-15", HOY)).toBe("2026-09-15");
+    expect(resolverFecha("la otra vez", HOY)).toBeNull();
+  });
+});
+
+describe("resolverPeriodo", () => {
+  test("periodos comunes", () => {
+    expect(resolverPeriodo("este_mes", HOY)).toEqual({ desde: "2026-10-01", hasta: HOY });
+    expect(resolverPeriodo("mes_pasado", HOY)).toEqual({ desde: "2026-09-01", hasta: "2026-09-30" });
+    expect(resolverPeriodo("esta_semana", HOY)).toEqual({ desde: "2026-10-05", hasta: HOY });
+    expect(resolverPeriodo("semana_pasada", HOY)).toEqual({ desde: "2026-09-28", hasta: "2026-10-04" });
+    expect(resolverPeriodo("ayer", HOY)).toEqual({ desde: "2026-10-06", hasta: "2026-10-06" });
+    expect(resolverPeriodo("2026-02", HOY)).toEqual({ desde: "2026-02-01", hasta: "2026-02-28" });
+    expect(resolverPeriodo("ultimos_7_dias", HOY)).toEqual({ desde: "2026-10-01", hasta: HOY });
+    expect(resolverPeriodo("este_año", HOY)).toEqual({ desde: "2026-01-01", hasta: HOY });
+  });
+});
+
+describe("zona horaria", () => {
+  test("la fecha local de Ciudad de México no es la de UTC en la noche", () => {
+    expect(fechaLocal(new Date("2026-10-08T03:00:00Z"), "America/Mexico_City")).toBe("2026-10-07");
+  });
+  test("mediodía local en UTC", () => {
+    expect(mediodiaUtc("2026-10-06", "America/Mexico_City")).toBe("2026-10-06T18:00:00.000Z");
+  });
+});
+
+describe("recurrentes", () => {
+  test("próximo cobro mensual, ajustado a fin de mes", () => {
+    expect(proximoCobro({ frecuencia: "mensual", dia: 15, mes: null }, HOY)).toBe("2026-10-15");
+    expect(proximoCobro({ frecuencia: "mensual", dia: 1, mes: null }, HOY)).toBe("2026-11-01");
+    expect(proximoCobro({ frecuencia: "mensual", dia: 31, mes: null }, "2026-11-05")).toBe("2026-11-30");
+  });
+  test("quincenal, semanal y anual", () => {
+    expect(proximoCobro({ frecuencia: "quincenal", dia: 15, mes: null }, "2026-10-16")).toBe("2026-10-30");
+    expect(proximoCobro({ frecuencia: "semanal", dia: 5, mes: null }, HOY)).toBe("2026-10-09");
+    expect(proximoCobro({ frecuencia: "anual", dia: 3, mes: 2 }, HOY)).toBe("2027-02-03");
+  });
+  test("monto mensual equivalente", () => {
+    expect(montoMensual({ frecuencia: "anual", montoCentavos: 120000 })).toBe(10000);
+    expect(montoMensual({ frecuencia: "quincenal", montoCentavos: 500000 })).toBe(1000000);
+  });
+});

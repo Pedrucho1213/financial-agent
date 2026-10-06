@@ -1,0 +1,6 @@
+node_modules/
+.env
+apps/server/datos/
+apps/server/eval/resultados/
+logs/
+.DS_Store
