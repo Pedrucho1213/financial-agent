@@ -1,5 +1,5 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import type { LanguageModel } from "ai";
+import { defaultSettingsMiddleware, wrapLanguageModel, type LanguageModel } from "ai";
 import type { Config } from "../config";
 
 /**
@@ -7,7 +7,13 @@ import type { Config } from "../config";
  * Osaurus o un proveedor en la nube es solo cambiar IA_URL, IA_MODELO e IA_API_KEY.
  */
 export function crearModelo(ia: Config["ia"], modelo = ia.modelo): LanguageModel {
-  return createOpenAICompatible({ name: "local", baseURL: ia.url, apiKey: ia.apiKey }).chatModel(modelo);
+  const base = createOpenAICompatible({ name: "local", baseURL: ia.url, apiKey: ia.apiKey }).chatModel(modelo);
+  if (!ia.razonamiento || ia.razonamiento === "no") return base;
+  // Se manda como reasoning_effort; Ollama lo usa en los modelos que razonan.
+  return wrapLanguageModel({
+    model: base,
+    middleware: defaultSettingsMiddleware({ settings: { providerOptions: { local: { reasoningEffort: ia.razonamiento } } } }),
+  });
 }
 
 /** Carga el modelo en memoria de Ollama mientras el usuario todavía está dictando. */

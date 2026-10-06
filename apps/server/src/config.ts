@@ -15,6 +15,9 @@ export const config = {
     // Solo para Ollama: permite despertar el modelo antes de que termines de dictar.
     ollamaUrl: process.env.OLLAMA_URL?.trim() || "http://localhost:11434",
     mantenerCargado: env("IA_MANTENER_CARGADO", "10m"),
+    // Cuánto "piensa" el modelo antes de responder (low, medium, high; "no" para no mandarlo).
+    // Menos razonamiento es más rápido; para registrar gastos basta low.
+    razonamiento: env("IA_RAZONAMIENTO", "low"),
   },
 };
 

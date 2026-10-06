@@ -137,3 +137,18 @@ export function resolverPeriodo(expresion: string | undefined, hoy: string): Per
   const fecha = resolverFecha(valor, hoy);
   return fecha ? { desde: fecha, hasta: fecha } : null;
 }
+
+const EXPRESION_FECHA =
+  /\b(hoy|ayer|antier|anteayer|antes de ayer|(?:el |este )?(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)(?: pasado)?)\b/g;
+
+/**
+ * La fecha que el usuario dijo en su frase ("ayer", "el viernes"), resuelta con resolverFecha.
+ * Solo responde si la frase menciona una sola fecha; con varias o ninguna devuelve null.
+ */
+export function fechaDelTexto(texto: string | undefined, hoy: string): string | null {
+  if (!texto) return null;
+  const fechas = new Set(
+    [...normalizar(texto).matchAll(EXPRESION_FECHA)].map((m) => resolverFecha(m[1], hoy)).filter(Boolean),
+  );
+  return fechas.size === 1 ? [...fechas][0]! : null;
+}

@@ -62,6 +62,31 @@ const SINONIMOS: Record<string, string> = {
   comisiones: "Comisiones e intereses",
   intereses: "Comisiones e intereses",
   otros: "Otros gastos",
+  renta: "Renta",
+  casero: "Renta",
+  luz: "Luz",
+  cfe: "Luz",
+  agua: "Agua",
+  gas: "Gas",
+  cafe: "Café",
+  starbucks: "Café",
+  super: "Súper",
+  walmart: "Súper",
+  soriana: "Súper",
+  chedraui: "Súper",
+  costco: "Súper",
+  gasolina: "Gasolina",
+  pemex: "Gasolina",
+  caseta: "Casetas",
+  casetas: "Casetas",
+  estacionamiento: "Estacionamiento",
+  cine: "Cine",
+  cinepolis: "Cine",
+  cinemex: "Cine",
+  farmacia: "Farmacia",
+  gimnasio: "Gimnasio",
+  gym: "Gimnasio",
+  restaurante: "Restaurantes",
 };
 
 export function sembrarCategorias(db: Db, usuarioId: string) {
@@ -112,6 +137,31 @@ export function encontrarCategoria(
     candidatas.find((c) => normalizar(c.nombre).split(" ").includes(buscado)) ??
     candidatas.find((c) => buscado.startsWith(normalizar(c.nombre)))
   );
+}
+
+/**
+ * Subcategoría que se adivina por las palabras de la frase ("luz", "Uber", "cine").
+ * Con `padre`, solo considera sus hijas. Responde solo si hay una única candidata.
+ */
+export function inferirSubcategoria(
+  lista: Categoria[],
+  textos: (string | null | undefined)[],
+  tipo: "gasto" | "ingreso",
+  padre?: Categoria,
+): Categoria | undefined {
+  const hojas = lista.filter(
+    (c) => c.tipo === tipo && (padre ? c.padreId === padre.id : !lista.some((h) => h.padreId === c.id)),
+  );
+  for (const texto of textos) {
+    if (!texto) continue;
+    const plano = ` ${normalizar(texto)} `;
+    const dice = (palabra: string) => plano.includes(` ${normalizar(palabra)} `);
+    const candidatas = hojas.filter(
+      (c) => dice(c.nombre) || Object.entries(SINONIMOS).some(([palabra, nombre]) => nombre === c.nombre && dice(palabra)),
+    );
+    if (candidatas.length === 1) return candidatas[0];
+  }
+  return undefined;
 }
 
 export function categoriaPorDefecto(lista: Categoria[], tipo: "gasto" | "ingreso") {
