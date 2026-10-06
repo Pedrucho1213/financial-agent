@@ -21,14 +21,23 @@ const INICIO_PREGUNTA =
 const PIDE_INFORMACION =
   /\b(cuanto|cuanta|cuantos|cuantas|cuales|en que|quiero saber|necesito saber|me puedes decir|puedes decirme|me dices|cuentame|dime|muestrame|ensename|como voy|como vamos|como ando|que tal voy|voy bien|vamos bien|me alcanza|puedo gastar)\b/;
 
+// Muletillas a media frase que parecen pregunta y no lo son: "no sé cuánto", "en qué se llama".
+const RELLENO = /\b(no se cuanto|no se cuantos|en que se llama|que se llama|como se llama)\b/g;
+// Sin monto, una frase que pide hacer algo no es pregunta: "y el Uber fue con la BBVA", "borra el último".
+const PIDE_ACCION =
+  /\b(fue|fueron|era|eran|gaste|pague|compre|cobre|me pagaron|me depositaron|borra|borralo|elimina|quita|quitalo|cambia|cambialo|corrige|deshaz|cancela|cancele|registra|anota|apunta|ponlo|ponle|pasalo|muevelo|recuerda|recuerdame)\b/;
+
 /** Si el dictado es una pregunta (la respuesta importa más que la rapidez). */
 export function esPregunta(texto: string): boolean {
   if (texto.includes("?")) return true;
-  const plano = normalizar(texto);
+  const plano = normalizar(texto).replace(RELLENO, " ").replace(/\s+/g, " ").trim();
   const sinMuletillas = plano.replace(MULETILLAS, "");
+  const conMonto = montosDelTexto(texto).length > 0;
+  // "Estoy pagando 200 de gym" y "dame 50 de..." con un monto no preguntan nada.
+  if (conMonto && /^(estoy|dame)\b/.test(sinMuletillas)) return PIDE_INFORMACION.test(sinMuletillas);
   if (INICIO_PREGUNTA.test(sinMuletillas) || PIDE_INFORMACION.test(sinMuletillas)) return true;
-  // "Y en Uber", "y el mes pasado": sigue la pregunta anterior si no trae un monto que anotar.
-  return /^y /.test(plano) && montosDelTexto(texto).length === 0;
+  // Sin un monto que anotar ni algo que hacer, es una consulta: "y en Uber", "ver mis gastos", "lo de este mes".
+  return !conMonto && !PIDE_ACCION.test(plano);
 }
 
 const MONEDAS: [RegExp, string][] = [
