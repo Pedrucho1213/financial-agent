@@ -203,12 +203,20 @@ export function crearApp(opciones: OpcionesApp) {
       return c.json(respuesta, respuesta.pendiente ? 202 : 200);
     } catch (error) {
       if (error instanceof ErrorEnProceso) {
-        return c.json({ error: error.message, respuesta: "Ese mensaje todavía se está procesando." }, 409);
+        return c.json({ error: error.message, respuesta: "Ese mensaje todavía se está procesando.", reintentar: true }, 409);
       }
       if (error instanceof ErrorIA) {
         console.error("Fallo de la IA:", error.message);
-        // 503 le indica al Atajo que deje el dictado en la cola y lo reintente después.
-        return c.json({ error: "La IA no respondió.", respuesta: "No pude procesarlo ahora; queda guardado en tu iPhone para enviarlo después." }, 503);
+        // reintentar le indica al Atajo que deje el dictado en la cola; cualquier otra respuesta
+      // (incluido un 400, que no se arregla reenviando) le permite borrarlo.
+        return c.json(
+          {
+            error: "La IA no respondió.",
+            respuesta: "No pude procesarlo ahora; queda guardado en tu iPhone para enviarlo después.",
+            reintentar: true,
+          },
+          503,
+        );
       }
       throw error;
     }
