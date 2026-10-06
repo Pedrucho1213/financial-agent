@@ -29,13 +29,18 @@ cp apps/server/.env.example apps/server/.env
 
 Revisa `apps/server/.env`. Por omisión el servidor escucha solo en `127.0.0.1:8787`, guarda la base en `apps/server/datos/finanzas.db` y usa `gemma4:12b-it-qat` sin razonamiento (`IA_RAZONAMIENTO=none`).
 
-## 4. Tu usuario y el token del iPhone
+## 4. La app y tu cuenta
 
 ```bash
-bun run setup -- --nombre Pedro --dispositivo "iPhone 17 Pro Max"
+bun run web:build                                   # compila la app (PWA) en apps/web/dist
+bun run invitar -- --nombre Pedro --url https://finanzas.tu-red.ts.net
 ```
 
-Imprime un token que empieza con `fa_`. Cópialo: va en el Atajo y no se vuelve a mostrar. Para otro dispositivo, corre el mismo comando con otro `--dispositivo`.
+`invitar` crea tu cuenta si no existe e imprime un código de 6 caracteres y un enlace. Abre el enlace en Safari del iPhone: la app entra sola con el código y guarda su propio acceso. El código vence en 24 horas y sirve una sola vez; para otro iPhone o navegador corre el mismo comando, o genera un código desde Ajustes en la app.
+
+El Atajo "Finanzas" se instala desde la app (Ajustes > Instalar el Atajo en este iPhone): la Mac lo genera con su propio acceso y lo firma. Detalles en [atajo-finanzas.md](atajo-finanzas.md).
+
+Si solo quieres un token para probar con `curl`: `bun run setup -- --nombre Pedro --dispositivo "Pruebas"`.
 
 ## 5. Elegir el modelo
 
@@ -51,16 +56,27 @@ Al final verás algo así por modelo: `gemma4:12b-it-qat@none: 237/237 correctas
 ./ops/instalar-servicio.sh
 ```
 
-Registra el servidor en launchd: arranca al iniciar sesión y se reinicia solo si falla. Los logs quedan en `logs/servidor.log`. Para quitarlo: `./ops/instalar-servicio.sh --quitar`.
+Registra el servidor en launchd: arranca al iniciar sesión y se reinicia solo si falla. Sirve la API y la app en el mismo puerto. Los logs quedan en `logs/servidor.log`. Para quitarlo: `./ops/instalar-servicio.sh --quitar`.
+
+La primera vez, macOS pregunta si `bun` puede acceder a la carpeta Documentos (ahí vive el repositorio). Hay que aceptar; mientras la pregunta sigue abierta, el servidor no responde.
+
+Para actualizar a lo último de una rama, con pruebas, compilación de la app y reinicio incluidos:
+
+```bash
+./ops/actualizar.sh          # main
+./ops/actualizar.sh otra-rama
+```
 
 ## 7. Acceso desde el iPhone con Tailscale
 
 ```bash
-tailscale serve --bg 8787
-tailscale serve status
+brew install tailscale
+./ops/instalar-tailscale.sh
 ```
 
-`serve status` muestra una dirección como `https://macbook-pro-de-pedro.tu-red.ts.net`. Ábrela en Safari del iPhone agregando `/salud`: si ves `{"ok":true}`, el iPhone llega a tu Mac. Esa dirección solo funciona dentro de tu red de Tailscale; nadie más la ve.
+El script no pide contraseña de administrador: corre `tailscaled` de Homebrew en modo de espacio de usuario como LaunchAgent, te pide iniciar sesión una vez (con la misma cuenta que en el iPhone), nombra la Mac `finanzas` y publica el servidor con `tailscale serve`. Al final muestra una dirección como `https://finanzas.tu-red.ts.net`. Esa dirección solo funciona dentro de tu red de Tailscale; nadie más la ve. Para quitarlo: `./ops/instalar-tailscale.sh --quitar`.
+
+En el iPhone, con Tailscale encendido, abre esa dirección agregando `/salud`: si ves `{"ok":true}`, el iPhone llega a tu Mac. En modo de espacio de usuario la propia Mac no puede abrir esa dirección; se prueba desde el iPhone.
 
 ## 8. Que la Mac esté disponible
 

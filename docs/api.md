@@ -14,7 +14,7 @@ Cada iPhone o navegador es un dispositivo con su propio token. Se entra con un c
 | `POST /v1/invitaciones` | `{ para: "usuario" \| "dispositivo" }` | 201 `{ codigo, para, expiraEn }` |
 | `DELETE /v1/dispositivos/:id` | | `{ ok: true }` |
 
-Para el primer usuario: `bun run invitar -- --nombre Pedro` imprime un código.
+Para el primer usuario: `bun run invitar -- --nombre Pedro` crea la cuenta (si no existe) e imprime un código para entrar a ella.
 
 ## Hablar (Atajo y chat)
 
@@ -68,7 +68,7 @@ Para el primer usuario: `bun run invitar -- --nombre Pedro` imprime un código.
   porDiaSemana: { dia: number; centavos: number }[]; // 1 = lunes ... 7 = domingo, gastos del mes
   mayores: MovimientoApp[]; // 5 gastos más grandes del mes
   frecuentes: { nombre: string; cantidad: number; centavos: number }[]; // comercios más repetidos del mes
-  recurrentesProximos: { id: string; nombre: string; montoCentavos: number; moneda: string; proximoCobro: string; frecuencia: string }[]; // 30 días
+  recurrentesProximos: { id: string; nombre: string; tipo: string; montoCentavos: number; moneda: string; proximoCobro: string; frecuencia: string }[]; // 30 días
   porRevisar: number;
 }
 ```

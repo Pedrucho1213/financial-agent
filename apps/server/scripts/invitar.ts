@@ -1,13 +1,15 @@
 // Código de invitación para entrar a la app desde un iPhone o navegador nuevo.
-// Uso: bun run invitar -- --nombre Pedro
-// Si Pedro ya existe, el código agrega otro dispositivo a su cuenta; si no, crea la cuenta al usarlo.
+// Uso: bun run invitar -- --nombre Pedro [--url https://finanzas.tu-red.ts.net]
+// Con --nombre el código entra a la cuenta de esa persona (la crea si no existe), así la app
+// no pregunta el nombre. Sin --nombre, quien lo use escribe su nombre y se crea su cuenta.
 // Sirve una sola vez y vence en 24 horas (--horas para cambiarlo).
 import { parseArgs } from "node:util";
 import { eq } from "drizzle-orm";
-import { crearInvitacion } from "../src/auth";
+import { crearInvitacion, crearUsuario } from "../src/auth";
 import { config } from "../src/config";
 import { abrirBaseDatos } from "../src/db/client";
 import { usuarios } from "../src/db/schema";
+import { sembrarCategorias } from "../src/finanzas/catalogos";
 
 const { values } = parseArgs({
   args: Bun.argv.slice(2),
@@ -19,13 +21,18 @@ const { values } = parseArgs({
 });
 
 const db = abrirBaseDatos(config.baseDatos);
-const usuario = values.nombre
-  ? db.select().from(usuarios).where(eq(usuarios.nombre, values.nombre)).get()
-  : undefined;
+const nombre = values.nombre?.trim();
+let usuario = nombre ? db.select().from(usuarios).where(eq(usuarios.nombre, nombre)).get() : undefined;
+const nuevo = !!nombre && !usuario;
+if (nombre && !usuario) {
+  usuario = crearUsuario(db, nombre);
+  sembrarCategorias(db, usuario.id);
+}
 const invitacion = crearInvitacion(db, { usuarioId: usuario?.id, horas: Number(values.horas) || 24 });
 const vence = new Date(invitacion.expiraEn).toLocaleString("es-MX", { timeZone: config.zonaHoraria });
 
 console.log(`Código: ${invitacion.codigo}`);
-console.log(usuario ? `Agrega un dispositivo a la cuenta de ${usuario.nombre}.` : "Crea una cuenta nueva al usarlo.");
-console.log(`Vence: ${vence}. Sirve una sola vez.`);
+if (!usuario) console.log("Crea una cuenta nueva al usarlo.");
+else console.log(nuevo ? `Creé la cuenta de ${usuario.nombre}; el código entra a ella.` : `Agrega un dispositivo a la cuenta de ${usuario.nombre}.`);
+console.log(`Vence el ${vence} y sirve una sola vez.`);
 if (values.url) console.log(`Ábrelo en el iPhone: ${values.url.replace(/\/+$/, "")}/?codigo=${invitacion.codigo}`);
