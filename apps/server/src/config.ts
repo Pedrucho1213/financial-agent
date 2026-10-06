@@ -16,14 +16,14 @@ export const config = {
   ia: {
     // Cualquier API compatible con OpenAI: Ollama, LM Studio, Osaurus o un proveedor en la nube.
     url: env("IA_URL", "http://localhost:11434/v1"),
-    modelo: env("IA_MODELO", "gpt-oss:20b"),
+    modelo: env("IA_MODELO", "gemma4:12b-it-qat"),
     apiKey: env("IA_API_KEY", "ollama"),
     // Solo para Ollama: permite despertar el modelo antes de que termines de dictar.
     ollamaUrl: process.env.OLLAMA_URL?.trim() || "http://localhost:11434",
     mantenerCargado: env("IA_MANTENER_CARGADO", "10m"),
-    // Cuánto "piensa" el modelo antes de responder (low, medium, high; "no" para no mandarlo).
-    // Menos razonamiento es más rápido; para registrar gastos basta low.
-    razonamiento: env("IA_RAZONAMIENTO", "low"),
+    // Cuánto "piensa" el modelo antes de responder (none, low, medium, high; "no" para no mandarlo).
+    // gemma4 acierta igual sin razonar y así contesta en segundos; gpt-oss necesita al menos low.
+    razonamiento: env("IA_RAZONAMIENTO", "none"),
   },
 };
 

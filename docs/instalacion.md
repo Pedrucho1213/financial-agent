@@ -10,11 +10,10 @@ Todo corre directo en macOS, sin Docker: así la IA usa la GPU de tu chip Apple 
 
 ## 2. Modelos
 
-Descarga los candidatos de la prueba de 30 frases:
+Descarga el modelo que ganó la prueba (ver el paso 5):
 
 ```bash
-ollama pull gpt-oss:20b               # unos 14 GB, el más ligero
-ollama pull qwen3.6:35b-a3b-nvfp4     # unos 24 GB, versión MLX
+ollama pull gemma4:12b-it-qat   # unos 8 GB de memoria mientras se usa
 ```
 
 El modelo solo ocupa memoria mientras se usa; se libera según `IA_MANTENER_CARGADO` (10 minutos por omisión).
@@ -28,7 +27,7 @@ bun install
 cp apps/server/.env.example apps/server/.env
 ```
 
-Revisa `apps/server/.env`. Por omisión el servidor escucha solo en `127.0.0.1:8787`, guarda la base en `apps/server/datos/finanzas.db` y usa `gpt-oss:20b`.
+Revisa `apps/server/.env`. Por omisión el servidor escucha solo en `127.0.0.1:8787`, guarda la base en `apps/server/datos/finanzas.db` y usa `gemma4:12b-it-qat` sin razonamiento (`IA_RAZONAMIENTO=none`).
 
 ## 4. Tu usuario y el token del iPhone
 
@@ -41,10 +40,10 @@ Imprime un token que empieza con `fa_`. Cópialo: va en el Atajo y no se vuelve 
 ## 5. Elegir el modelo
 
 ```bash
-bun run eval -- --modelos gpt-oss:20b,qwen3.6:35b-a3b-nvfp4
+bun run eval -- --modelos gemma4:12b-it-qat@none,otro-modelo@none --repeticiones 3
 ```
 
-Al final verás algo así por modelo: `gpt-oss:20b: 27/30 correctas (...); mediana 2100 ms, p90 3900 ms`. Elige el que acierte más con un tiempo aceptable y ponlo en `IA_MODELO`. Para ver solo un grupo: `--grupo registro`, `consulta`, `edicion` o `recurrentes`.
+Al final verás algo así por modelo: `gemma4:12b-it-qat@none: 237/237 correctas (100%); estables 79/79; mediana 3.8 s, p90 5.8 s (...)`. Elige el que acierte más con un tiempo aceptable y ponlo en `IA_MODELO`. Para ver solo un grupo: `--grupo registro`, `consulta`, `edicion` o `recurrentes`.
 
 ## 6. Arranque automático
 

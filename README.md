@@ -22,7 +22,7 @@ docs/                 Instalación y el Atajo de iPhone
 ```bash
 bun install
 cp apps/server/.env.example apps/server/.env
-ollama pull gpt-oss:20b
+ollama pull gemma4:12b-it-qat
 bun run setup -- --nombre Pedro --dispositivo "iPhone"   # imprime el token del iPhone
 bun run dev
 ```
@@ -40,10 +40,12 @@ Los pasos completos (modelo, Tailscale, arranque automático) están en [docs/in
 ## Elegir el modelo
 
 ```bash
-bun run eval -- --modelos gpt-oss:20b@low,otro-modelo@none --repeticiones 3
+bun run eval -- --modelos gemma4:12b-it-qat@none,otro-modelo@none --repeticiones 3
 ```
 
 Corre 79 frases reales contra cada modelo: registros normales y difíciles (modismos, números en palabras, varias cosas en una frase, otras monedas, fechas), charla que no debe registrar nada, consultas, correcciones, conversaciones de varios pasos y recurrentes. Al final manda una ráfaga de 5 dictados a la vez para revisar la cola. Muestra aciertos, cuántas frases pasan en todas las repeticiones, tiempos (mediana, p90, máximo), qué porcentaje de registros alcanza a contestarse antes de que el iPhone deje de esperar y cuánta memoria ocupa el modelo. Lo que va después de `@` es cuánto razona el modelo (`low`, `medium`, `high` o `none`). Los resultados quedan en `apps/server/eval/resultados/`.
+
+Con esta prueba se eligió `gemma4:12b-it-qat` con razonamiento `none`: en una M3 Max acertó las 237 respuestas (79 frases × 3), con mediana de 3.8 s y 7.7 GB de memoria. `gemma4:26b-a4b` fue casi el doble de rápido (2.1 s) pero ocupa unos 21 GB; gpt-oss:20b acertó 78%.
 
 ## API
 

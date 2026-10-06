@@ -1,5 +1,5 @@
 // Prueba de frases reales contra uno o varios modelos.
-// Uso: bun run eval -- --modelos gpt-oss:20b@low,qwen3.6:35b-a3b@none [--repeticiones 3] [--grupo dificil] [--frase "texto"]
+// Uso: bun run eval -- --modelos gemma4:12b-it-qat@none,gpt-oss:20b@low [--repeticiones 3] [--grupo dificil] [--frase "texto"]
 // "@low" fija cuánto razona el modelo (low, medium, high, none; "no" para no mandarlo).
 import { mkdirSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
