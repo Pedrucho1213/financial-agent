@@ -85,7 +85,14 @@ const POCOS: Record<string, number> = { un: 1, una: 1, dos: 2, tres: 3, cuatro: 
 export function resolverFecha(expresion: string | undefined, hoy: string): string | null {
   if (!expresion) return hoy;
   const limpio = expresion.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(limpio)) return limpio;
+  if (/^\d{4}-\d{2}-\d{2}(T.*)?$/.test(limpio)) return limpio.slice(0, 10);
+  // 05/10/2026 o 5/10: día, mes y año opcional, como se escribe en México.
+  const conDiagonal = limpio.match(/^(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?$/);
+  if (conDiagonal) {
+    const [, d, m, a] = conDiagonal.map(Number) as [number, number, number, number | undefined];
+    const anio = a === undefined || Number.isNaN(a) ? partes(hoy).anio : a < 100 ? 2000 + a : a;
+    return m >= 1 && m <= 12 && d >= 1 && d <= 31 ? armarFecha(anio, m, d) : null;
+  }
   const t = normalizar(limpio).replace(/^(el|este|esta) /, "");
   if (t === "hoy") return hoy;
   if (t === "ayer") return sumarDias(hoy, -1);
@@ -105,6 +112,11 @@ export function resolverFecha(expresion: string | undefined, hoy: string): strin
       const fecha = armarFecha(anio, mesDicho, dia);
       return fecha > hoy && delMes[2] && delMes[2] !== "este mes" ? armarFecha(anio - 1, mesDicho, dia) : fecha;
     }
+  }
+  // "lunes 5 de octubre", "el lunes pasado (5 de octubre)": si adentro hay una sola fecha, esa.
+  if (!t.match(/^(lunes|martes|miercoles|jueves|viernes|sabado|domingo)( pasado)?$/)) {
+    const dentro = fechaDelTexto(t, hoy);
+    if (dentro) return dentro;
   }
   const dia = DIAS[t.replace(/ pasado$/, "")];
   if (dia) {
@@ -180,9 +192,14 @@ export function mencionaFecha(texto: string | undefined): boolean {
  * Solo responde si la frase menciona una sola fecha; con varias o ninguna devuelve null.
  */
 export function fechaDelTexto(texto: string | undefined, hoy: string): string | null {
-  if (!texto) return null;
-  const fechas = new Set(
-    [...normalizar(texto).matchAll(EXPRESION_FECHA)].map((m) => resolverFecha(m[1], hoy)).filter(Boolean),
-  );
+  const fechas = new Set(fechasDelTexto(texto, hoy));
   return fechas.size === 1 ? [...fechas][0]! : null;
+}
+
+/** Todas las fechas que dice la frase, en el orden en que las dice ("el lunes ... y el martes ..."). */
+export function fechasDelTexto(texto: string | undefined, hoy: string): string[] {
+  if (!texto) return [];
+  return [...normalizar(texto).matchAll(EXPRESION_FECHA)]
+    .map((m) => resolverFecha(m[1], hoy))
+    .filter((f): f is string => !!f);
 }

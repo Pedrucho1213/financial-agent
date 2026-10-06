@@ -164,3 +164,14 @@ test("la frase corrige monto, tipo, fecha y subcategoría cuando el modelo se eq
     categoria: "Comida > Café",
   });
 });
+
+test("con dos fechas y dos movimientos sin fecha, las reparte en orden", async () => {
+  const { ctx } = preparar();
+  const r = await llamar(dictado(ctx, "El lunes gasté 80 en café y el martes 120 en el súper"), "registrar_movimientos", {
+    movimientos: [
+      { tipo: "gasto", monto: 80, categoria: "Café" },
+      { tipo: "gasto", monto: 120, categoria: "Súper" },
+    ],
+  });
+  expect(r.registrados.map((m: { fecha: string }) => m.fecha)).toEqual(["2026-10-05", "2026-10-06"]);
+});

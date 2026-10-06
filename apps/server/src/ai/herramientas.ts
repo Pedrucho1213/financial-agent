@@ -13,11 +13,12 @@ import {
   resumir,
 } from "../finanzas/movimientos";
 import { crearRecurrente, listarRecurrentes } from "../finanzas/recurrentes";
-import { fechaDelTexto, mencionaFecha, resolverFecha } from "../lib/fechas";
+import { fechaDelTexto, fechasDelTexto, mencionaFecha, resolverFecha } from "../lib/fechas";
 import { montoConPalabras, montosDelTexto } from "../lib/numeros";
 import { monedaDelTexto, normalizar, tipoDelTexto } from "../lib/texto";
 
-export type Accion = { herramienta: string; resultado: unknown };
+/** Lo que hizo una herramienta: con qué la llamó el modelo y qué resultó. */
+export type Accion = { herramienta: string; argumentos: unknown; resultado: unknown };
 
 const tipoMovimiento = z
   .enum(["gasto", "ingreso", "transferencia", "pago_tarjeta"])
@@ -69,7 +70,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
     async (args: A) => {
       try {
         const resultado = fn(args);
-        acciones.push({ herramienta: nombre, resultado });
+        acciones.push({ herramienta: nombre, argumentos: args, resultado });
         return resultado;
       } catch (error) {
         if (error instanceof ErrorFinanzas) return { error: error.message };
@@ -89,8 +90,12 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         // habla de ningún momento, una fecha calculada por el modelo es inventada.
         const fechaDicha = fechaDelTexto(texto, ctx.hoy);
         const esIso = (fecha?: string) => !!fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha.trim());
-        const conFecha = (fecha?: string) => {
+        // "El lunes gasté 80 en café y el martes 120 en el súper": una fecha por movimiento, en orden.
+        const fechasDichas = fechasDelTexto(texto, ctx.hoy);
+        const enOrden = movimientos.length > 1 && fechasDichas.length === movimientos.length;
+        const conFecha = (fecha: string | undefined, i: number) => {
           if (fechaDicha && (!fecha || !resolverFecha(fecha, ctx.hoy) || esIso(fecha))) return fechaDicha;
+          if (enOrden && (!fecha || !resolverFecha(fecha, ctx.hoy))) return fechasDichas[i];
           if (texto && esIso(fecha) && !mencionaFecha(texto)) return undefined;
           return fecha;
         };
@@ -106,13 +111,13 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         const conTipo = (tipo: (typeof movimientos)[number]["tipo"]) =>
           tipoDicho && (tipo === "gasto" || tipo === "ingreso") ? tipoDicho : tipo;
         return {
-          registrados: movimientos.map((m) =>
+          registrados: movimientos.map((m, i) =>
             crearMovimiento(ctx, {
               ...m,
               tipo: conTipo(m.tipo),
               monto: montoDicho ?? m.monto,
               moneda: conMoneda(m.moneda),
-              fecha: conFecha(m.fecha),
+              fecha: conFecha(m.fecha, i),
             }),
           ),
         };

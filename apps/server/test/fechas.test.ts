@@ -76,6 +76,16 @@ describe("fechas dichas de otras formas", () => {
     expect(resolverFecha("el 15", HOY)).toBeNull();
   });
 
+  test("entiende las fechas que mandan los modelos en otros formatos", () => {
+    expect(resolverFecha("05/10/2026", HOY)).toBe("2026-10-05");
+    expect(resolverFecha("5/10", HOY)).toBe("2026-10-05");
+    expect(resolverFecha("2026-10-05T00:00:00", HOY)).toBe("2026-10-05");
+    expect(resolverFecha("lunes 5 de octubre", HOY)).toBe("2026-10-05");
+    expect(resolverFecha("1 de octubre", HOY)).toBe("2026-10-01");
+    expect(resolverFecha("31/02", HOY)).toBe("2026-02-28");
+    expect(resolverFecha("13/13", HOY)).toBeNull();
+  });
+
   test("sabe si la frase habla de algún momento", () => {
     expect(mencionaFecha("la semana pasada pagué 300")).toBe(true);
     expect(mencionaFecha("Compré unos tenis de 1,899 en Liverpool")).toBe(false);

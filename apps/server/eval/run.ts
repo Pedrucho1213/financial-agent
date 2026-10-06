@@ -75,7 +75,7 @@ async function correrCaso(modelo: ReturnType<typeof crearModelo>, caso: Caso): P
     const r = await hablar(deps, base.usuarioId, { texto: caso.frase, clientId: crypto.randomUUID(), conversacionId });
     ms = Math.round(performance.now() - inicio);
     respuesta = r.respuesta;
-    herramientas = r.acciones.map((a) => `${a.herramienta} ${JSON.stringify(a.resultado ?? null).slice(0, 160)}`);
+    herramientas = r.acciones.map((a) => `${a.herramienta} ${JSON.stringify(a.argumentos ?? null).slice(0, 300)}`);
     estado = caso.verificar({
       ...r,
       ctx,
@@ -160,7 +160,7 @@ for (const entrada of values.modelos!.split(",").map((m) => m.trim()).filter(Boo
       console.log(`${r.ok ? "✓" : "✗"} ${String(r.ms).padStart(6)} ms  [${r.grupo}] ${r.frase}`);
       if (!r.ok) {
         console.log(`           ${String(r.fallo).slice(0, 300)}\n           respuesta: ${r.respuesta}`);
-        console.log(`           herramientas: ${r.herramientas.length ? r.herramientas.map((h) => h.split(" ")[0]).join(", ") : "ninguna"}`);
+        console.log(`           herramientas: ${r.herramientas.length ? r.herramientas.join(" | ") : "ninguna"}`);
       }
     }
   }
