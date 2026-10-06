@@ -148,6 +148,18 @@ export function encontrarCategoria(
   );
 }
 
+// Usos de una palabra que no nombran su categoría: "súper ricos" no es el súper, "un agua"
+// es una bebida y no el recibo, "clase de tenis" no son zapatos.
+const FALSOS_AMIGOS = [
+  /\bsuper (rico|rica|ricos|ricas|bueno|buena|buenos|buenas|caro|cara|caros|caras|barato|barata|baratos|baratas|padre|padres|chido|chida|chidos|chidas|sabroso|sabrosa|sabrosos|sabrosas|bien|mal|feo|fea|lleno|llena|tarde|temprano|rapido|rapida)\b/g,
+  /\b(un|una|unas|unos|botella de|botellita de|vaso de|garrafon de) agua\b|\bagua (mineral|natural|de sabor|de coco|de jamaica|de horchata|de limon|fresca|embotellada)\b/g,
+  /\b(de|jugar|juego|jugue) tenis\b/g,
+];
+
+function sinFalsosAmigos(plano: string): string {
+  return FALSOS_AMIGOS.reduce((texto, patron) => texto.replace(patron, " "), plano);
+}
+
 /** Hojas del tipo dado (o hijas de `padre`) que la frase nombra por su nombre o un sinónimo. */
 export function hojasMencionadas(
   lista: Categoria[],
@@ -156,7 +168,7 @@ export function hojasMencionadas(
   padre?: Categoria,
 ): Categoria[] {
   if (!texto) return [];
-  const plano = ` ${normalizar(texto)} `;
+  const plano = ` ${sinFalsosAmigos(normalizar(texto))} `;
   const dice = (palabra: string) => plano.includes(` ${normalizar(palabra)} `);
   return lista.filter(
     (c) =>

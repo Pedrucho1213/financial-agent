@@ -91,27 +91,34 @@ export function resolverFecha(expresion: string | undefined, hoy: string): strin
   if (conDiagonal) {
     const [, d, m, a] = conDiagonal.map(Number) as [number, number, number, number | undefined];
     const anio = a === undefined || Number.isNaN(a) ? partes(hoy).anio : a < 100 ? 2000 + a : a;
-    return m >= 1 && m <= 12 && d >= 1 && d <= 31 ? armarFecha(anio, m, d) : null;
+    // "31/02" no existe: mejor no entenderla que guardar otro día.
+    return m >= 1 && m <= 12 && d >= 1 && d <= ultimoDiaDelMes(anio, m) ? armarFecha(anio, m, d) : null;
   }
-  const t = normalizar(limpio).replace(/^(el|este|esta) /, "");
+  const t = normalizar(limpio).replace(/^(el|la|este|esta) /, "");
   if (t === "hoy") return hoy;
+  if (t === "semana pasada") return sumarDias(hoy, -7);
   if (t === "ayer") return sumarDias(hoy, -1);
   if (t === "antier" || t === "anteayer" || t === "antes de ayer") return sumarDias(hoy, -2);
-  const hace = t.match(/^hace (\d+|un|una|dos|tres|cuatro|cinco|seis) (dia|dias|semana|semanas)$/);
+  const hace = t.match(/^hace (\d+|un|una|dos|tres|cuatro|cinco|seis) (dia|dias|semana|semanas|mes|meses)$/);
   if (hace) {
     const n = POCOS[hace[1]!] ?? Number(hace[1]);
+    if (hace[2]!.startsWith("mes")) return sumarMeses(hoy, -n);
     return sumarDias(hoy, -n * (hace[2]!.startsWith("semana") ? 7 : 1));
   }
-  // "el 1 de este mes", "el primero", "15 de septiembre" (si aún no llega, es del año pasado).
+  // "el 1 de este mes", "el primero", "15 de septiembre". Si aún no llega y falta más de un mes,
+  // es del año pasado ("15 de diciembre" dicho en enero); si es pronto, de este año.
   const delMes = t.match(/^(primero|\d{1,2})(?: de (este mes|\w+))?$/);
   if (delMes && (delMes[2] === undefined ? delMes[1] === "primero" : true)) {
     const dia = delMes[1] === "primero" ? 1 : Number(delMes[1]);
     const { anio, mes } = partes(hoy);
     const mesDicho = !delMes[2] || delMes[2] === "este mes" ? mes : MESES.indexOf(delMes[2]) + 1;
-    if (mesDicho > 0 && dia >= 1 && dia <= 31) {
+    const conMes = !!delMes[2] && delMes[2] !== "este mes";
+    // "31 de febrero" no existe; "el 31" de un mes de 30 días es su último día.
+    if (mesDicho > 0 && dia >= 1 && dia <= (conMes ? ultimoDiaDelMes(anio, mesDicho) : 31)) {
       const fecha = armarFecha(anio, mesDicho, dia);
-      return fecha > hoy && delMes[2] && delMes[2] !== "este mes" ? armarFecha(anio - 1, mesDicho, dia) : fecha;
+      return fecha > sumarMeses(hoy, 1) && conMes ? armarFecha(anio - 1, mesDicho, dia) : fecha;
     }
+    if (mesDicho > 0) return null;
   }
   // "lunes 5 de octubre", "el lunes pasado (5 de octubre)": si adentro hay una sola fecha, esa.
   if (!t.match(/^(lunes|martes|miercoles|jueves|viernes|sabado|domingo)( pasado)?$/)) {
@@ -130,8 +137,8 @@ export type Periodo = { desde: string; hasta: string };
 
 /**
  * Entiende periodos comunes: "hoy", "ayer", "esta_semana", "semana_pasada", "este_mes",
- * "mes_pasado", "este_anio", "ultimos_7_dias", "ultimos_30_dias", un mes "YYYY-MM",
- * una fecha suelta o un rango "YYYY-MM-DD..YYYY-MM-DD".
+ * "mes_pasado", "este_anio", "ultimos_7_dias", "ultimos_30_dias", "esta_quincena", "quincena_pasada",
+ * un mes "YYYY-MM" o por nombre ("septiembre"), una fecha suelta o un rango "YYYY-MM-DD..YYYY-MM-DD".
  */
 export function resolverPeriodo(expresion: string | undefined, hoy: string): Periodo | null {
   const valor = (expresion ?? "este_mes").trim();
@@ -141,11 +148,34 @@ export function resolverPeriodo(expresion: string | undefined, hoy: string): Per
     const [anio, mes] = valor.split("-").map(Number) as [number, number];
     return { desde: armarFecha(anio, mes, 1), hasta: armarFecha(anio, mes, 31) };
   }
-  const t = normalizar(valor.replace(/_/g, " ")).replace(/ano/g, "anio");
-  const { anio, mes } = partes(hoy);
+  const t = normalizar(valor.replace(/_/g, " "))
+    .replace(/ano/g, "anio")
+    .replace(/^(la|el|en) /, "");
+  const { anio, mes, dia } = partes(hoy);
+  // La quincena va del 1 al 15 y del 16 al fin de mes.
+  const quincena = (desplazamiento: number) => {
+    const n = anio * 24 + (mes - 1) * 2 + (dia > 15 ? 1 : 0) + desplazamiento;
+    const a = Math.floor(n / 24);
+    const m = Math.floor((n % 24) / 2) + 1;
+    return n % 2 === 0 ? { desde: armarFecha(a, m, 1), hasta: armarFecha(a, m, 15) } : { desde: armarFecha(a, m, 16), hasta: armarFecha(a, m, 31) };
+  };
+  // "septiembre" es el más reciente, este año o el pasado; "septiembre 2025" ese.
+  const mesNombrado = t.match(new RegExp(`^(?:mes de )?(${MESES.join("|")})(?: (?:de |del )?(\\d{4}))?$`));
+  if (mesNombrado) {
+    const m = MESES.indexOf(mesNombrado[1]!) + 1;
+    const a = mesNombrado[2] ? Number(mesNombrado[2]) : m > mes ? anio - 1 : anio;
+    return { desde: armarFecha(a, m, 1), hasta: armarFecha(a, m, 31) };
+  }
   const ultimos = t.match(/^ultimos (\d+) dias$/);
   if (ultimos) return { desde: sumarDias(hoy, -(Number(ultimos[1]) - 1)), hasta: hoy };
   switch (t) {
+    case "quincena":
+    case "esta quincena":
+      return { desde: quincena(0).desde, hasta: hoy };
+    case "quincena pasada":
+      return quincena(-1);
+    case "ultima semana":
+      return { desde: sumarDias(hoy, -6), hasta: hoy };
     case "esta semana": {
       const lunes = sumarDias(hoy, -(diaSemana(hoy) - 1));
       return { desde: lunes, hasta: hoy };
@@ -172,7 +202,7 @@ export function resolverPeriodo(expresion: string | undefined, hoy: string): Per
 
 const EXPRESION_FECHA = new RegExp(
   "\\b(hoy|ayer|antier|anteayer|antes de ayer|(?:el |este )?(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)(?: pasado)?" +
-    "|hace (?:\\d+|un|una|dos|tres|cuatro|cinco|seis) (?:dia|dias|semana|semanas)" +
+    "|hace (?:\\d+|un|una|dos|tres|cuatro|cinco|seis) (?:dia|dias|semana|semanas|mes|meses)|la semana pasada" +
     `|el primero(?: de (?:este mes|${MESES.join("|")}))?|(?:el )?\\d{1,2} de (?:este mes|${MESES.join("|")}))\\b`,
   "g",
 );

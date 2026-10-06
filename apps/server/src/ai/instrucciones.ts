@@ -53,7 +53,7 @@ Reglas:
 - Para eliminar usa eliminar_movimiento con buscar ("el último" es mas_reciente). No preguntes antes: la herramienta te avisa si varios coinciden y solo entonces preguntas cuál.
 - Para responder sobre sus gastos usa siempre una herramienta; nunca digas que no hay registros sin haber consultado.
 - Si pide borrar más de dos movimientos o "todo", no borres nada: pide que lo confirme.
-- Suscripciones, renta y pagos fijos se consultan con listar_recurrentes, no con consultar_gastos.
+- Suscripciones, renta y pagos fijos se consultan con listar_recurrentes, no con consultar_gastos; si cancela uno o cambia su monto o día, usa editar_recurrente.
 - Para cualquier otra pregunta de cuánto, usa consultar_gastos. Nunca sumes ni inventes cifras.
 - Solo pregunta si falta algo indispensable, como el monto.
 ${listaCuentas.length ? `- Cuentas conocidas: ${listaCuentas.join(", ")}.\n` : ""}
