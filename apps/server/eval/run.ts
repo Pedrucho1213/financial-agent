@@ -102,7 +102,8 @@ async function correrCaso(modelo: ReturnType<typeof crearModelo>, caso: Caso): P
  */
 async function rafaga(modelo: ReturnType<typeof crearModelo>) {
   const base = baseVacia();
-  const deps = { ...base, modelo };
+  // Reintentos cortos para no esperar los 30 s reales si algo falla en segundo plano.
+  const deps = { ...base, modelo, reintentosMs: [1000, 3000] };
   const dictados = [
     { texto: "Café 45", monto: "$45" },
     { texto: "Gasolina 700", monto: "$700" },
@@ -117,14 +118,29 @@ async function rafaga(modelo: ReturnType<typeof crearModelo>) {
   // Un fallo dentro de la espera (503 en la app) también cuenta como no respondido.
   const respuestas = await Promise.allSettled(envios);
   const pendientes = respuestas.slice(0, 5).filter((r) => r.status === "rejected" || r.value.pendiente).length;
-  // Espera a que la Mac termine lo que quedó pendiente.
-  for (const d of dictados) await consultarEntrada(base.db, base.usuarioId, d.clientId, 120_000);
-  for (const r of respuestas) if (r.status === "rejected") console.log(`           error en la ráfaga: ${r.reason}`);
+  // Espera a que la Mac termine lo pendiente, reintentos incluidos (hasta 2 minutos).
+  const limite = Date.now() + 120_000;
+  const finales = [];
+  for (const d of dictados) {
+    let estado = await consultarEntrada(base.db, base.usuarioId, d.clientId, 120_000);
+    while (estado?.estado !== "listo" && Date.now() < limite) {
+      await Bun.sleep(500);
+      estado = await consultarEntrada(base.db, base.usuarioId, d.clientId, 10_000);
+    }
+    finales.push({ ...d, estado });
+  }
   const total = Math.round(performance.now() - inicio);
+  for (const r of respuestas) if (r.status === "rejected") console.log(`           error dentro de la espera: ${r.reason}`);
   const ctx = crearContexto({ ...base });
   const guardados = buscarMovimientos(ctx, { periodo: "todo", limite: 50 }).movimientos.map((m) => m.monto).sort();
   const esperados = dictados.map((d) => d.monto).sort();
   const ok = JSON.stringify(guardados) === JSON.stringify(esperados);
+  if (!ok) {
+    for (const f of finales) {
+      const herramientas = (f.estado?.acciones ?? []).map((a) => a.herramienta).join(", ") || "ninguna";
+      console.log(`           ${f.texto}: ${f.estado?.estado} · "${f.estado?.respuesta ?? ""}" · herramientas: ${herramientas}`);
+    }
+  }
   return { ok, pendientes, total, guardados };
 }
 
