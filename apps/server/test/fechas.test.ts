@@ -82,7 +82,9 @@ describe("fechas dichas de otras formas", () => {
     expect(resolverFecha("2026-10-05T00:00:00", HOY)).toBe("2026-10-05");
     expect(resolverFecha("lunes 5 de octubre", HOY)).toBe("2026-10-05");
     expect(resolverFecha("1 de octubre", HOY)).toBe("2026-10-01");
-    expect(resolverFecha("31/02", HOY)).toBe("2026-02-28");
+    // "31/02" no existe: se rechaza y el movimiento queda para revisar.
+    expect(resolverFecha("31/02", HOY)).toBeNull();
+    expect(resolverFecha("31 de febrero", HOY)).toBeNull();
     expect(resolverFecha("13/13", HOY)).toBeNull();
   });
 
@@ -110,5 +112,37 @@ describe("montos dichos con palabras", () => {
     expect(montosDelTexto("Pagué 199 pesos con 90 centavos")).toEqual([199]);
     expect(montoConPalabras("Compré unos tenis de 1,899")).toBe(false);
     expect(montoConPalabras("3 mil")).toBe(true);
+  });
+});
+
+describe("hallazgos de QA", () => {
+  test("los millones no se multiplican por el mil que sigue", () => {
+    expect(montosDelTexto("Vendí mi coche en un millón doscientos mil")).toEqual([1_200_000]);
+    expect(montosDelTexto("un millón quinientos mil pesos")).toEqual([1_500_000]);
+    expect(montosDelTexto("dos millones trescientos cuarenta y cinco mil seiscientos")).toEqual([2_345_600]);
+    expect(montosDelTexto("un millón de pesos")).toEqual([1_000_000]);
+    expect(montosDelTexto("1.5 millones")).toEqual([1_500_000]);
+    expect(montoConPalabras("un millón")).toBe(true);
+  });
+
+  test("fechas: hace un mes, la semana pasada, fechas que no existen y días que aún no llegan", () => {
+    expect(resolverFecha("hace un mes", HOY)).toBe("2026-09-07");
+    expect(resolverFecha("hace 2 meses", HOY)).toBe("2026-08-07");
+    expect(resolverFecha("la semana pasada", HOY)).toBe("2026-09-30");
+    expect(fechaDelTexto("hace un mes pagué 500 de dentista", HOY)).toBe("2026-09-07");
+    // Dicho el 7 de octubre: el 15 es de este año; diciembre todavía no llega, así que es del pasado.
+    expect(resolverFecha("15 de octubre", HOY)).toBe("2026-10-15");
+    expect(resolverFecha("15 de diciembre", HOY)).toBe("2025-12-15");
+    expect(resolverFecha("30/02/2026", HOY)).toBeNull();
+  });
+
+  test("periodos: quincena, mes por nombre y última semana", () => {
+    expect(resolverPeriodo("esta_quincena", HOY)).toEqual({ desde: "2026-10-01", hasta: HOY });
+    expect(resolverPeriodo("quincena_pasada", HOY)).toEqual({ desde: "2026-09-16", hasta: "2026-09-30" });
+    expect(resolverPeriodo("quincena_pasada", "2026-10-20")).toEqual({ desde: "2026-10-01", hasta: "2026-10-15" });
+    expect(resolverPeriodo("quincena_pasada", "2026-01-10")).toEqual({ desde: "2025-12-16", hasta: "2025-12-31" });
+    expect(resolverPeriodo("septiembre", HOY)).toEqual({ desde: "2026-09-01", hasta: "2026-09-30" });
+    expect(resolverPeriodo("noviembre", HOY)).toEqual({ desde: "2025-11-01", hasta: "2025-11-30" });
+    expect(resolverPeriodo("ultima_semana", HOY)).toEqual({ desde: "2026-10-01", hasta: HOY });
   });
 });

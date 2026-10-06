@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { z } from "zod";
 import { crearHerramientas } from "../src/ai/herramientas";
 import type { Contexto } from "../src/finanzas/contexto";
@@ -174,4 +174,59 @@ test("con dos fechas y dos movimientos sin fecha, las reparte en orden", async (
     ],
   });
   expect(r.registrados.map((m: { fecha: string }) => m.fecha)).toEqual(["2026-10-05", "2026-10-06"]);
+});
+
+test("una palabra suelta de la frase no pisa una categoría correcta del modelo", async () => {
+  const { ctx } = preparar();
+  const registrar = async (texto: string, mov: Record<string, unknown>) =>
+    (await llamar(dictado(ctx, texto), "registrar_movimientos", { movimientos: [mov] })).registrados[0];
+  expect((await registrar("Gasté 200 en tacos, súper ricos", { tipo: "gasto", monto: 200, categoria: "Restaurantes" })).categoria).toBe(
+    "Comida > Restaurantes",
+  );
+  expect((await registrar("Compré un agua de 20 en el Oxxo", { tipo: "gasto", monto: 20, categoria: "Antojos" })).categoria).toBe(
+    "Comida > Antojos",
+  );
+  expect((await registrar("Pagué la clase de tenis, 400", { tipo: "gasto", monto: 400, categoria: "Educación" })).categoria).toBe("Educación");
+  // El uso normal sigue contando: "el súper" y "el agua" sí son esas categorías.
+  expect((await registrar("Pagué el agua, 350", { tipo: "gasto", monto: 350, categoria: "Antojos" })).categoria).toBe("Vivienda > Agua");
+  expect((await registrar("Gasté 800 en el súper", { tipo: "gasto", monto: 800 })).categoria).toBe("Comida > Súper");
+});
+
+describe("recurrentes por voz", () => {
+  test("una suscripción en dólares se guarda en dólares y no se suma a los pesos", async () => {
+    const { ctx } = preparar();
+    const r = await llamar(dictado(ctx, "Spotify me cobra 10 dólares cada mes el día 5"), "registrar_recurrente", {
+      nombre: "Spotify",
+      tipo: "suscripcion",
+      monto: 10,
+      frecuencia: "mensual",
+      dia: 5,
+    });
+    expect(r.registrado.monto).toBe("10 USD");
+    crearRecurrente(ctx, { nombre: "Netflix", tipo: "suscripcion", monto: 219, frecuencia: "mensual", dia: 15 });
+    const lista = await llamar(ctx, "listar_recurrentes", {});
+    expect(lista.total_mensual_gastos).toBe("$219");
+    expect(lista.total_mensual_otras_monedas).toEqual(["Spotify: 10 USD"]);
+  });
+
+  test("se cancela y se cambia por nombre, y deshacer regresa al de antes", async () => {
+    const { ctx } = preparar();
+    crearRecurrente(ctx, { nombre: "Netflix", tipo: "suscripcion", monto: 219, frecuencia: "mensual", dia: 15 });
+    crearRecurrente(ctx, { nombre: "Spotify", tipo: "suscripcion", monto: 115, frecuencia: "mensual", dia: 5 });
+
+    const subio = await llamar(dictado(ctx, "Spotify subió a 129"), "editar_recurrente", { nombre: "spotify", cambios: { monto: 129 } });
+    expect(subio.cambiado).toMatchObject({ nombre: "Spotify", monto: "$129" });
+    const cancelado = await llamar({ ...ctx, textoOriginal: "Cancelé Netflix", entradaId: "otra" }, "editar_recurrente", { nombre: "Netflix", cancelar: true });
+    expect(cancelado.cancelado).toMatchObject({ nombre: "Netflix" });
+    expect((await llamar(ctx, "listar_recurrentes", {})).recurrentes.map((r: { nombre: string; monto: string }) => `${r.nombre} ${r.monto}`)).toEqual([
+      "Spotify $129",
+    ]);
+
+    await llamar({ ...ctx, entradaId: "deshaz-1" }, "deshacer", {});
+    await llamar({ ...ctx, entradaId: "deshaz-2" }, "deshacer", {});
+    const despues = (await llamar(ctx, "listar_recurrentes", {})).recurrentes.map((r: { nombre: string; monto: string }) => `${r.nombre} ${r.monto}`);
+    expect(despues.sort()).toEqual(["Netflix $219", "Spotify $115"]);
+
+    expect((await llamar(ctx, "editar_recurrente", { nombre: "Disney", cancelar: true })).error).toContain("Netflix");
+  });
 });
