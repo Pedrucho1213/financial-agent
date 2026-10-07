@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
-import { cuentas } from "../db/schema";
+import { nombreSeguro } from "../auth";
+import { cuentas, usuarios } from "../db/schema";
 import { listarCategorias } from "../finanzas/catalogos";
 import type { Contexto } from "../finanzas/contexto";
 import { montosDeSiempre } from "../finanzas/habitos";
@@ -29,10 +30,12 @@ export function construirInstrucciones(ctx: Contexto): string {
     .where(eq(cuentas.usuarioId, ctx.usuarioId))
     .all()
     .map((c) => c.nombre);
+  // Entre comillas y solo con letras, espacios, punto, apóstrofo o guion: va dentro del prompt.
+  const nombre = nombreSeguro(ctx.db.select({ nombre: usuarios.nombre }).from(usuarios).where(eq(usuarios.id, ctx.usuarioId)).get()?.nombre ?? "");
   const recuerdos = listarMemorias(ctx).map((m) => `- ${m.texto}`);
   const deSiempre = montosDeSiempre(ctx).map((h) => `- ${h}`);
 
-  return `Eres el asistente de finanzas personales del usuario. Hablas español de México.
+  return `Eres el asistente de finanzas personales del usuario. Hablas español de México.${nombre ? ` El usuario se llama "${nombre}": si te saluda, salúdalo por su nombre; no lo repitas en cada respuesta.` : ""}
 Hoy es ${NOMBRES_DIA[diaSemana(ctx.hoy)]} ${ctx.hoy}. Días anteriores: ${semana}. Moneda por omisión: ${ctx.monedaBase}.
 
 Qué haces:

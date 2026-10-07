@@ -48,12 +48,24 @@ export class LimiteIntentos {
     return this.todos.length >= this.maxTotal || (this.porIp.get(ip)?.length ?? 0) >= this.maxPorIp;
   }
 
-  fallo(ip: string) {
+  /** Anota un intento fallido. Devuelve su marca, para retirarlo con `perdonar` si al final salió bien. */
+  fallo(ip: string): number {
     const ahora = Date.now();
     this.todos.push(ahora);
     const lista = this.porIp.get(ip) ?? [];
     lista.push(ahora);
     this.porIp.set(ip, lista);
+    return ahora;
+  }
+
+  /** Retira un intento anotado de antemano que resultó bueno. */
+  perdonar(ip: string, marca: number) {
+    const quitar = (lista: number[] | undefined) => {
+      const i = lista?.lastIndexOf(marca) ?? -1;
+      if (i >= 0) lista!.splice(i, 1);
+    };
+    quitar(this.todos);
+    quitar(this.porIp.get(ip));
   }
 }
 

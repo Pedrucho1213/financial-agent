@@ -4,17 +4,26 @@ Todo va por la misma API: el Atajo, la app (PWA) y el chat. Las rutas bajo `/v1`
 
 ## Registro y dispositivos
 
-Cada iPhone o navegador es un dispositivo con su propio token. Se entra con un código de invitación de 6 caracteres que dura 24 horas y sirve una sola vez.
+Cada iPhone o navegador es un dispositivo con su propio token. Se entra de dos formas:
+
+- Con un **código de invitación** de 6 caracteres que dura 24 horas y sirve una sola vez. Es la única forma de crear una cuenta.
+- Con **usuario y código personal**, que no vencen. Cada cuenta tiene un usuario (por ejemplo `pedro`, sacado de su nombre al crearla) y, si lo pone en Ajustes, un código de 8 a 64 caracteres que no distingue mayúsculas ni espacios de más. El código se guarda con argon2id y no se puede volver a leer. Un usuario que no existe recibe el mismo 401 que un código equivocado. Además del límite por IP, hay dos por usuario en 15 minutos: 10 fallos desde una misma IP frenan esa IP para ese usuario (así un extraño no deja fuera a su dueño), y 100 desde cualquier lado lo frenan del todo. Cada intento cuenta en cuanto llega, aunque lleguen muchos a la vez, y el servidor verifica a lo más 4 códigos al mismo tiempo; los demás reciben 429.
+
+El nombre (`nombre`, con el que saludan la voz, la IA y la app) lleva de 1 a 40 caracteres: letras, espacios, punto, apóstrofo o guion, y empieza con letra.
 
 | Método y ruta | Cuerpo | Respuesta |
 |---|---|---|
 | `GET /v1/invitaciones/:codigo` (pública) | | `{ para: "usuario" \| "dispositivo", nombre? }` (nombre del usuario si es para otro dispositivo). 404 si no existe, 410 si ya se usó o venció |
 | `POST /v1/registro` (pública) | `{ codigo, nombre?, dispositivo }` (nombre obligatorio si la invitación es para un usuario nuevo) | 201 `{ token, usuario: { id, nombre }, dispositivo: { id, nombre } }`. 400, 404, 410 o 429 con `{ error }` |
-| `GET /v1/yo` | | `{ usuario: { id, nombre }, dispositivo: { id, nombre }, dispositivos: [{ id, nombre, creadoEn, ultimoUso, actual }], moneda, zonaHoraria, hoy }` |
+| `POST /v1/entrar` (pública) | `{ usuario, codigo, dispositivo }` | 201 `{ token, usuario: { id, nombre }, dispositivo: { id, nombre } }`, igual que `/v1/registro`. 400 si falta algo, 401 `{ error: "Usuario o código incorrectos." }`, 429 |
+| `GET /v1/yo` | | `{ usuario: { id, nombre, usuario, tieneCodigo }, dispositivo: { id, nombre }, dispositivos: [{ id, nombre, creadoEn, ultimoUso, actual }], moneda, zonaHoraria, hoy }` |
+| `PATCH /v1/yo` | `{ nombre?, usuario?, actual? }`. `usuario`: de 3 a 24 caracteres (letras, números, punto, guion o guion bajo; empieza con letra o número); se guarda sin acentos y en minúsculas. Para cambiar el usuario de una cuenta con código hace falta `actual`, el código actual; el nombre se cambia sin él | `{ usuario: { id, nombre, usuario, tieneCodigo } }`. 400 si no es válido o falta `actual`, 403 si `actual` no es el código, 409 si otra cuenta ya usa ese usuario, 429 |
+| `PUT /v1/yo/codigo` | `{ codigo, actual?, cerrarOtros? }`. `codigo`: de 8 a 64 caracteres. `actual`: el código actual, obligatorio si ya hay uno. Con `cerrarOtros: true` revoca todos los demás dispositivos de la cuenta (para cuando un token pudo quedar en malas manos) | `{ ok: true, cerrados }` (cuántos dispositivos revocó). 400 si es corto, muy fácil de adivinar (todos iguales, 12345678, 87654321, 12121212, "contraseña"...), lleva el usuario o el nombre, o falta `actual`; 403 si `actual` no es el código (no 401: la sesión sigue); 429 después de 10 cambios en una hora o por los límites de arriba |
+| `DELETE /v1/yo/codigo` | `{ actual }` | `{ ok: true }`; desde ahí solo se entra con un código de invitación. 400 si falta `actual`, 403 si no es el código, 429 |
 | `POST /v1/invitaciones` | `{ para: "usuario" \| "dispositivo" }` | 201 `{ codigo, para, expiraEn }`. 429 después de 5 códigos de cuenta nueva o 20 de dispositivo en 24 horas |
 | `DELETE /v1/dispositivos/:id` | | `{ ok: true }` |
 
-Para el primer usuario: `bun run invitar -- --nombre Pedro` crea la cuenta (si no existe) e imprime un código para entrar a ella.
+Para el primer usuario: `bun run invitar -- --nombre Pedro` crea la cuenta (si no hay ninguna) e imprime un código para entrar a ella. Después, `--usuario pedro` (o `--nombre Pedro`) entra a esa cuenta aunque el nombre haya cambiado; una cuenta más se crea solo con `--nueva`.
 
 ## Hablar (Atajo y chat)
 
@@ -81,5 +90,6 @@ Solo los movimientos en la moneda base entran en las sumas.
 | Método y ruta | Cuerpo | Respuesta |
 |---|---|---|
 | `POST /v1/atajo` | `{ servidor }` (la dirección con la que el iPhone llega a la Mac, por ejemplo `location.origin`; tiene que ser este mismo servidor) | 201 `{ url, expiraEn, nombre }`. Crea un dispositivo "Atajo Finanzas" con su propio token (y quita los anteriores que nunca se usaron) y prepara el Atajo firmado. 501 si la Mac no puede firmar |
+| `POST /v1/atajo/entrar` (pública) | `{ usuario, codigo, servidor }` | 201 `{ url, expiraEn, nombre }`, igual que `POST /v1/atajo/canjear` pero con usuario y código personal. 400 si falta algo o `servidor` no es este, 401, 429; 501 si la Mac no puede firmar (no queda ningún token) |
 | `POST /v1/atajo/canjear` (pública) | `{ codigo, servidor }` con un código de dispositivo de una cuenta | 201 `{ url, expiraEn, nombre }`, igual que `POST /v1/atajo` pero sin token: es el enlace `/instalar?codigo=...`. 400 si el código es de cuenta nueva o `servidor` no es este servidor, 404, 410, 429; 501 si la Mac no puede firmar (el código sigue sirviendo) |
 | `GET /atajo/:id.shortcut` (pública, vale 10 minutos y 5 descargas) | | El archivo `Finanzas.shortcut` firmado; el id es aleatorio y solo lo conoce quien pidió el Atajo. 410 después. El enlace sobrevive a un reinicio del servidor: se guarda en la base cifrado con una clave que sale del id, del que solo queda el hash. Un `HEAD` no gasta descargas |

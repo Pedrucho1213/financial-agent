@@ -27,7 +27,189 @@ function crearDispositivoConId(db: Db, usuarioId: string, nombre: string) {
 }
 
 export function crearUsuario(db: Db, nombre: string) {
-  return db.insert(usuarios).values({ nombre }).returning().get();
+  return db.insert(usuarios).values({ nombre, usuario: usuarioLibre(db, nombre) }).returning().get();
+}
+
+// ── Usuario y código personal ─────────────────────────────────────────────────────────────────────
+// Para entrar desde otro dispositivo sin pedir un código de invitación: usuario ("pedro") y un código
+// que la persona elige. El código se guarda con argon2id; el servidor es público, así que además hay
+// límites de intentos por IP (en app.ts) y por usuario.
+
+export const USUARIO_MIN = 3;
+export const USUARIO_MAX = 24;
+export const CODIGO_MIN = 8;
+export const CODIGO_MAX = 64;
+export const NOMBRE_MAX = 40;
+
+export class ErrorCuenta extends Error {
+  constructor(
+    message: string,
+    readonly estado: 400 | 401 | 403 | 409,
+  ) {
+    super(message);
+  }
+}
+
+const sinAcentos = (texto: string) => texto.normalize("NFD").replace(/\p{M}/gu, "");
+
+/** "Pedro Pérez" o " PEDRO " → "pedroperez", "pedro": minúsculas, sin acentos ni espacios. */
+export const normalizarUsuario = (texto: string) =>
+  sinAcentos(texto)
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, "");
+
+/** Un usuario que nadie usa, a partir del nombre: "pedro", "pedro2"... */
+function usuarioLibre(db: Db, nombre: string, excepto?: string): string {
+  const base = (normalizarUsuario(nombre).replace(/^[._-]+/, "").slice(0, USUARIO_MAX - 3) || "usuario").padEnd(USUARIO_MIN, "0");
+  for (let n = 1; ; n++) {
+    const candidato = n === 1 ? base : `${base}${n}`;
+    const dueno = db.select({ id: usuarios.id }).from(usuarios).where(eq(usuarios.usuario, candidato)).get();
+    if (!dueno || dueno.id === excepto) return candidato;
+  }
+}
+
+/** A los usuarios de antes de los códigos personales les pone un usuario sacado de su nombre. */
+export function asignarUsuarios(db: Db) {
+  for (const u of db.select().from(usuarios).where(isNull(usuarios.usuario)).all()) {
+    db.update(usuarios).set({ usuario: usuarioLibre(db, u.nombre, u.id) }).where(eq(usuarios.id, u.id)).run();
+  }
+}
+
+/** El código como se compara: sin espacios de más y sin distinguir mayúsculas (el iPhone pone una al inicio). */
+const normalizarCodigoPersonal = (codigo: string) => codigo.normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase();
+
+/** Códigos que cualquiera prueba primero: "aaaaaaaa", "12345678", "87654321", "12121212", "abcabcab". */
+function esObvio(codigo: string): boolean {
+  const sinEspacios = codigo.replace(/ /g, "");
+  const codigos = [...sinEspacios].map((c) => c.codePointAt(0)!);
+  const pasos = new Set(codigos.slice(1).map((c, i) => c - codigos[i]!));
+  if (pasos.size === 1 && [0, 1, -1].includes([...pasos][0]!)) return true;
+  for (let largo = 1; largo <= 4; largo++) {
+    const pieza = sinEspacios.slice(0, largo);
+    if (pieza.repeat(Math.ceil(sinEspacios.length / largo)).startsWith(sinEspacios)) return true;
+  }
+  return ["contrasena", "contraseña", "password", "qwertyui", "asdfghjk", "finanzas"].some((p) => sinEspacios.includes(p));
+}
+
+/** Lo primero que alguien prueba sabiendo de quién es la cuenta: "pedro2026", "pedropedro". */
+function llevaSuNombre(codigo: string, cuenta: { usuario?: string | null; nombre?: string }): boolean {
+  const plano = sinAcentos(codigo).replace(/ /g, "");
+  const piezas = [cuenta.usuario ?? "", ...(cuenta.usuario ?? "").split(/[._-]/), ...(cuenta.nombre ?? "").split(/\s+/)];
+  return piezas.map(normalizarUsuario).some((pieza) => pieza.length >= 3 && plano.includes(pieza));
+}
+
+/** El código listo para guardar, o ErrorCuenta 400 si es corto, largo o fácil de adivinar para esa cuenta. */
+export function validarCodigoPersonal(codigo: string, cuenta: { usuario?: string | null; nombre?: string } = {}): string {
+  const limpio = normalizarCodigoPersonal(codigo);
+  if ([...limpio].length < CODIGO_MIN) throw new ErrorCuenta(`El código necesita al menos ${CODIGO_MIN} caracteres.`, 400);
+  if ([...limpio].length > CODIGO_MAX) throw new ErrorCuenta(`El código puede tener hasta ${CODIGO_MAX} caracteres.`, 400);
+  if (esObvio(limpio)) throw new ErrorCuenta("Ese código es muy fácil de adivinar. Elige otro.", 400);
+  if (llevaSuNombre(limpio, cuenta)) throw new ErrorCuenta("El código no puede llevar tu usuario ni tu nombre. Elige otro.", 400);
+  return limpio;
+}
+
+/** Guarda un código ya validado con validarCodigoPersonal. */
+export async function ponerCodigo(db: Db, usuarioId: string, codigoValidado: string) {
+  const hash = await Bun.password.hash(codigoValidado, { algorithm: "argon2id" });
+  db.update(usuarios).set({ codigoHash: hash }).where(eq(usuarios.id, usuarioId)).run();
+}
+
+export function quitarCodigo(db: Db, usuarioId: string) {
+  db.update(usuarios).set({ codigoHash: null }).where(eq(usuarios.id, usuarioId)).run();
+}
+
+/**
+ * Para cambiar o quitar el código, o cambiar el usuario, hace falta el código actual: con solo un token
+ * (que pudo salir de un Atajo compartido) no se puede tomar la cuenta. ErrorCuenta 403 si no coincide
+ * (no 401, que en la app cierra la sesión).
+ */
+export async function comprobarCodigoActual(cuenta: { codigoHash: string | null }, actual: string) {
+  const coincide = cuenta.codigoHash
+    ? await Bun.password.verify(normalizarCodigoPersonal(actual), cuenta.codigoHash).catch(() => false)
+    : true;
+  if (!coincide) throw new ErrorCuenta("Ese no es tu código actual.", 403);
+}
+
+/** Revoca todos los dispositivos de la cuenta menos este. Devuelve cuántos. */
+export function cerrarOtrosDispositivos(db: Db, usuarioId: string, excepto: string): number {
+  return db
+    .update(dispositivos)
+    .set({ revocadoEn: new Date().toISOString() })
+    .where(and(eq(dispositivos.usuarioId, usuarioId), isNull(dispositivos.revocadoEn), ne(dispositivos.id, excepto)))
+    .returning({ id: dispositivos.id })
+    .all().length;
+}
+
+/**
+ * El nombre con el que lo saludan la voz, la IA y la app: letras, espacios, punto, apóstrofo y guion.
+ * Entra al prompt de la IA, así que nada de caracteres de control ni de dirección del texto.
+ */
+export function validarNombre(texto: string): string {
+  const nombre = texto.normalize("NFC").trim().replace(/\s+/g, " ");
+  if (!nombre) throw new ErrorCuenta("Escribe tu nombre.", 400);
+  if ([...nombre].length > NOMBRE_MAX) throw new ErrorCuenta(`El nombre puede tener hasta ${NOMBRE_MAX} caracteres.`, 400);
+  if (!/^[\p{L}\p{M}][\p{L}\p{M} .'’-]*$/u.test(nombre)) {
+    throw new ErrorCuenta("El nombre solo puede llevar letras, espacios, punto, apóstrofo o guion.", 400);
+  }
+  return nombre;
+}
+
+/** Un nombre guardado antes de validarlos, listo para el prompt: sin lo que validarNombre no deja. */
+export const nombreSeguro = (texto: string) =>
+  [
+    ...texto
+      .normalize("NFC")
+      .replace(/[^\p{L}\p{M} .'’-]/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim(),
+  ]
+    .slice(0, NOMBRE_MAX)
+    .join("")
+    .trim();
+
+/** Cambia el nombre de saludo o el usuario para entrar. */
+export function cambiarCuenta(db: Db, usuarioId: string, cambios: { nombre?: string; usuario?: string }) {
+  const nuevo: { nombre?: string; usuario?: string } = {};
+  if (cambios.nombre !== undefined) nuevo.nombre = validarNombre(cambios.nombre);
+  if (cambios.usuario !== undefined) {
+    const usuario = normalizarUsuario(cambios.usuario);
+    if (usuario.length < USUARIO_MIN || usuario.length > USUARIO_MAX || !/^[a-z0-9]/.test(usuario)) {
+      throw new ErrorCuenta(
+        `El usuario va de ${USUARIO_MIN} a ${USUARIO_MAX} caracteres: letras, números, punto, guion o guion bajo, y empieza con letra o número.`,
+        400,
+      );
+    }
+    const dueno = db.select({ id: usuarios.id }).from(usuarios).where(eq(usuarios.usuario, usuario)).get();
+    if (dueno && dueno.id !== usuarioId) throw new ErrorCuenta("Ese usuario ya lo usa otra persona.", 409);
+    nuevo.usuario = usuario;
+  }
+  if (Object.keys(nuevo).length) db.update(usuarios).set(nuevo).where(eq(usuarios.id, usuarioId)).run();
+  return db.select().from(usuarios).where(eq(usuarios.id, usuarioId)).get()!;
+}
+
+// Para que un usuario que no existe tarde lo mismo que un código equivocado.
+let hashDeRelleno: Promise<string> | undefined;
+
+/** El usuario dueño de ese usuario y código, o ErrorCuenta 401 (el mismo mensaje si no existe). */
+export async function verificarCodigo(db: Db, usuario: string, codigo: string) {
+  const fila = db.select().from(usuarios).where(eq(usuarios.usuario, normalizarUsuario(usuario))).get();
+  const limpio = normalizarCodigoPersonal(codigo);
+  hashDeRelleno ??= Bun.password.hash("relleno-que-nunca-coincide", { algorithm: "argon2id" });
+  const hash = fila?.codigoHash ?? (await hashDeRelleno);
+  const coincide = await Bun.password.verify(limpio, hash).catch(() => false);
+  if (!fila?.codigoHash || !coincide) throw new ErrorCuenta("Usuario o código incorrectos.", 401);
+  return fila;
+}
+
+/** Entra con usuario y código: crea el dispositivo y devuelve su token, como un código de invitación. */
+export async function entrarConCodigo(db: Db, datos: { usuario: string; codigo: string; dispositivo: string }) {
+  const usuario = await verificarCodigo(db, datos.usuario, datos.codigo);
+  const { token, dispositivo } = crearDispositivoConId(db, usuario.id, datos.dispositivo.trim() || "Dispositivo");
+  return {
+    token,
+    usuario: { id: usuario.id, nombre: usuario.nombre },
+    dispositivo: { id: dispositivo.id, nombre: dispositivo.nombre },
+  };
 }
 
 export const requiereToken = (db: Db) =>
@@ -126,8 +308,12 @@ export function canjearInvitacion(
     }
     let usuario = fila.usuarioId ? tx.select().from(usuarios).where(eq(usuarios.id, fila.usuarioId)).get() : undefined;
     if (!usuario) {
-      const nombre = datos.nombre?.trim();
-      if (!nombre) throw new ErrorInvitacion("Escribe tu nombre.", 400);
+      let nombre: string;
+      try {
+        nombre = validarNombre(datos.nombre ?? "");
+      } catch (error) {
+        throw new ErrorInvitacion((error as Error).message, 400);
+      }
       usuario = crearUsuario(tx as unknown as Db, nombre);
       sembrarCategorias(tx as unknown as Db, usuario.id);
     }
