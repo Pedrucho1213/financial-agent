@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   ARCHIVO_BIENVENIDA,
-  CARPETA_PENDIENTES,
+  ARCHIVO_COLA,
   construirAtajo,
   ErrorFirma,
   firmarAtajo,
@@ -131,8 +131,9 @@ const parametros = (a: Accion) => a.WFWorkflowActionParameters;
 const PERMITIDAS = new Set([
   "comment", "gettext", "setvariable", "repeat.count", "repeat.each", "conditional", "exit",
   "dictatetext", "text.match", "text.replace", "date", "format.date", "number.random",
-  "dictionary", "setitemname", "documentpicker.save", "documentpicker.open", "file.getfoldercontents",
-  "file.delete", "getcurrentlocation", "properties.locations", "downloadurl", "getvalueforkey", "speaktext",
+  "dictionary", "setitemname", "documentpicker.save", "documentpicker.open", "detect.text", "text.split",
+  "text.combine", "appendvariable", "getcurrentlocation", "properties.locations", "downloadurl", "getvalueforkey",
+  "speaktext",
 ]);
 const BLOQUES = new Set(["conditional", "repeat.count", "repeat.each"]);
 
@@ -280,8 +281,8 @@ describe("generarAtajo", () => {
     // La cola se recorre dentro de "Repetir 10 veces": el elemento es "Repeat Item 2".
     const abre = acciones.findIndex((a) => id(a) === "repeat.each" && parametros(a).WFControlFlowMode === 0);
     expect(abre).toBeGreaterThan(indice("repeat.count"));
-    const archivo = acciones.find((a) => id(a) === "setvariable" && parametros(a).WFVariableName === "Archivo")!;
-    expect(parametros(archivo).WFInput).toEqual({
+    const linea = acciones.find((a) => id(a) === "setvariable" && parametros(a).WFVariableName === "Línea")!;
+    expect(parametros(linea).WFInput).toEqual({
       Value: { Type: "Variable", VariableName: "Repeat Item 2" },
       WFSerializationType: "WFTextTokenAttachment",
     });
@@ -299,6 +300,7 @@ describe("generarAtajo", () => {
       }
     }
     for (const nombre of leidas) if (/^Repeat Item( \d+)?$/.test(nombre)) leidas.delete(nombre); // las pone Repetir con cada
+    leidas.delete("Quedan"); // la llena "Agregar a variable"
     for (const nombre of leidas) expect(establecidas.has(nombre)).toBe(true);
   });
 
@@ -333,9 +335,25 @@ describe("comportamiento", () => {
     return typeof d === "string" ? d : (((d as Dict).Value as Dict).string as string);
   };
   // Los de la cola; el otro guardado es la marca de la bienvenida.
-  const guardados = acciones.flatMap((a, k) =>
-    id(a) === "documentpicker.save" && destino(a).startsWith(CARPETA_PENDIENTES) ? [k] : [],
-  );
+  const guardados = acciones.flatMap((a, k) => (id(a) === "documentpicker.save" && destino(a) === ARCHIVO_COLA ? [k] : []));
+  /** La acción cuya salida va en este adjunto (una variable sola como entrada). */
+  const fuente = (adjunto: Dict) => acciones.find((a) => parametros(a).UUID === (adjunto.Value as Dict).OutputUUID)!;
+  /** Los Si y Repetir abiertos justo antes de la acción k, del más externo al más interno. */
+  const abiertosEn = (k: number) => {
+    const abiertos: Accion[] = [];
+    for (const a of acciones.slice(0, k)) {
+      const p = parametros(a);
+      if (!BLOQUES.has(id(a))) continue;
+      if (p.WFControlFlowMode === 0) abiertos.push(a);
+      if (p.WFControlFlowMode === 2) abiertos.pop();
+    }
+    return abiertos;
+  };
+  /** Si la acción k está en la rama "De lo contrario" del Si que la encierra más de cerca. */
+  const enDeLoContrario = (k: number, si: Accion) => {
+    const grupo = parametros(si).GroupingIdentifier;
+    return acciones.slice(acciones.indexOf(si), k).some((a) => parametros(a).GroupingIdentifier === grupo && parametros(a).WFControlFlowMode === 1);
+  };
 
   test("nada que use la red corre antes de guardar el dictado", () => {
     const primerGuardado = guardados[0]!;
@@ -343,11 +361,14 @@ describe("comportamiento", () => {
     for (const red of ["downloadurl", "getcurrentlocation", "properties.locations"]) {
       expect(indice(red)).toBeGreaterThan(primerGuardado);
     }
-    // Y cada envío a /v1/hablar manda un archivo guardado.
-    for (const a of acciones.filter((x) => id(x) === "downloadurl" && parametros(x).WFHTTPMethod === "POST")) {
+    // Y cada envío a /v1/hablar manda un archivo.
+    const envios = acciones.filter((x) => id(x) === "downloadurl" && parametros(x).WFHTTPMethod === "POST");
+    expect(envios).toHaveLength(2); // el dictado y los pendientes de antes
+    for (const a of envios) {
       const p = parametros(a);
       expect(p.WFHTTPBodyType).toBe("File");
       expect(p.Advanced).toBe(true);
+      expect(id(fuente(p.WFRequestVariable as Dict))).toBe("setitemname");
       const encabezados = ((p.WFHTTPHeaders as Dict).Value as Dict).WFDictionaryFieldValueItems as Dict[];
       const pares = encabezados.map((e) => [((e.WFKey as Dict).Value as Dict).string, ((e.WFValue as Dict).Value as Dict).string]);
       expect(pares).toEqual([
@@ -357,18 +378,34 @@ describe("comportamiento", () => {
     }
   });
 
-  test("guarda sin preguntar en la cola, reemplazando, con el client_id como nombre", () => {
-    expect(guardados).toHaveLength(2);
+  test("nunca borra archivos: la cola es un solo archivo que se sobrescribe", () => {
+    // Desde iOS 17 cada borrado pide confirmación; por eso no hay ninguno.
+    expect(acciones.some((a) => id(a).startsWith("file."))).toBe(false);
+    // Antes de enviar (sin ubicación y con ubicación) y al quitar lo que ya llegó.
+    expect(guardados).toHaveLength(3);
     for (const k of guardados) {
       const p = parametros(acciones[k]!);
-      expect(p.WFAskWhereToSave).toBe(false);
-      expect(p.WFSaveFileOverwrite).toBe(true);
-      const destino = p.WFFileDestinationPath as Dict;
-      expect((destino.Value as Dict).string).toBe(`${CARPETA_PENDIENTES}/￼.json`);
-      expect(((destino.Value as Dict).attachmentsByRange as Dict)[`{${CARPETA_PENDIENTES.length + 1}, 1}`]).toEqual({
-        Type: "Variable",
-        VariableName: "ClientID",
-      });
+      expect(p).toMatchObject({ WFAskWhereToSave: false, WFSaveFileOverwrite: true, WFFileDestinationPath: ARCHIVO_COLA });
+      const archivo = fuente(p.WFInput as Dict);
+      expect(id(archivo)).toBe("setitemname");
+      expect(parametros(archivo).WFName).toBe("Finanzas-cola.txt");
+    }
+  });
+
+  test("la cola se lee sin selector antes de guardar y el dictado se agrega al final", () => {
+    const leer = acciones.findIndex((a) => id(a) === "documentpicker.open" && parametros(a).WFGetFilePath === ARCHIVO_COLA);
+    expect(leer).toBeGreaterThan(indice("dictatetext"));
+    expect(leer).toBeLessThan(guardados[0]!);
+    expect(parametros(acciones[leer]!)).toMatchObject({ WFShowFilePicker: false, WFFileErrorIfNotFound: false });
+    const comoTexto = acciones[leer + 1]!;
+    expect(id(comoTexto)).toBe("detect.text");
+    for (const k of guardados.slice(0, 2)) {
+      const contenido = fuente(parametros(fuente(parametros(acciones[k]!).WFInput as Dict)).WFInput as Dict);
+      const texto = (parametros(contenido).WFTextActionText as Dict).Value as Dict;
+      expect(texto.string).toBe("￼\n￼");
+      const [previa, json] = Object.values(texto.attachmentsByRange as Dict) as Dict[];
+      expect(previa!.OutputUUID).toBe(parametros(comoTexto).UUID);
+      expect(json!.OutputName).toStartWith("JSON");
     }
   });
 
@@ -380,36 +417,46 @@ describe("comportamiento", () => {
     expect(campos.sort()).toEqual(["capturado_en", "client_id", "conversacion_id", "lat", "lon", "lugar", "texto"]);
   });
 
-  test("la cola se lee solo después de un envío y sin selector de archivos", () => {
-    const leer = acciones.findIndex((a) => id(a) === "documentpicker.open" && parametros(a).WFGetFilePath === CARPETA_PENDIENTES);
-    expect(leer).toBeGreaterThan(indice("downloadurl"));
-    expect(leer).toBeGreaterThan(guardados[0]!);
-    const p = parametros(acciones[leer]!);
-    expect(p).toMatchObject({ WFShowFilePicker: false, WFFileErrorIfNotFound: false, WFGetFilePath: CARPETA_PENDIENTES });
-    for (const borrar of acciones.filter((a) => id(a) === "file.delete")) {
-      expect(parametros(borrar).WFDeleteFileConfirmDeletion).toBe(false);
+  test("la cola solo se reescribe si el servidor contestó JSON sin pedir reintentar", () => {
+    const limpiar = guardados[2]!;
+    expect(limpiar).toBeGreaterThan(indice("speaktext"));
+    const [claves, reintentar] = abiertosEn(limpiar).slice(-2).reverse().map((a) => parametros(a));
+    expect(claves!.WFCondition).toBe(100);
+    expect(parametros(fuente((claves!.WFInput as Dict).Variable as Dict)).WFGetDictionaryValueType).toBe("All Keys");
+    expect(reintentar!.WFCondition).toBe(101);
+    expect(parametros(fuente((reintentar!.WFInput as Dict).Variable as Dict)).WFDictionaryKey).toBe("reintentar");
+    // Un pendiente que el servidor no recibió vuelve a la cola: está en el "De lo contrario" de esas dos condiciones.
+    const quedarse = acciones.flatMap((a, k) => (id(a) === "appendvariable" ? [k] : []));
+    expect(quedarse).toHaveLength(2);
+    for (const k of quedarse) {
+      expect(parametros(acciones[k]!).WFVariableName).toBe("Quedan");
+      expect(enDeLoContrario(k, abiertosEn(k).at(-1)!)).toBe(true);
     }
   });
 
-  test("solo borra un pendiente si el servidor contestó JSON sin pedir reintentar", () => {
-    const borrados = acciones.flatMap((a, k) => (id(a) === "file.delete" ? [k] : []));
-    expect(borrados).toHaveLength(2);
-    for (const k of borrados) {
-      // Los dos Si que encierran el borrado: "reintentar" sin valor y la contestación con claves.
-      const abiertos: Accion[] = [];
-      for (const a of acciones.slice(0, k)) {
-        const p = parametros(a);
-        if (!BLOQUES.has(id(a))) continue;
-        if (p.WFControlFlowMode === 0) abiertos.push(a);
-        if (p.WFControlFlowMode === 2) abiertos.pop();
-      }
-      const [claves, reintentar] = abiertos.slice(-2).reverse().map((a) => parametros(a));
-      const fuente = (p: Dict) => acciones.find((a) => parametros(a).UUID === ((p.WFInput as Dict).Variable as Dict as { Value: Dict }).Value.OutputUUID)!;
-      expect(claves!.WFCondition).toBe(100);
-      expect(parametros(fuente(claves!)).WFGetDictionaryValueType).toBe("All Keys");
-      expect(reintentar!.WFCondition).toBe(101);
-      expect(parametros(fuente(reintentar!)).WFDictionaryKey).toBe("reintentar");
-    }
+  test("contesta y termina; solo sigue escuchando si el servidor manda seguir", () => {
+    const seguir = acciones.filter((a) => id(a) === "getvalueforkey" && /^seguir/.test(parametros(a).CustomOutputName as string));
+    expect(seguir.map((a) => parametros(a).WFDictionaryKey)).toEqual(["seguir", "seguir"]);
+    // Al final de cada vuelta: Si "Seguir" no tiene valor, Salir.
+    const fin = acciones.findLastIndex((a) => id(a) === "exit");
+    const si = acciones[fin - 1]!;
+    expect(id(si)).toBe("conditional");
+    expect(parametros(si).WFCondition).toBe(101);
+    expect(((parametros(si).WFInput as Dict).Variable as Dict).Value).toEqual({ Type: "Variable", VariableName: "Seguir" });
+    expect(fin).toBeGreaterThan(guardados[2]!);
+  });
+
+  test("el silencio termina sin enviar nada", () => {
+    const dictado = acciones.find((a) => id(a) === "dictatetext" && parametros(a).CustomOutputName === "Dictado")!;
+    const palabras = acciones.findIndex((a) => parametros(a).CustomOutputName === "Palabras dichas");
+    expect(acciones.indexOf(dictado)).toBe(palabras - 1);
+    const si = acciones[palabras + 1]!;
+    expect(parametros(si).WFCondition).toBe(101);
+    const grupo = parametros(si).GroupingIdentifier;
+    const deLoContrario = acciones.findIndex((a) => parametros(a).GroupingIdentifier === grupo && parametros(a).WFControlFlowMode === 1);
+    const rama = acciones.slice(palabras + 2, deLoContrario);
+    expect(rama.at(-1) && id(rama.at(-1)!)).toBe("exit");
+    expect(rama.some((a) => ["downloadurl", "documentpicker.save"].includes(id(a)))).toBe(false);
   });
 
   test("dictado en español de México y respuesta en voz", () => {
@@ -426,10 +473,13 @@ describe("comportamiento", () => {
 
   test("las palabras para terminar", () => {
     const patron = new RegExp(PALABRAS_PARA_TERMINAR, "i");
-    for (const dicho of ["no", "Nada", "listo", "Listo.", "¡Listo!", "ya", "Es todo.", "gracias", " Gracias. "]) {
+    for (const dicho of [
+      "no", "Nada", "listo", "Listo.", "¡Listo!", "ya", "Es todo.", "gracias", " Gracias. ", "No, gracias.",
+      "Ya es todo", "Eso es todo, gracias", "Nada más", "Adiós", "adios", "Terminé", "cancelar",
+    ]) {
       expect(patron.test(dicho)).toBe(true);
     }
-    for (const dicho of ["no sé cuánto gasté", "gasté 50 en tacos", "ya pagué la luz", "listo el súper 800"]) {
+    for (const dicho of ["no sé cuánto gasté", "gasté 50 en tacos", "ya pagué la luz", "listo el súper 800", "Ok", "está bien", "sí"]) {
       expect(patron.test(dicho)).toBe(false);
     }
     const coincidir = acciones.find((a) => parametros(a).WFMatchTextPattern === PALABRAS_PARA_TERMINAR)!;
