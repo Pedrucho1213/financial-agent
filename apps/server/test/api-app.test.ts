@@ -6,7 +6,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { crearApp, type OpcionesApp } from "../src/app";
 import { crearDispositivo, crearInvitacion } from "../src/auth";
 import { abrirBaseDatos } from "../src/db/client";
-import { recurrentes } from "../src/db/schema";
+import { entradas, recurrentes } from "../src/db/schema";
 
 type Json = Record<string, any>;
 
@@ -102,6 +102,11 @@ describe("registro con código de invitación", () => {
     expect((await pedir("/v1/movimientos", { token: ana.token })).cuerpo.total).toBe(0);
     const ajeno = await pedir(`/v1/movimientos/${creado.cuerpo.id}`, { metodo: "DELETE", token: ana.token });
     expect(ajeno.estado).toBe(400);
+    // El detalle de uno ajeno no existe para ella; el dueño sí lo ve.
+    expect((await pedir(`/v1/movimientos/${creado.cuerpo.id}`, { token: ana.token })).estado).toBe(404);
+    const propio = await pedir(`/v1/movimientos/${creado.cuerpo.id}`, { token: pedro.token });
+    expect(propio.estado).toBe(200);
+    expect(propio.cuerpo).toMatchObject({ id: creado.cuerpo.id, montoCentavos: 5000, tipo: "gasto" });
     // Tampoco puede usar las categorías de otro.
     const catsPedro = (await pedir("/v1/categorias", { token: pedro.token })).cuerpo.categorias;
     const r = await pedir("/v1/movimientos", { cuerpo: { tipo: "gasto", monto: 5, categoria_id: catsPedro[0].id }, token: ana.token });
@@ -370,5 +375,58 @@ describe("la app web", () => {
     const r = await app.request("/");
     expect(r.status).toBe(503);
     expect(await r.text()).toContain("web:build");
+  });
+});
+
+describe("estado del sistema", () => {
+  test("dice qué versión corre, cómo está la IA y cuántos dictados suyos siguen pendientes", async () => {
+    const { db, pedir } = montar({
+      estadoIa: async () => ({ modelo: "gemma4:12b-it-qat", disponible: true, cargada: false }),
+      version: { commit: "abc1234", commitEn: "2026-10-07T03:52:00Z" },
+    });
+    const { token, usuario } = await entrar(pedir, db);
+    const otro = await entrar(pedir, db);
+    const ahora = new Date().toISOString();
+    const viejo = new Date(Date.now() - 10 * 86_400_000).toISOString();
+    const fila = (usuarioId: string, clientId: string, estado: "procesando" | "listo" | "error", creadoEn = ahora) => ({
+      usuarioId,
+      clientId,
+      conversacionId: "c",
+      texto: "x",
+      capturadoEn: creadoEn,
+      estado,
+      creadoEn,
+    });
+    db.insert(entradas)
+      .values([
+        fila(usuario.id, "a", "procesando"),
+        fila(usuario.id, "b", "error"),
+        fila(usuario.id, "c", "listo"),
+        fila(usuario.id, "d", "error", viejo),
+        fila(otro.usuario.id, "e", "procesando"),
+      ])
+      .run();
+
+    expect((await pedir("/v1/estado")).estado).toBe(401);
+    const r = await pedir("/v1/estado", { token });
+    expect(r.estado).toBe(200);
+    expect(r.cuerpo.servidor).toMatchObject({ commit: "abc1234", commitEn: "2026-10-07T03:52:00Z" });
+    expect(Date.parse(r.cuerpo.servidor.arrancadoEn)).toBeGreaterThan(0);
+    expect(r.cuerpo.ia).toEqual({ modelo: "gemma4:12b-it-qat", disponible: true, cargada: false });
+    expect(r.cuerpo.cola).toEqual({ pendientes: 1, conError: 1 });
+  });
+
+  test("si no sabe cómo está la IA, la reporta como no disponible", async () => {
+    const { db, pedir } = montar({ estadoIa: async () => Promise.reject(new Error("sin Ollama")) });
+    const { token } = await entrar(pedir, db);
+    const r = await pedir("/v1/estado", { token });
+    expect(r.cuerpo.ia).toMatchObject({ disponible: false, cargada: false });
+    expect(r.cuerpo.servidor.commit).toBeNull();
+  });
+
+  test("la app puede pedir los mosaicos del mapa", async () => {
+    const { pedir } = montar();
+    const r = await pedir("/salud");
+    expect(r.r.headers.get("content-security-policy")).toContain("img-src 'self' data: blob: https://*.basemaps.cartocdn.com");
   });
 });

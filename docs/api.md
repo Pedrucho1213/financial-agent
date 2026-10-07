@@ -13,6 +13,7 @@ Cada iPhone o navegador es un dispositivo con su propio token. Se entra con un c
 | `GET /v1/yo` | | `{ usuario: { id, nombre }, dispositivo: { id, nombre }, dispositivos: [{ id, nombre, creadoEn, ultimoUso, actual }], moneda, zonaHoraria, hoy }` |
 | `POST /v1/invitaciones` | `{ para: "usuario" \| "dispositivo" }` | 201 `{ codigo, para, expiraEn }`. 429 después de 5 códigos de cuenta nueva o 20 de dispositivo en 24 horas |
 | `DELETE /v1/dispositivos/:id` | | `{ ok: true }` |
+| `GET /v1/estado` | | `{ servidor: { commit, commitEn, arrancadoEn }, ia: { modelo, disponible, cargada }, cola: { pendientes, conError } }`. Para Ajustes > Sistema: `commit` y `commitEn` (fecha del commit, o `null`) dicen qué está desplegado; `cargada` = el modelo ya está en memoria; `cola` cuenta tus dictados de los últimos 7 días que siguen procesándose o fallaron |
 
 Para el primer usuario: `bun run invitar -- --nombre Pedro` crea la cuenta (si no existe) e imprime un código para entrar a ella.
 
@@ -45,6 +46,7 @@ Para el primer usuario: `bun run invitar -- --nombre Pedro` crea la cuenta (si n
 |---|---|---|
 | `GET /v1/categorias` | | `{ categorias: [{ id, nombre, nombreCompleto, padreId, tipo, naturaleza }] }` |
 | `GET /v1/movimientos` | `?desde&hasta` o `?periodo=este_mes`, `tipo`, `categoria_id` (incluye hijas), `texto`, `revisar=1`, `limite` (hasta 500, 100 por omisión), `offset` | `{ total, movimientos: MovimientoApp[] }`, del más reciente al más antiguo |
+| `GET /v1/movimientos/:id` | | `MovimientoApp`; 404 si no existe o es de otra cuenta |
 | `POST /v1/movimientos` | `{ tipo, monto, moneda?, categoria_id?, comercio?, descripcion?, cuenta?, fecha? }` | 201 `MovimientoApp` (origen `app`) |
 | `PATCH /v1/movimientos/:id` | los mismos campos, todos opcionales; `null` (o `""`) en `comercio`, `descripcion`, `cuenta` o `categoria_id` borra ese dato | `MovimientoApp` |
 | `DELETE /v1/movimientos/:id` | | `{ ok: true }` |
@@ -52,6 +54,8 @@ Para el primer usuario: `bun run invitar -- --nombre Pedro` crea la cuenta (si n
 | `GET /v1/tablero?mes=YYYY-MM` | mes actual por omisión | ver abajo |
 | `GET /v1/recurrentes` | | `{ recurrentes: [...], total_mensual_gastos, total_mensual_otras_monedas? }`; el total solo suma la moneda base |
 | `GET /v1/resumen` | `?periodo=este_mes`, `tipo=gasto\|ingreso` (gasto por omisión), `agrupar=categoria\|subcategoria\|comercio\|dia\|ninguno` | `{ tipo, desde, hasta, total, cantidad, grupos?, otras_monedas? }` con montos en texto |
+
+En la app, el detalle de un registro está en `/#movimientos?detalle=<id>`; con `<id1>,<id2>` muestra primero la lista de esos registros y con `&editar=1` abre el editor. Ahí llevan las notificaciones.
 
 `GET /v1/tablero`:
 

@@ -76,6 +76,7 @@ function refrescarSiHizoAlgo(acciones: Accion[] | undefined) {
   if (acciones.some(accionCambiaDatos)) olvidarDeshacer();
   void clienteConsultas.invalidateQueries({ queryKey: ["tablero"] });
   void clienteConsultas.invalidateQueries({ queryKey: ["movimientos"] });
+  void clienteConsultas.invalidateQueries({ queryKey: ["plan"] });
 }
 
 export function nuevaConversacion() {

@@ -34,3 +34,23 @@ export async function despertarModelo(ia: Config["ia"], modelo = ia.modelo): Pro
     return false;
   }
 }
+
+export type EstadoIa = { modelo: string; disponible: boolean; cargada: boolean };
+
+/**
+ * Para Ajustes: si el modelo responde y si ya está en memoria (Ollama /api/ps).
+ * Con otro proveedor solo se sabe si contesta; "cargada" es lo mismo que disponible.
+ */
+export async function estadoModelo(ia: Config["ia"], modelo = ia.modelo): Promise<EstadoIa> {
+  const pedir = (url: string, encabezados?: Record<string, string>) =>
+    fetch(url, { headers: encabezados, signal: AbortSignal.timeout(2_000) })
+      .then((r) => (r.ok ? (r.json() as Promise<unknown>) : null))
+      .catch(() => null);
+  if (ia.url.startsWith(ia.ollamaUrl)) {
+    const [ps, tags] = await Promise.all([pedir(`${ia.ollamaUrl}/api/ps`), pedir(`${ia.ollamaUrl}/api/tags`)]);
+    const nombres = (r: unknown) => ((r as { models?: { name?: string }[] } | null)?.models ?? []).map((m) => m.name);
+    return { modelo, disponible: nombres(tags).includes(modelo), cargada: nombres(ps).includes(modelo) };
+  }
+  const lista = await pedir(`${ia.url}/models`, { authorization: `Bearer ${ia.apiKey}` });
+  return { modelo, disponible: lista !== null, cargada: lista !== null };
+}

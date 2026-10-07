@@ -1,6 +1,25 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Copy, Globe, Laptop, LogOut, Share, Smartphone, Tablet, UserPlus, Workflow } from "lucide-react";
-import { useState } from "react";
+import {
+  AtSign,
+  Copy,
+  Eye,
+  EyeOff,
+  GitCommitHorizontal,
+  Globe,
+  Hand,
+  Inbox,
+  KeyRound,
+  Laptop,
+  LogOut,
+  Server,
+  Share,
+  Smartphone,
+  Sparkles,
+  Tablet,
+  UserPlus,
+  Workflow,
+} from "lucide-react";
+import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import { CodigoGrande } from "../components/CasillasCodigo";
 import { Pantalla } from "../components/Pantalla";
@@ -9,6 +28,7 @@ import { Spinner } from "../components/Spinner";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Confirmar } from "../components/ui/dialog";
+import { CampoFila } from "../components/ui/input";
 import { Fila, FilaBoton, Grupo, IconoAjuste } from "../components/ui/lista";
 import { Sheet, SheetContent } from "../components/ui/sheet";
 import { Skeleton } from "../components/ui/skeleton";
@@ -16,6 +36,18 @@ import { api, ErrorApi, mensajeDeError } from "../lib/api";
 import { abrirAtajo } from "../lib/atajo";
 import { useEnLinea } from "../lib/conexion";
 import { claves, useYo } from "../lib/consultas";
+import {
+  CODIGO_MAX,
+  CODIGO_MIN,
+  NOMBRE_MAX,
+  normalizarUsuario,
+  problemaUsuario,
+  USUARIO_MAX,
+  useCambiarCuenta,
+  useEstadoSistema,
+  useGuardarCodigo,
+  useQuitarCodigo,
+} from "../lib/cuenta";
 import { fechaHora, haceCuanto } from "../lib/formato";
 import { cerrarSesion } from "../lib/sesion";
 import type { AtajoPreparado, Dispositivo, InvitacionCreada } from "../lib/tipos";
@@ -48,6 +80,9 @@ export function Ajustes() {
   const [quitar, setQuitar] = useState<Dispositivo | null>(null);
   const [salir, setSalir] = useState(false);
   const [atajoListo, setAtajoListo] = useState<AtajoPreparado | null>(null);
+  const [hoja, setHoja] = useState<"nombre" | "usuario" | "codigo" | null>(null);
+  const [quitarCodigo, setQuitarCodigo] = useState(false);
+  const estado = useEstadoSistema();
 
   const atajo = useMutation({
     mutationFn: () => api<AtajoPreparado>("/v1/atajo", { method: "POST", body: { servidor: window.location.origin } }),
@@ -78,10 +113,15 @@ export function Ajustes() {
     onError: (e) => toast.error(mensajeDeError(e)),
   });
 
+  const sinCodigo = useQuitarCodigo();
+
   const d = yo.data;
+  // Servidores anteriores a "entrar con usuario y código" no mandan estos campos: sus filas no se muestran.
+  const usuario = d?.usuario.usuario;
+  const tieneCodigo = d?.usuario.tieneCodigo;
 
   return (
-    <Pantalla titulo="Ajustes" alRefrescar={() => yo.refetch()}>
+    <Pantalla titulo="Ajustes" alRefrescar={() => Promise.all([yo.refetch(), estado.refetch()])}>
       <div className="space-y-8 pt-2 pb-4">
         <section className="flex items-center gap-4 rounded-[20px] bg-card p-4">
           <span
@@ -104,6 +144,70 @@ export function Ajustes() {
             )}
           </div>
         </section>
+
+        <Grupo
+          titulo="Cuenta"
+          pie={
+            tieneCodigo !== undefined
+              ? "Con tu usuario y tu código puedes entrar desde cualquier iPhone o reinstalar el Atajo sin pedir una invitación."
+              : undefined
+          }
+        >
+          {/* Sin valor a la derecha: el nombre ya está en la tarjeta de arriba. */}
+          <FilaBoton
+            sangria="3.75rem"
+            icono={
+              <IconoAjuste color="#ff9500">
+                <Hand />
+              </IconoAjuste>
+            }
+            titulo="Cómo te saludo"
+            chevron
+            disabled={!d || !enLinea}
+            onClick={() => setHoja("nombre")}
+          />
+          {usuario !== undefined ? (
+            <FilaBoton
+              sangria="3.75rem"
+              icono={
+                <IconoAjuste color="#5856d6">
+                  <AtSign />
+                </IconoAjuste>
+              }
+              titulo="Usuario"
+              valor={<span className="block max-w-[10rem] truncate">{usuario}</span>}
+              chevron
+              disabled={!enLinea}
+              onClick={() => setHoja("usuario")}
+            />
+          ) : null}
+          {tieneCodigo !== undefined ? (
+            <>
+              <FilaBoton
+                sangria="3.75rem"
+                icono={
+                  <IconoAjuste color="#34c759">
+                    <KeyRound />
+                  </IconoAjuste>
+                }
+                titulo={tieneCodigo ? "Cambiar código para entrar" : "Crear código para entrar"}
+                chevron
+                disabled={!enLinea}
+                onClick={() => setHoja("codigo")}
+              />
+              {tieneCodigo ? (
+                <FilaBoton
+                  sangria="3.75rem"
+                  className="pl-[3.75rem] text-destructive"
+                  titulo="Quitar código"
+                  valor={sinCodigo.isPending ? <Spinner className="size-4" /> : undefined}
+                  disabled={!enLinea || sinCodigo.isPending}
+                  onClick={() => setQuitarCodigo(true)}
+                />
+              ) : null}
+            </>
+          ) : null}
+        </Grupo>
 
         <Grupo
           titulo="Atajo de iPhone"
@@ -204,6 +308,10 @@ export function Ajustes() {
           )}
         </Grupo>
 
+        {/* Aquí va <AjustesNotificaciones /> (lo agrega otro hilo). */}
+
+        <Sistema estado={estado} />
+
         <Grupo>
           <FilaBoton className="justify-center text-destructive" onClick={() => setSalir(true)}>
             <LogOut className="size-[18px]" />
@@ -220,6 +328,9 @@ export function Ajustes() {
 
       <HojaInvitacion invitacion={invitacion} alCerrar={() => setInvitacion(null)} />
       <HojaAtajo atajo={atajoListo} alCerrar={() => setAtajoListo(null)} />
+      <HojaNombre abierta={hoja === "nombre"} actual={d?.usuario.nombre ?? ""} alCerrar={() => setHoja(null)} />
+      <HojaUsuario abierta={hoja === "usuario"} actual={usuario ?? ""} alCerrar={() => setHoja(null)} />
+      <HojaCodigo abierta={hoja === "codigo"} cambiar={!!tieneCodigo} usuario={usuario ?? ""} alCerrar={() => setHoja(null)} />
 
       <Confirmar
         abierto={!!quitar}
@@ -233,9 +344,26 @@ export function Ajustes() {
         abierto={salir}
         onAbiertoChange={setSalir}
         titulo="¿Cerrar sesión?"
-        descripcion="Para volver a entrar en este dispositivo necesitarás un código de invitación."
+        descripcion={
+          tieneCodigo
+            ? "Para volver a entrar en este dispositivo usa tu usuario y tu código, o una invitación."
+            : "Para volver a entrar en este dispositivo necesitarás un código de invitación."
+        }
         confirmar="Cerrar sesión"
         onConfirmar={cerrarSesion}
+      />
+      <Confirmar
+        abierto={quitarCodigo}
+        onAbiertoChange={setQuitarCodigo}
+        titulo="¿Quitar tu código?"
+        descripcion="Ya no podrás entrar con tu usuario y código. Para entrar en otro iPhone necesitarás una invitación."
+        confirmar="Quitar"
+        onConfirmar={() =>
+          sinCodigo.mutate(undefined, {
+            onSuccess: () => toast.success("Código quitado"),
+            onError: (e) => toast.error(mensajeDeError(e)),
+          })
+        }
       />
     </Pantalla>
   );
@@ -336,5 +464,421 @@ function HojaInvitacion({ invitacion, alCerrar }: { invitacion: InvitacionCreada
         </SheetContent>
       ) : null}
     </Sheet>
+  );
+}
+
+function Punto({ color }: { color: string }) {
+  return <span aria-hidden className="inline-block size-2.5 shrink-0 rounded-full" style={{ background: color }} />;
+}
+
+/** Estado de la Mac: servidor, IA y dictados en cola. Un servidor viejo responde 404 y solo se avisa. */
+function Sistema({ estado }: { estado: ReturnType<typeof useEstadoSistema> }) {
+  const e = estado.data;
+  const ia = e
+    ? e.ia.cargada
+      ? { color: "#34c759", texto: "Lista" }
+      : e.ia.disponible
+        ? { color: "#ffcc00", texto: "Se carga al hablar" }
+        : { color: "#ff3b30", texto: "No disponible" }
+    : null;
+
+  return (
+    <Grupo titulo="Sistema" aria-label="Sistema">
+      {e === null ? (
+        <Fila>
+          <p className="py-3 text-[15px] text-muted-foreground">Actualiza el servidor para ver su estado.</p>
+        </Fila>
+      ) : e && ia ? (
+        <>
+          <Fila
+            sangria="3.75rem"
+            icono={
+              <IconoAjuste color="#8e8e93">
+                <Server />
+              </IconoAjuste>
+            }
+            titulo="Servidor"
+            subtitulo={`Encendido desde ${haceCuanto(e.servidor.arrancadoEn)}`}
+            valor={
+              <span className="inline-flex">
+                <Punto color="#34c759" />
+                <span className="sr-only">En línea</span>
+              </span>
+            }
+          />
+          <Fila
+            sangria="3.75rem"
+            icono={
+              <IconoAjuste color="#636366">
+                <GitCommitHorizontal />
+              </IconoAjuste>
+            }
+            titulo="Versión"
+            subtitulo={e.servidor.commitEn ? `Desplegada ${haceCuanto(e.servidor.commitEn)}` : undefined}
+            valor={<span className="font-mono text-[15px]">{e.servidor.commit?.slice(0, 7) ?? "Sin dato"}</span>}
+          />
+          <Fila
+            sangria="3.75rem"
+            icono={
+              <IconoAjuste color="linear-gradient(180deg,#5e5ce6,#1c1c1e)">
+                <Sparkles />
+              </IconoAjuste>
+            }
+            titulo="IA"
+            subtitulo={e.ia.modelo}
+            valor={
+              <span className="inline-flex items-center gap-1.5">
+                <Punto color={ia.color} />
+                {ia.texto}
+              </span>
+            }
+          />
+          {/* Con algo en cola, el detalle va abajo: a la derecha no cabe junto al título. */}
+          <Fila
+            sangria="3.75rem"
+            icono={
+              <IconoAjuste color="#007aff">
+                <Inbox />
+              </IconoAjuste>
+            }
+            titulo="Dictados"
+            subtitulo={
+              e.cola.pendientes > 0 || e.cola.conError > 0 ? (
+                <>
+                  {e.cola.pendientes > 0 ? `${e.cola.pendientes} en proceso` : null}
+                  {e.cola.pendientes > 0 && e.cola.conError > 0 ? " · " : null}
+                  {e.cola.conError > 0 ? <span className="text-negative">{e.cola.conError} con error</span> : null}
+                </>
+              ) : undefined
+            }
+            valor={e.cola.pendientes === 0 && e.cola.conError === 0 ? "Nada pendiente" : undefined}
+          />
+        </>
+      ) : estado.isError ? (
+        <Fila>
+          <p className="py-3 text-[15px] text-muted-foreground">{mensajeDeError(estado.error)}</p>
+        </Fila>
+      ) : (
+        <div className="space-y-3 p-4">
+          <Skeleton className="h-5 w-2/3" />
+          <Skeleton className="h-5 w-1/2" />
+        </div>
+      )}
+    </Grupo>
+  );
+}
+
+/** Hoja con Cancelar / Guardar; Intro en el teclado también guarda. */
+function HojaFormulario({
+  titulo,
+  descripcion,
+  puedeGuardar,
+  guardando,
+  alGuardar,
+  alCerrar,
+  children,
+}: {
+  titulo: string;
+  descripcion: string;
+  puedeGuardar: boolean;
+  guardando: boolean;
+  alGuardar: () => void;
+  alCerrar: () => void;
+  children: ReactNode;
+}) {
+  const enLinea = useEnLinea();
+  const listo = puedeGuardar && enLinea && !guardando;
+  return (
+    <SheetContent
+      titulo={titulo}
+      descripcion={descripcion}
+      izquierda={
+        <Button variant="plain" size="text" onClick={alCerrar}>
+          Cancelar
+        </Button>
+      }
+      derecha={
+        <Button variant="plain" size="text" className="font-semibold" disabled={!listo} onClick={alGuardar}>
+          {guardando ? <Spinner className="size-5" etiqueta="Guardando" /> : "Guardar"}
+        </Button>
+      }
+    >
+      <form
+        className="space-y-6 pt-2 pb-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (listo) alGuardar();
+        }}
+      >
+        {children}
+        <button type="submit" hidden aria-hidden tabIndex={-1} />
+      </form>
+    </SheetContent>
+  );
+}
+
+function HojaNombre({ abierta, actual, alCerrar }: { abierta: boolean; actual: string; alCerrar: () => void }) {
+  return (
+    <Sheet open={abierta} onOpenChange={(v) => !v && alCerrar()}>
+      {abierta ? <EditarNombre actual={actual} alCerrar={alCerrar} /> : null}
+    </Sheet>
+  );
+}
+
+function EditarNombre({ actual, alCerrar }: { actual: string; alCerrar: () => void }) {
+  const [nombre, setNombre] = useState(actual);
+  const cambiar = useCambiarCuenta();
+  const limpio = nombre.trim();
+  const guardar = () =>
+    cambiar.mutate(
+      { nombre: limpio },
+      {
+        onSuccess: () => {
+          toast.success("Nombre guardado");
+          alCerrar();
+        },
+      },
+    );
+
+  return (
+    <HojaFormulario
+      titulo="Cómo te saludo"
+      descripcion="Cambia el nombre con el que te saludo"
+      puedeGuardar={limpio.length > 0 && limpio.length <= NOMBRE_MAX && limpio !== actual}
+      guardando={cambiar.isPending}
+      alGuardar={guardar}
+      alCerrar={alCerrar}
+    >
+      <Grupo
+        pie={
+          cambiar.isError ? (
+            <span role="alert" className="text-negative">
+              {mensajeDeError(cambiar.error)}
+            </span>
+          ) : (
+            "Así te llamo cuando hablas conmigo por voz y en la app."
+          )
+        }
+      >
+        <Fila>
+          <label htmlFor="nombre-saludo" className="shrink-0">
+            Nombre
+          </label>
+          <CampoFila
+            id="nombre-saludo"
+            value={nombre}
+            onChange={(e) => {
+              cambiar.reset();
+              setNombre(e.target.value);
+            }}
+            placeholder="Pedro"
+            autoComplete="given-name"
+            autoCapitalize="words"
+            enterKeyHint="done"
+            maxLength={NOMBRE_MAX}
+            autoFocus
+          />
+        </Fila>
+      </Grupo>
+    </HojaFormulario>
+  );
+}
+
+function HojaUsuario({ abierta, actual, alCerrar }: { abierta: boolean; actual: string; alCerrar: () => void }) {
+  return (
+    <Sheet open={abierta} onOpenChange={(v) => !v && alCerrar()}>
+      {abierta ? <EditarUsuario actual={actual} alCerrar={alCerrar} /> : null}
+    </Sheet>
+  );
+}
+
+function EditarUsuario({ actual, alCerrar }: { actual: string; alCerrar: () => void }) {
+  const [texto, setTexto] = useState(actual);
+  const cambiar = useCambiarCuenta();
+  const usuario = normalizarUsuario(texto);
+  const problema = usuario ? problemaUsuario(usuario) : null;
+  // El del servidor (409: ya es de alguien; 400: no es válido) manda sobre la pista local.
+  const error = cambiar.isError ? mensajeDeError(cambiar.error) : problema;
+  const guardar = () =>
+    cambiar.mutate(
+      { usuario },
+      {
+        onSuccess: () => {
+          toast.success("Usuario guardado");
+          alCerrar();
+        },
+      },
+    );
+
+  return (
+    <HojaFormulario
+      titulo="Usuario"
+      descripcion="Cambia tu usuario para entrar"
+      puedeGuardar={!!usuario && !problema && usuario !== actual}
+      guardando={cambiar.isPending}
+      alGuardar={guardar}
+      alCerrar={alCerrar}
+    >
+      <Grupo
+        pie={
+          <>
+            {error ? (
+              <span role="alert" className="block text-negative">
+                {error}
+              </span>
+            ) : usuario && usuario !== texto.trim() ? (
+              <span className="block">Quedará como «{usuario}».</span>
+            ) : null}
+            De 3 a {USUARIO_MAX} caracteres: letras, números, punto, guion o guion bajo. Es con lo que entras en otro iPhone.
+          </>
+        }
+      >
+        <Fila>
+          <label htmlFor="usuario-cuenta" className="shrink-0">
+            Usuario
+          </label>
+          <CampoFila
+            id="usuario-cuenta"
+            value={texto}
+            onChange={(e) => {
+              cambiar.reset();
+              setTexto(e.target.value);
+            }}
+            aria-invalid={!!error}
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="done"
+            maxLength={64}
+            autoFocus
+          />
+        </Fila>
+      </Grupo>
+    </HojaFormulario>
+  );
+}
+
+function HojaCodigo({
+  abierta,
+  cambiar,
+  usuario,
+  alCerrar,
+}: {
+  abierta: boolean;
+  cambiar: boolean;
+  usuario: string;
+  alCerrar: () => void;
+}) {
+  return (
+    <Sheet open={abierta} onOpenChange={(v) => !v && alCerrar()}>
+      {abierta ? <EditarCodigo cambiar={cambiar} usuario={usuario} alCerrar={alCerrar} /> : null}
+    </Sheet>
+  );
+}
+
+/** Crear o cambiar el código. Después de guardarlo no se vuelve a mostrar: el servidor solo guarda su huella. */
+function EditarCodigo({ cambiar, usuario, alCerrar }: { cambiar: boolean; usuario: string; alCerrar: () => void }) {
+  const [codigo, setCodigo] = useState("");
+  const [otraVez, setOtraVez] = useState("");
+  const [ver, setVer] = useState(false);
+  const guardarCodigo = useGuardarCodigo();
+  const corto = codigo.length > 0 && codigo.length < CODIGO_MIN;
+  // Se avisa cuando la confirmación ya no puede coincidir, no a la mitad de escribirla.
+  const noCoinciden = otraVez.length > 0 && otraVez !== codigo && (otraVez.length >= codigo.length || !codigo.startsWith(otraVez));
+  const error = guardarCodigo.isError
+    ? mensajeDeError(guardarCodigo.error)
+    : noCoinciden
+      ? "Los códigos no coinciden."
+      : corto
+        ? `Mínimo ${CODIGO_MIN} caracteres.`
+        : null;
+  const guardar = () =>
+    guardarCodigo.mutate(codigo, {
+      onSuccess: () => {
+        toast.success(cambiar ? "Código cambiado" : "Código creado");
+        alCerrar();
+      },
+    });
+  const campo = {
+    type: ver ? "text" : "password",
+    autoComplete: "new-password",
+    autoCapitalize: "none",
+    autoCorrect: "off",
+    spellCheck: false,
+    maxLength: CODIGO_MAX,
+  } as const;
+
+  return (
+    <HojaFormulario
+      titulo={cambiar ? "Cambiar código" : "Crear código"}
+      descripcion="Código para entrar con tu usuario"
+      puedeGuardar={codigo.length >= CODIGO_MIN && codigo === otraVez}
+      guardando={guardarCodigo.isPending}
+      alGuardar={guardar}
+      alCerrar={alCerrar}
+    >
+      <p className="px-4 text-center text-[15px] leading-snug text-balance text-muted-foreground">
+        Con tu usuario <strong className="font-semibold text-foreground">{usuario}</strong> y este código puedes entrar desde
+        cualquier iPhone o reinstalar el Atajo sin pedir una invitación.
+      </p>
+      {/* Para que el llavero de iOS guarde el código junto al usuario. */}
+      <input type="text" name="username" autoComplete="username" value={usuario} readOnly tabIndex={-1} aria-hidden className="sr-only" />
+      <Grupo
+        pie={
+          <>
+            {error ? (
+              <span role="alert" className="block text-negative">
+                {error}
+              </span>
+            ) : null}
+            Mínimo {CODIGO_MIN} caracteres; mejor una frase que solo tú sepas. Después de guardarlo no se vuelve a mostrar.
+          </>
+        }
+      >
+        <Fila>
+          <label htmlFor="codigo-nuevo" className="w-24 shrink-0">
+            Código
+          </label>
+          <CampoFila
+            id="codigo-nuevo"
+            value={codigo}
+            onChange={(e) => {
+              guardarCodigo.reset();
+              setCodigo(e.target.value);
+            }}
+            enterKeyHint="next"
+            autoFocus
+            {...campo}
+          />
+          <Button
+            variant="plain"
+            size="icon-sm"
+            className="-mr-2"
+            aria-label={ver ? "Ocultar código" : "Mostrar código"}
+            onClick={() => setVer((v) => !v)}
+          >
+            {ver ? <EyeOff /> : <Eye />}
+          </Button>
+        </Fila>
+        <Fila>
+          <label htmlFor="codigo-confirmar" className="w-24 shrink-0">
+            Confirmar
+          </label>
+          <CampoFila
+            id="codigo-confirmar"
+            value={otraVez}
+            onChange={(e) => {
+              guardarCodigo.reset();
+              setOtraVez(e.target.value);
+            }}
+            placeholder="Otra vez"
+            enterKeyHint="done"
+            className="mr-9"
+            {...campo}
+          />
+        </Fila>
+      </Grupo>
+    </HojaFormulario>
   );
 }

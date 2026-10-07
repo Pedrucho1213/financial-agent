@@ -37,12 +37,16 @@ test("entrar, registrar, editar, buscar y ajustes", async ({ page }) => {
   await expect(page.getByText("Tacos Prueba").first()).toBeVisible();
   await expect(page.getByText(/123\.45/).first()).toBeVisible();
 
-  // Editar el monto.
+  // Tocarlo abre su detalle (GET /v1/movimientos/:id); desde ahí se edita el monto.
   await page.getByText("Tacos Prueba").first().click();
+  await expect(page.getByRole("heading", { name: "Tacos Prueba" })).toBeVisible();
+  await page.getByRole("button", { name: "Editar" }).click();
   await expect(hoja).toBeVisible();
   await hoja.locator("#monto").fill("150");
   await hoja.getByRole("button", { name: "Guardar" }).click();
   await expect(hoja).toBeHidden();
+  await expect(page.getByText(/150\.00/).first()).toBeVisible();
+  await page.getByRole("button", { name: "Atrás" }).click();
   await expect(page.getByText(/150\.00/).first()).toBeVisible();
 
   // Buscar.
@@ -60,6 +64,8 @@ test("entrar, registrar, editar, buscar y ajustes", async ({ page }) => {
   await page.getByRole("navigation", { name: "Secciones" }).getByRole("link", { name: "Ajustes" }).click();
   await expect(page.getByText("Pedro").first()).toBeVisible();
   await expect(page.getByText("Este dispositivo").first()).toBeVisible();
+  // Estado del sistema (GET /v1/estado): el servidor responde aunque la IA no esté.
+  await expect(page.getByText("Encendido desde")).toBeVisible();
 
   expect(errores).toEqual([]);
 });

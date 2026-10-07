@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
 import { ApiFalsa, prepararSesion } from "./api-falsa";
+import { ponerEstado } from "./api-falsa-cuenta";
 
 // Capturas para revisar el diseño en claro y oscuro (390×844). No validan nada más.
 const DIR = "e2e/capturas";
@@ -71,9 +72,11 @@ for (const esquema of ["light", "dark"] as const) {
       }
 
       await page.getByText("Starbucks").first().click();
+      await page.getByRole("button", { name: "Editar" }).click();
       await expect(page.getByRole("dialog")).toBeVisible();
       await capturar(page, `editar-${sufijo}`);
       await page.getByRole("button", { name: "Cancelar" }).click();
+      await page.getByRole("button", { name: "Atrás" }).click();
 
       await page.getByRole("button", { name: "Agregar movimiento" }).click();
       await expect(page.getByRole("dialog")).toBeVisible();
@@ -134,6 +137,56 @@ for (const esquema of ["light", "dark"] as const) {
       await expect(page.getByLabel("Tu nombre")).toBeVisible();
       await page.getByLabel("Tu nombre").fill("Pedro");
       await capturar(page, `entrar-${sufijo}`);
+    });
+  });
+}
+
+// Cuenta (usuario y código para entrar) y Sistema en Ajustes; entrar e instalar con usuario y código.
+for (const esquema of ["light", "dark"] as const) {
+  const sufijo = esquema === "light" ? "claro" : "oscuro";
+  test.describe(`capturas cuenta ${sufijo}`, () => {
+    test.use({ colorScheme: esquema });
+
+    test(`cuenta y sistema (${sufijo})`, async ({ page }) => {
+      const api = new ApiFalsa();
+      api.cuenta.tieneCodigo = true;
+      api.cuenta.codigo = "clave-segura-1";
+      ponerEstado(api, { ia: { cargada: false }, cola: { pendientes: 1, conError: 1 } });
+      await prepararSesion(page, api);
+      await page.goto("/#ajustes");
+      await expect(page.getByRole("button", { name: "Cambiar código para entrar" })).toBeVisible();
+      await capturar(page, `ajustes-cuenta-${sufijo}`);
+      const sistema = page.getByRole("region", { name: "Sistema" });
+      await sistema.scrollIntoViewIfNeeded();
+      await expect(sistema.getByText("Se carga al hablar")).toBeVisible();
+      await capturar(page, `ajustes-sistema-${sufijo}`);
+
+      await page.getByRole("button", { name: /^Usuario/ }).click();
+      await page.getByRole("dialog").getByLabel("Usuario").fill("José.Pérez");
+      await capturar(page, `ajustes-usuario-${sufijo}`);
+      await page.getByRole("dialog").getByRole("button", { name: "Cancelar" }).click();
+
+      await page.getByRole("button", { name: "Cambiar código para entrar" }).click();
+      await page.getByRole("dialog").getByLabel("Código", { exact: true }).fill("otra-clave-larga");
+      await page.getByRole("dialog").getByLabel("Confirmar").fill("otra-clave-larga-2");
+      await capturar(page, `ajustes-codigo-${sufijo}`);
+    });
+
+    test(`entrar e instalar con usuario (${sufijo})`, async ({ page }) => {
+      await page.clock.setFixedTime(new Date("2026-10-06T12:30:00-06:00"));
+      await new ApiFalsa().instalar(page);
+      await page.goto("/");
+      await page.getByRole("button", { name: "Entrar con usuario y código" }).click();
+      await page.getByLabel("Usuario").fill("pedro");
+      await page.getByLabel("Código", { exact: true }).fill("no-es-este");
+      await page.getByRole("button", { name: "Entrar", exact: true }).click();
+      await expect(page.getByRole("alert")).toBeVisible();
+      await capturar(page, `entrar-usuario-${sufijo}`);
+
+      await page.goto("/instalar");
+      await page.getByRole("button", { name: "Instalar con usuario y código" }).click();
+      await page.getByLabel("Usuario").fill("pedro");
+      await capturar(page, `instalar-usuario-${sufijo}`);
     });
   });
 }

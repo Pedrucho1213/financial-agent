@@ -1,4 +1,6 @@
 import type { Page, Route } from "@playwright/test";
+import { atenderCuenta } from "./api-falsa-cuenta";
+import { atenderPlan, planInicial } from "./api-falsa-plan";
 
 // API falsa que sigue docs/api.md, para probar la app sin el servidor.
 
@@ -130,15 +132,17 @@ export function movimientosIniciales(): MovimientoApp[] {
       textoOriginal: "gasté 85 en un café en el Starbucks de Reforma",
       cuenta: "BBVA",
       lugar: "Starbucks Reforma",
+      lat: 19.427,
+      lon: -99.1677,
     }),
     mov("2026-10-06", "gasto", 132.5, "Taxi y apps", "Uber", { textoOriginal: "uber de 132.50 a la oficina" }),
-    mov("2026-10-06", "gasto", 52, "Antojos", "Oxxo", { textoOriginal: "52 en el oxxo" }),
-    mov("2026-10-05", "gasto", 1245.9, "Súper", "Walmart", { textoOriginal: "súper en walmart 1245.90", cuenta: "Nu" }),
-    mov("2026-10-05", "gasto", 46, "Antojos", "Oxxo", { textoOriginal: "46 de unas papas en el oxxo" }),
+    mov("2026-10-06", "gasto", 52, "Antojos", "Oxxo", { textoOriginal: "52 en el oxxo", lat: 19.4205, lon: -99.163 }),
+    mov("2026-10-05", "gasto", 1245.9, "Súper", "Walmart", { textoOriginal: "súper en walmart 1245.90", cuenta: "Nu", lat: 19.396, lon: -99.156 }),
+    mov("2026-10-05", "gasto", 46, "Antojos", "Oxxo", { textoOriginal: "46 de unas papas en el oxxo", lat: 19.4206, lon: -99.1631 }),
     mov("2026-10-05", "gasto", 129, "Música", "Spotify", { origen: "importacion" }),
-    mov("2026-10-04", "gasto", 486, "Restaurantes", "La Casa de Toño", { textoOriginal: "cenamos en la casa de toño, 486" }),
+    mov("2026-10-04", "gasto", 486, "Restaurantes", "La Casa de Toño", { textoOriginal: "cenamos en la casa de toño, 486", lat: 19.415, lon: -99.169 }),
     mov("2026-10-04", "gasto", 38, "Antojos", "Oxxo", { textoOriginal: "un agua en el oxxo 38" }),
-    mov("2026-10-03", "gasto", 900, "Gasolina", "Pemex", { origen: "apple_pay", cuenta: "BBVA" }),
+    mov("2026-10-03", "gasto", 900, "Gasolina", "Pemex", { origen: "apple_pay", cuenta: "BBVA", lat: 19.44, lon: -99.19 }),
     mov("2026-10-03", "gasto", 278, "Cine", "Cinépolis", { textoOriginal: "cine 278" }),
     mov("2026-10-03", "transferencia", 2000, null, null, { descripcion: "Traspaso a ahorro", origen: "app", cuenta: "Nu" }),
     mov("2026-10-02", "gasto", 299, "Streaming", "Netflix", { origen: "importacion" }),
@@ -171,6 +175,9 @@ export function movimientosIniciales(): MovimientoApp[] {
 type Peticion = { metodo: string; ruta: string; cuerpo: unknown; consulta: URLSearchParams; autorizacion?: string };
 
 /** Vigencia del archivo del Atajo: 10 minutos después de la hora fija de las pruebas. */
+/** PNG de 1×1 gris claro para los mosaicos del mapa. */
+const MOSAICO = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8+/fvfwAJ+gP9Tq3W0wAAAABJRU5ErkJggg==";
+
 export const ATAJO_EXPIRA = "2026-10-06T18:40:00.000Z";
 
 export class ApiFalsa {
@@ -201,9 +208,17 @@ export class ApiFalsa {
   /** Cuántas de las próximas firmas del Atajo fallan con 501 (el código sigue sirviendo). */
   fallasFirma = 0;
   private atajos = 0;
+  /** Presupuestos, metas, préstamos y MSI (ver api-falsa-plan.ts). */
+  plan = planInicial();
+  /** Datos de la cuenta que se pueden cambiar en Ajustes (ver api-falsa-cuenta.ts). */
+  cuenta = { nombre: "Pedro Ramírez", usuario: "pedro", tieneCodigo: false, codigo: null as string | null };
 
   async instalar(page: Page) {
     await page.route(/\/v1\//, (route) => this.atender(route));
+    // Los mosaicos del mapa no salen a internet en las pruebas: un cuadro liso.
+    await page.route(/basemaps\.cartocdn\.com/, (route) =>
+      route.fulfill({ status: 200, contentType: "image/png", body: Buffer.from(MOSAICO, "base64") }),
+    );
     // El archivo del Atajo llega como descarga, igual que en el servidor: la página no se va.
     await page.route(/\/atajo\/[\w-]+\.shortcut$/, (route) => {
       const url = new URL(route.request().url());
@@ -235,6 +250,16 @@ export class ApiFalsa {
     this.peticiones.push({ metodo, ruta, cuerpo, consulta: url.searchParams, autorizacion: req.headers().authorization });
     const json = (estado: number, datos: unknown) =>
       route.fulfill({ status: estado, contentType: "application/json", body: JSON.stringify(datos) });
+
+    // Usuario, código y estado del sistema: api-falsa-cuenta.ts.
+    // Cada módulo responde con `responder`; si no respondió, la ruta no era suya.
+    let respondido = false;
+    const responder = (estado: number, datos: unknown) => {
+      respondido = true;
+      return json(estado, datos);
+    };
+    await atenderCuenta(this, { metodo, ruta, cuerpo, autorizado: req.headers().authorization === `Bearer ${TOKEN}`, json: responder });
+    if (respondido) return;
 
     // Públicas
     let m = ruta.match(/^\/v1\/invitaciones\/([A-Z0-9]+)$/);
@@ -279,7 +304,7 @@ export class ApiFalsa {
 
     if (metodo === "GET" && ruta === "/v1/yo") {
       return json(200, {
-        usuario: { id: "usr-1", nombre: "Pedro Ramírez" },
+        usuario: { id: "usr-1", nombre: this.cuenta.nombre, usuario: this.cuenta.usuario, tieneCodigo: this.cuenta.tieneCodigo },
         dispositivo: { id: "dis-1", nombre: "iPhone 17 Pro Max" },
         dispositivos: this.dispositivos,
         moneda: "MXN",
@@ -296,6 +321,8 @@ export class ApiFalsa {
       this.dispositivos = this.dispositivos.filter((d) => d.id !== m?.[1]);
       return json(200, { ok: true });
     }
+    await atenderPlan(this, { metodo, ruta, cuerpo, consulta: url.searchParams, json: responder });
+    if (respondido) return;
     if (metodo === "GET" && ruta === "/v1/categorias") return json(200, { categorias: CATEGORIAS });
     if (metodo === "GET" && ruta === "/v1/movimientos") return json(200, this.buscar(url.searchParams));
     if (metodo === "POST" && ruta === "/v1/movimientos") {
@@ -315,6 +342,7 @@ export class ApiFalsa {
       const i = this.movimientos.findIndex((x) => x.id === m?.[1]);
       const actual = this.movimientos[i];
       if (!actual) return json(404, { error: "No existe ese movimiento." });
+      if (metodo === "GET") return json(200, actual);
       if (metodo === "PATCH") {
         const b = cuerpo as Record<string, unknown>;
         const c = "categoria_id" in b ? (CATEGORIAS.find((x) => x.id === b.categoria_id) ?? null) : undefined;
