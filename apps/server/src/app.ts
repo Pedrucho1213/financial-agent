@@ -1,4 +1,6 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
+import { secureHeaders } from "hono/secure-headers";
 import { z } from "zod";
 import { consultarEntrada, type Dependencias, ErrorEnProceso, ErrorIA, hablar } from "./ai/asistente";
 import { ErrorFirma, firmarAtajo, generarAtajo } from "./atajo/generar";
@@ -15,7 +17,7 @@ import {
   revocarDispositivo,
   type VariablesAuth,
 } from "./auth";
-import { usuarios } from "./db/schema";
+import { invitaciones, usuarios } from "./db/schema";
 import { listarCategorias, nombreCompleto } from "./finanzas/catalogos";
 import { crearContexto } from "./finanzas/contexto";
 import {
@@ -29,8 +31,9 @@ import {
 } from "./finanzas/movimientos";
 import { listarRecurrentes } from "./finanzas/recurrentes";
 import { listarMovimientosApp, movimientoApp, tablero } from "./finanzas/vista";
+import { hostsDeLaPeticion, ipDelCliente, LimiteIntentos } from "./lib/limites";
 import { esPregunta } from "./lib/texto";
-import { eq } from "drizzle-orm";
+import { and, eq, gte } from "drizzle-orm";
 import { servirApp } from "./web";
 
 export type OpcionesApp = Dependencias & {
@@ -107,18 +110,49 @@ const esquemaRegistro = z.object({
   dispositivo: z.string().trim().min(1).max(80),
 });
 
-// Un código tiene 31^6 combinaciones; aun así, frena a quien intente adivinarlos.
-// Detrás de Tailscale todas las peticiones llegan desde 127.0.0.1, así que el límite es global.
+// Un código tiene 31^6 combinaciones; aun así, frena a quien intente adivinarlos. El límite es por IP
+// para que un extraño no bloquee a los demás, con un tope total por si llegan de muchas IPs.
 const VENTANA_INTENTOS_MS = 10 * 60_000;
-const MAX_INTENTOS_FALLIDOS = 20;
+const MAX_INTENTOS_POR_IP = 20;
+const MAX_INTENTOS_TOTAL = 200;
 const ATAJO_VIGENCIA_MS = 10 * 60_000;
+// iOS puede pedir el archivo más de una vez al abrirlo; después de eso el enlace ya no sirve.
+const ATAJO_MAX_DESCARGAS = 3;
+// Códigos que una cuenta puede crear al día.
+const MAX_INVITACIONES_DIA = { usuario: 5, dispositivo: 20 };
+// Los cuerpos válidos son de unos cientos de bytes (un dictado, a lo más 2,000 caracteres); esto frena
+// a quien manda megas antes de leerlos.
+const MAX_CUERPO = 16 * 1024;
+
+// La app no carga nada de fuera: scripts y datos solo del mismo origen.
+const POLITICA_CONTENIDO = {
+  defaultSrc: ["'self'"],
+  scriptSrc: ["'self'"],
+  styleSrc: ["'self'", "'unsafe-inline'"],
+  imgSrc: ["'self'", "data:", "blob:"],
+  fontSrc: ["'self'", "data:"],
+  connectSrc: ["'self'"],
+  manifestSrc: ["'self'"],
+  workerSrc: ["'self'"],
+  objectSrc: ["'none'"],
+  baseUri: ["'self'"],
+  formAction: ["'self'"],
+  frameAncestors: ["'none'"],
+};
+
+const cuerpoMuyGrande = (c: Context) => c.json({ error: "La petición es demasiado grande." }, 413);
+
+/** La dirección del Atajo tiene que ser este mismo servidor, como lo ve quien la pide. */
+function servidorPropio(c: Context, servidor: string): boolean {
+  return hostsDeLaPeticion(c).includes(new URL(servidor).host.toLowerCase());
+}
 const NOMBRE_ATAJO = "Atajo Finanzas";
 
 export function crearApp(opciones: OpcionesApp) {
   const { db } = opciones;
   const app = new Hono<{ Variables: VariablesAuth }>();
-  const fallidos: number[] = [];
-  const atajos = new Map<string, { archivo: Uint8Array; expira: number }>();
+  const intentos = new LimiteIntentos(VENTANA_INTENTOS_MS, MAX_INTENTOS_POR_IP, MAX_INTENTOS_TOTAL);
+  const atajos = new Map<string, { archivo: Uint8Array; expira: number; descargas: number }>();
   const firmar = opciones.firmarAtajo ?? firmarAtajo;
   const contexto = (usuarioId: string) =>
     crearContexto({ db, usuarioId, zonaHoraria: opciones.zonaHoraria, monedaBase: opciones.monedaBase });
@@ -131,7 +165,7 @@ export function crearApp(opciones: OpcionesApp) {
     const id = crypto.randomUUID();
     const expira = Date.now() + ATAJO_VIGENCIA_MS;
     for (const [clave, a] of atajos) if (a.expira < Date.now()) atajos.delete(clave);
-    atajos.set(id, { archivo, expira });
+    atajos.set(id, { archivo, expira, descargas: 0 });
     return { url: `/atajo/${id}.shortcut`, expiraEn: new Date(expira).toISOString(), nombre: nombre ?? null };
   };
   const sinFirma = (error: ErrorFirma) => {
@@ -139,33 +173,37 @@ export function crearApp(opciones: OpcionesApp) {
     return { error: "Esta computadora no puede firmar Atajos.", detalle: error.message };
   };
 
+  app.use(
+    secureHeaders({
+      contentSecurityPolicy: POLITICA_CONTENIDO,
+      referrerPolicy: "no-referrer",
+      crossOriginEmbedderPolicy: false,
+    }),
+  );
+  app.use("/v1/*", bodyLimit({ maxSize: MAX_CUERPO, onError: cuerpoMuyGrande }));
   app.get("/salud", (c) => c.json({ ok: true }));
 
   // Rutas públicas: entrar con un código de invitación y descargar el Atajo recién preparado.
   const publico = new Hono();
-  const demasiadosIntentos = () => {
-    const desde = Date.now() - VENTANA_INTENTOS_MS;
-    while (fallidos.length && fallidos[0]! < desde) fallidos.shift();
-    return fallidos.length >= MAX_INTENTOS_FALLIDOS;
-  };
-  const errorInvitacion = (error: unknown) => {
+  const demasiadosIntentos = (c: Context) => intentos.bloqueado(ipDelCliente(c));
+  const errorInvitacion = (c: Context, error: unknown) => {
     if (!(error instanceof ErrorInvitacion)) throw error;
-    if (error.estado !== 400) fallidos.push(Date.now());
+    if (error.estado !== 400) intentos.fallo(ipDelCliente(c));
     return error;
   };
 
   publico.get("/invitaciones/:codigo", (c) => {
-    if (demasiadosIntentos()) return c.json({ error: "Demasiados intentos. Espera unos minutos." }, 429);
+    if (demasiadosIntentos(c)) return c.json({ error: "Demasiados intentos. Espera unos minutos." }, 429);
     try {
       return c.json(consultarInvitacion(db, c.req.param("codigo")));
     } catch (error) {
-      const e = errorInvitacion(error);
+      const e = errorInvitacion(c, error);
       return c.json({ error: e.message }, e.estado);
     }
   });
 
   publico.post("/registro", async (c) => {
-    if (demasiadosIntentos()) return c.json({ error: "Demasiados intentos. Espera unos minutos." }, 429);
+    if (demasiadosIntentos(c)) return c.json({ error: "Demasiados intentos. Espera unos minutos." }, 429);
     const cuerpo = esquemaRegistro.safeParse(sinVacios(await c.req.json().catch(() => null)));
     if (!cuerpo.success) {
       return c.json({ error: "Petición inválida.", detalles: z.flattenError(cuerpo.error).fieldErrors }, 400);
@@ -173,23 +211,24 @@ export function crearApp(opciones: OpcionesApp) {
     try {
       return c.json(canjearInvitacion(db, cuerpo.data), 201);
     } catch (error) {
-      const e = errorInvitacion(error);
+      const e = errorInvitacion(c, error);
       return c.json({ error: e.message }, e.estado);
     }
   });
   // El enlace para instalar el Atajo directo: un código de dispositivo se vuelve el Atajo de esa cuenta.
   publico.post("/atajo/canjear", async (c) => {
-    if (demasiadosIntentos()) return c.json({ error: "Demasiados intentos. Espera unos minutos." }, 429);
+    if (demasiadosIntentos(c)) return c.json({ error: "Demasiados intentos. Espera unos minutos." }, 429);
     const cuerpo = z
       .object({ codigo: z.string().trim().min(6).max(12), servidor: esquemaServidor })
       .safeParse(await c.req.json().catch(() => null));
     if (!cuerpo.success) return c.json({ error: "Faltan el código o la dirección del servidor." }, 400);
     const { codigo, servidor } = cuerpo.data;
+    if (!servidorPropio(c, servidor)) return c.json({ error: "La dirección del servidor no es esta." }, 400);
     let canje: ReturnType<typeof canjearInvitacion>;
     try {
       canje = canjearInvitacion(db, { codigo, dispositivo: NOMBRE_ATAJO, soloCuentaExistente: true });
     } catch (error) {
-      const e = errorInvitacion(error);
+      const e = errorInvitacion(c, error);
       return c.json({ error: e.message }, e.estado);
     }
     try {
@@ -206,10 +245,12 @@ export function crearApp(opciones: OpcionesApp) {
   app.get("/atajo/:archivo", (c) => {
     const id = c.req.param("archivo").replace(/\.shortcut$/, "");
     const atajo = atajos.get(id);
-    if (!atajo || atajo.expira < Date.now()) {
+    if (!atajo || atajo.expira < Date.now() || atajo.descargas >= ATAJO_MAX_DESCARGAS) {
       atajos.delete(id);
       return c.text("Este enlace ya venció. Vuelve a pedir el Atajo desde la app.", 410);
     }
+    // El archivo lleva un token: solo se puede bajar unas pocas veces.
+    if (c.req.method === "GET") atajo.descargas++;
     return c.body(atajo.archivo as Uint8Array<ArrayBuffer>, 200, {
       "Content-Type": "application/octet-stream",
       "Content-Disposition": 'attachment; filename="Finanzas.shortcut"',
@@ -322,6 +363,16 @@ export function crearApp(opciones: OpcionesApp) {
       .safeParse(await c.req.json().catch(() => null));
     if (!cuerpo.success) return c.json({ error: 'Indica para: "usuario" o "dispositivo".' }, 400);
     const usuarioId = c.get("usuarioId");
+    const hace24h = new Date(Date.now() - 86_400_000).toISOString();
+    const creadas = db
+      .select({ usuarioId: invitaciones.usuarioId })
+      .from(invitaciones)
+      .where(and(eq(invitaciones.creadaPor, usuarioId), gte(invitaciones.creadoEn, hace24h)))
+      .all()
+      .filter((i) => (cuerpo.data.para === "usuario" ? !i.usuarioId : !!i.usuarioId)).length;
+    if (creadas >= MAX_INVITACIONES_DIA[cuerpo.data.para]) {
+      return c.json({ error: "Ya creaste muchos códigos hoy. Inténtalo mañana." }, 429);
+    }
     const invitacion = crearInvitacion(db, {
       usuarioId: cuerpo.data.para === "dispositivo" ? usuarioId : undefined,
       creadaPor: usuarioId,
@@ -421,6 +472,7 @@ export function crearApp(opciones: OpcionesApp) {
   v1.post("/atajo", async (c) => {
     const cuerpo = z.object({ servidor: esquemaServidor }).safeParse(await c.req.json().catch(() => null));
     if (!cuerpo.success) return c.json({ error: "Falta la dirección del servidor (servidor)." }, 400);
+    if (!servidorPropio(c, cuerpo.data.servidor)) return c.json({ error: "La dirección del servidor no es esta." }, 400);
     const usuarioId = c.get("usuarioId");
     const { token, dispositivo } = crearDispositivoPara(db, usuarioId, NOMBRE_ATAJO);
     try {
