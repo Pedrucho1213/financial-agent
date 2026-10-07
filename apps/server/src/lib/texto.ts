@@ -43,7 +43,7 @@ export function esPregunta(texto: string): boolean {
 // Órdenes sobre algo ya anotado: "borra el café de 85", "cámbialo a la BBVA". Aunque traigan monto, la
 // respuesta puede ser una pregunta ("¿cuál de los dos?") o decir qué cambió (QA-029).
 const ORDEN_SOBRE_LO_ANOTADO =
-  /\b(borra|borralo|borrala|elimina|eliminalo|eliminala|quita|quitalo|quitala|cambia|cambialo|cambiala|corrige|corrigelo|corrigela|edita|editalo|editala|deshaz|cancela|cancelalo|cancelala|muevelo|muevela|pasalo|pasala)\b/;
+  /\b((borra|elimina|quita|cambia|cancela|edita)(r|lo|la|los|las|me|le|les|melo|mela|rlo|rla)?|pasa(r|lo|la|los|las|me|le|les|melo|mela|rlo|rla)|corrige(lo|la|los|las|me)?|corregir(lo|la)?|mueve(lo|la|los|las|me)?|mover(lo|la)?|deshaz|deshacer)\b/;
 
 /** Si el dictado pide borrar, cambiar o deshacer algo ya registrado. */
 export function esOrdenSobreLoAnotado(texto: string): boolean {
