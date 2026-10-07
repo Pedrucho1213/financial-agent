@@ -417,6 +417,17 @@ describe("tercera vuelta con la IA real", () => {
     expect(todos(ctx)).toHaveLength(4);
   });
 
+  test("\"cambia los 300 del súper\" son pesos, no varios: con dos súper de 300 pregunta cuál", async () => {
+    const { ctx } = preparar();
+    crearMovimiento(ctx, { tipo: "gasto", monto: 300, categoria: "Súper", fecha: "ayer" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 300, categoria: "Súper" });
+    for (const frase of ["Cambia los 300 del súper a 350", "Cambia los trescientos del súper a 350", "Corrige los mil del súper"]) {
+      const r = await llamar(dictado(ctx, frase), "editar_movimiento", { buscar: { texto: "súper", monto: 300 }, cambios: { monto: 350 } });
+      expect(r.error).toContain("Pregunta cuál");
+    }
+    expect(todos(ctx).map((m) => m.monto)).toEqual(["$300", "$300"]);
+  });
+
   test("decir cuántos o señalar uno sigue igual", async () => {
     const { ctx } = preparar();
     for (const monto of [45, 60, 30]) crearMovimiento(ctx, { tipo: "gasto", monto, categoria: "Café" });

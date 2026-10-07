@@ -75,9 +75,11 @@ const SENALA_UNO = new RegExp(
 );
 
 // Pide varios sin decir cuántos: "borra los tacos", "bórralos", "todos", "ambos". Con mas_reciente el
-// modelo borraría solo uno; sin él, el error le da el id de cada uno.
+// modelo borraría solo uno; sin él, el error le da el id de cada uno. "Cambia los 300 del súper" son
+// pesos, no varios.
+const CIFRA = String.raw`(\d|(mil|cien|ciento|\w*cientos|diez|once|doce|trece|catorce|quince|veinte|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa)\b)`;
 const PIDE_VARIOS = new RegExp(
-  String.raw`\b(ambos|ambas|todos|todas|${VERBO}(los|las|melos|melas))\b|\b${VERBO} (los|las) (?!(ultim[oa]s )?(dos|tres|cuatro|cinco|2|3|4|5)\b)`,
+  String.raw`\b(ambos|ambas|todos|todas|${VERBO}(los|las|melos|melas))\b|\b${VERBO} (los|las) (?!(ultim[oa]s )?(dos|tres|cuatro|cinco)\b|${CIFRA})`,
 );
 
 // Algo que se repite: "cada día 15", "cada mes", "mensual", "cada quincena".
