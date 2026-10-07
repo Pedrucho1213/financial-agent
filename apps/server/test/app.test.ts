@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { MockLanguageModelV4 } from "ai/test";
+import { precalentar } from "../src/ai/asistente";
+import { crearHerramientas } from "../src/ai/herramientas";
 import { crearApp } from "../src/app";
+import { crearContexto } from "../src/finanzas/contexto";
 import { crearDispositivo } from "../src/auth";
 import { entradas, usuarios } from "../src/db/schema";
 import { llamada, preparar, texto } from "./ayuda";
@@ -31,20 +34,21 @@ describe("API", () => {
   });
 
   test("registra lo que se dicta y responde para leer en voz alta", async () => {
-    const { hablar, get } = montar([
+    const { hablar, get, modelo } = montar([
       llamada("registrar_movimientos", {
         movimientos: [
           { tipo: "gasto", monto: 60, categoria: "Café" },
           { tipo: "gasto", monto: 800, categoria: "Gasolina" },
         ],
       }),
-      texto("**Listo**, café de $60 y gasolina de $800."),
     ]);
     const r = await hablar({ texto: "café 60 y gasolina 800", client_id: "dictado-0001", lat: 19.43, lon: -99.13, lugar: "" });
     expect(r.status).toBe(200);
     const cuerpo = (await r.json()) as { respuesta: string; conversacion_id: string; acciones: unknown[] };
     expect(cuerpo.respuesta).toBe("Listo, café de $60 y gasolina de $800.");
     expect(cuerpo.acciones).toHaveLength(1);
+    // Solo registró: la confirmación sale de lo guardado, sin otra vuelta del modelo.
+    expect(modelo.doGenerateCalls).toHaveLength(1);
     const lista = (await (await get("/v1/movimientos")).json()) as { total: number };
     expect(lista.total).toBe(2);
   });
@@ -52,9 +56,7 @@ describe("API", () => {
   test("coordenadas con coma y fechas raras del iPhone no rechazan el dictado", async () => {
     const { hablar, db } = montar([
       llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 85, categoria: "Café" }] }),
-      texto("Listo."),
       llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 85, categoria: "Café" }] }),
-      texto("Listo."),
     ]);
     const r = await hablar({
       texto: "gasté 85 en café",
@@ -81,13 +83,12 @@ describe("API", () => {
   test("el mismo dictado reenviado por la cola no se registra dos veces", async () => {
     const { hablar, get, modelo } = montar([
       llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 85, categoria: "Café" }] }),
-      texto("Listo."),
     ]);
     const cuerpo = { texto: "gasté 85 en café", client_id: "dictado-0002" };
     await hablar(cuerpo);
     const segunda = (await (await hablar(cuerpo)).json()) as { duplicado?: boolean };
     expect(segunda.duplicado).toBe(true);
-    expect(modelo.doGenerateCalls).toHaveLength(2);
+    expect(modelo.doGenerateCalls).toHaveLength(1);
     expect(((await (await get("/v1/movimientos")).json()) as { total: number }).total).toBe(1);
   });
 
@@ -98,10 +99,10 @@ describe("API", () => {
     const modelo = new MockLanguageModelV4({
       doGenerate: async () => {
         intento++;
+        // Registra uno de los dos gastos y se cae antes del segundo.
         if (intento === 1) return llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 50 }] });
         if (intento === 2) throw new Error("Ollama no responde");
-        if (intento === 3) return llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 50 }] });
-        return texto("Listo.");
+        return llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 50 }, { tipo: "gasto", monto: 30 }] });
       },
     });
     const app = crearApp({ db, modelo, zonaHoraria: "America/Mexico_City", monedaBase: "MXN" });
@@ -109,14 +110,32 @@ describe("API", () => {
       app.request("/v1/hablar", {
         method: "POST",
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-        body: JSON.stringify({ texto: "gasté 50", client_id: "dictado-0003" }),
+        body: JSON.stringify({ texto: "gasté 50 en tacos y 30 en refresco", client_id: "dictado-0003" }),
       });
     expect((await pedir()).status).toBe(503);
     const vacia = await app.request("/v1/movimientos", { headers: { authorization: `Bearer ${token}` } });
     expect(((await vacia.json()) as { total: number }).total).toBe(0);
     expect((await pedir()).status).toBe(200);
     const llena = await app.request("/v1/movimientos", { headers: { authorization: `Bearer ${token}` } });
-    expect(((await llena.json()) as { total: number }).total).toBe(1);
+    expect(((await llena.json()) as { total: number }).total).toBe(2);
+  });
+
+  test("precalentar manda las mismas instrucciones y herramientas sin ejecutar nada", async () => {
+    const { db, usuario } = preparar();
+    const modelo = new MockLanguageModelV4({
+      doGenerate: [llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 50 }] }), texto("Listo.")] as never,
+    });
+    const deps = { db, modelo, zonaHoraria: "America/Mexico_City", monedaBase: "MXN" };
+    // Abrir el Atajo varias veces seguidas precalienta una sola vez.
+    await Promise.all([precalentar(deps, usuario.id), precalentar(deps, usuario.id), precalentar(deps, usuario.id)]);
+    expect(modelo.doGenerateCalls).toHaveLength(1);
+    expect(modelo.doGenerateCalls[0]?.maxOutputTokens).toBe(1);
+    const ctx = crearContexto({ ...deps, usuarioId: usuario.id });
+    expect(modelo.doGenerateCalls[0]?.tools).toHaveLength(Object.keys(crearHerramientas(ctx, [])).length);
+    const app = crearApp(deps);
+    const token = crearDispositivo(db, usuario.id, "iPhone");
+    const lista = await app.request("/v1/movimientos", { headers: { authorization: `Bearer ${token}` } });
+    expect(((await lista.json()) as { total: number }).total).toBe(0);
   });
 
   test("la conversación recuerda lo anterior", async () => {
@@ -148,11 +167,10 @@ describe("API", () => {
   test("un 'Listo' sin haber guardado nada se reintenta una vez", async () => {
     const { hablar, get, modelo } = montar([
       texto("Listo, Netflix de $219."),
-      llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 219, categoria: "Streaming" }] }),
-      texto("Listo, Netflix de $219."),
+      llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 219, comercio: "Netflix" }] }),
     ]);
     const r = (await (await hablar({ texto: "Netflix me cobró 219", client_id: "dictado-0007" })).json()) as { respuesta: string };
-    expect(r.respuesta).toBe("Listo, Netflix de $219.");
+    expect(r.respuesta).toStartWith("Listo, Netflix de $219");
     expect(JSON.stringify(modelo.doGenerateCalls[1]?.prompt)).toContain("no se guardó ni se consultó nada");
     expect(((await (await get("/v1/movimientos")).json()) as { total: number }).total).toBe(1);
   });

@@ -1,5 +1,5 @@
-import { reanudarPendientes } from "./ai/asistente";
-import { crearModelo, despertarModelo } from "./ai/modelo";
+import { precalentar, reanudarPendientes } from "./ai/asistente";
+import { crearModelo } from "./ai/modelo";
 import { crearApp } from "./app";
 import { config } from "./config";
 import { abrirBaseDatos } from "./db/client";
@@ -9,7 +9,7 @@ const deps = { db, modelo: crearModelo(config.ia), zonaHoraria: config.zonaHorar
 const app = crearApp({
   ...deps,
   espera: config.espera,
-  despertar: () => despertarModelo(config.ia),
+  despertar: (usuarioId) => precalentar(deps, usuarioId),
   carpetaWeb: config.carpetaWeb,
 });
 

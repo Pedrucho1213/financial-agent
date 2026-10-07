@@ -24,7 +24,9 @@ export const config = {
     apiKey: env("IA_API_KEY", "ollama"),
     // Solo para Ollama: permite despertar el modelo antes de que termines de dictar.
     ollamaUrl: process.env.OLLAMA_URL?.trim() || "http://localhost:11434",
-    mantenerCargado: env("IA_MANTENER_CARGADO", "10m"),
+    // Ollama 0.32.5 todavía ignora este valor en su API compatible con OpenAI y usa OLLAMA_KEEP_ALIVE
+    // (5 minutos por omisión); se manda igual para cuando lo lea. Abrir el Atajo vuelve a cargarlo.
+    mantenerCargado: env("IA_MANTENER_CARGADO", "5m"),
     // Cuánto "piensa" el modelo antes de responder (none, low, medium, high; "no" para no mandarlo).
     // gemma4 acierta igual sin razonar y así contesta en segundos; gpt-oss necesita al menos low.
     razonamiento: env("IA_RAZONAMIENTO", "none"),
