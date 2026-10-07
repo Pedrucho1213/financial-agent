@@ -10,7 +10,7 @@ Con el enlace que imprime `bun run invitar -- --nombre Pedro --url https://TU-MA
 2. Abre la descarga desde el botón de descargas de Safari o desde **Archivos > Descargas**.
 3. Se abre Atajos con "Finanzas": toca **Agregar atajo**.
 
-Safari no le pasa el archivo a Atajos por su cuenta; por eso el paso 2. El archivo descargado dura 10 minutos en la Mac; si se vence, vuelve a tocar el botón. El código del enlace sirve una vez y, si la Mac no pudo firmar, sigue sirviendo. Cada instalación crea un dispositivo "Atajo Finanzas" con su token, que puedes quitar desde Ajustes; los que se prepararon y nunca se usaron se quitan solos al preparar uno nuevo.
+Safari no le pasa el archivo a Atajos por su cuenta; por eso el paso 2. El archivo descargado dura 10 minutos en la Mac; si se vence, vuelve a tocar el botón. El código del enlace sirve una vez y, si la Mac no pudo firmar, sigue sirviendo. Cada instalación crea un dispositivo "Atajo Finanzas" con su token, que puedes quitar desde Ajustes; los que se prepararon en la última media hora y nunca se usaron se quitan solos al preparar uno nuevo.
 
 Necesita iCloud Drive encendido para Atajos (Ajustes > tu nombre > iCloud > iCloud Drive), porque ahí guarda los dictados antes de enviarlos.
 

@@ -1,4 +1,4 @@
-import { and, eq, isNull, ne } from "drizzle-orm";
+import { and, eq, gte, isNull, ne } from "drizzle-orm";
 import { createMiddleware } from "hono/factory";
 import type { Db } from "./db/client";
 import { dispositivos, invitaciones, usuarios } from "./db/schema";
@@ -144,8 +144,12 @@ export function canjearInvitacion(
   });
 }
 
-/** Al preparar un Atajo nuevo, los que se prepararon antes y nunca se usaron sobran (instalaciones que no terminaron). */
+/**
+ * Al preparar un Atajo nuevo, los que se prepararon hace poco y nunca se usaron sobran (instalaciones que
+ * no terminaron). Solo los de la última media hora: uno más viejo puede estar instalado en otro iPhone.
+ */
 export function revocarAtajosSinUsar(db: Db, usuarioId: string, nombre: string, excepto: string) {
+  const desde = new Date(Date.now() - 30 * 60_000).toISOString();
   db.update(dispositivos)
     .set({ revocadoEn: new Date().toISOString() })
     .where(
@@ -154,6 +158,7 @@ export function revocarAtajosSinUsar(db: Db, usuarioId: string, nombre: string, 
         eq(dispositivos.nombre, nombre),
         isNull(dispositivos.ultimoUso),
         isNull(dispositivos.revocadoEn),
+        gte(dispositivos.creadoEn, desde),
         ne(dispositivos.id, excepto),
       ),
     )
