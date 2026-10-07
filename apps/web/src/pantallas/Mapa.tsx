@@ -143,7 +143,7 @@ export function Mapa() {
           ) : null}
         </div>
 
-        <Grupo pie="Las calles se piden a CARTO, que así sabe qué zona del mapa ves (no tus gastos). Apagado, nada sale de tu iPhone.">
+        <Grupo pie="Las calles se piden a CARTO, que así ve qué zona del mapa miras; en el detalle de un gasto, esa zona es donde pagaste. Apagado, nada sale de tu iPhone.">
           <Fila>
             <label htmlFor="mostrar-calles" className="min-w-0 flex-1 py-2.5">
               Mostrar calles

@@ -66,12 +66,17 @@ function iconoDispositivo(nombre: string) {
   return Smartphone;
 }
 
+const letras = typeof Intl.Segmenter === "function" ? new Intl.Segmenter("es", { granularity: "grapheme" }) : null;
+const primeraLetra = (texto: string) =>
+  (letras ? letras.segment(texto)[Symbol.iterator]().next().value?.segment : Array.from(texto)[0]) ?? "";
+
 function iniciales(nombre: string) {
   return nombre
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase())
+    // La primera letra completa: un emoji o una letra con acento son varios caracteres.
+    .map((p) => primeraLetra(p).toUpperCase())
     .join("");
 }
 
@@ -493,7 +498,7 @@ function Sistema({ estado }: { estado: ReturnType<typeof useEstadoSistema> }) {
               </IconoAjuste>
             }
             titulo="Servidor"
-            subtitulo={`Encendido desde ${haceCuanto(e.servidor.arrancadoEn)}`}
+            subtitulo={e.servidor ? `Encendido desde ${haceCuanto(e.servidor.arrancadoEn)}` : undefined}
             valor={
               <span className="inline-flex">
                 <Punto color="#34c759" />
@@ -501,17 +506,20 @@ function Sistema({ estado }: { estado: ReturnType<typeof useEstadoSistema> }) {
               </span>
             }
           />
-          <Fila
-            sangria="3.75rem"
-            icono={
-              <IconoAjuste color="#636366">
-                <GitCommitHorizontal />
-              </IconoAjuste>
-            }
-            titulo="Versión"
-            subtitulo={e.servidor.commitEn ? `Desplegada ${haceCuanto(e.servidor.commitEn)}` : undefined}
-            valor={<span className="font-mono text-[15px]">{e.servidor.commit?.slice(0, 7) ?? "Sin dato"}</span>}
-          />
+          {/* La versión solo le llega al dueño de la instalación. */}
+          {e.servidor ? (
+            <Fila
+              sangria="3.75rem"
+              icono={
+                <IconoAjuste color="#636366">
+                  <GitCommitHorizontal />
+                </IconoAjuste>
+              }
+              titulo="Versión"
+              subtitulo={e.servidor.commitEn ? `Desplegada ${haceCuanto(e.servidor.commitEn)}` : undefined}
+              valor={<span className="font-mono text-[15px]">{e.servidor.commit?.slice(0, 7) ?? "Sin dato"}</span>}
+            />
+          ) : null}
           <Fila
             sangria="3.75rem"
             icono={

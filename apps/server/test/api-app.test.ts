@@ -449,6 +449,32 @@ describe("estado del sistema", () => {
     expect(r.cuerpo.servidor.commit).toBeNull();
   });
 
+  test("versión, modelo y arranque solo los ve la primera cuenta (el dueño); la cola, cada quien la suya", async () => {
+    const { db, pedir } = montar({
+      estadoIa: async () => ({ modelo: "gemma4:12b-it-qat", disponible: true, cargada: true }),
+      version: { commit: "abc1234", commitEn: "2026-10-07T03:52:00Z" },
+    });
+    const dueno = await entrar(pedir, db);
+    const otro = await entrar(pedir, db);
+    const r = await pedir("/v1/estado", { token: otro.token });
+    expect(r.estado).toBe(200);
+    expect(r.cuerpo).toEqual({ servidor: null, ia: { disponible: true, cargada: true }, cola: { pendientes: 0, conError: 0 } });
+    expect((await pedir("/v1/estado", { token: dueno.token })).cuerpo.servidor.commit).toBe("abc1234");
+  });
+
+  test("a la IA le pregunta como mucho cada 10 segundos", async () => {
+    let preguntas = 0;
+    const { db, pedir } = montar({
+      estadoIa: async () => {
+        preguntas++;
+        return { modelo: "m", disponible: true, cargada: false };
+      },
+    });
+    const { token } = await entrar(pedir, db);
+    await Promise.all([pedir("/v1/estado", { token }), pedir("/v1/estado", { token }), pedir("/v1/estado", { token })]);
+    expect(preguntas).toBe(1);
+  });
+
   test("la app puede pedir los mosaicos del mapa", async () => {
     const { pedir } = montar();
     const r = await pedir("/salud");

@@ -47,7 +47,7 @@ import { montosParaVoz } from "./lib/dinero";
 import { hostsDeLaPeticion, ipDelCliente, LimiteIntentos } from "./lib/limites";
 import { montosDelTexto } from "./lib/numeros";
 import { esOrdenSobreLoAnotado, esPregunta } from "./lib/texto";
-import { and, count, eq, gte } from "drizzle-orm";
+import { and, count, eq, gte, sql } from "drizzle-orm";
 import { rutasPlanes } from "./rutas-planes";
 import { servirApp } from "./web";
 import type { EstadoIa } from "./ai/modelo";
@@ -664,6 +664,21 @@ export function crearApp(opciones: OpcionesApp) {
   v1.post("/deshacer", (c) => c.json(deshacer(contexto(c.get("usuarioId")))));
 
   // Ajustes > Sistema: qué versión corre, desde cuándo, si la IA está lista y si hay dictados atorados.
+  // Ajustes lo pide al abrirse: a Ollama se le pregunta como mucho cada 10 s, la pidan cuantos la pidan.
+  let iaReciente: { en: number; estado: Promise<EstadoIa> } | null = null;
+  const estadoIaReciente = () => {
+    if (!iaReciente || Date.now() - iaReciente.en > 10_000) {
+      const estado = (opciones.estadoIa?.() ?? Promise.resolve(null))
+        .catch(() => null)
+        .then((e) => e ?? { modelo: "", disponible: false, cargada: false });
+      iaReciente = { en: Date.now(), estado };
+    }
+    return iaReciente.estado;
+  };
+  // El dueño es la primera cuenta (la que crea `bun run invitar -- --nombre ...` en una base vacía).
+  const esDueno = (usuarioId: string) =>
+    db.select({ id: usuarios.id }).from(usuarios).orderBy(usuarios.creadoEn, sql`rowid`).limit(1).get()?.id === usuarioId;
+
   v1.get("/estado", async (c) => {
     const usuarioId = c.get("usuarioId");
     // Solo la última semana: un error viejo ya no dice nada del estado de hoy.
@@ -674,11 +689,14 @@ export function crearApp(opciones: OpcionesApp) {
         .from(entradas)
         .where(and(eq(entradas.usuarioId, usuarioId), eq(entradas.estado, estado), gte(entradas.creadoEn, desde)))
         .get()?.n ?? 0;
-    const ia = (await opciones.estadoIa?.().catch(() => null)) ?? { modelo: "", disponible: false, cargada: false };
+    const { modelo, disponible, cargada } = await estadoIaReciente();
+    const cola = { pendientes: contar("procesando"), conError: contar("error") };
+    // El servidor es público: qué código y qué modelo corren, y desde cuándo, solo lo ve el dueño de la instalación.
+    if (!esDueno(usuarioId)) return c.json({ servidor: null, ia: { disponible, cargada }, cola });
     return c.json({
       servidor: { commit: opciones.version?.commit ?? null, commitEn: opciones.version?.commitEn ?? null, arrancadoEn },
-      ia,
-      cola: { pendientes: contar("procesando"), conError: contar("error") },
+      ia: { modelo, disponible, cargada },
+      cola,
     });
   });
 

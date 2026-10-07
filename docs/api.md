@@ -22,7 +22,7 @@ El nombre (`nombre`, con el que saludan la voz, la IA y la app) lleva de 1 a 40 
 | `DELETE /v1/yo/codigo` | `{ actual }` | `{ ok: true }`; desde ahí solo se entra con un código de invitación. 400 si falta `actual`, 403 si no es el código, 429 |
 | `POST /v1/invitaciones` | `{ para: "usuario" \| "dispositivo" }` | 201 `{ codigo, para, expiraEn }`. 429 después de 5 códigos de cuenta nueva o 20 de dispositivo en 24 horas |
 | `DELETE /v1/dispositivos/:id` | | `{ ok: true }` |
-| `GET /v1/estado` | | `{ servidor: { commit, commitEn, arrancadoEn }, ia: { modelo, disponible, cargada }, cola: { pendientes, conError } }`. Para Ajustes > Sistema: `commit` y `commitEn` (fecha del commit, o `null`) dicen qué está desplegado; `cargada` = el modelo ya está en memoria; `cola` cuenta tus dictados de los últimos 7 días que siguen procesándose o fallaron |
+| `GET /v1/estado` | | `{ servidor: { commit, commitEn, arrancadoEn }, ia: { modelo, disponible, cargada }, cola: { pendientes, conError } }`. Para Ajustes > Sistema: `commit` y `commitEn` (fecha del commit, o `null`) dicen qué está desplegado; `cargada` = el modelo ya está en memoria; `cola` cuenta tus dictados de los últimos 7 días que siguen procesándose o fallaron. `servidor` y `ia.modelo` solo los ve el dueño de la instalación (la primera cuenta); a las demás les llega `servidor: null` y la IA sin `modelo`. A Ollama se le pregunta como mucho cada 10 s |
 
 Para el primer usuario: `bun run invitar -- --nombre Pedro` crea la cuenta (si no hay ninguna) e imprime un código para entrar a ella. Después, `--usuario pedro` (o `--nombre Pedro`) entra a esa cuenta aunque el nombre haya cambiado; una cuenta más se crea solo con `--nueva`.
 

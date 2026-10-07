@@ -15,9 +15,12 @@ export type UsuarioCuenta = { id: string; nombre: string; usuario: string; tiene
 
 /** GET /v1/estado */
 export type EstadoSistema = {
-  /** commit: hash corto de lo desplegado; commitEn: fecha de ese commit; arrancadoEn: cuándo arrancó. */
-  servidor: { commit: string | null; commitEn: string | null; arrancadoEn: string };
-  ia: { modelo: string; disponible: boolean; cargada: boolean };
+  /**
+   * commit: hash corto de lo desplegado; commitEn: fecha de ese commit; arrancadoEn: cuándo arrancó.
+   * Solo los ve el dueño de la instalación (la primera cuenta), igual que el modelo: a los demás les llega null.
+   */
+  servidor: { commit: string | null; commitEn: string | null; arrancadoEn: string } | null;
+  ia: { modelo?: string; disponible: boolean; cargada: boolean };
   /** Dictados de esta persona (últimos 7 días) que la Mac sigue procesando o que fallaron. */
   cola: { pendientes: number; conError: number };
 };

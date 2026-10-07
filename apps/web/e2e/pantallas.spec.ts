@@ -33,6 +33,41 @@ test.describe("Detalle de un registro", () => {
     expect(api.de("PATCH", `/v1/movimientos/${pemex.id}`)[0]?.cuerpo).toEqual({ descripcion: "Tanque lleno" });
   });
 
+  test("editar=1 se quita de la dirección, y otra notificación igual con la app abierta lo abre otra vez", async ({ page }) => {
+    const api = await prepararSesion(page);
+    const pemex = api.movimientos.find((m) => m.comercio === "Pemex")!;
+    await page.goto(`/#movimientos?detalle=${pemex.id}&editar=1`);
+    const hoja = page.getByRole("dialog");
+    await expect(hoja).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`detalle=${pemex.id}$`));
+    await hoja.getByRole("button", { name: "Cancelar" }).click();
+    await expect(hoja).toBeHidden();
+    // Recargar no lo vuelve a abrir.
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Pemex" })).toBeVisible();
+    await page.waitForTimeout(400);
+    await expect(hoja).toBeHidden();
+    // Tocar otra notificación de ese pago con la app abierta: el service worker manda la dirección.
+    const avisar = (url: string) =>
+      page.evaluate((u) => navigator.serviceWorker.dispatchEvent(new MessageEvent("message", { data: { tipo: "fa:abrir", url: u } })), url);
+    await avisar(`/#movimientos?detalle=${pemex.id}&editar=1`);
+    await expect(hoja).toBeVisible();
+    await hoja.getByRole("button", { name: "Cancelar" }).click();
+    // Y la de otro pago abre el editor de ese otro.
+    await avisar("/#movimientos?detalle=mov-001&editar=1");
+    await expect(hoja).toBeVisible();
+    await expect(hoja.locator("#monto")).toHaveValue("85");
+  });
+
+  test("varios registros con editar=1: tocar uno abre su editor", async ({ page }) => {
+    await prepararSesion(page);
+    await page.goto("/#movimientos?detalle=mov-002,mov-003&editar=1");
+    await expect(page.getByRole("heading", { name: "2 registros" })).toBeVisible();
+    await page.getByRole("button", { name: /^Oxxo/ }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await expect(page).toHaveURL(/detalle=mov-003$/);
+  });
+
   test("un dictado con varios registros muestra la lista y cada uno abre su detalle", async ({ page }) => {
     await prepararSesion(page);
     await page.goto("/#movimientos?detalle=mov-002,mov-003");
