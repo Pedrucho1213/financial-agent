@@ -99,6 +99,8 @@ const CASOS: Caso[] = [
   { id: "QA-077", frase: "Gasté 120 en tacos", previos: ["Gasté 120 en tacos"], verificar: (r) => ok(r.movimientos.length === 1 && !/no alcanc/i.test(r.respuesta), { mov: r.movimientos.length, resp: r.respuesta }) },
   { id: "QA-077", frase: "Sí", previos: ["Gasté 120 en tacos", "Gasté 120 en tacos"], verificar: (r) => ok(r.movimientos.length === 2, { mov: r.movimientos.length, resp: r.respuesta }) },
   { id: "QA-077", frase: "No, es el mismo", previos: ["Gasté 120 en tacos", "Gasté 120 en tacos"], verificar: (r) => ok(r.movimientos.length === 1, { mov: r.movimientos.length, resp: r.respuesta }) },
+  { id: "QA-079", frase: "Gasté 200 en tacos, perdón, y 100 en refresco", verificar: (r) => ok(r.movimientos.length === 2, r.movimientos) },
+  { id: "QA-079", frase: "Me llegó la quincena", verificar: (r) => ok(r.movimientos.length === 0 && pregunta(r) && !r.herramientas.some((h) => h.startsWith("registrar_movimientos")), { resp: r.respuesta, h: r.herramientas }) },
   { id: "nuevo", frase: "Uber 89, Didi 120 y un Rappi de 250", verificar: (r) => ok(r.movimientos.length === 3 && r.movimientos.filter((m) => cat(m, "Taxi y apps")).length === 2 && r.movimientos.some((m) => cat(m, "Delivery")), r.movimientos) },
   { id: "nuevo", frase: "Gasté 450 en la farmacia, no, perdón, fueron 540", verificar: (r) => ok(r.movimientos.length === 1 && r.movimientos[0]!.monto === "$540", r.movimientos) },
 ];
