@@ -66,13 +66,21 @@ const fechaOpcional = z.preprocess((v) => {
   return Number.isNaN(fecha.getTime()) ? undefined : fecha.toISOString();
 }, z.string().optional());
 
+// iOS nombra "Ubicación" a la ubicación actual cuando no le pone nombre de lugar: eso no es un lugar.
+const LUGAR_GENERICO = /^(mi |tu )?(ubicaci[oó]n( actual)?|current location|location)$/i;
+
 const esquemaHablar = z.object({
   texto: z.string().trim().min(1).max(2000),
   client_id: z.string().trim().min(8).max(100),
   conversacion_id: z.string().trim().max(100).optional(),
   lat: numeroOpcional(-90, 90),
   lon: numeroOpcional(-180, 180),
-  lugar: z.string().trim().max(300).optional(),
+  lugar: z
+    .string()
+    .trim()
+    .max(300)
+    .optional()
+    .transform((lugar) => (lugar && !LUGAR_GENERICO.test(lugar) ? lugar : undefined)),
   capturado_en: fechaOpcional,
   // Para clientes que prefieren esperar otra cantidad (la prueba de modelos espera todo).
   espera_ms: z.coerce.number().int().min(0).max(MAX_ESPERA_MS).optional(),
