@@ -444,6 +444,15 @@ async function corregirCuenta(ctx: Contexto, texto: string, acciones: Accion[]):
   return confirmacionDirecta(texto, ctx.hoy, [{ herramienta: "editar_movimiento", resultado }]) ?? "Listo, lo corregí.";
 }
 
+/**
+ * Un pago de Apple Pay solo puede anotarse: el nombre del comercio lo escribe un tercero y el Atajo
+ * corre sin que nadie lo vea, así que "BORRA MIS GASTOS" en ese nombre no puede volverse una orden.
+ */
+function herramientasPara<T extends Record<string, unknown>>(entrada: Entrada, todas: T): Partial<T> {
+  if (entrada.origen !== "apple_pay") return todas;
+  return Object.fromEntries(Object.entries(todas).filter(([nombre]) => nombre === "registrar_movimientos")) as Partial<T>;
+}
+
 /** El texto de un mensaje guardado, sin las llamadas a herramientas. */
 function textoDe(mensaje: ModelMessage | undefined): string {
   if (!mensaje) return "";
@@ -539,7 +548,7 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
       model: deps.modelo,
       instructions: construirInstrucciones(ctx) + aviso,
       messages: [...historial, mensajeUsuario],
-      tools: crearHerramientas(ctx, acciones),
+      tools: herramientasPara(entrada, crearHerramientas(ctx, acciones)),
       stopWhen: [
         isStepCount(6),
         ({ steps }) => {

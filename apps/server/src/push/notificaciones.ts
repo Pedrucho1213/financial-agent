@@ -39,13 +39,21 @@ export function clavesVapid(db: Db): ClavesVapid {
 export class ErrorSuscripcion extends Error {}
 
 /** Guarda (o actualiza) la suscripción de este dispositivo. Un dispositivo tiene a lo más una. */
-export function suscribir(db: Db, usuarioId: string, dispositivoId: string, datos: Suscripcion & { contacto: string }) {
+export function suscribir(db: Db, usuarioId: string, dispositivoId: string, datos: Suscripcion & { contacto: string; enIphone?: boolean }) {
   if (!endpointValido(datos.endpoint)) throw new ErrorSuscripcion("Ese servicio de notificaciones no está permitido.");
   db.transaction((tx) => {
     tx.delete(suscripcionesPush).where(eq(suscripcionesPush.dispositivoId, dispositivoId)).run();
     tx.delete(suscripcionesPush).where(eq(suscripcionesPush.endpoint, datos.endpoint)).run();
     tx.insert(suscripcionesPush)
-      .values({ usuarioId, dispositivoId, endpoint: datos.endpoint, p256dh: datos.p256dh, auth: datos.auth, contacto: datos.contacto })
+      .values({
+        usuarioId,
+        dispositivoId,
+        endpoint: datos.endpoint,
+        p256dh: datos.p256dh,
+        auth: datos.auth,
+        contacto: datos.contacto,
+        enIphone: datos.enIphone ?? false,
+      })
       .run();
   });
 }
@@ -70,12 +78,13 @@ export function tieneSuscripciones(db: Db, usuarioId: string): boolean {
 }
 
 /**
- * Si algún dispositivo de la cuenta recibe notificaciones: el Atajo puede contestar corto y avisar por ahí.
- * Una suscripción cuyo último envío falló no cuenta, para que el Atajo vuelva a contestar en voz; se le
- * sigue mandando todo y en cuanto una llega, vuelve a contar.
+ * Si la app de un iPhone de la cuenta recibe notificaciones: el Atajo puede contestar corto y avisar por
+ * ahí. Las de la Mac u otro navegador no cuentan: el iPhone que dictó no las vería. Una suscripción cuyo
+ * último envío falló tampoco, para que el Atajo vuelva a contestar en voz; se le sigue mandando todo y en
+ * cuanto una llega, vuelve a contar.
  */
 export function tienePush(db: Db, usuarioId: string): boolean {
-  return suscripcionesDe(db, usuarioId).some((s) => !s.ultimoError);
+  return suscripcionesDe(db, usuarioId).some((s) => s.enIphone && !s.ultimoError);
 }
 
 /** Estado para la app: si este dispositivo está suscrito y la llave para suscribirse. */

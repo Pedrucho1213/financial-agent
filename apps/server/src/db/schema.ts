@@ -381,6 +381,8 @@ export const suscripcionesPush = sqliteTable(
     auth: text("auth").notNull(),
     // mailto: o https: para el servicio de push (Apple lo pide): la dirección desde la que se activó.
     contacto: text("contacto").notNull(),
+    // Si es la app de un iPhone: solo entonces el Atajo puede contestar corto y avisar por ahí.
+    enIphone: integer("en_iphone", { mode: "boolean" }).notNull().default(false),
     creadoEn: creadoEn(),
     ultimoEnvio: text("ultimo_envio"),
     ultimoError: text("ultimo_error"),

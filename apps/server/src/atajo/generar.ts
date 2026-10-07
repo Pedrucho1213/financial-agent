@@ -27,6 +27,11 @@ export class ErrorFirma extends Error {
  */
 export const ARCHIVO_COLA = "/Finanzas-cola.txt";
 /**
+ * La cola del Atajo de Apple Pay, aparte: la automatización corre sola y podría escribir mientras el Atajo
+ * "Finanzas" reescribe la suya, y ese pago se perdería. Cada Atajo solo reescribe su propia cola.
+ */
+export const ARCHIVO_COLA_APPLE_PAY = "/Finanzas-applepay-cola.txt";
+/**
  * Lo que termina la conversación: una frase hecha solo de despedidas ("listo", "no, gracias", "ya es todo",
  * "adiós"), sin distinguir mayúsculas. "Ok" o "está bien" no: si el asistente preguntó algo, son un sí.
  */
@@ -544,8 +549,8 @@ export const PROPIEDADES_TRANSACCION = { monto: "Amount", comercio: "Merchant", 
 
 /**
  * El Atajo "Finanzas Apple Pay": lo corre la automatización de la Cartera al pagar con Apple Pay. Manda el
- * pago al servidor sin decir nada; lo anotado llega por notificación. El pago queda primero en la misma cola
- * que el Atajo "Finanzas", así que si no hay internet lo reenvía ese Atajo la próxima vez que se use.
+ * pago al servidor sin decir nada; lo anotado llega por notificación. El pago queda primero en su propia cola
+ * (ARCHIVO_COLA_APPLE_PAY); si no hay internet, se reenvía la próxima vez que pagues con Apple Pay.
  * Corrido a mano (sin pago) es una prueba: da los permisos de red y ubicación y dice si todo está listo.
  */
 export function construirAtajoApplePay(opciones: Omit<OpcionesAtajo, "nombre">): Record<string, ValorPlist> {
@@ -558,8 +563,8 @@ export function construirAtajoApplePay(opciones: Omit<OpcionesAtajo, "nombre">):
   a.accion("comment", {
     WFCommentActionText:
       "Finanzas Apple Pay: lo corre la automatización de la Cartera al pagar con Apple Pay y anota el pago sin decir nada; " +
-      "te llega una notificación para agregar detalles. Si no hay internet, el pago queda en iCloud Drive/Shortcuts/Finanzas-cola.txt " +
-      "y lo manda el Atajo Finanzas la próxima vez. Córrelo una vez a mano para darle permisos.",
+      "te llega una notificación para agregar detalles. Si no hay internet, el pago queda en iCloud Drive/Shortcuts/Finanzas-applepay-cola.txt " +
+      "y se manda la próxima vez que pagues con Apple Pay. Córrelo una vez a mano para darle permisos.",
   });
 
   const fecha = a.conSalida("date", "Fecha", { WFDateActionMode: "Current Date" });
@@ -590,27 +595,58 @@ export function construirAtajoApplePay(opciones: Omit<OpcionesAtajo, "nombre">):
       WFReplaceTextRegularExpression: true,
     });
 
+  const nombreCola = ARCHIVO_COLA_APPLE_PAY.split("/").at(-1)!;
+  const guardarCola = (contenido: Ref, sufijo: string) => {
+    const archivo = a.conSalida("setitemname", `Archivo de la cola${sufijo}`, { WFInput: adjunto(contenido), WFName: nombreCola });
+    a.accion("documentpicker.save", {
+      WFInput: adjunto(archivo),
+      WFAskWhereToSave: false,
+      WFFileDestinationPath: ARCHIVO_COLA_APPLE_PAY,
+      WFSaveFileOverwrite: true,
+    });
+  };
+  const enviar = (nombre: string, archivo: Ref) =>
+    a.conSalida("downloadurl", nombre, {
+      WFURL: `${base}/v1/hablar`,
+      WFHTTPMethod: "POST",
+      Advanced: true,
+      ShowHeaders: true,
+      WFHTTPHeaders: diccionario([
+        ["Authorization", `Bearer ${token}`],
+        ["Content-Type", "application/json"],
+      ]),
+      WFHTTPBodyType: "File",
+      WFRequestVariable: adjunto(archivo),
+    });
+  /** El servidor contestó JSON sin pedir reintentar: ese pago ya quedó (igual que en el Atajo "Finanzas"). */
+  const siYaQuedo = (contestacion: Salida, sufijo: string, entonces: () => void, siNo?: () => void) =>
+    a.si(
+      a.valor(`reintentar${sufijo}`, contestacion, "reintentar"),
+      SIN_VALOR,
+      () => {
+        const claves = a.conSalida("getvalueforkey", `Claves${sufijo}`, {
+          WFInput: adjunto(contestacion),
+          WFGetDictionaryValueType: "All Keys",
+        });
+        a.si(claves, TIENE_VALOR, entonces, siNo);
+      },
+      siNo,
+    );
+
+  // Lo que quedó de pagos anteriores sin internet (vacío si no existe).
+  const archivoCola = a.conSalida("documentpicker.open", "Cola guardada", {
+    WFShowFilePicker: false,
+    WFGetFilePath: ARCHIVO_COLA_APPLE_PAY,
+    WFFileErrorIfNotFound: false,
+  });
+  const colaPrevia = a.conSalida("detect.text", "Pendientes anteriores", { WFInput: adjunto(archivoCola) });
+
   // Solo un pago de verdad (con monto) va a la cola; la prueba a mano no.
   const monto = a.texto("Monto del pago", pago("monto"));
   const conMonto = a.conSalida("text.match", "Trae monto", { WFMatchTextPattern: "\\d", text: texto(monto) });
   a.si(conMonto, TIENE_VALOR, () => {
     const linea = comoLinea(" para la cola", basicos);
-    const archivoCola = a.conSalida("documentpicker.open", "Cola guardada", {
-      WFShowFilePicker: false,
-      WFGetFilePath: ARCHIVO_COLA,
-      WFFileErrorIfNotFound: false,
-    });
-    const colaPrevia = a.conSalida("detect.text", "Pendientes anteriores", { WFInput: adjunto(archivoCola) });
-    const archivo = a.conSalida("setitemname", "Archivo de la cola", {
-      WFInput: adjunto(a.texto("Cola con el pago", colaPrevia, "\n", linea)),
-      WFName: ARCHIVO_COLA.split("/").at(-1)!,
-    });
-    a.accion("documentpicker.save", {
-      WFInput: adjunto(archivo),
-      WFAskWhereToSave: false,
-      WFFileDestinationPath: ARCHIVO_COLA,
-      WFSaveFileOverwrite: true,
-    });
+    guardarCola(a.texto("Cola con el pago", colaPrevia, "\n", linea), " con el pago");
   });
 
   // Dónde pagaste, para el mapa de gastos. Va después de guardar: puede necesitar internet.
@@ -622,17 +658,26 @@ export function construirAtajoApplePay(opciones: Omit<OpcionesAtajo, "nombre">):
 
   const json = comoLinea("", [...basicos, ["lat", latitud], ["lon", longitud]]);
   const archivo = a.conSalida("setitemname", "Pago para enviar", { WFInput: adjunto(json), WFName: "pago.json" });
-  const contestacion = a.conSalida("downloadurl", "Contestación", {
-    WFURL: `${base}/v1/hablar`,
-    WFHTTPMethod: "POST",
-    Advanced: true,
-    ShowHeaders: true,
-    WFHTTPHeaders: diccionario([
-      ["Authorization", `Bearer ${token}`],
-      ["Content-Type", "application/json"],
-    ]),
-    WFHTTPBodyType: "File",
-    WFRequestVariable: adjunto(archivo),
+  // Sin conexión, esta acción detiene el Atajo con un error; el pago ya quedó en la cola.
+  const contestacion = enviar("Contestación", archivo);
+
+  // Con red: se reenvían los pagos que quedaron de antes y la cola se queda solo con los que no llegaron.
+  siYaQuedo(contestacion, " al reenviar", () => {
+    const quedan = variable("Quedan");
+    a.establecer("Quedan", a.texto("Ninguno pendiente", ""));
+    const lineas = a.conSalida("text.split", "Líneas de la cola", { text: texto(colaPrevia), WFTextSeparator: "New Lines" });
+    a.repetirConCada(lineas, (elemento) => {
+      const linea = a.establecer("Línea", elemento);
+      const conDatos = a.conSalida("text.match", "Línea con datos", { WFMatchTextPattern: "\\S", text: texto(linea) });
+      a.si(conDatos, TIENE_VALOR, () => {
+        const pendiente = a.conSalida("setitemname", "Pendiente para enviar", { WFInput: adjunto(linea), WFName: "pago.json" });
+        const contestacionPendiente = enviar("Contestación del pendiente", pendiente);
+        const quedarse = () => a.accion("appendvariable", { WFVariableName: "Quedan", WFInput: adjunto(linea) });
+        siYaQuedo(contestacionPendiente, " del pendiente", () => {}, quedarse);
+      });
+    });
+    const restantes = a.conSalida("text.combine", "Pendientes que quedan", { text: adjunto(quedan), WFTextSeparator: "New Lines" });
+    guardarCola(a.texto("Cola sin lo enviado", restantes, "\n"), " sin lo enviado");
   });
   // Corrido a mano: dice si quedó listo.
   a.si(conMonto, SIN_VALOR, () => {
@@ -648,7 +693,8 @@ export function construirAtajoApplePay(opciones: Omit<OpcionesAtajo, "nombre">):
     WFWorkflowHasShortcutInputVariables: true,
     WFWorkflowIcon: { WFWorkflowIconGlyphNumber: 59395, WFWorkflowIconStartColor: 255 }, // signo de pesos, negro
     WFWorkflowImportQuestions: [],
-    WFWorkflowInputContentItemClasses: TIPOS_DE_ENTRADA,
+    // La transacción de la Cartera es su propio tipo de entrada (WorkflowKit, iOS 27).
+    WFWorkflowInputContentItemClasses: [...TIPOS_DE_ENTRADA, "WFWalletTransactionContentItem"],
     WFWorkflowMinimumClientVersion: VERSION_MINIMA,
     WFWorkflowMinimumClientVersionString: String(VERSION_MINIMA),
     WFWorkflowName: NOMBRE_ATAJO_APPLE_PAY,

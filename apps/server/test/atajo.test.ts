@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   ARCHIVO_BIENVENIDA,
   ARCHIVO_COLA,
+  ARCHIVO_COLA_APPLE_PAY,
   construirAtajo,
   ErrorFirma,
   firmarAtajo,
@@ -661,7 +662,9 @@ describe("Atajo de Apple Pay", () => {
 
   test("guarda el pago en la cola antes de usar la red y lo manda a /v1/hablar como apple_pay", () => {
     const guardar = donde("documentpicker.save");
-    expect(parametros(pasos[guardar]!)).toMatchObject({ WFFileDestinationPath: ARCHIVO_COLA, WFSaveFileOverwrite: true });
+    expect(parametros(pasos[guardar]!)).toMatchObject({ WFFileDestinationPath: ARCHIVO_COLA_APPLE_PAY, WFSaveFileOverwrite: true });
+    // Nunca toca la cola del Atajo "Finanzas": la automatización corre sola y podría pisarla.
+    expect(JSON.stringify(pasos)).not.toContain(ARCHIVO_COLA);
     for (const red of ["downloadurl", "getcurrentlocation"]) expect(donde(red)).toBeGreaterThan(guardar);
     expect(pasos.some((a) => id(a).startsWith("file."))).toBe(false);
     const envio = pasos[donde("downloadurl")]!;
@@ -673,6 +676,17 @@ describe("Atajo de Apple Pay", () => {
     ]);
     expect(Object.fromEntries(campos).origen).toBe("apple_pay");
     expect(campos.map(([k]) => k).sort()).toEqual(["capturado_en", "client_id", "comercio", "lat", "lon", "monto", "nombre", "origen", "tarjeta"]);
+  });
+
+  test("con red reenvía los pagos que quedaron y reescribe su cola solo con los que no llegaron", () => {
+    const guardados = pasos.flatMap((a, i) => (id(a) === "documentpicker.save" ? [i] : []));
+    expect(guardados).toHaveLength(2);
+    const envios = pasos.flatMap((a, i) => (id(a) === "downloadurl" ? [i] : []));
+    expect(envios).toHaveLength(2);
+    // El pago nuevo se guarda antes de enviarlo; la cola se reescribe después de reenviar lo pendiente.
+    expect(guardados[0]!).toBeLessThan(envios[0]!);
+    expect(guardados[1]!).toBeGreaterThan(envios[1]!);
+    expect(ap.WFWorkflowInputContentItemClasses).toContain("WFWalletTransactionContentItem");
   });
 
   test("al pagar no habla ni escucha; corrido a mano dice si quedó listo", () => {

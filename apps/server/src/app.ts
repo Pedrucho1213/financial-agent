@@ -118,7 +118,13 @@ const esquemaSuscripcion = z.object({
   endpoint: z.url({ protocol: /^https$/ }).max(1000),
   keys: z.object({ p256dh: z.string().trim().min(80).max(120), auth: z.string().trim().min(16).max(64) }),
   origen: z.url({ protocol: /^https?$/ }).max(300).optional(),
+  // La app la manda desde un iPhone: solo esas notificaciones permiten la respuesta rápida del Atajo.
+  en_iphone: z.boolean().optional(),
 });
+
+const PRUEBA_PUSH_CADA_MS = 15_000;
+// La automatización de la Cartera a veces corre dos veces por el mismo pago, cada vez con otro folio.
+const PAGO_REPETIDO_MS = 3 * 60_000;
 
 /** Lo que el Atajo dice cuando registró y el resultado llega por notificación. */
 export const RESPUESTA_RAPIDA = "Anotado.";
@@ -228,7 +234,8 @@ export function crearApp(opciones: OpcionesApp) {
     notificaSinEspera: opciones.notificaSinEspera ?? ((usuarioId: string) => tienePush(db, usuarioId)),
   };
   /**
-   * La primera respuesta del día que oye el Atajo lleva el aviso del día (fugas, presupuestos), una sola vez.
+   * La primera respuesta que oye el Atajo lleva el aviso del día (fugas, presupuestos) que no haya llegado ya
+   * por notificación, una sola vez.
    * No va detrás de una pregunta (la pregunta tiene que ser lo último que se oye), de una espera ni de un
    * dato útil (uno por respuesta basta).
    */
@@ -238,10 +245,15 @@ export function crearApp(opciones: OpcionesApp) {
     rapida: boolean,
   ): T => {
     if (r.duplicado || r.dato || (r.pendiente && !rapida) || r.respuesta.includes("?")) return r;
-    const delDia = avisoDelDia(contexto(usuarioId));
-    if (!delDia) return r;
-    delDia.marcar();
-    return { ...r, respuesta: `${r.respuesta} Por cierto: ${delDia.aviso.texto}` };
+    const ctx = contexto(usuarioId);
+    // Cada aviso llega una sola vez: el que ya salió por notificación se da por dicho y se busca otro.
+    for (let i = 0; i < 10; i++) {
+      const delDia = avisoDelDia(ctx);
+      if (!delDia) return r;
+      delDia.marcar();
+      if (!delDia.aviso.enviadoEn) return { ...r, respuesta: `${r.respuesta} Por cierto: ${delDia.aviso.texto}` };
+    }
+    return r;
   };
   const contexto = (usuarioId: string) =>
     crearContexto({ db, usuarioId, zonaHoraria: opciones.zonaHoraria, monedaBase: opciones.monedaBase });
@@ -453,6 +465,20 @@ export function crearApp(opciones: OpcionesApp) {
         acciones: [],
       });
     }
+    const repetido = db
+      .select({ clientId: entradas.clientId })
+      .from(entradas)
+      .where(
+        and(
+          eq(entradas.usuarioId, usuarioId),
+          eq(entradas.origen, "apple_pay"),
+          eq(entradas.texto, texto),
+          gte(entradas.creadoEn, new Date(Date.now() - PAGO_REPETIDO_MS).toISOString()),
+        ),
+      )
+      .all()
+      .some((e) => e.clientId !== p.client_id);
+    if (repetido) return c.json({ respuesta: "Ese pago ya estaba anotado.", duplicado: true, acciones: [] });
     try {
       const respuesta = await hablar(
         deps,
@@ -483,12 +509,12 @@ export function crearApp(opciones: OpcionesApp) {
   v1.post("/push/suscripcion", async (c) => {
     const cuerpo = esquemaSuscripcion.safeParse(await c.req.json().catch(() => null));
     if (!cuerpo.success) return c.json({ error: "La suscripción no es válida." }, 400);
-    const { endpoint, keys, origen } = cuerpo.data;
+    const { endpoint, keys, origen, en_iphone: enIphone } = cuerpo.data;
     // Apple pide un contacto; la dirección pública con la que se abrió la app sirve, si es este servidor.
     const propio = origen && origen.startsWith("https://") && hostsDeLaPeticion(c).includes(new URL(origen).host.toLowerCase());
     const contacto = opciones.contactoPush ?? (propio ? new URL(origen).origin : "mailto:finanzas@example.com");
     try {
-      suscribir(db, c.get("usuarioId"), c.get("dispositivoId"), { endpoint, p256dh: keys.p256dh, auth: keys.auth, contacto });
+      suscribir(db, c.get("usuarioId"), c.get("dispositivoId"), { endpoint, p256dh: keys.p256dh, auth: keys.auth, contacto, enIphone });
     } catch (error) {
       if (error instanceof ErrorSuscripcion) return c.json({ error: error.message }, 400);
       throw error;
@@ -501,7 +527,13 @@ export function crearApp(opciones: OpcionesApp) {
     return c.json({ ok: true });
   });
 
+  // Una prueba cada tanto por dispositivo: cada una es una notificación en todos los de la cuenta.
+  const ultimaPrueba = new Map<string, number>();
   v1.post("/push/prueba", async (c) => {
+    const ahora = Date.now();
+    if (ahora - (ultimaPrueba.get(c.get("dispositivoId")) ?? 0) < PRUEBA_PUSH_CADA_MS) {
+      return c.json({ error: "Espera unos segundos antes de mandar otra prueba." }, 429);
+    }
     const nombre = db.select().from(usuarios).where(eq(usuarios.id, c.get("usuarioId"))).get()?.nombre.split(" ")[0];
     const llegaron = await notificar(
       db,
@@ -515,6 +547,7 @@ export function crearApp(opciones: OpcionesApp) {
       opciones.enviarPush,
     );
     if (!llegaron) return c.json({ error: "No llegó a ningún dispositivo. Vuelve a activar las notificaciones.", enviadas: 0 }, 502);
+    ultimaPrueba.set(c.get("dispositivoId"), ahora);
     return c.json({ enviadas: llegaron });
   });
 

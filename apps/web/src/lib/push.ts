@@ -32,6 +32,9 @@ function bytes(base64url: string): Uint8Array<ArrayBuffer> {
   return salida;
 }
 
+/** El Atajo corre en el iPhone: sus notificaciones son las que permiten que conteste corto. */
+const enIphone = () => /iPhone|iPod/i.test(navigator.userAgent);
+
 const iguales = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 /** La suscripción de este navegador, si ya existe. */
@@ -67,7 +70,7 @@ export async function activarPush(permisoPedido: Promise<NotificationPermission>
   const datos = sub.toJSON();
   return api<EstadoPushServidor>("/v1/push/suscripcion", {
     method: "POST",
-    body: { endpoint: datos.endpoint, keys: datos.keys, origen: window.location.origin },
+    body: { endpoint: datos.endpoint, keys: datos.keys, origen: window.location.origin, en_iphone: enIphone() },
   });
 }
 
@@ -87,7 +90,7 @@ export async function sincronizarPush(servidor: EstadoPushServidor): Promise<Est
   const datos = sub.toJSON();
   return api<EstadoPushServidor>("/v1/push/suscripcion", {
     method: "POST",
-    body: { endpoint: datos.endpoint, keys: datos.keys, origen: window.location.origin },
+    body: { endpoint: datos.endpoint, keys: datos.keys, origen: window.location.origin, en_iphone: enIphone() },
   });
 }
 

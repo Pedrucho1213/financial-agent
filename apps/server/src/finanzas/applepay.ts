@@ -37,6 +37,7 @@ export function montoDeWallet(texto: string | undefined, monedaBase = "MXN"): { 
 const sinNumeros = (texto: string | undefined) =>
   texto
     ?.replace(/[•*·#]+\s*\d*/g, " ")
+    .replace(/["“”«»]/g, " ")
     .replace(/\d{3,}/g, " ")
     .replace(/\s+/g, " ")
     .trim()
@@ -44,7 +45,10 @@ const sinNumeros = (texto: string | undefined) =>
 
 const NOMBRES_MONEDA: Record<string, string> = { MXN: "pesos", USD: "dólares", EUR: "euros", GBP: "libras", CAD: "dólares canadienses" };
 
-/** La frase para la IA: "Pagué 85.50 pesos en STARBUCKS COFFEE con la tarjeta Nu (Apple Pay)". */
+/**
+ * La frase para la IA: 'Pagué 85.50 pesos en "STARBUCKS COFFEE" con la tarjeta "Nu" (Apple Pay)'. El comercio
+ * y la tarjeta van entre comillas: son nombres, no órdenes.
+ */
 export function fraseDePago(pago: PagoWallet, monedaBase = "MXN"): string | undefined {
   const monto = montoDeWallet(pago.monto, monedaBase);
   if (!monto) return undefined;
@@ -53,8 +57,8 @@ export function fraseDePago(pago: PagoWallet, monedaBase = "MXN"): string | unde
   const cifra = Number.isInteger(monto.monto) ? String(monto.monto) : monto.monto.toFixed(2);
   return (
     `Pagué ${cifra} ${NOMBRES_MONEDA[monto.moneda] ?? monto.moneda}` +
-    (comercio ? ` en ${comercio}` : "") +
-    (tarjeta ? ` con la tarjeta ${tarjeta}` : "") +
+    (comercio ? ` en "${comercio}"` : "") +
+    (tarjeta ? ` con la tarjeta "${tarjeta}"` : "") +
     " (Apple Pay)"
   );
 }

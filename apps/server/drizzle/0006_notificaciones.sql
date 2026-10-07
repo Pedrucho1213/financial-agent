@@ -12,6 +12,7 @@ CREATE TABLE `suscripciones_push` (
 	`p256dh` text NOT NULL,
 	`auth` text NOT NULL,
 	`contacto` text NOT NULL,
+	`en_iphone` integer DEFAULT false NOT NULL,
 	`creado_en` text DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')) NOT NULL,
 	`ultimo_envio` text,
 	`ultimo_error` text,

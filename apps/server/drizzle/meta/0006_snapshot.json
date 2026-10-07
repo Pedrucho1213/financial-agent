@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "cf7cc213-61c8-4031-8d82-7079a73c1df3",
+  "id": "c4ebe9d9-0baa-4a28-b5e6-a9c3de785cfc",
   "prevId": "39216b44-c523-4a2a-adb0-81572ba1198b",
   "tables": {
     "avisos": {
@@ -1802,6 +1802,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "en_iphone": {
+          "name": "en_iphone",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         },
         "creado_en": {
           "name": "creado_en",

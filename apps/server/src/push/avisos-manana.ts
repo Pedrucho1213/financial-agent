@@ -7,6 +7,10 @@ import { type EnviarPush, notificar, tieneSuscripciones } from "./notificaciones
 /** Desde qué hora y hasta cuál (locales) se pueden mandar avisos. */
 export const HORARIO_AVISOS = { desde: 9, hasta: 21 };
 
+// Si todo falla (sin red, Apple caído), se reintenta unas cuantas veces al día y no cada 5 minutos.
+const MAX_INTENTOS_DIA = 3;
+const intentos = new Map<string, number>();
+
 /** El revisor guarda enlaces como "#presupuestos"; la notificación abre una ruta de la app. */
 const rutaDe = (enlace: string | null) => (!enlace ? "/#inicio" : enlace.startsWith("#") ? `/${enlace}` : enlace);
 
@@ -27,6 +31,7 @@ export async function enviarAvisosDelDia(
   const hora = horaLocal(ahora, zonaHoraria);
   if (hora < HORARIO_AVISOS.desde || hora >= HORARIO_AVISOS.hasta) return 0;
   const hoy = fechaLocal(ahora, zonaHoraria);
+  for (const clave of intentos.keys()) if (!clave.endsWith(`:${hoy}`)) intentos.delete(clave);
   // Vienen ordenados por prioridad (1 primero): el primero de cada cuenta es el principal.
   const porUsuario = new Map<string, ReturnType<typeof avisosPorEnviar>>();
   for (const a of avisosPorEnviar(db, zonaHoraria, ahora)) {
@@ -37,6 +42,9 @@ export async function enviarAvisosDelDia(
     const [principal] = pendientes;
     // Sin notificaciones activas se esperan: si las activa más tarde, todavía le llegan.
     if (!principal || !tieneSuscripciones(db, usuarioId)) continue;
+    const clave = `${usuarioId}:${hoy}`;
+    const fallidos = intentos.get(clave) ?? 0;
+    if (fallidos >= MAX_INTENTOS_DIA) continue;
     const mas = pendientes.length - 1;
     const llegaron = await notificar(
       db,
@@ -53,6 +61,8 @@ export async function enviarAvisosDelDia(
     if (llegaron > 0) {
       marcarEnviados(db, pendientes.map((a) => a.id));
       enviadas++;
+    } else {
+      intentos.set(clave, fallidos + 1);
     }
   }
   return enviadas;

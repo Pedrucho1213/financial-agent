@@ -21,7 +21,8 @@ const concepto = (m: Registrado) => m.comercio ?? m.categoria?.split(" > ").at(-
 
 // Una pregunta que llegó por notificación se contesta abriendo el Atajo otra vez: el próximo dictado
 // sigue esa conversación si llega pronto.
-const VIGENCIA_PREGUNTA_MS = 10 * 60_000;
+// Corto: pasado un rato, lo siguiente que dicta suele ser otro gasto y no la respuesta.
+const VIGENCIA_PREGUNTA_MS = 5 * 60_000;
 const preguntas = new Map<string, { conversacionId: string; hasta: number }>();
 
 /** La conversación que quedó esperando respuesta por notificación (y la olvida). */
@@ -84,6 +85,9 @@ export function avisoDeDictado(db: Db, enviar?: EnviarPush) {
     if (respuesta?.respuesta.includes("?")) {
       preguntas.set(entrada.usuarioId, { conversacionId: respuesta.conversacion_id, hasta: Date.now() + VIGENCIA_PREGUNTA_MS });
     }
-    void notificar(db, entrada.usuarioId, notificacionDeDictado(entrada, respuesta), enviar);
+    // Sin esperar, pero sin dejar un rechazo suelto: tumbaría el servidor.
+    notificar(db, entrada.usuarioId, notificacionDeDictado(entrada, respuesta), enviar).catch((error) =>
+      console.error("No se pudo mandar la notificación del dictado:", error),
+    );
   };
 }

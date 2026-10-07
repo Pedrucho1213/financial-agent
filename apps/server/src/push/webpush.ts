@@ -142,6 +142,8 @@ export async function enviarPush(
       method: "POST",
       headers: encabezados,
       body: cuerpo as Uint8Array<ArrayBuffer>,
+      // Un servicio de push no redirige: seguirlo mandaría el mensaje a otra dirección.
+      redirect: "error",
       signal: AbortSignal.timeout(15_000),
     });
     const detalle = res.ok ? undefined : (await res.text().catch(() => "")).slice(0, 300) || res.statusText;

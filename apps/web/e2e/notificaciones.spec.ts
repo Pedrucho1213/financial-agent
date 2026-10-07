@@ -21,11 +21,13 @@ test.describe("Notificaciones en Ajustes", () => {
     await expect(interruptor).not.toBeChecked();
     await interruptor.click();
     await expect(interruptor).toBeChecked();
-    const enviada = api.de("POST", "/v1/push/suscripcion")[0]?.cuerpo as { endpoint: string; keys: unknown; origen: string };
+    const enviada = api.de("POST", "/v1/push/suscripcion")[0]?.cuerpo as { endpoint: string; keys: unknown; origen: string; en_iphone: boolean };
     expect(enviada).toEqual({
       endpoint: "https://web.push.apple.com/abc",
       keys: { p256dh: "B".repeat(87), auth: "a".repeat(22) },
       origen: "http://127.0.0.1:4173",
+      // Las pruebas corren como iPhone: con esto el Atajo puede contestar corto.
+      en_iphone: true,
     });
     const llave = (await page.evaluate(() => (window as unknown as { __suscripciones: number[][] }).__suscripciones))[0]!;
     expect(Buffer.from(llave).toString("base64url")).toBe(CLAVE_PUSH);
