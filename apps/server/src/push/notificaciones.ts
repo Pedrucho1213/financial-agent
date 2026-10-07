@@ -65,9 +65,17 @@ function suscripcionesDe(db: Db, usuarioId: string) {
     .map((f) => f.s);
 }
 
-/** Si algún dispositivo de la cuenta recibe notificaciones: el Atajo puede contestar corto y avisar por ahí. */
-export function tienePush(db: Db, usuarioId: string): boolean {
+export function tieneSuscripciones(db: Db, usuarioId: string): boolean {
   return suscripcionesDe(db, usuarioId).length > 0;
+}
+
+/**
+ * Si algún dispositivo de la cuenta recibe notificaciones: el Atajo puede contestar corto y avisar por ahí.
+ * Una suscripción cuyo último envío falló no cuenta, para que el Atajo vuelva a contestar en voz; se le
+ * sigue mandando todo y en cuanto una llega, vuelve a contar.
+ */
+export function tienePush(db: Db, usuarioId: string): boolean {
+  return suscripcionesDe(db, usuarioId).some((s) => !s.ultimoError);
 }
 
 /** Estado para la app: si este dispositivo está suscrito y la llave para suscribirse. */

@@ -4,7 +4,7 @@ import type { Db } from "../db/client";
 import { avisos } from "../db/schema";
 import { avisosPorNotificar, marcarNotificado } from "../finanzas/avisos";
 import { fechaLocal } from "../lib/fechas";
-import { type EnviarPush, notificar, tienePush } from "./notificaciones";
+import { type EnviarPush, notificar, tieneSuscripciones } from "./notificaciones";
 
 /** Desde qué hora y hasta cuál (locales) se pueden mandar avisos. */
 export const HORARIO_AVISOS = { desde: 9, hasta: 21 };
@@ -37,7 +37,7 @@ export async function enviarAvisosDelDia(
     const deHoy = pendientes.filter((a) => a.fecha === hoy);
     const [principal] = deHoy;
     // Sin notificaciones activas se esperan: si las activa más tarde, todavía le llegan hoy.
-    if (!principal || !tienePush(db, usuarioId)) continue;
+    if (!principal || !tieneSuscripciones(db, usuarioId)) continue;
     const mas = deHoy.length - 1;
     const llegaron = await notificar(
       db,

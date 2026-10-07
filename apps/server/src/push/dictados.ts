@@ -2,7 +2,7 @@
 // y terminó, o un pago con Apple Pay que se registró solo.
 import type { Db } from "../db/client";
 import type { Entrada, Respuesta } from "../ai/asistente";
-import { type EnviarPush, type Notificacion, notificar, tienePush } from "./notificaciones";
+import { type EnviarPush, type Notificacion, notificar, tieneSuscripciones } from "./notificaciones";
 
 type Registrado = { id?: string; monto?: string; comercio?: string; descripcion?: string; categoria?: string };
 
@@ -78,7 +78,8 @@ export function notificacionDeDictado(entrada: Entrada, respuesta: Respuesta | u
 /** El aviso para `alTerminarSinEspera`: si la cuenta recibe notificaciones, le manda el resultado. */
 export function avisoDeDictado(db: Db, enviar?: EnviarPush) {
   return (entrada: Entrada, respuesta: Respuesta | undefined) => {
-    if (!tienePush(db, entrada.usuarioId)) return;
+    // Aunque la última no haya llegado: es lo único que le avisa de este dictado.
+    if (!tieneSuscripciones(db, entrada.usuarioId)) return;
     if (respuesta?.respuesta.includes("?")) {
       preguntas.set(entrada.usuarioId, { conversacionId: respuesta.conversacion_id, hasta: Date.now() + VIGENCIA_PREGUNTA_MS });
     }

@@ -185,6 +185,15 @@ describe("Atajo rápido", () => {
     expect(enviadas[0]!.cuerpo).toContain("85");
   });
 
+  test("si la última notificación no llegó, vuelve a contestar en voz", async () => {
+    const { pedir, activar, db } = montar([REGISTRO_CAFE]);
+    await activar();
+    db.update(suscripcionesPush).set({ ultimoError: "403 BadJwtToken" }).run();
+    const r = await pedir("/v1/hablar", "POST", { texto: "gasté 85 en Starbucks", client_id: "push-roto-01" });
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as { respuesta: string }).respuesta).not.toBe(RESPUESTA_RAPIDA);
+  });
+
   test("una pregunta se sigue contestando en voz, sin push", async () => {
     const { pedir, activar, enviadas } = montar([llamada("consultar_gastos", { periodo: "este_mes" }), texto("Llevas $85 este mes.")]);
     await activar();
