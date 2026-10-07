@@ -101,7 +101,16 @@ const DICE_QUE_HIZO =
 const PIDE_ALGO =
   /\d|\b(mil|cien|ciento|veinte|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa)\b|gast|pag|compr|cobr|deposit|transf|borr|elimin|quit|cambi|corrig|deshaz|cancel/;
 
-const diceQueHizo = (respuesta: string) => !respuesta.includes("?") && DICE_QUE_HIZO.test(normalizar(respuesta));
+// "Aún no tienes gastos registrados" o "no guardé nada" no dicen que se hizo algo. Se mira cada parte
+// de la frase: en "Listo, no te preocupes, ya lo anoté" el "no" no niega el "anoté".
+const NIEGA = /\b(no|nada|ningun|ninguna|ninguno)\b/;
+
+const diceQueHizo = (respuesta: string) =>
+  !respuesta.includes("?") &&
+  respuesta
+    .split(/[,.;:!]|\s+y\s+/)
+    .map(normalizar)
+    .some((parte) => DICE_QUE_HIZO.test(parte) && !NIEGA.test(parte));
 
 /**
  * Sin herramientas no se guardó ni se consultó nada. Si aun así el modelo dice que lo hizo,
@@ -119,6 +128,7 @@ const AVISO_SIN_HERRAMIENTAS =
   "Si no pidió nada de eso, responde sin decir que guardaste algo.";
 
 const RESPUESTA_NO_GUARDADA = "No alcancé a guardar nada. ¿Me lo repites?";
+const RESPUESTA_NO_CONSULTADA = "No alcancé a revisar tus movimientos. ¿Me lo preguntas otra vez?";
 
 /** Respuesta hablada cuando el modelo no dejó texto final. */
 function respuestaPorOmision(acciones: Accion[]): string {
@@ -469,6 +479,15 @@ async function cuentaSinModelo(ctx: Contexto, texto: string, acciones: Accion[])
   return corregido;
 }
 
+function tieneMovimientos(ctx: Contexto): boolean {
+  return !!ctx.db
+    .select({ id: movimientos.id })
+    .from(movimientos)
+    .where(and(eq(movimientos.usuarioId, ctx.usuarioId), isNull(movimientos.eliminadoEn)))
+    .limit(1)
+    .get();
+}
+
 /** Los gastos que creó este dictado y siguen ahí, para saber si cruzaron un presupuesto. */
 function gastosNuevos(ctx: Contexto, entradaId: string) {
   return ctx.db
@@ -673,6 +692,17 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
       }
       mensajesRespuesta = resultado.response.messages;
       if (confirmacion) mensajesRespuesta = [...mensajesRespuesta, { role: "assistant", content: confirmacion }];
+      // Una pregunta que ni en el reintento consultó nada: "no tienes gastos" solo es cierto si de verdad no hay
+      // registros, y una cifra sin consultar nunca lo es.
+      if (
+        !yaEstaba &&
+        esPregunta(entrada.texto) &&
+        respuestaSinSustento(entrada.texto, texto, acciones) &&
+        (/\d/.test(texto) || tieneMovimientos(ctx))
+      ) {
+        texto = RESPUESTA_NO_CONSULTADA;
+        mensajesRespuesta = [{ role: "assistant", content: texto }];
+      }
       if (yaEstaba) {
         texto = yaEstaba;
         mensajesRespuesta = [{ role: "assistant", content: yaEstaba }];
@@ -693,7 +723,9 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
           mensajesRespuesta = [{ role: "assistant", content: directo }];
         }
       }
-      if (nadaCambio() && PIDE_ALGO.test(normalizar(entrada.texto)) && diceQueHizo(texto)) {
+      // Una pregunta que sí consultó ("¿cuánto he gastado?" con la base vacía) no es un registro que se perdió.
+      const consultoPregunta = esPregunta(entrada.texto) && acciones.some((a) => SOLO_CONSULTA.has(a.herramienta));
+      if (nadaCambio() && !consultoPregunta && PIDE_ALGO.test(normalizar(entrada.texto)) && diceQueHizo(texto)) {
         texto = RESPUESTA_NO_GUARDADA;
         mensajesRespuesta = [{ role: "assistant", content: texto }];
       }
