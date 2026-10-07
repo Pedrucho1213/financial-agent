@@ -137,8 +137,8 @@ function limpiarParaVoz(texto: string): string {
 }
 
 // Los dictados de cada usuario se procesan de uno en uno y en orden de llegada: así "deshaz eso"
-// siempre va después de lo que deshace. Los de usuarios distintos (o un pago de Apple Pay mientras
-// dictas) pueden ir a la vez, hasta `paralelo`, que debe coincidir con OLLAMA_NUM_PARALLEL.
+// siempre va después de lo que deshace (también un pago de Apple Pay que llega mientras dictas).
+// Los de usuarios distintos pueden ir a la vez, hasta `paralelo`, que debe coincidir con OLLAMA_NUM_PARALLEL.
 const colasPorUsuario = new Map<string, Promise<unknown>>();
 let ocupados = 0;
 const esperandoLugar: (() => void)[] = [];

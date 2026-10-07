@@ -32,7 +32,7 @@ export const config = {
     razonamiento: env("IA_RAZONAMIENTO", "none"),
     // Cuántos usuarios atiende la IA a la vez. Tiene que coincidir con OLLAMA_NUM_PARALLEL del servicio
     // de Ollama; los dictados de un mismo usuario siempre van de uno en uno.
-    paralelo: Number(env("IA_PARALELO", "1")),
+    paralelo: Math.max(1, Math.floor(Number(env("IA_PARALELO", "1"))) || 1),
   },
 };
 
