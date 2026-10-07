@@ -36,6 +36,7 @@ import { hostsDeLaPeticion, ipDelCliente, LimiteIntentos } from "./lib/limites";
 import { montosDelTexto } from "./lib/numeros";
 import { esOrdenSobreLoAnotado, esPregunta } from "./lib/texto";
 import { and, eq, gte } from "drizzle-orm";
+import { rutasPlanes } from "./rutas-planes";
 import { servirApp } from "./web";
 
 export type OpcionesApp = Dependencias & {
@@ -496,6 +497,8 @@ export function crearApp(opciones: OpcionesApp) {
     const agruparPor = AGRUPACIONES.find((a) => a === c.req.query("agrupar")) ?? "categoria";
     return c.json(resumir(contexto(c.get("usuarioId")), { periodo: c.req.query("periodo") ?? "este_mes", tipo, agruparPor }));
   });
+
+  rutasPlanes(v1, contexto);
 
   // Prepara el Atajo con un token propio y deja el archivo firmado 10 minutos para descargarlo.
   v1.post("/atajo", async (c) => {

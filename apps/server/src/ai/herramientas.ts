@@ -12,11 +12,20 @@ import {
   idDelMovimiento,
   resumir,
 } from "../finanzas/movimientos";
-import { cuentaHabitual, habitoMencionado, hablaDeOtroMonto, nombreDeCuenta } from "../finanzas/habitos";
+import { listarCategorias } from "../finanzas/catalogos";
+import {
+  cuentaHabitual,
+  cuentaHabitualDeCategoria,
+  cuentaRecordada,
+  habitoMencionado,
+  hablaDeOtroMonto,
+  nombreDeCuenta,
+} from "../finanzas/habitos";
 import { listarMemorias, olvidar, recordar } from "../finanzas/memorias";
 import { cancelarRecurrente, crearRecurrente, editarRecurrente, listarRecurrentes } from "../finanzas/recurrentes";
 import { fechaDelTexto, fechasDelTexto, mencionaFecha, resolverFecha } from "../lib/fechas";
 import { montoConPalabras, montosDelTexto } from "../lib/numeros";
+import { herramientasPlanes, mencionaA, nombresDePlanes } from "./herramientas-planes";
 import { monedaDelTexto, normalizar, tipoDelTexto } from "../lib/texto";
 
 /** Lo que hizo una herramienta: con qué la llamó el modelo y qué resultó. */
@@ -82,6 +91,18 @@ const PIDE_VARIOS = new RegExp(
   String.raw`\b(ambos|ambas|todos|todas|${VERBO}(los|las|melos|melas))\b|\b${VERBO} (los|las) (?!(ultim[oa]s )?(dos|tres|cuatro|cinco)\b|${CIFRA})`,
 );
 
+// "A 12 meses sin intereses", "a 6 MSI": no es un gasto de una vez.
+const ES_MSI = /\b(meses sin intereses|msi|a (\d+|tres|seis|nueve|doce|dieciocho|veinticuatro) meses)\b/;
+// Prestar o pedir prestado entre personas no es gasto ni ingreso.
+const ES_PRESTAMO = /\b(le preste|les preste|te preste|preste|me presto|me prestaron|me prestaste|nos presto)\b/;
+// Pagar o cobrar un préstamo que ya existe: "Juan me pagó", "le devolví a Ana".
+const PAGA_PRESTAMO = /\b(me pago|me pagaron|me devolvio|me regreso|me abono|le pague|le devolvi|le regrese|le abone)\b/;
+// Apartar dinero para una meta: "aparté 500 para el viaje".
+const APORTA_META = /\b(aparte|ahorre|guarde|meti|puse|abone|deposite)\b/;
+// "Recuerda que mi último gasto no fue de dólares": corrige un registro, no es un dato para recordar.
+const CORRIGE_REGISTRO =
+  /\b(no (fue|fueron|era|eran)|ultimo (gasto|registro|movimiento|ingreso)|que (agregamos|anotamos|registramos|apuntamos|anotaste|registraste|apuntaste|agregaste))\b/;
+
 // Algo que se repite: "cada día 15", "cada mes", "mensual", "cada quincena".
 const SE_REPITE = /\b(cada|al mes|por mes|a la semana|por semana|al ano|mensual|mensualmente|semanal|quincenal|anual|diario)\b/;
 
@@ -126,6 +147,19 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
       inputSchema: z.object({ movimientos: z.array(datosMovimiento).min(1) }),
       execute: ejecutar("registrar_movimientos", ({ movimientos }) => {
         const texto = ctx.textoOriginal;
+        // Préstamos, metas y meses sin intereses tienen su herramienta. Con varios montos en la frase
+        // ("200 de tacos y le presté 100 a Juan") puede haber gastos de verdad: ahí no se frena.
+        if (texto && montosDelTexto(texto).length <= 1) {
+          const plano = normalizar(texto);
+          const planes = nombresDePlanes(ctx);
+          if (ES_MSI.test(plano)) throw new ErrorFinanzas("Es una compra a meses sin intereses: usa compra_msi, no registrar_movimientos.");
+          if (ES_PRESTAMO.test(plano) || (PAGA_PRESTAMO.test(plano) && mencionaA(texto, planes.personas))) {
+            throw new ErrorFinanzas("Es un préstamo entre personas: usa prestamo, no registrar_movimientos.");
+          }
+          if (APORTA_META.test(plano) && (/\bmeta\b/.test(plano) || mencionaA(texto, planes.metas))) {
+            throw new ErrorFinanzas("Es dinero apartado para una meta de ahorro: usa meta con accion aportar, no registrar_movimientos.");
+          }
+        }
         // Si la frase dice una sola fecha ("ayer", "el viernes"), esa manda sobre una fecha que el
         // modelo calculó u omitió; los modelos chicos se equivocan al calcularla. Si la frase no
         // habla de ningún momento, una fecha calculada por el modelo es inventada.
@@ -169,8 +203,21 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
             const tipo = conTipo(m.tipo);
             const habito = deSiempre(m, tipo);
             const comercio = m.comercio || habito?.comercio;
-            // Decir con qué pagó es opcional: si en ese comercio siempre paga con lo mismo, se pone sola.
-            const cuenta = m.cuenta || nombreDeCuenta(ctx, habito?.cuentaId ?? null) || cuentaHabitual(ctx, comercio);
+            // Decir con qué pagó es opcional: se pone sola si pidió recordarlo ("el Oxxo lo pago en efectivo")
+            // o si en ese comercio, o en esa categoría, siempre paga con lo mismo.
+            const recordada = tipo === "gasto" ? cuentaRecordada(ctx, [comercio, m.categoria, m.descripcion]) : undefined;
+            const cuenta =
+              m.cuenta ||
+              nombreDeCuenta(ctx, habito?.cuentaId ?? null) ||
+              (recordada && !recordada.paraTodo ? recordada.cuenta : undefined) ||
+              cuentaHabitual(ctx, comercio);
+            const cuentaSegunCategoria = (categoriaId: string | null) => {
+              if (tipo !== "gasto") return undefined;
+              const hoja = categoriaId ? listarCategorias(ctx.db, ctx.usuarioId).find((c) => c.id === categoriaId)?.nombre : undefined;
+              const deLaCategoria = hoja ? cuentaRecordada(ctx, [hoja]) : undefined;
+              if (deLaCategoria && !deLaCategoria.paraTodo) return deLaCategoria.cuenta;
+              return cuentaHabitualDeCategoria(ctx, categoriaId) ?? recordada?.cuenta;
+            };
             const registrado = crearMovimiento(ctx, {
               ...m,
               tipo,
@@ -180,6 +227,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
               descripcion: m.descripcion || habito?.descripcion,
               categoriaId: !m.categoria && habito?.categoriaId ? habito.categoriaId : undefined,
               cuenta,
+              cuentaSegunCategoria,
               fecha: conFecha(m.fecha, i),
             });
             return habito ? { ...registrado, monto_de_siempre: true } : registrado;
@@ -316,6 +364,9 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         if (ctx.textoOriginal && montosDelTexto(ctx.textoOriginal).length > 0 && SE_REPITE.test(normalizar(ctx.textoOriginal))) {
           throw new ErrorFinanzas("Eso es un cobro o ingreso que se repite: guárdalo con registrar_recurrente, no con recordar.");
         }
+        if (ctx.textoOriginal && CORRIGE_REGISTRO.test(normalizar(ctx.textoOriginal))) {
+          throw new ErrorFinanzas("Eso corrige algo ya registrado: usa editar_movimiento (o eliminar_movimiento), no recordar.");
+        }
         return recordar(ctx, texto);
       }),
     }),
@@ -328,6 +379,8 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
       }),
       execute: ejecutar("olvidar", ({ buscar, todas }) => olvidar(ctx, buscar, todas)),
     }),
+
+    ...herramientasPlanes(ctx, ejecutar),
 
     listar_recurrentes: tool({
       description:

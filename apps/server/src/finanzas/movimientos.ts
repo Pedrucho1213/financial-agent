@@ -1,5 +1,18 @@
 import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
-import { bitacora, comercios, cuentas, entradas, movimientos, recurrentes, TIPOS_MOVIMIENTO } from "../db/schema";
+import {
+  bitacora,
+  comercios,
+  comprasMsi,
+  cuentas,
+  entradas,
+  metas,
+  movimientos,
+  prestamosPersonales,
+  presupuestos,
+  recurrentes,
+  TABLAS_BITACORA,
+  TIPOS_MOVIMIENTO,
+} from "../db/schema";
 import { aCentavos, formatearMonto } from "../lib/dinero";
 import { mediodiaUtc, resolverFecha, resolverPeriodo } from "../lib/fechas";
 import { normalizar } from "../lib/texto";
@@ -35,6 +48,8 @@ export type DatosMovimiento = {
   /** La app elige la categoría de una lista; la IA la nombra con texto (`categoria`). null la quita. */
   categoriaId?: string | null;
   origen?: Movimiento["origen"];
+  /** Sin cuenta dicha, la que se adivina ya sabiendo la categoría (con qué paga siempre la gasolina). */
+  cuentaSegunCategoria?: (categoriaId: string | null) => string | undefined;
 };
 
 /** La categoría elegida en la app, si es del usuario y del tipo correcto. */
@@ -106,9 +121,19 @@ function elegirCategoria(
   return { id: porDefecto?.id ?? null, revisar: true };
 }
 
+export type TablaBitacora = (typeof TABLAS_BITACORA)[number];
+
+// Presupuestos, metas, préstamos y MSI se deshacen restaurando la fila completa de antes (o de después, al rehacer).
+const TABLAS_PLANES = {
+  presupuestos,
+  metas,
+  prestamos_personales: prestamosPersonales,
+  compras_msi: comprasMsi,
+} as const;
+
 export function registrarEnBitacora(
   ctx: Contexto,
-  tabla: "movimientos" | "recurrentes",
+  tabla: TablaBitacora,
   registroId: string,
   accion: "crear" | "editar" | "eliminar",
   antes?: Record<string, unknown>,
@@ -141,7 +166,11 @@ export function crearMovimiento(ctx: Contexto, datos: DatosMovimiento) {
       ]);
   // El comercio solo aprende de tus correcciones (editarMovimiento): Oxxo, Walmart o Amazon venden
   // de todo y la primera compra no dice a qué categoría van las demás.
-  const cuenta = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, datos.cuenta);
+  const cuenta = encontrarOCrearCuenta(
+    ctx.db,
+    ctx.usuarioId,
+    datos.cuenta || (categoria.revisar ? undefined : datos.cuentaSegunCategoria?.(categoria.id)),
+  );
 
   const fila = ctx.db
     .insert(movimientos)
@@ -448,11 +477,15 @@ function revertir(ctx: Contexto, grupo: CambioBitacora[], por?: string) {
           const { id: _, ...valores } = cambio.antes as Movimiento;
           tx.update(movimientos).set(valores).where(eq(movimientos.id, cambio.registroId)).run();
         }
-      } else {
+      } else if (cambio.tabla === "recurrentes") {
         tx.update(recurrentes)
           .set({ eliminadoEn: cambio.accion === "crear" ? ahora : null })
           .where(eq(recurrentes.id, cambio.registroId))
           .run();
+      } else {
+        const tabla = TABLAS_PLANES[cambio.tabla];
+        const { id: _, ...valores } = (cambio.accion === "crear" ? { eliminadoEn: ahora } : (cambio.antes ?? {})) as Record<string, unknown>;
+        tx.update(tabla).set(valores).where(eq(tabla.id, cambio.registroId)).run();
       }
       tx.update(bitacora).set({ deshechoEn: ahora, deshechoPor: por ?? null }).where(eq(bitacora.id, cambio.id)).run();
       revertidos.push(`${cambio.accion} en ${cambio.tabla}`);
@@ -473,11 +506,15 @@ function rehacer(ctx: Contexto, grupo: CambioBitacora[]) {
           const { id: _, ...valores } = cambio.despues as Movimiento;
           tx.update(movimientos).set(valores).where(eq(movimientos.id, cambio.registroId)).run();
         }
-      } else {
+      } else if (cambio.tabla === "recurrentes") {
         tx.update(recurrentes)
           .set({ eliminadoEn: cambio.accion === "crear" ? null : (despues.eliminadoEn ?? new Date().toISOString()) })
           .where(eq(recurrentes.id, cambio.registroId))
           .run();
+      } else {
+        const tabla = TABLAS_PLANES[cambio.tabla];
+        const { id: _, ...valores } = (cambio.accion === "crear" ? { eliminadoEn: null } : despues) as Record<string, unknown>;
+        tx.update(tabla).set(valores).where(eq(tabla.id, cambio.registroId)).run();
       }
       tx.update(bitacora).set({ deshechoEn: null, deshechoPor: null }).where(eq(bitacora.id, cambio.id)).run();
     }

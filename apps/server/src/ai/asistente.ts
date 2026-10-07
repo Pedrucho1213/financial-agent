@@ -1,10 +1,11 @@
 import { generateText, isStepCount, type LanguageModel, type ModelMessage } from "ai";
-import { and, asc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { cuentas, entradas, mensajes } from "../db/schema";
+import { cuentas, entradas, mensajes, movimientos } from "../db/schema";
 import { type Contexto, crearContexto } from "../finanzas/contexto";
 import { habitoMencionado, hablaDeOtroMonto } from "../finanzas/habitos";
 import { revertirEntrada } from "../finanzas/movimientos";
+import { datoDePresupuesto } from "../finanzas/planes";
 import { cobrosPorAvisar } from "../finanzas/recurrentes";
 import { formatearMonto } from "../lib/dinero";
 import { montosDelTexto } from "../lib/numeros";
@@ -12,6 +13,7 @@ import { esOrdenSobreLoAnotado, esPregunta, normalizar, pideInformacion, tipoDel
 import { confirmacionDirecta, confirmarRegistro, type Ejecutada } from "./confirmacion";
 import { construirInstrucciones } from "./instrucciones";
 import { crearHerramientas, type Accion } from "./herramientas";
+import { CONSULTAS_PLANES } from "./herramientas-planes";
 import { correccionDeCuenta } from "./respaldo";
 
 export type Peticion = {
@@ -35,6 +37,8 @@ export type Respuesta = {
   pendiente?: boolean;
   /** Con pendiente: era una pregunta y vale la pena esperar la respuesta en /v1/entradas/:client_id. */
   esperar?: boolean;
+  /** El dato útil que se agregó a la respuesta ("Vas en 82% de tu presupuesto de Comida."), por separado. */
+  dato?: string;
 };
 
 export type Dependencias = {
@@ -377,6 +381,15 @@ function textoDe(mensaje: ModelMessage | undefined): string {
   return mensaje.content.map((parte) => (parte.type === "text" ? parte.text : "")).join(" ").trim();
 }
 
+/** Los gastos que creó este dictado y siguen ahí, para saber si cruzaron un presupuesto. */
+function gastosNuevos(ctx: Contexto, entradaId: string) {
+  return ctx.db
+    .select({ categoriaId: movimientos.categoriaId, montoCentavos: movimientos.montoCentavos, fecha: movimientos.fecha, moneda: movimientos.moneda })
+    .from(movimientos)
+    .where(and(eq(movimientos.usuarioId, ctx.usuarioId), eq(movimientos.entradaId, entradaId), eq(movimientos.tipo, "gasto"), isNull(movimientos.eliminadoEn)))
+    .all();
+}
+
 /** Comercios y conceptos que se registraron en este dictado ("Netflix", "Renta"), para no avisar de su cobro. */
 function loQuePago(acciones: Accion[]): string[] {
   return acciones.flatMap((a) => {
@@ -387,7 +400,7 @@ function loQuePago(acciones: Accion[]): string[] {
 }
 
 // Herramientas que solo leen: si el modelo solo usó estas, no cambió nada.
-const SOLO_CONSULTA = new Set(["buscar_movimientos", "consultar_gastos", "listar_recurrentes"]);
+const SOLO_CONSULTA = new Set(["buscar_movimientos", "consultar_gastos", "listar_recurrentes", ...CONSULTAS_PLANES]);
 
 // La respuesta pide elegir entre varios: "¿Cuál café?", "¿El de Oxxo o el de Starbucks?".
 const PIDE_ELEGIR = /\b(cual|cuales)\b|\bo (el|la|los|las) de\b/;
@@ -512,16 +525,21 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
     throw new ErrorIA(error instanceof Error ? error.message : String(error));
   }
 
-  // Si hizo algo y no espera respuesta, aprovecha para avisar de un cobro que viene. Si el iPhone ya
-  // recibió "Anotado", nadie lo va a oír: se deja para el próximo dictado.
+  // Si hizo algo y no espera respuesta, aprovecha para dar un dato que importa: que cruzó el 80% o el
+  // 100% de un presupuesto, o si no, un cobro que viene. Si el iPhone ya recibió "Anotado", nadie lo va
+  // a oír: el aviso del cobro se deja para el próximo dictado.
+  const puedeAgregar = acciones.length > 0 && !texto.includes("?");
+  const dato = puedeAgregar ? datoDePresupuesto(ctx, gastosNuevos(ctx, entrada.id)) : undefined;
   const hablaDeCobros = acciones.some((a) => a.herramienta.endsWith("_recurrente") || a.herramienta === "listar_recurrentes");
-  const cobros = acciones.length > 0 && !texto.includes("?") && !hablaDeCobros && !enSegundoPlano.has(entrada.id) ? cobrosPorAvisar(ctx, loQuePago(acciones)) : undefined;
+  const cobros = puedeAgregar && !dato && !hablaDeCobros && !enSegundoPlano.has(entrada.id) ? cobrosPorAvisar(ctx, loQuePago(acciones)) : undefined;
   const hablado = limpiarParaVoz(sinPreguntasDeMas(texto)) || respuestaPorOmision(acciones);
+  const extra = dato ?? cobros?.aviso;
 
   const respuesta: Respuesta = {
-    respuesta: cobros?.aviso ? `${hablado} ${cobros.aviso}` : hablado,
+    respuesta: extra ? `${hablado} ${extra}` : hablado,
     conversacion_id: conversacionId,
     acciones,
+    ...(dato ? { dato } : {}),
   };
   db.transaction((tx) => {
     for (const contenido of [mensajeUsuario, ...mensajesRespuesta]) {
