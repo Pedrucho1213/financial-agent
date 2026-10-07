@@ -250,12 +250,14 @@ function Tablero({ t, esMesActual }: { t: Tablero; esMesActual: boolean }) {
 
 type DatosRitmo = { actual: number[]; anterior: number[]; diasMes: number; hasta: number };
 
-/** Acumulado por día del mes y del anterior, en la moneda base. `undefined` mientras carga. */
-function useRitmo(t: Tablero, esMesActual: boolean): DatosRitmo | undefined {
+/** Acumulado por día del mes y del anterior, en la moneda base. `undefined` mientras carga; `null` si no se pudo. */
+function useRitmo(t: Tablero, esMesActual: boolean): DatosRitmo | null | undefined {
   const anteriorMes = sumarMeses(t.mes, -1);
   const actual = useGastoPorDia(t.mes);
   const anterior = useGastoPorDia(anteriorMes);
+  const fallo = (actual.isError && !actual.data) || (anterior.isError && !anterior.data);
   return useMemo(() => {
+    if (fallo) return null;
     if (!actual.data || !anterior.data || actual.data.mes !== t.mes) return undefined;
     const diasMes = actual.data.dias;
     const cero = (n: number) => Array.from({ length: n }, () => 0);
@@ -265,11 +267,11 @@ function useRitmo(t: Tablero, esMesActual: boolean): DatosRitmo | undefined {
       diasMes,
       hasta: esMesActual ? Math.min(diasMes, Number(t.hoy.slice(8, 10))) : diasMes,
     };
-  }, [actual.data, anterior.data, t.mes, t.moneda, t.hoy, esMesActual]);
+  }, [fallo, actual.data, anterior.data, t.mes, t.moneda, t.hoy, esMesActual]);
 }
 
 /** Tarjeta principal: lo gastado, la comparación y la gráfica de ritmo. Al pasar el dedo, cambia el número. */
-function Gastado({ t, esMesActual, ritmo }: { t: Tablero; esMesActual: boolean; ritmo?: DatosRitmo }) {
+function Gastado({ t, esMesActual, ritmo }: { t: Tablero; esMesActual: boolean; ritmo: DatosRitmo | null | undefined }) {
   const { totales, moneda } = t;
   const fmt = (n: number) => dinero(n, moneda);
   const nombre = nombreMes(t.mes, false).toLowerCase();
@@ -298,18 +300,20 @@ function Gastado({ t, esMesActual, ritmo }: { t: Tablero; esMesActual: boolean; 
         <Comparacion t={t} esMesActual={esMesActual} />
       )}
 
-      <div className="mt-3">
-        {ritmo ? (
-          <Ritmo
-            actual={ritmo.actual}
-            anterior={ritmo.anterior}
-            diasMes={ritmo.diasMes}
-            hasta={ritmo.hasta}
-            seleccionado={dia}
-            alElegir={setDia}
-          />
-        ) : (
-          <Skeleton className="h-[92px] w-full rounded-lg" />
+      {/* Si no se pudo pedir el gasto por día, la tarjeta queda solo con los números. */}
+      {ritmo === null ? null : (
+        <div className="mt-3">
+          {ritmo ? (
+            <Ritmo
+              actual={ritmo.actual}
+              anterior={ritmo.anterior}
+              diasMes={ritmo.diasMes}
+              hasta={ritmo.hasta}
+              seleccionado={dia}
+              alElegir={setDia}
+            />
+          ) : (
+            <Skeleton className="h-[92px] w-full rounded-lg" />
         )}
         <div className="mt-1.5 flex justify-between text-[11px] font-medium text-muted-foreground tabular">
           <span>1 {mesCorto(t.mes)}</span>
@@ -326,6 +330,7 @@ function Gastado({ t, esMesActual, ritmo }: { t: Tablero; esMesActual: boolean; 
           </span>
         </div>
       </div>
+      )}
 
       <div className="mt-3 grid grid-cols-2 gap-4 pt-3 hairline-t">
         {esMesActual ? (

@@ -695,6 +695,21 @@ test.describe("Ritmo y Destacados", () => {
     await expect(gastado).toContainText("20% más que al 6 de septiembre");
   });
 
+  test("si no llega el gasto por día, la tarjeta queda sin gráfica", async ({ page }) => {
+    const api = await prepararSesion(page);
+    await page.route(/\/v1\/movimientos\?.*tipo=gasto.*limite=500/, (route) =>
+      route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"falla"}' }),
+    );
+    await page.goto("/");
+    const gastado = page.getByRole("region", { name: "Gastado" });
+    await expect(gastado).toContainText("$16,754.70");
+    // Tras los reintentos se rinde: sin esqueleto eterno ni leyenda de días.
+    await expect(gastado).not.toContainText("1 oct", { timeout: 10_000 });
+    await expect(gastado.locator(".animate-pulse")).toHaveCount(0);
+    await expect(page.getByRole("img", { name: /Ritmo de gasto/ })).toHaveCount(0);
+    expect(api.de("GET", "/v1/tablero").length).toBeGreaterThan(0);
+  });
+
   test("los destacados llevan a Movimientos o le preguntan al chat", async ({ page }) => {
     const api = new ApiFalsa();
     api.hablar = [200, { respuesta: "Guarda $500 por semana.", conversacion_id: "conv-9", acciones: [] }];

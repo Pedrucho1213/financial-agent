@@ -96,7 +96,7 @@ export function construirDestacados(
       Icono: Droplet,
       color: "var(--orange)",
       etiqueta: "Gasto hormiga",
-      titulo: `${hormiga.cantidad} compras en ${hormiga.nombre} este mes: ${fmt(hormiga.centavos)}.`,
+      titulo: `${hormiga.cantidad} compras en ${hormiga.nombre} ${esMesActual ? "este mes" : `en ${mesNombre}`}: ${fmt(hormiga.centavos)}.`,
       detalle: `A ese paso son unos ${aproximado(alAnio, moneda)} al año.`,
       accion: { texto: "Ver compras", ir: hashDe("movimientos", { mes: t.mes, q: hormiga.nombre }) },
     });
@@ -171,7 +171,7 @@ export function construirDestacados(
       color: "var(--serie-3)",
       etiqueta: "Tu día caro",
       titulo: `Los ${dia} es cuando más gastas.`,
-      detalle: `${fmt(pico.centavos)} en ${dia} este mes.`,
+      detalle: `${fmt(pico.centavos)} en ${dia} ${esMesActual ? "este mes" : `de ${mesNombre}`}.`,
       accion: { texto: "Preguntar por qué", pregunta: `¿En qué gasto más los ${dia}?` },
     });
   }
