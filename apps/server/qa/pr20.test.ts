@@ -56,7 +56,7 @@ test("desde 30 IPs: el tope por usuario (100 en 15 min desde 9a84229) frena", as
   for (let i = 0; i < 30; i++) estados.push((await entrar(app, "pedro", `adivina ${i} zz`, `203.0.113.${i}`)).status);
   console.log("estados:", estados.join(","));
   expect(estados.filter((s) => s === 401).length).toBeLessThanOrEqual(100);
-});
+}, 30000); // 30 verificaciones argon2 seguidas tardan ~5 s en el contenedor
 
 test("un token robado cambia el código sin saber el anterior y entra desde otro lado", async () => {
   const { app, token } = await montar();
