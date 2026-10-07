@@ -1,0 +1,1 @@
+ALTER TABLE `bitacora` ADD `deshecho_por` text;

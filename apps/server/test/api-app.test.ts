@@ -15,7 +15,8 @@ function montar(extra: Partial<OpcionesApp> = {}) {
   const modelo = new MockLanguageModelV4({ doGenerate: [] as never });
   const app = crearApp({ db, modelo, zonaHoraria: "America/Mexico_City", monedaBase: "MXN", ...extra });
   const pedir = async (ruta: string, opciones: { metodo?: string; cuerpo?: unknown; token?: string } = {}) => {
-    const r = await app.request(ruta, {
+    // Como llega por Tailscale: el servidor del Atajo tiene que ser este mismo host.
+    const r = await app.request(ruta.startsWith("/") ? `https://mac.tu-red.ts.net${ruta}` : ruta, {
       method: opciones.metodo ?? (opciones.cuerpo ? "POST" : "GET"),
       headers: {
         "content-type": "application/json",

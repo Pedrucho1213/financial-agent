@@ -6,6 +6,7 @@ import { crearApp } from "../src/app";
 import { crearContexto } from "../src/finanzas/contexto";
 import { crearDispositivo } from "../src/auth";
 import { entradas, usuarios } from "../src/db/schema";
+import { crearMovimiento } from "../src/finanzas/movimientos";
 import { llamada, preparar, texto } from "./ayuda";
 
 function montar(respuestas: Parameters<typeof llamada>[] | ReturnType<typeof texto>[] | unknown[]) {
@@ -187,6 +188,29 @@ describe("API", () => {
     const { hablar, modelo } = montar([texto("¡Hola! Listo para ayudarte.")]);
     await hablar({ texto: "Hola", client_id: "dictado-0009" });
     expect(modelo.doGenerateCalls).toHaveLength(1);
+  });
+
+  test("'el súper de hoy fue con la Nu' corrige la cuenta aunque el modelo pregunte el monto (QA-020)", async () => {
+    const { hablar, get, db, modelo } = montar([texto("¿De cuánto fue el súper?"), texto("¿Con quién fuiste?")]);
+    const usuarioId = db.select().from(usuarios).get()!.id;
+    const ctx = crearContexto({ db, usuarioId, zonaHoraria: "America/Mexico_City", monedaBase: "MXN" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 1850, categoria: "Súper", comercio: "Walmart" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 900, categoria: "Restaurantes", comercio: "Sonora Grill" });
+    const r = (await (await hablar({ texto: "El súper de hoy fue con la tarjeta de crédito Nu", client_id: "dictado-0010" })).json()) as {
+      respuesta: string;
+    };
+    expect(r.respuesta).toBe("Listo, quedó Walmart de $1,850 en Súper con Nu.");
+    expect(modelo.doGenerateCalls).toHaveLength(1);
+    // "Con mis amigos" no es un medio de pago: no se toca nada y queda la respuesta del modelo.
+    const r2 = (await (await hablar({ texto: "La cena de hoy fue con mis amigos", client_id: "dictado-0011" })).json()) as {
+      respuesta: string;
+    };
+    expect(r2.respuesta).toBe("¿Con quién fuiste?");
+    const lista = (await (await get("/v1/movimientos")).json()) as { movimientos: { comercio: string; cuenta: string | null }[] };
+    expect(lista.movimientos.map((m) => [m.comercio, m.cuenta])).toEqual([
+      ["Sonora Grill", null],
+      ["Walmart", "Nu"],
+    ]);
   });
 
   test("valida la petición", async () => {

@@ -1,6 +1,6 @@
 # API
 
-Todo va por la misma API: el Atajo, la app (PWA) y el chat. Las rutas bajo `/v1` piden `Authorization: Bearer <token>`, salvo las marcadas como públicas. Los montos de la app viajan en centavos (`...Centavos`, enteros) y en pesos solo al crear o editar (`monto`). Las fechas son `YYYY-MM-DD` en la zona horaria del servidor.
+Todo va por la misma API: el Atajo, la app (PWA) y el chat. Las rutas bajo `/v1` piden `Authorization: Bearer <token>`, salvo las marcadas como públicas. Los montos de la app viajan en centavos (`...Centavos`, enteros) y en pesos solo al crear o editar (`monto`). Las fechas son `YYYY-MM-DD` en la zona horaria del servidor. Un cuerpo de más de 16 KB recibe 413. Las rutas públicas con código cuentan los códigos equivocados por IP (la de `X-Forwarded-For` que agrega Tailscale): 20 en 10 minutos dan 429 a esa IP, y 200 en total a todos.
 
 ## Registro y dispositivos
 
@@ -11,7 +11,7 @@ Cada iPhone o navegador es un dispositivo con su propio token. Se entra con un c
 | `GET /v1/invitaciones/:codigo` (pública) | | `{ para: "usuario" \| "dispositivo", nombre? }` (nombre del usuario si es para otro dispositivo). 404 si no existe, 410 si ya se usó o venció |
 | `POST /v1/registro` (pública) | `{ codigo, nombre?, dispositivo }` (nombre obligatorio si la invitación es para un usuario nuevo) | 201 `{ token, usuario: { id, nombre }, dispositivo: { id, nombre } }`. 400, 404, 410 o 429 con `{ error }` |
 | `GET /v1/yo` | | `{ usuario: { id, nombre }, dispositivo: { id, nombre }, dispositivos: [{ id, nombre, creadoEn, ultimoUso, actual }], moneda, zonaHoraria, hoy }` |
-| `POST /v1/invitaciones` | `{ para: "usuario" \| "dispositivo" }` | 201 `{ codigo, para, expiraEn }` |
+| `POST /v1/invitaciones` | `{ para: "usuario" \| "dispositivo" }` | 201 `{ codigo, para, expiraEn }`. 429 después de 5 códigos de cuenta nueva o 20 de dispositivo en 24 horas |
 | `DELETE /v1/dispositivos/:id` | | `{ ok: true }` |
 
 Para el primer usuario: `bun run invitar -- --nombre Pedro` crea la cuenta (si no existe) e imprime un código para entrar a ella.
@@ -50,7 +50,8 @@ Para el primer usuario: `bun run invitar -- --nombre Pedro` crea la cuenta (si n
 | `DELETE /v1/movimientos/:id` | | `{ ok: true }` |
 | `POST /v1/deshacer` | | `{ deshecho, mensaje? }`; revierte el último cambio |
 | `GET /v1/tablero?mes=YYYY-MM` | mes actual por omisión | ver abajo |
-| `GET /v1/recurrentes` | | `{ recurrentes: [...], total_mensual_gastos }` |
+| `GET /v1/recurrentes` | | `{ recurrentes: [...], total_mensual_gastos, total_mensual_otras_monedas? }`; el total solo suma la moneda base |
+| `GET /v1/resumen` | `?periodo=este_mes`, `tipo=gasto\|ingreso` (gasto por omisión), `agrupar=categoria\|subcategoria\|comercio\|dia\|ninguno` | `{ tipo, desde, hasta, total, cantidad, grupos?, otras_monedas? }` con montos en texto |
 
 `GET /v1/tablero`:
 
@@ -79,6 +80,6 @@ Solo los movimientos en la moneda base entran en las sumas.
 
 | Método y ruta | Cuerpo | Respuesta |
 |---|---|---|
-| `POST /v1/atajo` | `{ servidor }` (la dirección con la que el iPhone llega a la Mac, por ejemplo `location.origin`) | 201 `{ url, expiraEn, nombre }`. Crea un dispositivo "Atajo Finanzas" con su propio token (y quita los anteriores que nunca se usaron) y prepara el Atajo firmado. 501 si la Mac no puede firmar |
-| `POST /v1/atajo/canjear` (pública) | `{ codigo, servidor }` con un código de dispositivo de una cuenta | 201 `{ url, expiraEn, nombre }`, igual que `POST /v1/atajo` pero sin token: es el enlace `/instalar?codigo=...`. 400 si el código es de cuenta nueva, 404, 410, 429; 501 si la Mac no puede firmar (el código sigue sirviendo) |
-| `GET /atajo/:id.shortcut` (pública, vale 10 minutos) | | El archivo `Finanzas.shortcut` firmado; el id es aleatorio y solo lo conoce quien pidió el Atajo |
+| `POST /v1/atajo` | `{ servidor }` (la dirección con la que el iPhone llega a la Mac, por ejemplo `location.origin`; tiene que ser este mismo servidor) | 201 `{ url, expiraEn, nombre }`. Crea un dispositivo "Atajo Finanzas" con su propio token (y quita los anteriores que nunca se usaron) y prepara el Atajo firmado. 501 si la Mac no puede firmar |
+| `POST /v1/atajo/canjear` (pública) | `{ codigo, servidor }` con un código de dispositivo de una cuenta | 201 `{ url, expiraEn, nombre }`, igual que `POST /v1/atajo` pero sin token: es el enlace `/instalar?codigo=...`. 400 si el código es de cuenta nueva o `servidor` no es este servidor, 404, 410, 429; 501 si la Mac no puede firmar (el código sigue sirviendo) |
+| `GET /atajo/:id.shortcut` (pública, vale 10 minutos y 5 descargas) | | El archivo `Finanzas.shortcut` firmado; el id es aleatorio y solo lo conoce quien pidió el Atajo. 410 después |

@@ -146,7 +146,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
 
     editar_movimiento: tool({
       description:
-        'Corrige un movimiento ya registrado: "fueron 95, no 85", "lo pagué con la Nu", "cámbialo a Regalos". Identifícalo con id o con buscar; en cambios manda solo lo nuevo.',
+        'Corrige un movimiento ya registrado: "fueron 95, no 85", "lo pagué con la Nu", "fue con la BBVA", "cámbialo a Regalos". Identifícalo con id (si buscar_movimientos ya te lo dio) o con buscar; en cambios manda solo lo nuevo.',
       inputSchema: z.object({
         id: z.string().optional().describe("id, si ya lo tienes"),
         buscar: busqueda.optional(),

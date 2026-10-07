@@ -123,8 +123,10 @@ export function listarMovimientosApp(ctx: Contexto, filtro: FiltroApp) {
       return palabras.every((p) => plano.includes(p));
     });
   }
-  const limite = Math.min(Math.max(filtro.limite ?? 100, 1), 500);
-  const offset = Math.max(filtro.offset ?? 0, 0);
+  // "?limite=abc" llega como NaN: se usa el valor por omisión en vez de devolver una página vacía.
+  const numero = (n: number | undefined, porOmision: number) => (n !== undefined && Number.isFinite(n) ? Math.trunc(n) : porOmision);
+  const limite = Math.min(Math.max(numero(filtro.limite, 100), 1), 500);
+  const offset = Math.max(numero(filtro.offset, 0), 0);
   const pagina = filas.slice(offset, offset + limite);
   const n = nombres(ctx, pagina);
   return { total: filas.length, movimientos: pagina.map((m) => aMovimientoApp(m, cats, n)) };

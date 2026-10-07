@@ -314,6 +314,8 @@ export const bitacora = sqliteTable(
     despues: text("despues", { mode: "json" }).$type<Record<string, unknown>>(),
     creadoEn: creadoEn(),
     deshechoEn: text("deshecho_en"),
+    // La entrada que lo deshizo ("deshaz eso"): si esa entrada falla y se reintenta, se rehace.
+    deshechoPor: text("deshecho_por"),
   },
   (t) => [index("bitacora_usuario").on(t.usuarioId, t.creadoEn)],
 );

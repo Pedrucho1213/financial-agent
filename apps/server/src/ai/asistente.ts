@@ -1,13 +1,14 @@
 import { generateText, isStepCount, type LanguageModel, type ModelMessage } from "ai";
 import { and, asc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { entradas, mensajes } from "../db/schema";
-import { crearContexto } from "../finanzas/contexto";
+import { cuentas, entradas, mensajes } from "../db/schema";
+import { type Contexto, crearContexto } from "../finanzas/contexto";
 import { revertirEntrada } from "../finanzas/movimientos";
 import { esPregunta, normalizar } from "../lib/texto";
 import { confirmacionDirecta, type Ejecutada } from "./confirmacion";
 import { construirInstrucciones } from "./instrucciones";
 import { crearHerramientas, type Accion } from "./herramientas";
+import { correccionDeCuenta } from "./respaldo";
 
 export type Peticion = {
   texto: string;
@@ -326,6 +327,26 @@ export async function consultarEntrada(
   return e.estado === "listo" ? { ...(e.respuesta as Respuesta), estado: e.estado } : { estado: e.estado };
 }
 
+/** Corrige la cuenta de un gasto ya registrado sin el modelo (ver `correccionDeCuenta`). */
+async function corregirCuenta(ctx: Contexto, texto: string, acciones: Accion[]): Promise<string | undefined> {
+  const conocidas = ctx.db
+    .select({ nombre: cuentas.nombre, alias: cuentas.alias })
+    .from(cuentas)
+    .where(eq(cuentas.usuarioId, ctx.usuarioId))
+    .all()
+    .flatMap((c) => [c.nombre, ...c.alias]);
+  const correccion = correccionDeCuenta(texto, conocidas);
+  if (!correccion) return undefined;
+  const editar = crearHerramientas(ctx, acciones).editar_movimiento;
+  const resultado = await editar.execute!(
+    { buscar: correccion.buscar, cambios: { cuenta: correccion.cuenta } },
+    { toolCallId: "respaldo-cuenta", messages: [], context: {} },
+  );
+  // Si no encontró uno solo (o ninguno), queda la respuesta del modelo.
+  if (!resultado || typeof resultado !== "object" || !("editado" in resultado)) return undefined;
+  return confirmacionDirecta(texto, ctx.hoy, [{ herramienta: "editar_movimiento", resultado }]) ?? "Listo, lo corregí.";
+}
+
 async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta> {
   const { db } = deps;
   const usuarioId = entrada.usuarioId;
@@ -384,6 +405,14 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
     }
     mensajesRespuesta = resultado.response.messages;
     if (confirmacion) mensajesRespuesta = [...mensajesRespuesta, { role: "assistant", content: confirmacion }];
+    // "El súper de hoy fue con la Nu" sin herramientas: el modelo suele preguntar el monto; se corrige aquí.
+    if (acciones.length === 0) {
+      const corregido = await corregirCuenta(ctx, entrada.texto, acciones);
+      if (corregido) {
+        texto = corregido;
+        mensajesRespuesta = [{ role: "assistant", content: corregido }];
+      }
+    }
     if (acciones.length === 0 && PIDE_ALGO.test(normalizar(entrada.texto)) && diceQueHizo(texto)) {
       texto = RESPUESTA_NO_GUARDADA;
       mensajesRespuesta = [{ role: "assistant", content: texto }];

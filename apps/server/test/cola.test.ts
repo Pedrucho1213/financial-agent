@@ -204,6 +204,36 @@ describe("cola de dictados", () => {
     expect((await get("/v1/entradas/dictado-7101")).cuerpo.estado).toBe("error");
   });
 
+  test("un 'deshaz eso' que se reintenta tarde no deshace el dictado que llegó después (QA-021)", async () => {
+    let fallas = 0;
+    const modelo = new MockLanguageModelV4({
+      doGenerate: async ({ prompt }) => {
+        const mensajes = prompt as Mensaje[];
+        if (mensajes.at(-1)?.role !== "user") return texto("Listo.");
+        const contenido = mensajes.at(-1)!.content;
+        const dictado = typeof contenido === "string" ? contenido : contenido.map((p) => p.text ?? "").join("");
+        if (dictado.includes("deshaz")) {
+          if (fallas++ === 0) {
+            await dormir(40);
+            throw new Error("Ollama se cayó");
+          }
+          return llamada("deshacer", {});
+        }
+        const monto = Number(dictado.match(/\d+/)?.[0]);
+        return llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto, descripcion: dictado }] });
+      },
+    });
+    const { hablar, montos, esperarFin } = montar(modelo, { registroMs: 2000, preguntaMs: 2000 }, [60_000]);
+    await hablar({ texto: "gasté 100", client_id: "dictado-7301" });
+    await hablar({ texto: "gasté 200", client_id: "dictado-7302" });
+    expect((await hablar({ texto: "deshaz eso y ya", client_id: "dictado-7303", espera_ms: 10 })).status).toBe(202);
+    await dormir(60); // falla en segundo plano y queda esperando su reintento
+    // Sale bien y adelanta el reintento del "deshaz eso".
+    await hablar({ texto: "gasté 300", client_id: "dictado-7304" });
+    expect((await esperarFin("dictado-7303")).estado).toBe("listo");
+    expect((await montos()).sort((a, b) => a - b)).toEqual([100, 300]);
+  });
+
   test("al arrancar retoma lo que quedó a medias en las últimas 24 horas", async () => {
     const { modelo, intentos } = modeloFalso({ retrasoMs: () => 10 });
     const { db, usuario, deps, hablar, montos, esperarFin } = montar(modelo);
