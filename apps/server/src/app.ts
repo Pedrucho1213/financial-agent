@@ -145,7 +145,8 @@ const POLITICA_CONTENIDO = {
   defaultSrc: ["'self'"],
   scriptSrc: ["'self'"],
   styleSrc: ["'self'", "'unsafe-inline'"],
-  // Mosaicos del mapa de dónde gastas (CARTO). Solo se piden imágenes; ningún dato sale de la Mac.
+  // Mosaicos del mapa de dónde gastas (CARTO), solo si el usuario enciende "Mostrar calles": CARTO
+  // ve qué zonas del mapa se miran (no los gastos). Apagado por omisión.
   imgSrc: ["'self'", "data:", "blob:", "https://*.basemaps.cartocdn.com"],
   fontSrc: ["'self'", "data:"],
   connectSrc: ["'self'"],

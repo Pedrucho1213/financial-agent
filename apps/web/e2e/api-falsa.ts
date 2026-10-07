@@ -210,6 +210,8 @@ export class ApiFalsa {
   private atajos = 0;
   /** Presupuestos, metas, préstamos y MSI (ver api-falsa-plan.ts). */
   plan = planInicial();
+  /** Como un servidor sin presupuestos ni avisos todavía: esas rutas responden 404. */
+  sinPlan = false;
   /** Datos de la cuenta que se pueden cambiar en Ajustes (ver api-falsa-cuenta.ts). */
   cuenta = { nombre: "Pedro Ramírez", usuario: "pedro", tieneCodigo: false, codigo: null as string | null };
 

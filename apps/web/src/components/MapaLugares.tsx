@@ -115,9 +115,12 @@ export function MapaLugares({
         interactive: interactivo,
       }).addTo(m);
       c.on("click", () => elegir.current?.(l.clave));
-      // Sin calles, el nombre al lado del círculo es lo que da contexto.
+      // Sin calles, el nombre al lado del círculo es lo que da contexto. Va como texto, no como HTML:
+      // el comercio puede venir de Apple Pay o del dictado y Leaflet insertaría un string como innerHTML.
       if (!conCalles) {
-        c.bindTooltip(l.nombre, { permanent: true, direction: "right", offset: [radio, 0], className: "fa-etiqueta" });
+        const etiqueta = document.createElement("span");
+        etiqueta.textContent = l.nombre;
+        c.bindTooltip(etiqueta, { permanent: true, direction: "right", offset: [radio, 0], className: "fa-etiqueta" });
       }
       circulos.current.set(l.clave, c);
     }

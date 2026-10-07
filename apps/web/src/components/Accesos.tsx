@@ -1,9 +1,11 @@
 import { ChevronRight, MapPin, Target } from "lucide-react";
 import type { ReactNode } from "react";
+import { ErrorApi } from "../lib/api";
 import { dinero } from "../lib/formato";
 import { haptico } from "../lib/haptico";
 import { useMetas, usePresupuestos } from "../lib/plan";
 import { hashDe, navegar } from "../lib/ruta";
+import { cn } from "../lib/utils";
 import { Anillos } from "./Anillos";
 
 /** Dos tarjetas en Inicio: presupuestos y metas (con sus anillos) y el mapa de dónde gastas. */
@@ -15,6 +17,8 @@ export function Accesos({ mes, moneda }: { mes: string; moneda: string }) {
   const objetivo = listaMetas.reduce((s, m) => s + m.objetivoCentavos, 0);
   const ahorrado = listaMetas.reduce((s, m) => s + Math.min(m.ahorradoCentavos, m.objetivoCentavos), 0);
   const conPlan = !!total?.limiteCentavos || objetivo > 0;
+  // Un servidor sin presupuestos (404) todavía no se actualizó: solo queda el mapa.
+  const sinPlan = presupuestos.error instanceof ErrorApi && presupuestos.error.estado === 404;
 
   let detallePlan = "Ponle tope al mes y junta para algo";
   if (total?.limiteCentavos) {
@@ -23,38 +27,40 @@ export function Accesos({ mes, moneda }: { mes: string; moneda: string }) {
   } else if (objetivo > 0) detallePlan = `${dinero(ahorrado, moneda)} ahorrados`;
 
   return (
-    <div className="grid grid-cols-2 gap-3">
-      <Tarjeta
-        titulo="Presupuestos y metas"
-        detalle={detallePlan}
-        alTocar={() => navegar(hashDe("plan"))}
-        icono={
-          conPlan && presupuestos.data ? (
-            <Anillos
-              tamano={52}
-              grosor={6}
-              separacion={1.5}
-              anillos={[
-                {
-                  progreso: total?.limiteCentavos ? total.gastadoCentavos / total.limiteCentavos : 0,
-                  color: "var(--anillo-gasto)",
-                  etiqueta: "Presupuesto",
-                },
-                {
-                  progreso: presupuestos.data.diaDelMes / Math.max(1, presupuestos.data.diasDelMes),
-                  color: "var(--anillo-mes)",
-                  etiqueta: "Mes",
-                },
-                { progreso: objetivo ? ahorrado / objetivo : 0, color: "var(--anillo-meta)", etiqueta: "Metas" },
-              ]}
-            />
-          ) : (
-            <span aria-hidden className="flex size-[52px] items-center justify-center rounded-full bg-[var(--anillo-gasto)]/15 text-[var(--anillo-gasto)]">
-              <Target className="size-[22px]" />
-            </span>
-          )
-        }
-      />
+    <div className={cn("grid gap-3", sinPlan ? "grid-cols-1" : "grid-cols-2")}>
+      {sinPlan ? null : (
+        <Tarjeta
+          titulo="Presupuestos y metas"
+          detalle={detallePlan}
+          alTocar={() => navegar(hashDe("plan"))}
+          icono={
+            conPlan && presupuestos.data ? (
+              <Anillos
+                tamano={52}
+                grosor={6}
+                separacion={1.5}
+                anillos={[
+                  {
+                    progreso: total?.limiteCentavos ? total.gastadoCentavos / total.limiteCentavos : 0,
+                    color: "var(--anillo-gasto)",
+                    etiqueta: "Presupuesto",
+                  },
+                  {
+                    progreso: presupuestos.data.diaDelMes / Math.max(1, presupuestos.data.diasDelMes),
+                    color: "var(--anillo-mes)",
+                    etiqueta: "Mes",
+                  },
+                  { progreso: objetivo ? ahorrado / objetivo : 0, color: "var(--anillo-meta)", etiqueta: "Metas" },
+                ]}
+              />
+            ) : (
+              <span aria-hidden className="flex size-[52px] items-center justify-center rounded-full bg-[var(--anillo-gasto)]/15 text-[var(--anillo-gasto)]">
+                <Target className="size-[22px]" />
+              </span>
+            )
+          }
+        />
+      )}
       <Tarjeta
         titulo="Dónde gastas"
         detalle="Mira tus lugares"

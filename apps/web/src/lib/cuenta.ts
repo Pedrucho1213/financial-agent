@@ -42,6 +42,7 @@ export function problemaUsuario(usuario: string): string | null {
 /** Mensaje del servidor para 401 y 429 al entrar; lo demás, el de siempre. */
 export function mensajeEntrar(error: unknown) {
   if (error instanceof ErrorApi) {
+    if (error.estado === 404) return "Tu servidor todavía no permite entrar con usuario y código. Usa un código de invitación.";
     if (error.estado === 401 && !(error.cuerpo && typeof error.cuerpo === "object" && "error" in error.cuerpo)) {
       return "Usuario o código incorrectos.";
     }

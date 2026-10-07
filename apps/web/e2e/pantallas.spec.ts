@@ -184,6 +184,17 @@ test.describe("Dónde gastas", () => {
     await expect(page.getByRole("switch", { name: "Mostrar calles" })).toBeChecked();
   });
 
+  test("el nombre de un comercio se muestra como texto, nunca como HTML", async ({ page }) => {
+    const api = new ApiFalsa();
+    const pemex = api.movimientos.find((m) => m.comercio === "Pemex")!;
+    pemex.comercio = '<img src=x id="inyectado"><a href="https://ejemplo.com">Gana</a>';
+    await prepararSesion(page, api);
+    await page.goto("/#mapa");
+    await expect(page.locator(".fa-etiqueta").filter({ hasText: "<img src=x" })).toBeVisible();
+    await expect(page.locator("#inyectado")).toHaveCount(0);
+    await expect(page.locator(".fa-mapa a[href='https://ejemplo.com']")).toHaveCount(0);
+  });
+
   test("sin ubicaciones explica de dónde salen", async ({ page }) => {
     const api = new ApiFalsa();
     for (const m of api.movimientos) {
@@ -222,5 +233,20 @@ test.describe("Avisos del revisor", () => {
     await expect(page.getByText("3 movimientos")).toBeVisible();
     await page.goto("/#metas");
     await expect(page.getByRole("heading", { name: "Metas de ahorro" })).toBeInViewport();
+  });
+});
+
+test.describe("Servidor sin presupuestos todavía (404)", () => {
+  test("Inicio deja solo el mapa, sin avisos, y Presupuestos lo explica sin errores", async ({ page }) => {
+    const api = new ApiFalsa();
+    api.sinPlan = true;
+    await prepararSesion(page, api);
+    await page.goto("/");
+    await expect(page.getByRole("button", { name: /Dónde gastas/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Presupuestos y metas/ })).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Avisos" })).toHaveCount(0);
+    await page.goto("/#plan");
+    await expect(page.getByText("Aún no está en tu servidor")).toBeVisible();
+    await expect(page.locator("[data-sonner-toast]")).toHaveCount(0);
   });
 });

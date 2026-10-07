@@ -8,7 +8,7 @@ import { Fila, FilaBoton, Grupo, TituloSeccion } from "../components/ui/lista";
 import { SelectNativo } from "../components/ui/select";
 import { Sheet, SheetContent } from "../components/ui/sheet";
 import { Skeleton } from "../components/ui/skeleton";
-import { mensajeDeError } from "../lib/api";
+import { ErrorApi, mensajeDeError } from "../lib/api";
 import { OpcionesCategorias } from "../lib/categorias";
 import { useEnLinea } from "../lib/conexion";
 import { useCategorias, useYo } from "../lib/consultas";
@@ -67,6 +67,8 @@ export function Plan({ params }: { params: URLSearchParams }) {
   const lista = presupuestos.data?.presupuestos ?? [];
   const listaMetas = metas.data?.metas ?? [];
   const cargando = presupuestos.isPending || metas.isPending;
+  // Un servidor sin presupuestos (404) todavía no se actualizó.
+  const sinPlan = presupuestos.error instanceof ErrorApi && presupuestos.error.estado === 404;
 
   // Un aviso de metas (#metas) baja directo a esa sección.
   const seccionMetas = useRef<HTMLElement>(null);
@@ -84,111 +86,120 @@ export function Plan({ params }: { params: URLSearchParams }) {
         Promise.all([presupuestos.refetch(), metas.refetch(), disponible.refetch(), prestamos.refetch(), msi.refetch()])
       }
     >
-      <div className="space-y-8 pt-2 pb-4">
-        {cargando ? (
-          <Skeleton className="h-[200px] w-full rounded-[20px] bg-card" />
-        ) : (
-          <Resumen hoy={hoy} mes={mes} moneda={moneda} presupuestos={presupuestos.data} metas={listaMetas} />
-        )}
-
-        {disponible.data?.base ? <TarjetaDisponible d={disponible.data} moneda={moneda} /> : null}
-
-        <section>
-          <TituloSeccion>Presupuestos de {nombreMes(mes, false).toLowerCase()}</TituloSeccion>
-          {presupuestos.isError && !presupuestos.data ? (
-            <Error texto={mensajeDeError(presupuestos.error)} alReintentar={() => presupuestos.refetch()} />
+      {sinPlan ? (
+        <div className="mt-6 rounded-[20px] bg-card px-6 py-10 text-center">
+          <p className="text-[17px] font-semibold">Aún no está en tu servidor</p>
+          <p className="mt-1 text-[15px] text-muted-foreground">
+            Los presupuestos y las metas llegan con la próxima actualización de la Mac.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-8 pt-2 pb-4">
+          {cargando ? (
+            <Skeleton className="h-[200px] w-full rounded-[20px] bg-card" />
           ) : (
-            <Grupo
-              pie={
-                lista.length ? undefined : (
-                  <span className="flex items-start gap-1.5">
-                    <Mic className="mt-0.5 size-3.5 shrink-0" /> También por voz: «ponme un tope de 3,000 en comida».
-                  </span>
-                )
-              }
-            >
-              {cargando ? <Skeleton className="m-4 h-10" /> : null}
-              {lista.map((p) => {
-                const color = COLOR_ESTADO[p.estado];
-                const nombre = nombrePresupuesto(p);
-                return (
-                  <FilaBoton
-                    key={p.id}
-                    sangria="4rem"
-                    icono={<Anillos tamano={36} grosor={6} anillos={[{ progreso: p.porcentaje / 100, color, etiqueta: nombre }]} />}
-                    titulo={nombre}
-                    subtitulo={subtituloPresupuesto(p, moneda)}
-                    valor={<span className="font-medium tabular" style={{ color }}>{p.porcentaje}%</span>}
-                    chevron
-                    onClick={() => setHojaPresupuesto(p)}
-                  />
-                );
-              })}
-              <FilaBoton
-                sangria="4rem"
-                icono={
-                  <span className="flex size-9 items-center justify-center">
-                    <Plus className="size-5 text-tint" strokeWidth={2.5} />
-                  </span>
-                }
-                titulo={<span className="text-tint">Agregar presupuesto</span>}
-                disabled={!enLinea}
-                onClick={() => setHojaPresupuesto("nuevo")}
-              />
-            </Grupo>
+            <Resumen hoy={hoy} mes={mes} moneda={moneda} presupuestos={presupuestos.data} metas={listaMetas} />
           )}
-        </section>
 
-        <section ref={seccionMetas} className="scroll-mt-16">
-          <TituloSeccion>Metas de ahorro</TituloSeccion>
-          {metas.isError && !metas.data ? (
-            <Error texto={mensajeDeError(metas.error)} alReintentar={() => metas.refetch()} />
-          ) : (
-            <Grupo
-              pie={
-                listaMetas.length ? undefined : (
-                  <span className="flex items-start gap-1.5">
-                    <Mic className="mt-0.5 size-3.5 shrink-0" /> O dile al Atajo: «quiero juntar 20 mil para diciembre».
-                  </span>
-                )
-              }
-            >
-              {listaMetas.map((m) => (
+          {disponible.data?.base ? <TarjetaDisponible d={disponible.data} moneda={moneda} /> : null}
+
+          <section>
+            <TituloSeccion>Presupuestos de {nombreMes(mes, false).toLowerCase()}</TituloSeccion>
+            {presupuestos.isError && !presupuestos.data ? (
+              <Error texto={mensajeDeError(presupuestos.error)} alReintentar={() => presupuestos.refetch()} />
+            ) : (
+              <Grupo
+                pie={
+                  lista.length ? undefined : (
+                    <span className="flex items-start gap-1.5">
+                      <Mic className="mt-0.5 size-3.5 shrink-0" /> También por voz: «ponme un tope de 3,000 en comida».
+                    </span>
+                  )
+                }
+              >
+                {cargando ? <Skeleton className="m-4 h-10" /> : null}
+                {lista.map((p) => {
+                  const color = COLOR_ESTADO[p.estado];
+                  const nombre = nombrePresupuesto(p);
+                  return (
+                    <FilaBoton
+                      key={p.id}
+                      sangria="4rem"
+                      icono={<Anillos tamano={36} grosor={6} anillos={[{ progreso: p.porcentaje / 100, color, etiqueta: nombre }]} />}
+                      titulo={nombre}
+                      subtitulo={subtituloPresupuesto(p, moneda)}
+                      valor={<span className="font-medium tabular" style={{ color }}>{p.porcentaje}%</span>}
+                      chevron
+                      onClick={() => setHojaPresupuesto(p)}
+                    />
+                  );
+                })}
                 <FilaBoton
-                  key={m.id}
                   sangria="4rem"
                   icono={
-                    <Anillos
-                      tamano={36}
-                      grosor={6}
-                      anillos={[{ progreso: m.porcentaje / 100, color: "var(--anillo-meta)", etiqueta: m.nombre }]}
-                    />
+                    <span className="flex size-9 items-center justify-center">
+                      <Plus className="size-5 text-tint" strokeWidth={2.5} />
+                    </span>
                   }
-                  titulo={m.nombre}
-                  subtitulo={subtituloMeta(m, hoy, moneda)}
-                  valor={<span className="font-medium text-foreground tabular">{Math.min(100, m.porcentaje)}%</span>}
-                  chevron
-                  onClick={() => setHojaMeta(m)}
+                  titulo={<span className="text-tint">Agregar presupuesto</span>}
+                  disabled={!enLinea}
+                  onClick={() => setHojaPresupuesto("nuevo")}
                 />
-              ))}
-              <FilaBoton
-                sangria="4rem"
-                icono={
-                  <span className="flex size-9 items-center justify-center">
-                    <Plus className="size-5 text-tint" strokeWidth={2.5} />
-                  </span>
-                }
-                titulo={<span className="text-tint">Nueva meta</span>}
-                disabled={!enLinea}
-                onClick={() => setHojaMeta("nueva")}
-              />
-            </Grupo>
-          )}
-        </section>
+              </Grupo>
+            )}
+          </section>
 
-        <Prestamos datos={prestamos.data} moneda={moneda} />
-        <Msi datos={msi.data} moneda={moneda} />
-      </div>
+          <section ref={seccionMetas} className="scroll-mt-16">
+            <TituloSeccion>Metas de ahorro</TituloSeccion>
+            {metas.isError && !metas.data ? (
+              <Error texto={mensajeDeError(metas.error)} alReintentar={() => metas.refetch()} />
+            ) : (
+              <Grupo
+                pie={
+                  listaMetas.length ? undefined : (
+                    <span className="flex items-start gap-1.5">
+                      <Mic className="mt-0.5 size-3.5 shrink-0" /> O dile al Atajo: «quiero juntar 20 mil para diciembre».
+                    </span>
+                  )
+                }
+              >
+                {listaMetas.map((m) => (
+                  <FilaBoton
+                    key={m.id}
+                    sangria="4rem"
+                    icono={
+                      <Anillos
+                        tamano={36}
+                        grosor={6}
+                        anillos={[{ progreso: m.porcentaje / 100, color: "var(--anillo-meta)", etiqueta: m.nombre }]}
+                      />
+                    }
+                    titulo={m.nombre}
+                    subtitulo={subtituloMeta(m, hoy, moneda)}
+                    valor={<span className="font-medium text-foreground tabular">{Math.min(100, m.porcentaje)}%</span>}
+                    chevron
+                    onClick={() => setHojaMeta(m)}
+                  />
+                ))}
+                <FilaBoton
+                  sangria="4rem"
+                  icono={
+                    <span className="flex size-9 items-center justify-center">
+                      <Plus className="size-5 text-tint" strokeWidth={2.5} />
+                    </span>
+                  }
+                  titulo={<span className="text-tint">Nueva meta</span>}
+                  disabled={!enLinea}
+                  onClick={() => setHojaMeta("nueva")}
+                />
+              </Grupo>
+            )}
+          </section>
+
+          <Prestamos datos={prestamos.data} moneda={moneda} />
+          <Msi datos={msi.data} moneda={moneda} />
+        </div>
+      )}
 
       <HojaPresupuesto valor={hojaPresupuesto} moneda={moneda} existentes={lista} alCerrar={() => setHojaPresupuesto(null)} />
       <HojaMeta valor={hojaMeta} moneda={moneda} hoy={hoy} alCerrar={() => setHojaMeta(null)} />

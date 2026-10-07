@@ -119,6 +119,9 @@ function metaApp(m: MetaFalsa) {
 /** Devuelve undefined si la ruta no es de aquí. */
 export async function atenderPlan(api: ApiFalsa, { metodo, ruta, cuerpo, consulta, json }: Peticion): Promise<void | undefined> {
   const plan = api.plan;
+  if (api.sinPlan && /^\/v1\/(presupuestos|metas|disponible|prestamos|msi|avisos)\b/.test(ruta)) {
+    return json(404, { error: "No existe." });
+  }
   if (metodo === "GET" && ruta === "/v1/presupuestos") {
     const mes = consulta.get("mes") ?? HOY.slice(0, 7);
     const lista = plan.presupuestos.map((p) => presupuestoApp(api, p, mes));
