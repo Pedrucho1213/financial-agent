@@ -92,6 +92,13 @@ test("encuentra 'el Uber de ayer' y le cambia la cuenta", async () => {
   expect(r.editado).toMatchObject({ comercio: "Uber", cuenta: "Nu" });
 });
 
+test("un campo vacío del modelo al corregir otra cosa no borra el comercio", async () => {
+  const { ctx } = preparar();
+  crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café", comercio: "Starbucks", cuenta: "BBVA" });
+  const r = await llamar(ctx, "editar_movimiento", { buscar: { texto: "café" }, cambios: { monto: 95, comercio: "", cuenta: "" } });
+  expect(r.editado).toMatchObject({ monto: "$95", comercio: "Starbucks", cuenta: "BBVA" });
+});
+
 test("si varios coinciden, pide aclarar o toma el más reciente", async () => {
   const { ctx } = preparar();
   crearMovimiento(ctx, { tipo: "gasto", monto: 60, categoria: "Café", fecha: "ayer" });

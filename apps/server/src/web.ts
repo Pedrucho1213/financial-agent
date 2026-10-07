@@ -11,7 +11,12 @@ export function servirApp(carpeta: string) {
   const raiz = normalize(carpeta);
   const indice = join(raiz, "index.html");
   return async (c: Context) => {
-    const ruta = decodeURIComponent(new URL(c.req.url).pathname);
+    let ruta: string;
+    try {
+      ruta = decodeURIComponent(new URL(c.req.url).pathname);
+    } catch {
+      return c.text("Dirección inválida.", 400);
+    }
     if (ruta.startsWith("/v1/") || ruta.startsWith("/atajo/")) return c.json({ error: "No existe." }, 404);
     if (!existsSync(indice)) {
       return c.text("La app no está compilada. En la Mac corre: bun run web:build", 503);

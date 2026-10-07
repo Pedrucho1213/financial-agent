@@ -90,6 +90,13 @@ const esquemaMovimiento = z.object({
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Usa AAAA-MM-DD.").optional(),
 });
 
+// Al editar, null borra el dato (la app lo manda así); sin el campo, no se toca.
+const esquemaEdicion = esquemaMovimiento.partial().extend({
+  comercio: esquemaMovimiento.shape.comercio.unwrap().nullable().optional(),
+  descripcion: esquemaMovimiento.shape.descripcion.unwrap().nullable().optional(),
+  cuenta: esquemaMovimiento.shape.cuenta.unwrap().nullable().optional(),
+});
+
 const esquemaRegistro = z.object({
   codigo: z.string().trim().min(6).max(12),
   nombre: z.string().trim().max(80).optional(),
@@ -327,14 +334,22 @@ export function crearApp(opciones: OpcionesApp) {
   });
 
   v1.patch("/movimientos/:id", async (c) => {
-    const cuerpo = esquemaMovimiento.partial().safeParse(await c.req.json().catch(() => null));
+    const cuerpo = esquemaEdicion.safeParse(await c.req.json().catch(() => null));
     if (!cuerpo.success) {
       return c.json({ error: "Datos inválidos.", detalles: z.flattenError(cuerpo.error).fieldErrors }, 400);
     }
     const ctx = contexto(c.get("usuarioId"));
-    const { categoria_id, ...cambios } = cuerpo.data;
+    const { categoria_id, comercio, descripcion, cuenta, ...cambios } = cuerpo.data;
     const id = c.req.param("id");
-    editarMovimiento(ctx, id, { ...cambios, categoriaId: categoria_id ?? undefined });
+    // editarMovimiento borra con "".
+    const texto = (v: string | null | undefined) => (v === null ? "" : v);
+    editarMovimiento(ctx, id, {
+      ...cambios,
+      comercio: texto(comercio),
+      descripcion: texto(descripcion),
+      cuenta: texto(cuenta),
+      categoriaId: categoria_id,
+    });
     return c.json(movimientoApp(ctx, obtenerPropio(ctx, id)));
   });
 

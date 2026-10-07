@@ -46,7 +46,7 @@ Para el primer usuario: `bun run invitar -- --nombre Pedro` crea la cuenta (si n
 | `GET /v1/categorias` | | `{ categorias: [{ id, nombre, nombreCompleto, padreId, tipo, naturaleza }] }` |
 | `GET /v1/movimientos` | `?desde&hasta` o `?periodo=este_mes`, `tipo`, `categoria_id` (incluye hijas), `texto`, `revisar=1`, `limite` (hasta 500, 100 por omisión), `offset` | `{ total, movimientos: MovimientoApp[] }`, del más reciente al más antiguo |
 | `POST /v1/movimientos` | `{ tipo, monto, moneda?, categoria_id?, comercio?, descripcion?, cuenta?, fecha? }` | 201 `MovimientoApp` (origen `app`) |
-| `PATCH /v1/movimientos/:id` | los mismos campos, todos opcionales | `MovimientoApp` |
+| `PATCH /v1/movimientos/:id` | los mismos campos, todos opcionales; `null` (o `""`) en `comercio`, `descripcion`, `cuenta` o `categoria_id` borra ese dato | `MovimientoApp` |
 | `DELETE /v1/movimientos/:id` | | `{ ok: true }` |
 | `POST /v1/deshacer` | | `{ deshecho, mensaje? }`; revierte el último cambio |
 | `GET /v1/tablero?mes=YYYY-MM` | mes actual por omisión | ver abajo |

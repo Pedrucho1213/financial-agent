@@ -32,8 +32,8 @@ export type DatosMovimiento = {
   descripcion?: string;
   cuenta?: string;
   fecha?: string;
-  /** La app elige la categoría de una lista; la IA la nombra con texto (`categoria`). */
-  categoriaId?: string;
+  /** La app elige la categoría de una lista; la IA la nombra con texto (`categoria`). null la quita. */
+  categoriaId?: string | null;
   origen?: Movimiento["origen"];
 };
 
@@ -280,7 +280,8 @@ export function editarMovimiento(ctx: Contexto, id: string, cambios: Partial<Dat
     nuevo.comercioId = cambios.comercio ? encontrarOCrearComercio(ctx.db, ctx.usuarioId, cambios.comercio)?.id : null;
   if (cambios.cuenta !== undefined)
     nuevo.cuentaId = cambios.cuenta ? encontrarOCrearCuenta(ctx.db, ctx.usuarioId, cambios.cuenta)?.id : null;
-  if (cambios.categoria || cambios.categoriaId) {
+  if (cambios.categoriaId === null) nuevo.categoriaId = null;
+  else if (cambios.categoria || cambios.categoriaId) {
     const cat = cambios.categoriaId
       ? categoriaElegida(cats, tipo, cambios.categoriaId)
       : encontrarCategoria(cats, cambios.categoria, tipo === "ingreso" ? "ingreso" : "gasto");

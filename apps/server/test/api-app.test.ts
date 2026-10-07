@@ -143,6 +143,16 @@ describe("movimientos desde la app", () => {
     expect(editado.estado).toBe(200);
     expect(editado.cuerpo).toMatchObject({ montoCentavos: 9500, comercio: null, descripcion: "latte" });
 
+    // La app borra con null: comercio, nota, cuenta y categoría.
+    await pedir(`/v1/movimientos/${creado.cuerpo.id}`, { metodo: "PATCH", cuerpo: { comercio: "Oxxo", cuenta: "BBVA" }, token });
+    const borrado = await pedir(`/v1/movimientos/${creado.cuerpo.id}`, {
+      metodo: "PATCH",
+      cuerpo: { comercio: null, descripcion: null, cuenta: null, categoria_id: null },
+      token,
+    });
+    expect(borrado.estado).toBe(200);
+    expect(borrado.cuerpo).toMatchObject({ comercio: null, descripcion: null, cuenta: null, categoriaId: null, montoCentavos: 9500 });
+
     expect((await pedir(`/v1/movimientos/${creado.cuerpo.id}`, { metodo: "DELETE", token })).estado).toBe(200);
     expect((await pedir("/v1/movimientos", { token })).cuerpo.total).toBe(0);
     expect((await pedir("/v1/deshacer", { cuerpo: {}, token })).cuerpo.deshecho).toBe(true);
@@ -286,6 +296,7 @@ describe("la app web", () => {
     expect((await app.request("/../secreto.txt")).status).toBe(404);
     expect((await app.request("/%2e%2e/secreto.txt")).status).toBe(404);
     expect((await app.request("/no-existe.png")).status).toBe(404);
+    expect((await app.request("/%E0")).status).toBe(400);
     expect((await app.request("/v1/no-existe")).status).toBe(401);
     expect((await app.request("/salud")).status).toBe(200);
   });
