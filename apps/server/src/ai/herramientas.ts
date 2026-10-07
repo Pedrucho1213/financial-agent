@@ -12,6 +12,8 @@ import {
   idDelMovimiento,
   resumir,
 } from "../finanzas/movimientos";
+import { cuentaHabitual, habitoMencionado, nombreDeCuenta } from "../finanzas/habitos";
+import { listarMemorias, olvidar, recordar } from "../finanzas/memorias";
 import { cancelarRecurrente, crearRecurrente, editarRecurrente, listarRecurrentes } from "../finanzas/recurrentes";
 import { fechaDelTexto, fechasDelTexto, mencionaFecha, resolverFecha } from "../lib/fechas";
 import { montoConPalabras, montosDelTexto } from "../lib/numeros";
@@ -116,16 +118,36 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         const tipoDicho = unico ? tipoDelTexto(texto) : undefined;
         const conTipo = (tipo: (typeof movimientos)[number]["tipo"]) =>
           tipoDicho && (tipo === "gasto" || tipo === "ingreso") ? tipoDicho : tipo;
+        // "Ya pagué Netflix" no dice cuánto: si siempre es lo mismo, ese monto manda sobre uno que
+        // el modelo inventó o copió mal.
+        const sinMonto = !!texto && montosDelTexto(texto).length === 0;
+        // Salvo que el monto del modelo venga de algo que el usuario pidió recordar ("mi quincena ahora es de 8 mil").
+        const recordado = (monto: number) => listarMemorias(ctx).some((mem) => montosDelTexto(mem.texto).includes(monto));
+        const deSiempre = (m: (typeof movimientos)[number], tipo: string) => {
+          if (!sinMonto || (tipo !== "gasto" && tipo !== "ingreso") || recordado(m.monto)) return undefined;
+          const habito = habitoMencionado(ctx, [m.comercio, m.descripcion, unico ? texto : ""].join(" "), tipo);
+          return habito?.seguro ? habito : undefined;
+        };
         return {
-          registrados: movimientos.map((m, i) =>
-            crearMovimiento(ctx, {
+          registrados: movimientos.map((m, i) => {
+            const tipo = conTipo(m.tipo);
+            const habito = deSiempre(m, tipo);
+            const comercio = m.comercio || habito?.comercio;
+            // Decir con qué pagó es opcional: si en ese comercio siempre paga con lo mismo, se pone sola.
+            const cuenta = m.cuenta || nombreDeCuenta(ctx, habito?.cuentaId ?? null) || cuentaHabitual(ctx, comercio);
+            const registrado = crearMovimiento(ctx, {
               ...m,
-              tipo: conTipo(m.tipo),
-              monto: montoDicho ?? m.monto,
-              moneda: conMoneda(m.moneda),
+              tipo,
+              monto: habito ? habito.montoCentavos / 100 : (montoDicho ?? m.monto),
+              moneda: habito ? habito.moneda : conMoneda(m.moneda),
+              comercio,
+              descripcion: m.descripcion || habito?.descripcion,
+              categoriaId: !m.categoria && habito?.categoriaId ? habito.categoriaId : undefined,
+              cuenta,
               fecha: conFecha(m.fecha, i),
-            }),
-          ),
+            });
+            return habito ? { ...registrado, monto_de_siempre: true } : registrado;
+          }),
         };
       }),
     }),
@@ -246,6 +268,22 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
               }),
             },
       ),
+    }),
+
+    recordar: tool({
+      description:
+        'Guarda algo que el usuario te pide recordar ("recuerda que el Oxxo lo pago en efectivo", "acuérdate de que mi quincena es de 8 mil"). Escríbelo corto y en tercera persona: "Paga el Oxxo en efectivo".',
+      inputSchema: z.object({ texto: z.string().describe("Lo que hay que recordar, en una frase corta.") }),
+      execute: ejecutar("recordar", ({ texto }) => recordar(ctx, texto)),
+    }),
+
+    olvidar: tool({
+      description: 'Borra algo que recordabas cuando el usuario lo pide ("olvida lo del Oxxo", "ya no pago en efectivo").',
+      inputSchema: z.object({
+        buscar: z.string().describe("Palabras de lo que hay que olvidar: Oxxo, efectivo."),
+        todas: z.boolean().optional().describe("true si pide olvidar todo lo que coincida."),
+      }),
+      execute: ejecutar("olvidar", ({ buscar, todas }) => olvidar(ctx, buscar, todas)),
     }),
 
     listar_recurrentes: tool({

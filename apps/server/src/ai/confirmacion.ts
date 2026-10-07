@@ -12,6 +12,8 @@ type Movimiento = {
   descripcion?: string;
   cuenta?: string;
   revisar?: boolean;
+  /** No dijo el monto y se usó el de siempre. */
+  monto_de_siempre?: boolean;
 };
 
 /** Una llamada a herramienta ya ejecutada en el último paso del modelo. */
@@ -66,6 +68,17 @@ function enumerar(partes: string[]): string {
 
 const esError = (resultado: unknown) => !!resultado && typeof resultado === "object" && "error" in resultado;
 
+/** "Listo, café de $85 en Café." Si no dijo el monto y se usó el de siempre, lo dice para que lo corrija. */
+export function confirmarRegistro(registrados: Movimiento[], hoy: string): string {
+  const revisar = registrados.some((m) => m.revisar) ? " No supe bien la categoría; la dejé para que la revises." : "";
+  const deSiempre = registrados.some((m) => m.monto_de_siempre)
+    ? registrados.length === 1
+      ? ", como siempre"
+      : ". Donde no dijiste cuánto, usé el monto de siempre"
+    : "";
+  return `Listo, ${enumerar(registrados.map((m) => describirMovimiento(m, hoy)))}${deSiempre}.${revisar}`;
+}
+
 /**
  * La confirmación hablada de un paso que solo guardó, corrigió o borró, armada con lo que de verdad
  * quedó en la base. Así no hace falta otra vuelta del modelo solo para decir "Listo".
@@ -85,9 +98,10 @@ export function confirmacionDirecta(texto: string, hoy: string, ejecutadas: Ejec
     const registrados = ejecutadas.flatMap((e) => (e.resultado as { registrados: Movimiento[] }).registrados);
     // Si la frase trae más montos que registros, quizá falta alguno: que el modelo lo revise.
     if (registrados.length === 0 || OTRA_ACCION.test(plano) || montosDelTexto(texto).length > registrados.length) return undefined;
-    const revisar = registrados.some((m) => m.revisar) ? " No supe bien la categoría; la dejé para que la revises." : "";
-    return `Listo, ${enumerar(registrados.map((m) => describirMovimiento(m, hoy)))}.${revisar}`;
+    return confirmarRegistro(registrados, hoy);
   }
+  if (ejecutadas.length === 1 && nombre === "recordar") return "Listo, lo voy a recordar.";
+  if (ejecutadas.length === 1 && nombre === "olvidar") return "Listo, ya lo olvidé.";
 
   // Corregir, borrar o deshacer de un solo golpe. Con "y" puede haber una segunda parte, y en plural
   // ("borra los dos cafés de ayer") puede faltar otro movimiento.

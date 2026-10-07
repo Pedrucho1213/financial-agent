@@ -3,9 +3,13 @@ import { and, asc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { cuentas, entradas, mensajes } from "../db/schema";
 import { type Contexto, crearContexto } from "../finanzas/contexto";
+import { habitoMencionado } from "../finanzas/habitos";
 import { revertirEntrada } from "../finanzas/movimientos";
-import { esPregunta, normalizar } from "../lib/texto";
-import { confirmacionDirecta, type Ejecutada } from "./confirmacion";
+import { cobrosPorAvisar } from "../finanzas/recurrentes";
+import { formatearMonto } from "../lib/dinero";
+import { montosDelTexto } from "../lib/numeros";
+import { esOrdenSobreLoAnotado, esPregunta, normalizar, tipoDelTexto } from "../lib/texto";
+import { confirmacionDirecta, confirmarRegistro, type Ejecutada } from "./confirmacion";
 import { construirInstrucciones } from "./instrucciones";
 import { crearHerramientas, type Accion } from "./herramientas";
 import { correccionDeCuenta } from "./respaldo";
@@ -347,6 +351,32 @@ async function corregirCuenta(ctx: Contexto, texto: string, acciones: Accion[]):
   return confirmacionDirecta(texto, ctx.hoy, [{ herramienta: "editar_movimiento", resultado }]) ?? "Listo, lo corregí.";
 }
 
+// El modelo pregunta cuánto fue: "¿De cuánto fue?", "¿Qué monto?".
+const PREGUNTA_EL_MONTO = /\b(cuanto|cuanta|monto|cantidad)\b/;
+
+/**
+ * "Ya pagué Netflix" sin decir cuánto y el modelo pregunta el monto: si siempre es el mismo, se anota
+ * sin preguntar; si solo se pagó una vez, se propone ese ("¿fue de $3,500, como la vez pasada?").
+ */
+async function registrarDeSiempre(ctx: Contexto, texto: string, respuesta: string, acciones: Accion[]): Promise<string | undefined> {
+  if (!respuesta.includes("?") || !PREGUNTA_EL_MONTO.test(normalizar(respuesta))) return undefined;
+  if (montosDelTexto(texto).length > 0 || esOrdenSobreLoAnotado(texto)) return undefined;
+  const habito = habitoMencionado(ctx, texto, tipoDelTexto(texto));
+  if (!habito) return undefined;
+  if (!habito.seguro) return `¿Fue de ${formatearMonto(habito.montoCentavos, habito.moneda)}, como la vez pasada?`;
+  const registrar = crearHerramientas(ctx, acciones).registrar_movimientos;
+  const resultado = await registrar.execute!(
+    {
+      movimientos: [
+        { tipo: habito.tipo, monto: habito.montoCentavos / 100, moneda: habito.moneda, comercio: habito.comercio, descripcion: habito.descripcion },
+      ],
+    },
+    { toolCallId: "respaldo-de-siempre", messages: [], context: {} },
+  );
+  if (!resultado || typeof resultado !== "object" || !("registrados" in resultado)) return undefined;
+  return confirmarRegistro(resultado.registrados, ctx.hoy);
+}
+
 async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta> {
   const { db } = deps;
   const usuarioId = entrada.usuarioId;
@@ -413,6 +443,13 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
         mensajesRespuesta = [{ role: "assistant", content: corregido }];
       }
     }
+    if (acciones.length === 0) {
+      const deSiempre = await registrarDeSiempre(ctx, entrada.texto, texto, acciones);
+      if (deSiempre) {
+        texto = deSiempre;
+        mensajesRespuesta = [{ role: "assistant", content: deSiempre }];
+      }
+    }
     if (acciones.length === 0 && PIDE_ALGO.test(normalizar(entrada.texto)) && diceQueHizo(texto)) {
       texto = RESPUESTA_NO_GUARDADA;
       mensajesRespuesta = [{ role: "assistant", content: texto }];
@@ -423,8 +460,15 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
     throw new ErrorIA(error instanceof Error ? error.message : String(error));
   }
 
+  // Si hizo algo y no espera respuesta, aprovecha para avisar de un cobro que viene. Si el iPhone ya
+  // recibió "Anotado", nadie lo va a oír: se deja para el próximo dictado.
+  const hablaDeCobros = acciones.some((a) => a.herramienta.endsWith("_recurrente") || a.herramienta === "listar_recurrentes");
+  const cobros = acciones.length > 0 && !texto.includes("?") && !hablaDeCobros && !enSegundoPlano.has(entrada.id) ? cobrosPorAvisar(ctx) : undefined;
+  const hablado = limpiarParaVoz(texto) || respuestaPorOmision(acciones);
+  cobros?.marcar();
+
   const respuesta: Respuesta = {
-    respuesta: limpiarParaVoz(texto) || respuestaPorOmision(acciones),
+    respuesta: cobros ? `${hablado} ${cobros.aviso}` : hablado,
     conversacion_id: conversacionId,
     acciones,
   };

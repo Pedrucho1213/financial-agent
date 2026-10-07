@@ -189,6 +189,8 @@ export const recurrentes = sqliteTable("recurrentes", {
   categoriaId: text("categoria_id"),
   cuentaId: text("cuenta_id"),
   avisarDiasAntes: integer("avisar_dias_antes").notNull().default(1),
+  // El cobro (YYYY-MM-DD) del que la IA ya avisó, para no repetirlo en cada dictado.
+  avisadoPara: text("avisado_para"),
   activo: integer("activo", { mode: "boolean" }).notNull().default(true),
   entradaId: text("entrada_id"),
   creadoEn: creadoEn(),

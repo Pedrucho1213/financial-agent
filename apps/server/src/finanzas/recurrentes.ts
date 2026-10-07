@@ -215,3 +215,34 @@ export function editarRecurrente(ctx: Contexto, nombre: string, cambios: Cambios
   registrarEnBitacora(ctx, "recurrentes", fila.id, "crear", undefined, fila);
   return describir(ctx, fila);
 }
+
+const NOMBRES_DIA = ["", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
+
+/**
+ * Cobros que vienen (hoy, mañana, o dentro de los días de aviso de cada uno) de los que todavía no
+ * se avisó: "Ojo: mañana se cobra Netflix de $219." `marcar` los da por avisados para no repetirlo.
+ */
+export function cobrosPorAvisar(ctx: Contexto): { aviso: string; marcar: () => void } | undefined {
+  const proximos = activos(ctx)
+    .filter((r) => r.tipo !== "ingreso")
+    .map((r) => ({ r, fecha: proximoCobro(r, ctx.hoy) }))
+    .filter(({ r, fecha }) => fecha <= sumarDias(ctx.hoy, r.avisarDiasAntes) && r.avisadoPara !== fecha)
+    .sort((a, b) => a.fecha.localeCompare(b.fecha))
+    .slice(0, 2);
+  if (proximos.length === 0) return undefined;
+  const cuando = (fecha: string) =>
+    fecha === ctx.hoy ? "hoy" : fecha === sumarDias(ctx.hoy, 1) ? "mañana" : `el ${NOMBRES_DIA[diaSemana(fecha)]}`;
+  const cobro = ({ r }: (typeof proximos)[number]) => `${r.nombre} de ${formatearMonto(r.montoCentavos, r.moneda)}`;
+  const [a, b] = proximos as [(typeof proximos)[number], (typeof proximos)[number] | undefined];
+  const aviso = !b
+    ? `Ojo: ${cuando(a.fecha)} se cobra ${cobro(a)}.`
+    : a.fecha === b.fecha
+      ? `Ojo: ${cuando(a.fecha)} se cobran ${cobro(a)} y ${cobro(b)}.`
+      : `Ojo: ${cuando(a.fecha)} se cobra ${cobro(a)} y ${cuando(b.fecha)}, ${cobro(b)}.`;
+  const marcar = () => {
+    for (const { r, fecha } of proximos) {
+      ctx.db.update(recurrentes).set({ avisadoPara: fecha }).where(eq(recurrentes.id, r.id)).run();
+    }
+  };
+  return { aviso, marcar };
+}

@@ -25,7 +25,7 @@ const PIDE_INFORMACION =
 const RELLENO = /\b(no se cuanto|no se cuantos|en que se llama|que se llama|como se llama)\b/g;
 // Sin monto, una frase que pide hacer algo no es pregunta: "y el Uber fue con la BBVA", "borra el último".
 const PIDE_ACCION =
-  /\b(fue|fueron|era|eran|gaste|pague|compre|cobre|cobro|cobraron|me pagaron|me depositaron|borra|borralo|elimina|quita|quitalo|cambia|cambialo|corrige|deshaz|cancela|cancele|registra|anota|apunta|ponlo|ponle|pasalo|muevelo|recuerda|recuerdame)\b/;
+  /\b(fue|fueron|era|eran|gaste|pague|compre|cobre|cobro|cobraron|me pagaron|me depositaron|borra|borralo|elimina|quita|quitalo|cambia|cambialo|corrige|deshaz|cancela|cancele|registra|anota|apunta|ponlo|ponle|pasalo|muevelo|recuerda|recuerdame|acuerdate|olvida|olvidalo|olvidate)\b/;
 
 /** Si el dictado es una pregunta (la respuesta importa más que la rapidez). */
 export function esPregunta(texto: string): boolean {
