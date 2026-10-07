@@ -31,7 +31,7 @@ const en = (ctx: Contexto, iso: string, extra: Partial<Contexto> = {}): Contexto
 });
 
 describe("PR21: 'mi último gasto no fue en dólares'", () => {
-  test("[HALLAZGO] edita un ingreso posterior en vez del último gasto (buscar no tiene tipo ni moneda)", async () => {
+  test("[QA corregido] edita un ingreso posterior en vez del último gasto (buscar no tiene tipo ni moneda)", async () => {
     const { ctx } = preparar();
     // 9:00 gasto de 20 USD; 9:30 registra un ingreso.
     const usd = crearMovimiento(en(ctx, "2026-10-07T15:00:00Z", { entradaId: "e1" }), { tipo: "gasto", monto: 20, moneda: "USD", comercio: "Uber" });
@@ -39,41 +39,36 @@ describe("PR21: 'mi último gasto no fue en dólares'", () => {
     const c = en(ctx, "2026-10-07T16:00:00Z", { entradaId: "e3", textoOriginal: "mi último gasto no fue en dólares" });
     // Lo que pide la instrucción nueva: mas_reciente y moneda.
     const r = await llamar(c, "editar_movimiento", { buscar: { mas_reciente: true, moneda: "USD" }, cambios: { moneda: "MXN" } });
-    expect(r.editado.id).toBe(ingreso.id); // se editó el ingreso
-    const fila = ctx.db.select().from(movimientos).where(eq(movimientos.id, usd.id)).get()!;
-    expect(fila.moneda).toBe("USD"); // el gasto en dólares sigue en dólares
+    expect(r.editado?.id).toBe(usd.id); // QA-042 corregido: se edita el gasto en dólares
+    expect(ctx.db.select().from(movimientos).where(eq(movimientos.id, ingreso.id)).get()!.moneda).toBe("MXN");
+    expect(ctx.db.select().from(movimientos).where(eq(movimientos.id, usd.id)).get()!.moneda).toBe("MXN");
   });
 
-  test("[HALLAZGO] 'el más reciente' se ordena por fecha del gasto, no por cuándo se dictó", async () => {
+  test("[QA corregido] 'el más reciente' se ordena por fecha del gasto, no por cuándo se dictó", async () => {
     const { ctx } = preparar();
     const cafe = crearMovimiento(en(ctx, "2026-10-07T15:00:00Z", { entradaId: "e1" }), { tipo: "gasto", monto: 50, comercio: "Starbucks" });
     // Después dicta un gasto de ayer en dólares.
     const usd = crearMovimiento(en(ctx, "2026-10-07T15:30:00Z", { entradaId: "e2" }), { tipo: "gasto", monto: 20, moneda: "USD", comercio: "Uber", fecha: "ayer" });
     const c = en(ctx, "2026-10-07T16:00:00Z", { entradaId: "e3", textoOriginal: "mi último gasto no fue en dólares" });
     const r = await llamar(c, "editar_movimiento", { buscar: { mas_reciente: true }, cambios: { moneda: "MXN" } });
-    expect(r.editado.id).toBe(cafe.id);
-    expect(ctx.db.select().from(movimientos).where(eq(movimientos.id, usd.id)).get()!.moneda).toBe("USD");
+    expect(r.editado?.id).toBe(usd.id); // lo último anotado, no la fecha más nueva
+    expect(ctx.db.select().from(movimientos).where(eq(movimientos.id, cafe.id)).get()!.moneda).toBe("MXN");
   });
 });
 
 describe("PR21: préstamos", () => {
-  test("[HALLAZGO] 'Juan me pagó 600' reparte el abono entre dos Juanes distintos sin preguntar", () => {
+  test("[QA corregido] 'Juan me pagó 600' reparte el abono entre dos Juanes distintos sin preguntar", () => {
     const { ctx } = preparar();
     registrarPrestamo(ctx, { persona: "Juan Pérez", direccion: "me_deben", monto: 500 });
     registrarPrestamo(ctx, { persona: "Juan López", direccion: "me_deben", monto: 300 });
     expect(listarPrestamos(ctx).prestamos.map((p) => p.persona)).toEqual(["Juan Pérez", "Juan López"]);
-    const a = abonarPrestamo(ctx, { persona: "Juan", direccion: "me_deben", monto: 600 });
-    expect(a.abonadoCentavos).toBe(60000);
-    const l = listarPrestamos(ctx, { todos: true }).prestamos;
-    expect(l.map((p) => [p.persona, p.pagadoCentavos])).toEqual([
-      ["Juan Pérez", 50000],
-      ["Juan López", 10000],
-    ]);
+    expect(() => abonarPrestamo(ctx, { persona: "Juan", direccion: "me_deben", monto: 600 })).toThrow(/Coinciden/);
+    expect(listarPrestamos(ctx, { todos: true }).prestamos.every((p) => p.pagadoCentavos === 0)).toBe(true);
   });
 });
 
 describe("PR21: meses sin intereses", () => {
-  test("[HALLAZGO] deshacer la compra deja vivas las mensualidades que creó el revisor", () => {
+  test("[QA corregido] deshacer la compra deja vivas las mensualidades que creó el revisor", () => {
     const { ctx } = preparar();
     registrarMsi(en(ctx, "2026-10-07T16:00:00Z", { entradaId: "msi", textoOriginal: "pantalla de 12 mil a 12 msi" }), {
       descripcion: "pantalla",
@@ -89,10 +84,10 @@ describe("PR21: meses sin intereses", () => {
       .from(movimientos)
       .where(and(eq(movimientos.usuarioId, ctx.usuarioId), isNotNull(movimientos.msiId), isNull(movimientos.eliminadoEn)))
       .all();
-    expect(vivas.map((m) => m.descripcion)).toEqual(["Pantalla (2 de 12 MSI)"]); // sigue contando como gasto
+    expect(vivas).toHaveLength(0); // QA-044 corregido
   });
 
-  test("[HALLAZGO] el aviso de la última mensualidad dice el monto sin el ajuste de centavos", () => {
+  test("[QA corregido] el aviso de la última mensualidad dice el monto sin el ajuste de centavos", () => {
     const { ctx } = preparar();
     const c = registrarMsi(ctx, { descripcion: "audífonos", total: 1000, meses: 3, fecha: "2026-08-08" });
     expect(c.proximoCargo).toBe("2026-10-08");
@@ -100,14 +95,14 @@ describe("PR21: meses sin intereses", () => {
     revisar(ctx);
     const aviso = listarAvisos(ctx).avisos.find((a) => a.tipo === "msi")!;
     expect(aviso.texto).toContain("mensualidad 3 de 3");
-    expect(aviso.texto).toContain("333.33");
+    expect(aviso.texto).toContain("333.34");
   });
 
-  test("[HALLAZGO] 'a 6 meses con intereses' se trata como meses sin intereses", async () => {
+  test("[QA corregido] 'a 6 meses con intereses' se trata como meses sin intereses", async () => {
     const { ctx } = preparar();
     const c = en(ctx, "2026-10-07T16:00:00Z", { entradaId: "x", textoOriginal: "compré una lavadora de 8000 a 6 meses con intereses" });
     const r = await llamar(c, "registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 8000, descripcion: "lavadora" }] });
-    expect(r.error).toMatch(/compra_msi/);
+    expect(r.error ?? "").not.toMatch(/compra_msi/);
   });
 });
 
@@ -126,7 +121,7 @@ describe("PR21: presupuestos", () => {
 });
 
 describe("PR21: metas por la app", () => {
-  test("[HALLAZGO] una fecha límite AAAA-MM-DD pasada se mueve un año sin avisar (en vez de 400)", async () => {
+  test("[QA corregido] una fecha límite AAAA-MM-DD pasada se mueve un año sin avisar (en vez de 400)", async () => {
     const { db, usuario } = preparar();
     const token = crearDispositivo(db, usuario.id, "iPhone");
     const app = crearApp({ db, modelo: new MockLanguageModelV4({ doGenerate: [] as never }), zonaHoraria: "America/Mexico_City", monedaBase: "MXN" });
@@ -135,9 +130,7 @@ describe("PR21: metas por la app", () => {
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({ nombre: "Viaje", objetivo: 1000, fecha_limite: "2025-01-15" }),
     });
-    expect(r.status).toBe(201);
-    // La app usa la hora real (hoy 2026-10-07): 2025-01-15 → 2026-01-15 → 2027-01-15.
-    expect(((await r.json()) as any).fechaLimite).toBe("2027-01-15");
+    expect(r.status).toBe(400); // QA-047 corregido
   });
 });
 
