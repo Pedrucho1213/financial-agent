@@ -461,6 +461,14 @@ function textoDe(mensaje: ModelMessage | undefined): string {
   return mensaje.content.map((parte) => (parte.type === "text" ? parte.text : "")).join(" ").trim();
 }
 
+/** `corregirCuenta` antes del modelo; si no corrigió nada, no deja rastro en `acciones`. */
+async function cuentaSinModelo(ctx: Contexto, texto: string, acciones: Accion[]): Promise<string | undefined> {
+  const antes = acciones.length;
+  const corregido = await corregirCuenta(ctx, texto, acciones);
+  if (!corregido) acciones.length = antes;
+  return corregido;
+}
+
 /** Los gastos que creó este dictado y siguen ahí, para saber si cruzaron un presupuesto. */
 function gastosNuevos(ctx: Contexto, entradaId: string) {
   return ctx.db
@@ -645,10 +653,12 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   };
   let texto: string;
   let mensajesRespuesta: ModelMessage[];
-  const repetido = dictadoRepetido(ctx, entrada);
-  if (repetido) {
-    texto = repetido;
-    mensajesRespuesta = [{ role: "assistant", content: repetido }];
+  // Lo que se resuelve sin el modelo: el mismo dictado repetido, o "el súper de hoy fue con la Nu"
+  // cuando hay un solo súper que corregir (el modelo solía preguntar el monto antes, QA-080).
+  const directo = dictadoRepetido(ctx, entrada) ?? (await cuentaSinModelo(ctx, entrada.texto, acciones));
+  if (directo) {
+    texto = directo;
+    mensajesRespuesta = [{ role: "assistant", content: directo }];
   } else {
     try {
       let resultado = await generar();
@@ -667,16 +677,7 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
         texto = yaEstaba;
         mensajesRespuesta = [{ role: "assistant", content: yaEstaba }];
       }
-      // "El súper de hoy fue con la Nu" sin herramientas (o tras solo buscarlo): el modelo suele preguntar
-      // el monto o "¿te refieres al de 230?"; se corrige aquí.
       const nadaCambio = () => acciones.every((a) => SOLO_CONSULTA.has(a.herramienta));
-      if (nadaCambio()) {
-        const corregido = await corregirCuenta(ctx, entrada.texto, acciones);
-        if (corregido) {
-          texto = corregido;
-          mensajesRespuesta = [{ role: "assistant", content: corregido }];
-        }
-      }
       if (nadaCambio()) {
         const deSiempre = await registrarDeSiempre(ctx, entrada.texto, texto, acciones);
         if (deSiempre) {

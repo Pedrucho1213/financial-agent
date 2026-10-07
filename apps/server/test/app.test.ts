@@ -222,8 +222,8 @@ describe("API", () => {
     expect(modelo.doGenerateCalls).toHaveLength(1);
   });
 
-  test("'el súper de hoy fue con la Nu' corrige la cuenta aunque el modelo pregunte el monto (QA-020)", async () => {
-    const { hablar, get, db, modelo } = montar([texto("¿De cuánto fue el súper?"), texto("¿Con quién fuiste?")]);
+  test("'el súper de hoy fue con la Nu' corrige la cuenta sin llamar al modelo (QA-020, QA-080)", async () => {
+    const { hablar, get, db, modelo } = montar([texto("¿Con quién fuiste?")]);
     const usuarioId = db.select().from(usuarios).get()!.id;
     const ctx = crearContexto({ db, usuarioId, zonaHoraria: "America/Mexico_City", monedaBase: "MXN" });
     crearMovimiento(ctx, { tipo: "gasto", monto: 1850, categoria: "Súper", comercio: "Walmart" });
@@ -232,17 +232,29 @@ describe("API", () => {
       respuesta: string;
     };
     expect(r.respuesta).toBe("Listo, quedó Walmart de 1,850 pesos en Súper con Nu.");
-    expect(modelo.doGenerateCalls).toHaveLength(1);
+    expect(modelo.doGenerateCalls).toHaveLength(0);
     // "Con mis amigos" no es un medio de pago: no se toca nada y queda la respuesta del modelo.
     const r2 = (await (await hablar({ texto: "La cena de hoy fue con mis amigos", client_id: "dictado-0011" })).json()) as {
       respuesta: string;
     };
     expect(r2.respuesta).toBe("¿Con quién fuiste?");
+    expect(modelo.doGenerateCalls).toHaveLength(1);
     const lista = (await (await get("/v1/movimientos")).json()) as { movimientos: { comercio: string; cuenta: string | null }[] };
     expect(lista.movimientos.map((m) => [m.comercio, m.cuenta])).toEqual([
       ["Sonora Grill", null],
       ["Walmart", "Nu"],
     ]);
+  });
+
+  test("'el súper fue con la Nu' sin un súper que corregir pasa al modelo sin dejar acciones (QA-080)", async () => {
+    const { hablar, modelo } = montar([texto("No encontré un súper reciente. ¿De cuánto fue?")]);
+    const r = (await (await hablar({ texto: "El súper de hoy fue con la Nu", client_id: "dictado-0012" })).json()) as {
+      respuesta: string;
+      acciones: unknown[];
+    };
+    expect(r.respuesta).toBe("No encontré un súper reciente. ¿De cuánto fue?");
+    expect(r.acciones).toEqual([]);
+    expect(modelo.doGenerateCalls).toHaveLength(1);
   });
 
   test("valida la petición", async () => {
