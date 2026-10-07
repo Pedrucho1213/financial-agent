@@ -230,15 +230,17 @@ export function cobrosPorAvisar(ctx: Contexto, pagados: string[] = []): { aviso?
     .map((r) => ({ r, fecha: proximoCobro(r, ctx.hoy) }))
     .filter(({ r, fecha }) => fecha <= sumarDias(ctx.hoy, r.avisarDiasAntes) && r.avisadoPara !== fecha);
   if (pendientes.length === 0) return undefined;
-  const marcar = () => {
-    for (const { r, fecha } of pendientes) {
-      ctx.db.update(recurrentes).set({ avisadoPara: fecha }).where(eq(recurrentes.id, r.id)).run();
-    }
-  };
+  const recienPagados = pendientes.filter(({ r }) => yaPagado.has(normalizar(r.nombre)));
   const proximos = pendientes
     .filter(({ r }) => !yaPagado.has(normalizar(r.nombre)))
     .sort((a, b) => a.fecha.localeCompare(b.fecha))
     .slice(0, 2);
+  // Solo lo que se pagó o se dijo: un tercer cobro queda para el siguiente dictado.
+  const marcar = () => {
+    for (const { r, fecha } of [...recienPagados, ...proximos]) {
+      ctx.db.update(recurrentes).set({ avisadoPara: fecha }).where(eq(recurrentes.id, r.id)).run();
+    }
+  };
   if (proximos.length === 0) return { marcar };
   const cuando = (fecha: string) =>
     fecha === ctx.hoy ? "hoy" : fecha === sumarDias(ctx.hoy, 1) ? "mañana" : `el ${NOMBRES_DIA[diaSemana(fecha)]}`;

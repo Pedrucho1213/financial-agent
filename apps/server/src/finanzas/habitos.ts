@@ -166,7 +166,8 @@ export function habitosMencionados(ctx: Contexto, texto: string, tipo?: Habito["
         })
         .map((c) => c.id),
     );
-    elegidos = todos.filter((h) => h.categoriaId && dichas.has(h.categoriaId) && esFija(cats, h.categoriaId));
+    // Solo pagos sin comercio ("Quincena", "Renta"): "el internet" no dice si es Telcel o Izzi.
+    elegidos = todos.filter((h) => !h.comercio && h.categoriaId && dichas.has(h.categoriaId) && esFija(cats, h.categoriaId));
   }
   const unicos = new Map<string, Habito>();
   for (const h of elegidos) {

@@ -65,9 +65,10 @@ const tipoRecurrente = z.preprocess((valor) => {
 }, z.enum(TIPOS_RECURRENTE));
 
 // La frase señala cuál: "el último", "ese", "bórralo", "el de ahorita"; o pide varios: "los dos cafés",
-// "ambos", "bórralos" (el modelo los toma uno por uno, del más reciente al más antiguo).
+// "ambos", "bórralos" (el modelo los toma uno por uno, del más reciente al más antiguo). "Las dos" a secas
+// es una hora ("el café de las dos"), no varios.
 const SENALA_UNO =
-  /\b(ultim[oa]s?|reciente|nuevo|nueva|ahorita|hace rato|ese|esa|eso|este|esta|esto|acabo|(borra|elimina|quita|cancela|cambia|corrige|pasa)(lo|la|los|las|melo|mela|melos|melas)|ambos|ambas|todos|todas|(los|las) (dos|tres|cuatro|\w+s))\b/;
+  /\b(ultim[oa]s?|reciente|nuevo|nueva|ahorita|hace rato|ese|esa|eso|este|esta|esto|acabo|(borra|elimina|quita|cancela|cambia|corrige|pasa)(lo|la|los|las|melo|mela|melos|melas)|ambos|ambas|todos|todas|(los|las) ((dos|tres|cuatro|cinco) )?(?!dos\b|tres\b|seis\b)\w+s)\b/;
 
 // Algo que se repite: "cada día 15", "cada mes", "mensual", "cada quincena".
 const SE_REPITE = /\b(cada|al mes|por mes|a la semana|por semana|al ano|mensual|mensualmente|semanal|quincenal|anual|diario)\b/;

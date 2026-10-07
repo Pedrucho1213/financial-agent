@@ -337,3 +337,31 @@ describe("frases que fallaron con la IA real", () => {
     expect(todos(ctx)).toHaveLength(0);
   });
 });
+
+describe("segunda revisión del PR", () => {
+  test("\"ya pagué el internet\" no es el Telcel que también es de internet", async () => {
+    const { ctx, hablar } = montar([texto("¿De cuánto fue el internet?")]);
+    crearRecurrente(ctx, { nombre: "Telcel", tipo: "servicio", monto: 299, frecuencia: "mensual", dia: 20, categoria: "Internet y teléfono" });
+    expect((await hablar("Ya pagué el internet")).respuesta).toBe("¿De cuánto fue el internet?");
+    expect(todos(ctx)).toHaveLength(0);
+  });
+
+  test("con tres cobros mañana avisa de dos y deja el tercero para después", async () => {
+    const cafe = () => llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 85, categoria: "Café" }] });
+    const { ctx, hablar } = montar([cafe(), cafe()]);
+    for (const [nombre, monto] of [["Netflix", 219], ["Spotify", 129], ["Disney", 159]] as const) {
+      crearRecurrente(ctx, { nombre, tipo: "suscripcion", monto, frecuencia: "mensual", dia: 8 });
+    }
+    expect((await hablar("Café 85")).respuesta).toBe("Listo, café de 85 pesos. Ojo: mañana se cobran Netflix de 219 pesos y Spotify de 129 pesos.");
+    expect((await hablar("Otro café de 85")).respuesta).toBe("Listo, café de 85 pesos. Ojo: mañana se cobra Disney de 159 pesos.");
+  });
+
+  test("\"el café de las dos\" es una hora, no varios cafés", async () => {
+    const { ctx } = preparar();
+    crearMovimiento(ctx, { tipo: "gasto", monto: 45, categoria: "Café", fecha: "ayer" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 60, categoria: "Café" });
+    const r = await llamar(dictado(ctx, "Borra el café de las dos de ayer"), "eliminar_movimiento", { buscar: { texto: "café", mas_reciente: true } });
+    expect(r.error).toContain("Coinciden 2");
+    expect(todos(ctx)).toHaveLength(2);
+  });
+});
