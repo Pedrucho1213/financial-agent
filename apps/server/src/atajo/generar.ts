@@ -179,18 +179,23 @@ class Constructor {
     this.bloque("conditional", apertura, entonces, deLoContrario);
   }
 
+  private repeticiones = 0;
+
   repetir(veces: number, cuerpo: () => void): void {
+    this.repeticiones++;
     this.bloque("repeat.count", { WFRepeatCount: veces }, cuerpo);
+    this.repeticiones--;
   }
 
   /**
-   * Repetir con cada elemento. El elemento actual es una salida de la acción que abre el bloque
-   * ("Repeat Item" con su UUID); como variable con nombre, Atajos de iOS 27 la marca rota.
+   * Repetir con cada elemento. Atajos nombra el elemento actual según cuántos Repetir lo encierran:
+   * "Repeat Item" en el primero, "Repeat Item 2" dentro de otro (así lo guarda iOS 27 al elegirlo a mano).
    */
-  repetirConCada(lista: Ref, cuerpo: (elemento: Salida) => void): void {
-    const uuid = this.uuid();
-    const elemento: Salida = { uuid, nombre: "Repeat Item" };
-    this.bloque("repeat.each", { WFInput: adjunto(lista), UUID: uuid }, () => cuerpo(elemento));
+  repetirConCada(lista: Ref, cuerpo: (elemento: Variable) => void): void {
+    this.repeticiones++;
+    const elemento = variable(this.repeticiones === 1 ? "Repeat Item" : `Repeat Item ${this.repeticiones}`);
+    this.bloque("repeat.each", { WFInput: adjunto(lista) }, () => cuerpo(elemento));
+    this.repeticiones--;
   }
 
   establecer(nombre: string, valor: Ref): Variable {

@@ -217,9 +217,7 @@ describe("generarAtajo", () => {
       }
       if (typeof p.UUID === "string") {
         expect(vistos.has(p.UUID)).toBe(false);
-        // La salida de "Repetir con cada" al abrir es el elemento actual.
-        const abreRepetir = id(a) === "repeat.each" && p.WFControlFlowMode === 0;
-        vistos.set(p.UUID, abreRepetir ? "Repeat Item" : ((p.CustomOutputName as string) ?? ""));
+        vistos.set(p.UUID, (p.CustomOutputName as string) ?? "");
       }
     }
     expect(referencias).toBeGreaterThan(30);
@@ -278,12 +276,15 @@ describe("generarAtajo", () => {
     expect(textos).toBeGreaterThan(20);
   });
 
-  test("el elemento de Repetir con cada se toma de la acción que abre el bloque", () => {
-    const abre = acciones.find((a) => id(a) === "repeat.each" && parametros(a).WFControlFlowMode === 0)!;
-    const uuid = parametros(abre).UUID as string;
-    expect(uuid).toMatch(/^[0-9A-F-]{36}$/);
-    const usos = acciones.filter((a) => JSON.stringify(parametros(a)).includes(`"OutputUUID":"${uuid}"`));
-    expect(usos.length).toBeGreaterThan(0);
+  test("el elemento de Repetir con cada lleva el número de su anidamiento", () => {
+    // La cola se recorre dentro de "Repetir 10 veces": el elemento es "Repeat Item 2".
+    const abre = acciones.findIndex((a) => id(a) === "repeat.each" && parametros(a).WFControlFlowMode === 0);
+    expect(abre).toBeGreaterThan(indice("repeat.count"));
+    const archivo = acciones.find((a) => id(a) === "setvariable" && parametros(a).WFVariableName === "Archivo")!;
+    expect(parametros(archivo).WFInput).toEqual({
+      Value: { Type: "Variable", VariableName: "Repeat Item 2" },
+      WFSerializationType: "WFTextTokenAttachment",
+    });
     expect(JSON.stringify(acciones)).not.toContain('"VariableName":"Repeat Item"');
   });
 
@@ -297,7 +298,7 @@ describe("generarAtajo", () => {
         }
       }
     }
-    leidas.delete("Repeat Item"); // la pone Repetir con cada
+    for (const nombre of leidas) if (/^Repeat Item( \d+)?$/.test(nombre)) leidas.delete(nombre); // las pone Repetir con cada
     for (const nombre of leidas) expect(establecidas.has(nombre)).toBe(true);
   });
 
