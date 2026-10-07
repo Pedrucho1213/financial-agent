@@ -95,7 +95,9 @@ const MARCA = "￼";
 /** Salida de una acción (variable mágica) o variable con nombre. */
 type Salida = { uuid: string; nombre: string };
 type Variable = { variable: string };
-type Ref = Salida | Variable;
+/** La entrada del Atajo (lo que le pasa una automatización), o una propiedad suya ("Amount"). */
+type EntradaAtajo = { entrada: string | null };
+type Ref = Salida | Variable | EntradaAtajo;
 type Parte = string | Ref;
 type Parametros = Record<string, ValorPlist | undefined>;
 export type Accion = { WFWorkflowActionIdentifier: string; WFWorkflowActionParameters: Parametros };
@@ -103,6 +105,14 @@ export type Accion = { WFWorkflowActionIdentifier: string; WFWorkflowActionParam
 const variable = (nombre: string): Variable => ({ variable: nombre });
 
 function valorDe(ref: Ref): ValorPlist {
+  if ("entrada" in ref) {
+    return ref.entrada
+      ? {
+          Type: "ExtensionInput",
+          Aggrandizements: [{ Type: "WFPropertyVariableAggrandizement", PropertyName: ref.entrada, PropertyUserInfo: 0 }],
+        }
+      : { Type: "ExtensionInput" };
+  }
   return "variable" in ref
     ? { Type: "Variable", VariableName: ref.variable }
     : { OutputName: ref.nombre, OutputUUID: ref.uuid, Type: "ActionOutput" };
@@ -437,7 +447,10 @@ export function construirAtajo(opciones: OpcionesAtajo): Record<string, ValorPli
   });
   a.establecer("Conversación", a.texto("Sin conversación", ""));
 
-  // La primera vez se presenta y, si le dicen que sí, explica cómo usarlo. No necesita internet.
+  // La primera vez se presenta y, si le dicen que sí, explica cómo usarlo. El saludo lo da el servidor con el
+  // nombre que tenga la cuenta (se puede cambiar en Ajustes sin reinstalar). Si no contesta JSON (un token
+  // revocado), usa el nombre con que se instaló. Sin internet el Atajo se detiene antes de marcar la
+  // bienvenida, así que la vuelve a intentar la próxima vez.
   const guion = guionBienvenida(opciones.nombre);
   const bienvenidaPrevia = a.conSalida("documentpicker.open", "Bienvenida previa", {
     WFShowFilePicker: false,
@@ -445,7 +458,17 @@ export function construirAtajo(opciones: OpcionesAtajo): Record<string, ValorPli
     WFFileErrorIfNotFound: false,
   });
   a.si(bienvenidaPrevia, SIN_VALOR, () => {
-    decir(guion.saludo);
+    const delServidor = a.conSalida("downloadurl", "Bienvenida del servidor", {
+      WFURL: `${base}/v1/atajo/bienvenida`,
+      WFHTTPMethod: "GET",
+      Advanced: true,
+      ShowHeaders: true,
+      WFHTTPHeaders: encabezados(false),
+    });
+    a.establecer("Saludo", a.texto("Saludo de siempre", guion.saludo));
+    const saludo = a.valor("saludo", delServidor, "saludo");
+    a.si(saludo, TIENE_VALOR, () => a.establecer("Saludo", saludo));
+    decir(variable("Saludo"));
     const contesta = a.conSalida("dictatetext", "Respuesta a la bienvenida", {
       WFSpeechLanguage: IDIOMA,
       WFDictateTextStopListening: "After Pause",
@@ -510,6 +533,132 @@ export function construirAtajo(opciones: OpcionesAtajo): Record<string, ValorPli
     WFWorkflowOutputContentItemClasses: [],
     WFWorkflowTypes: ["WFWorkflowTypeShowInSearch"],
   };
+}
+
+export const NOMBRE_ATAJO_APPLE_PAY = "Finanzas Apple Pay";
+/**
+ * Propiedades de la transacción que la automatización "Transacción" (o "Cartera") le pasa al Atajo.
+ * Los nombres son los que muestra Atajos en inglés; la IA del servidor recibe lo que llegue y lo demás lo ignora.
+ */
+export const PROPIEDADES_TRANSACCION = { monto: "Amount", comercio: "Merchant", nombre: "Name", tarjeta: "Card or Pass" } as const;
+
+/**
+ * El Atajo "Finanzas Apple Pay": lo corre la automatización de la Cartera al pagar con Apple Pay. Manda el
+ * pago al servidor sin decir nada; lo anotado llega por notificación. El pago queda primero en la misma cola
+ * que el Atajo "Finanzas", así que si no hay internet lo reenvía ese Atajo la próxima vez que se use.
+ * Corrido a mano (sin pago) es una prueba: da los permisos de red y ubicación y dice si todo está listo.
+ */
+export function construirAtajoApplePay(opciones: Omit<OpcionesAtajo, "nombre">): Record<string, ValorPlist> {
+  const base = normalizarServidor(opciones.servidor);
+  const token = opciones.token.trim();
+  if (!/^[\x21-\x7E]+$/.test(token)) throw new Error("El token no es válido.");
+  const a = new Constructor();
+  const pago = (propiedad: keyof typeof PROPIEDADES_TRANSACCION): EntradaAtajo => ({ entrada: PROPIEDADES_TRANSACCION[propiedad] });
+
+  a.accion("comment", {
+    WFCommentActionText:
+      "Finanzas Apple Pay: lo corre la automatización de la Cartera al pagar con Apple Pay y anota el pago sin decir nada; " +
+      "te llega una notificación para agregar detalles. Si no hay internet, el pago queda en iCloud Drive/Shortcuts/Finanzas-cola.txt " +
+      "y lo manda el Atajo Finanzas la próxima vez. Córrelo una vez a mano para darle permisos.",
+  });
+
+  const fecha = a.conSalida("date", "Fecha", { WFDateActionMode: "Current Date" });
+  const capturado = a.conSalida("format.date", "Capturado", { WFDate: texto(fecha), WFDateFormatStyle: "ISO 8601", WFISO8601IncludeTime: true });
+  const sello = a.conSalida("text.replace", "Sello", {
+    WFInput: texto(capturado),
+    WFReplaceTextFind: "[^0-9A-Za-z]",
+    WFReplaceTextReplace: "",
+    WFReplaceTextRegularExpression: true,
+  });
+  const azar = a.conSalida("number.random", "Número aleatorio", { WFRandomNumberMinimum: 100000, WFRandomNumberMaximum: 999999 });
+  const folio = a.texto("Folio", "applepay-", sello, "-", azar);
+
+  const basicos: [string, Parte][] = [
+    ["origen", "apple_pay"],
+    ["client_id", folio],
+    ["capturado_en", capturado],
+    ["monto", pago("monto")],
+    ["comercio", pago("comercio")],
+    ["nombre", pago("nombre")],
+    ["tarjeta", pago("tarjeta")],
+  ];
+  const comoLinea = (nombre: string, campos: [string, Parte][]) =>
+    a.conSalida("text.replace", `JSON${nombre}`, {
+      WFInput: texto(a.conSalida("dictionary", `Petición${nombre}`, { WFItems: diccionario(campos) })),
+      WFReplaceTextFind: "[\\r\\n]+",
+      WFReplaceTextReplace: " ",
+      WFReplaceTextRegularExpression: true,
+    });
+
+  // Solo un pago de verdad (con monto) va a la cola; la prueba a mano no.
+  const monto = a.texto("Monto del pago", pago("monto"));
+  const conMonto = a.conSalida("text.match", "Trae monto", { WFMatchTextPattern: "\\d", text: texto(monto) });
+  a.si(conMonto, TIENE_VALOR, () => {
+    const linea = comoLinea(" para la cola", basicos);
+    const archivoCola = a.conSalida("documentpicker.open", "Cola guardada", {
+      WFShowFilePicker: false,
+      WFGetFilePath: ARCHIVO_COLA,
+      WFFileErrorIfNotFound: false,
+    });
+    const colaPrevia = a.conSalida("detect.text", "Pendientes anteriores", { WFInput: adjunto(archivoCola) });
+    const archivo = a.conSalida("setitemname", "Archivo de la cola", {
+      WFInput: adjunto(a.texto("Cola con el pago", colaPrevia, "\n", linea)),
+      WFName: ARCHIVO_COLA.split("/").at(-1)!,
+    });
+    a.accion("documentpicker.save", {
+      WFInput: adjunto(archivo),
+      WFAskWhereToSave: false,
+      WFFileDestinationPath: ARCHIVO_COLA,
+      WFSaveFileOverwrite: true,
+    });
+  });
+
+  // Dónde pagaste, para el mapa de gastos. Va después de guardar: puede necesitar internet.
+  const ubicacion = a.conSalida("getcurrentlocation", "Ubicación actual");
+  const detalle = (nombre: string, propiedad: string) =>
+    a.conSalida("properties.locations", nombre, { WFInput: adjunto(ubicacion), WFContentItemPropertyName: propiedad });
+  const latitud = detalle("Latitud actual", "Latitude");
+  const longitud = detalle("Longitud actual", "Longitude");
+
+  const json = comoLinea("", [...basicos, ["lat", latitud], ["lon", longitud]]);
+  const archivo = a.conSalida("setitemname", "Pago para enviar", { WFInput: adjunto(json), WFName: "pago.json" });
+  const contestacion = a.conSalida("downloadurl", "Contestación", {
+    WFURL: `${base}/v1/hablar`,
+    WFHTTPMethod: "POST",
+    Advanced: true,
+    ShowHeaders: true,
+    WFHTTPHeaders: diccionario([
+      ["Authorization", `Bearer ${token}`],
+      ["Content-Type", "application/json"],
+    ]),
+    WFHTTPBodyType: "File",
+    WFRequestVariable: adjunto(archivo),
+  });
+  // Corrido a mano: dice si quedó listo.
+  a.si(conMonto, SIN_VALOR, () => {
+    const respuesta = a.valor("respuesta", contestacion, "respuesta");
+    a.accion("speaktext", { WFText: texto(respuesta), WFSpeakTextLanguage: IDIOMA, WFSpeakTextWait: true });
+  });
+
+  return {
+    WFQuickActionSurfaces: [],
+    WFWorkflowActions: a.acciones,
+    WFWorkflowClientVersion: VERSION_CLIENTE,
+    WFWorkflowHasOutputFallback: false,
+    WFWorkflowHasShortcutInputVariables: true,
+    WFWorkflowIcon: { WFWorkflowIconGlyphNumber: 59395, WFWorkflowIconStartColor: 255 }, // signo de pesos, negro
+    WFWorkflowImportQuestions: [],
+    WFWorkflowInputContentItemClasses: TIPOS_DE_ENTRADA,
+    WFWorkflowMinimumClientVersion: VERSION_MINIMA,
+    WFWorkflowMinimumClientVersionString: String(VERSION_MINIMA),
+    WFWorkflowName: NOMBRE_ATAJO_APPLE_PAY,
+    WFWorkflowOutputContentItemClasses: [],
+    WFWorkflowTypes: [],
+  };
+}
+
+export function generarAtajoApplePay(opciones: Omit<OpcionesAtajo, "nombre">): string {
+  return aPlistXml(construirAtajoApplePay(opciones));
 }
 
 /** El plist XML del Atajo "Finanzas", listo para firmar. */

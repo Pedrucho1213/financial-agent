@@ -24,6 +24,8 @@ export type Peticion = {
   lugar?: string;
   /** Cuándo se dictó (ISO). Importa cuando el dictado esperó en la cola sin conexión. */
   capturadoEn?: string;
+  /** Un pago con Apple Pay que mandó el Atajo de la Cartera; por omisión, un dictado. */
+  origen?: Entrada["origen"];
 };
 
 export type Respuesta = {
@@ -44,6 +46,13 @@ export type Dependencias = {
   monedaBase: string;
   /** Pausas entre reintentos de un dictado que falló en segundo plano. */
   reintentosMs?: number[];
+  /**
+   * Un dictado que nadie estaba esperando terminó (con su respuesta) o se dio por perdido (sin ella).
+   * Es lo que manda la notificación con lo que el iPhone ya no alcanzó a oír.
+   */
+  alTerminarSinEspera?: (entrada: Entrada, respuesta: Respuesta | undefined) => void;
+  /** Si `alTerminarSinEspera` le hará llegar la respuesta a esa cuenta (tiene notificaciones). */
+  notificaSinEspera?: (usuarioId: string) => boolean;
 };
 
 export type OpcionesHablar = {
@@ -201,6 +210,7 @@ export async function hablar(
         lon: peticion.lon,
         lugar: peticion.lugar,
         capturadoEn: (peticion.capturadoEn ? new Date(peticion.capturadoEn) : new Date()).toISOString(),
+        origen: peticion.origen,
       })
       .returning()
       .get();
@@ -217,10 +227,22 @@ export async function hablar(
     : { respuesta: RESPUESTA_PENDIENTE, conversacion_id: entrada.conversacionId, acciones: [], pendiente: true };
 }
 
-type Entrada = typeof entradas.$inferSelect;
+export type Entrada = typeof entradas.$inferSelect;
 
 /** Dictados que nadie está esperando: si fallan, la Mac los reintenta sola más tarde. */
 const enSegundoPlano = new Set<string>();
+/** Cuántas consultas (/v1/entradas con espera) están esperando cada dictado en este momento. */
+const esperandoRespuesta = new Map<string, number>();
+
+/** Avisa que terminó un dictado en segundo plano, salvo que alguien esté esperando su respuesta. */
+function terminoSinEspera(deps: Dependencias, entrada: Entrada, respuesta: Respuesta | undefined) {
+  if (!deps.alTerminarSinEspera || (esperandoRespuesta.get(entrada.id) ?? 0) > 0) return;
+  try {
+    deps.alTerminarSinEspera(entrada, respuesta);
+  } catch (error) {
+    console.error("Falló el aviso de un dictado terminado:", error);
+  }
+}
 
 // Un dictado que ya recibió "Anotado" no se da por perdido: se reintenta (la última pausa se repite)
 // hasta 24 horas después de dictarlo, y en cuanto otro dictado sale bien, porque la IA ya volvió.
@@ -236,8 +258,9 @@ function encolar(deps: Dependencias, entrada: Entrada, intento = 0, exitosAlFall
   const trabajo = enCola(() => procesar(deps, entrada));
   enCurso.set(entrada.id, trabajo);
   trabajo.then(
-    () => {
+    (respuesta) => {
       enCurso.delete(entrada.id);
+      if (enSegundoPlano.has(entrada.id)) terminoSinEspera(deps, entrada, respuesta);
       enSegundoPlano.delete(entrada.id);
       exitosPorBase.set(deps.db, exitos(deps.db) + 1);
       for (const reintentar of [...esperandoReintento.values()]) reintentar();
@@ -251,6 +274,7 @@ function encolar(deps: Dependencias, entrada: Entrada, intento = 0, exitosAlFall
       if (pausa === undefined || iaFunciona || Date.now() - Date.parse(entrada.creadoEn) > VIGENCIA_REINTENTOS_MS) {
         console.error(`Dictado ${entrada.clientId} sin procesar después de ${intento + 1} intentos; queda en error.`);
         enSegundoPlano.delete(entrada.id);
+        terminoSinEspera(deps, entrada, undefined);
         return;
       }
       // Sigue pendiente para quien lo consulte: no es un error mientras se vaya a reintentar.
@@ -344,7 +368,17 @@ export async function consultarEntrada(
   const inicial = buscar();
   if (!inicial) return undefined;
   const trabajo = enCurso.get(inicial.id);
-  if (trabajo && esperaMs > 0) await conLimite(trabajo.catch(() => undefined), esperaMs);
+  if (trabajo && esperaMs > 0) {
+    // Mientras alguien espera la respuesta, no hace falta mandarla por notificación.
+    esperandoRespuesta.set(inicial.id, (esperandoRespuesta.get(inicial.id) ?? 0) + 1);
+    try {
+      await conLimite(trabajo.catch(() => undefined), esperaMs);
+    } finally {
+      const quedan = (esperandoRespuesta.get(inicial.id) ?? 1) - 1;
+      if (quedan > 0) esperandoRespuesta.set(inicial.id, quedan);
+      else esperandoRespuesta.delete(inicial.id);
+    }
+  }
   const e = buscar() ?? inicial;
   return e.estado === "listo" ? { ...(e.respuesta as Respuesta), estado: e.estado } : { estado: e.estado };
 }
@@ -434,6 +468,7 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
     textoOriginal: entrada.texto,
     ubicacion: { lat: entrada.lat ?? undefined, lon: entrada.lon ?? undefined, lugar: entrada.lugar ?? undefined },
     ahora: new Date(entrada.capturadoEn),
+    origen: entrada.origen,
   });
   // Un intento anterior que falló a medias no debe dejar registros duplicados.
   revertirEntrada(ctx, entrada.id);
@@ -515,7 +550,9 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   // Si hizo algo y no espera respuesta, aprovecha para avisar de un cobro que viene. Si el iPhone ya
   // recibió "Anotado", nadie lo va a oír: se deja para el próximo dictado.
   const hablaDeCobros = acciones.some((a) => a.herramienta.endsWith("_recurrente") || a.herramienta === "listar_recurrentes");
-  const cobros = acciones.length > 0 && !texto.includes("?") && !hablaDeCobros && !enSegundoPlano.has(entrada.id) ? cobrosPorAvisar(ctx, loQuePago(acciones)) : undefined;
+  // Con notificaciones, lo que no se oye llega en la notificación.
+  const alguienLoVe = !enSegundoPlano.has(entrada.id) || !!deps.notificaSinEspera?.(usuarioId);
+  const cobros = acciones.length > 0 && !texto.includes("?") && !hablaDeCobros && alguienLoVe ? cobrosPorAvisar(ctx, loQuePago(acciones)) : undefined;
   const hablado = limpiarParaVoz(sinPreguntasDeMas(texto)) || respuestaPorOmision(acciones);
 
   const respuesta: Respuesta = {

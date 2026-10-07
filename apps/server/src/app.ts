@@ -3,7 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
 import { z } from "zod";
 import { consultarEntrada, type Dependencias, ErrorEnProceso, ErrorIA, hablar } from "./ai/asistente";
-import { ErrorFirma, firmarAtajo, generarAtajo } from "./atajo/generar";
+import { ErrorFirma, firmarAtajo, generarAtajo, generarAtajoApplePay, guionBienvenida, NOMBRE_ATAJO_APPLE_PAY } from "./atajo/generar";
 import {
   canjearInvitacion,
   consultarInvitacion,
@@ -17,7 +17,9 @@ import {
   revocarDispositivo,
   type VariablesAuth,
 } from "./auth";
-import { invitaciones, usuarios } from "./db/schema";
+import { entradas, invitaciones, usuarios } from "./db/schema";
+import { fraseDePago } from "./finanzas/applepay";
+import { avisoDelDia, marcarDicho } from "./finanzas/avisos";
 import { listarCategorias, nombreCompleto } from "./finanzas/catalogos";
 import { crearContexto } from "./finanzas/contexto";
 import {
@@ -36,6 +38,8 @@ import { hostsDeLaPeticion, ipDelCliente, LimiteIntentos } from "./lib/limites";
 import { montosDelTexto } from "./lib/numeros";
 import { esOrdenSobreLoAnotado, esPregunta } from "./lib/texto";
 import { and, eq, gte } from "drizzle-orm";
+import { avisoDeDictado, conversacionPorContestar } from "./push/dictados";
+import { desuscribir, type EnviarPush, ErrorSuscripcion, estadoPush, notificar, suscribir, tienePush } from "./push/notificaciones";
 import { servirApp } from "./web";
 
 export type OpcionesApp = Dependencias & {
@@ -50,6 +54,10 @@ export type OpcionesApp = Dependencias & {
   firmarAtajo?: (xml: string) => Promise<Uint8Array>;
   /** Carpeta con la PWA compilada. Sin ella, la app no se sirve. */
   carpetaWeb?: string;
+  /** Envía una notificación push; las pruebas lo reemplazan. */
+  enviarPush?: EnviarPush;
+  /** mailto: o https: que se le da al servicio de push. Sin valor, la dirección pública del servidor. */
+  contactoPush?: string;
 };
 
 const MAX_ESPERA_MS = 120_000;
@@ -87,6 +95,29 @@ const esquemaHablar = z.object({
   // Para clientes que prefieren esperar otra cantidad (la prueba de modelos espera todo).
   espera_ms: z.coerce.number().int().min(0).max(MAX_ESPERA_MS).optional(),
 });
+
+// Lo que manda el Atajo de Apple Pay. Va por /v1/hablar para que la cola sin conexión del Atajo
+// principal también lo reenvíe.
+const esquemaApplePay = z.object({
+  origen: z.literal("apple_pay"),
+  client_id: z.string().trim().min(8).max(100),
+  monto: z.coerce.string().trim().max(60).optional(),
+  comercio: z.coerce.string().trim().max(200).optional(),
+  nombre: z.coerce.string().trim().max(200).optional(),
+  tarjeta: z.coerce.string().trim().max(200).optional(),
+  lat: numeroOpcional(-90, 90),
+  lon: numeroOpcional(-180, 180),
+  capturado_en: fechaOpcional,
+});
+
+const esquemaSuscripcion = z.object({
+  endpoint: z.url({ protocol: /^https$/ }).max(1000),
+  keys: z.object({ p256dh: z.string().trim().min(80).max(120), auth: z.string().trim().min(16).max(64) }),
+  origen: z.url({ protocol: /^https?$/ }).max(300).optional(),
+});
+
+/** Lo que el Atajo dice cuando registró y el resultado llega por notificación. */
+export const RESPUESTA_RAPIDA = "Anotado.";
 
 // Los Atajos mandan "" en los campos vacíos; se tratan como ausentes.
 function sinVacios(cuerpo: unknown): unknown {
@@ -170,29 +201,63 @@ function servidorPropio(c: Context, servidor: string): boolean {
   return false;
 }
 const NOMBRE_ATAJO = "Atajo Finanzas";
+/** Cada Atajo que la app puede instalar: el nombre de su dispositivo (su token) y el del archivo. */
+const ATAJOS = {
+  finanzas: { dispositivo: NOMBRE_ATAJO, archivo: "Finanzas.shortcut" },
+  apple_pay: { dispositivo: "Atajo Apple Pay", archivo: `${NOMBRE_ATAJO_APPLE_PAY}.shortcut` },
+} as const;
+type TipoAtajo = keyof typeof ATAJOS;
 
 export function crearApp(opciones: OpcionesApp) {
   const { db } = opciones;
   const app = new Hono<{ Variables: VariablesAuth }>();
   const intentos = new LimiteIntentos(VENTANA_INTENTOS_MS, MAX_INTENTOS_POR_IP, MAX_INTENTOS_TOTAL);
-  const atajos = new Map<string, { archivo: Uint8Array; expira: number; descargas: number }>();
+  const atajos = new Map<string, { archivo: Uint8Array; nombre: string; expira: number; descargas: number }>();
   /** Lo que el Atajo lee en voz: los montos dichos ("50 pesos", no "$50") y si sigue escuchando. */
   const paraVoz = <T extends { respuesta?: string; pendiente?: boolean }>(r: T) =>
     conSeguir(r.respuesta ? { ...r, respuesta: montosParaVoz(r.respuesta, opciones.monedaBase) } : r);
   const firmar = opciones.firmarAtajo ?? firmarAtajo;
+  // Lo que el iPhone ya no esperó llega por notificación a quien las tenga activas.
+  const deps = {
+    ...opciones,
+    alTerminarSinEspera: opciones.alTerminarSinEspera ?? avisoDeDictado(db, opciones.enviarPush),
+    notificaSinEspera: opciones.notificaSinEspera ?? ((usuarioId: string) => tienePush(db, usuarioId)),
+  };
+  /**
+   * La primera respuesta del día que oye el Atajo lleva el aviso del día (fugas, presupuestos), una sola vez.
+   * No va detrás de una pregunta (la pregunta tiene que ser lo último que se oye) ni de una espera.
+   */
+  const conAvisoDelDia = <T extends { respuesta: string; pendiente?: boolean; duplicado?: boolean }>(
+    usuarioId: string,
+    r: T,
+    rapida: boolean,
+  ): T => {
+    if (r.duplicado || (r.pendiente && !rapida) || r.respuesta.includes("?")) return r;
+    const aviso = avisoDelDia(db, usuarioId, contexto(usuarioId).hoy);
+    if (!aviso) return r;
+    marcarDicho(db, aviso.id);
+    return { ...r, respuesta: `${r.respuesta} Por cierto: ${aviso.texto}` };
+  };
   const contexto = (usuarioId: string) =>
     crearContexto({ db, usuarioId, zonaHoraria: opciones.zonaHoraria, monedaBase: opciones.monedaBase });
 
   /** Arma y firma el Atajo con ese token y lo deja unos minutos para descargarlo. Lanza ErrorFirma. */
-  const prepararAtajo = async (servidor: string, token: string, usuarioId: string, dispositivoId: string) => {
+  const prepararAtajo = async (
+    servidor: string,
+    token: string,
+    usuarioId: string,
+    dispositivoId: string,
+    tipo: TipoAtajo = "finanzas",
+  ) => {
     const nombre = db.select().from(usuarios).where(eq(usuarios.id, usuarioId)).get()?.nombre;
-    const archivo = await firmar(generarAtajo({ servidor: servidor.replace(/\/+$/, ""), token, nombre }));
-    revocarAtajosSinUsar(db, usuarioId, NOMBRE_ATAJO, dispositivoId);
+    const datos = { servidor: servidor.replace(/\/+$/, ""), token };
+    const archivo = await firmar(tipo === "apple_pay" ? generarAtajoApplePay(datos) : generarAtajo({ ...datos, nombre }));
+    revocarAtajosSinUsar(db, usuarioId, ATAJOS[tipo].dispositivo, dispositivoId);
     const id = crypto.randomUUID();
     const expira = Date.now() + ATAJO_VIGENCIA_MS;
     for (const [clave, a] of atajos) if (a.expira < Date.now()) atajos.delete(clave);
-    atajos.set(id, { archivo, expira, descargas: 0 });
-    return { url: `/atajo/${id}.shortcut`, expiraEn: new Date(expira).toISOString(), nombre: nombre ?? null };
+    atajos.set(id, { archivo, nombre: ATAJOS[tipo].archivo, expira, descargas: 0 });
+    return { url: `/atajo/${id}.shortcut`, expiraEn: new Date(expira).toISOString(), nombre: nombre ?? null, tipo };
   };
   const sinFirma = (error: ErrorFirma) => {
     console.error("No se pudo firmar el Atajo:", error.message);
@@ -279,7 +344,8 @@ export function crearApp(opciones: OpcionesApp) {
     if (c.req.method === "GET") atajo.descargas++;
     return c.body(atajo.archivo as Uint8Array<ArrayBuffer>, 200, {
       "Content-Type": "application/octet-stream",
-      "Content-Disposition": 'attachment; filename="Finanzas.shortcut"',
+      // iOS le pone al Atajo el nombre del archivo.
+      "Content-Disposition": `attachment; filename="${atajo.nombre}"; filename*=UTF-8''${encodeURIComponent(atajo.nombre)}`,
       "Cache-Control": "no-store",
     });
   });
@@ -296,24 +362,32 @@ export function crearApp(opciones: OpcionesApp) {
       const conversacion = typeof crudo.conversacion_id === "string" ? crudo.conversacion_id : "";
       return c.json(paraVoz({ respuesta: "No te escuché. ¿Me lo repites?", conversacion_id: conversacion, acciones: [] }));
     }
+    if (crudo && typeof crudo === "object" && crudo.origen === "apple_pay") return pagoApplePay(c, crudo);
     const cuerpo = esquemaHablar.safeParse(sinVacios(crudo));
     if (!cuerpo.success) {
       return c.json({ error: "Petición inválida.", detalles: z.flattenError(cuerpo.error).fieldErrors }, 400);
     }
     const p = cuerpo.data;
+    const usuarioId = c.get("usuarioId");
+    // El Atajo no manda espera_ms; la app y las pruebas sí.
+    const delAtajo = p.espera_ms === undefined;
     // Sin monto, lo que conteste importa tanto como en una pregunta: puede pedir un dato ("¿de cuánto fue?")
     // o decir qué borró o cambió. Si contestara "Anotado" y lo terminara sola, nadie oiría esa respuesta.
     // Lo mismo al borrar o cambiar algo, aunque diga el monto: "borra el café de 85" (QA-029).
     const pregunta = esPregunta(p.texto) || montosDelTexto(p.texto).length === 0 || esOrdenSobreLoAnotado(p.texto);
-    const esperaMs = p.espera_ms ?? (pregunta ? opciones.espera?.preguntaMs : opciones.espera?.registroMs);
+    // Con notificaciones, un registro no espera a la IA: el Atajo dice "Anotado" y termina, y lo que
+    // anotó llega en una notificación. Las preguntas se siguen contestando en voz.
+    const rapida = delAtajo && !pregunta && tienePush(db, usuarioId);
+    const esperaMs = p.espera_ms ?? (rapida ? 0 : pregunta ? opciones.espera?.preguntaMs : opciones.espera?.registroMs);
     try {
-      const respuesta = await hablar(
-        opciones,
-        c.get("usuarioId"),
+      let respuesta = await hablar(
+        deps,
+        usuarioId,
         {
           texto: p.texto,
           clientId: p.client_id,
-          conversacionId: p.conversacion_id,
+          // Una pregunta que llegó por notificación se contesta con el siguiente dictado.
+          conversacionId: p.conversacion_id ?? (delAtajo ? conversacionPorContestar(usuarioId) : undefined),
           lat: p.lat,
           lon: p.lon,
           lugar: p.lugar,
@@ -321,6 +395,8 @@ export function crearApp(opciones: OpcionesApp) {
         },
         { esperaMs, esPregunta: pregunta },
       );
+      if (rapida && respuesta.pendiente) respuesta = { ...respuesta, respuesta: RESPUESTA_RAPIDA };
+      if (delAtajo) respuesta = conAvisoDelDia(usuarioId, respuesta, rapida);
       // 202: la Mac ya lo guardó y lo termina sola; el Atajo no debe reenviarlo.
       return c.json(paraVoz(respuesta), respuesta.pendiente ? 202 : 200);
     } catch (error) {
@@ -342,6 +418,106 @@ export function crearApp(opciones: OpcionesApp) {
       }
       throw error;
     }
+  });
+
+  /**
+   * Un pago con Apple Pay: se registra en segundo plano y lo anotado llega por notificación, con el
+   * detalle abierto para agregar lo que falte. Sin monto (el Atajo corrido a mano) es una prueba.
+   */
+  const pagoApplePay = async (c: Context<{ Variables: VariablesAuth }>, crudo: object) => {
+    const cuerpo = esquemaApplePay.safeParse(sinVacios(crudo));
+    if (!cuerpo.success) {
+      return c.json({ error: "Petición inválida.", detalles: z.flattenError(cuerpo.error).fieldErrors }, 400);
+    }
+    const p = cuerpo.data;
+    const usuarioId = c.get("usuarioId");
+    const texto = fraseDePago(p, opciones.monedaBase);
+    if (!texto) {
+      const prueba = !p.monto && !p.comercio && !p.nombre && !p.tarjeta;
+      if (prueba) {
+        await notificar(
+          db,
+          usuarioId,
+          { titulo: "Apple Pay listo", cuerpo: "Cuando pagues con Apple Pay, lo anoto solo y te aviso aquí.", url: "/#inicio" },
+          opciones.enviarPush,
+        );
+      }
+      return c.json({
+        respuesta: prueba ? "Listo. Cuando pagues con Apple Pay lo anoto solo." : "Ese pago no trae monto; no anoté nada.",
+        prueba,
+        acciones: [],
+      });
+    }
+    try {
+      const respuesta = await hablar(
+        deps,
+        usuarioId,
+        { texto, clientId: p.client_id, origen: "apple_pay", lat: p.lat, lon: p.lon, capturadoEn: p.capturado_en },
+        { esperaMs: 0, esPregunta: false },
+      );
+      // El Atajo no dice nada: si terminó al instante, la notificación sale de aquí.
+      if (!respuesta.pendiente && !respuesta.duplicado) {
+        const entrada = db
+          .select()
+          .from(entradas)
+          .where(and(eq(entradas.usuarioId, usuarioId), eq(entradas.clientId, p.client_id)))
+          .get();
+        if (entrada) deps.alTerminarSinEspera(entrada, respuesta);
+      }
+      return c.json(respuesta, respuesta.pendiente ? 202 : 200);
+    } catch (error) {
+      if (error instanceof ErrorEnProceso) return c.json({ error: error.message, reintentar: true }, 409);
+      if (error instanceof ErrorIA) return c.json({ error: "La IA no respondió.", reintentar: true }, 503);
+      throw error;
+    }
+  };
+
+  // Notificaciones: la llave para suscribirse, si este dispositivo ya está suscrito, suscribirse y probar.
+  v1.get("/push", (c) => c.json(estadoPush(db, c.get("usuarioId"), c.get("dispositivoId"))));
+
+  v1.post("/push/suscripcion", async (c) => {
+    const cuerpo = esquemaSuscripcion.safeParse(await c.req.json().catch(() => null));
+    if (!cuerpo.success) return c.json({ error: "La suscripción no es válida." }, 400);
+    const { endpoint, keys, origen } = cuerpo.data;
+    // Apple pide un contacto; la dirección pública con la que se abrió la app sirve, si es este servidor.
+    const propio = origen && origen.startsWith("https://") && hostsDeLaPeticion(c).includes(new URL(origen).host.toLowerCase());
+    const contacto = opciones.contactoPush ?? (propio ? new URL(origen).origin : "mailto:finanzas@example.com");
+    try {
+      suscribir(db, c.get("usuarioId"), c.get("dispositivoId"), { endpoint, p256dh: keys.p256dh, auth: keys.auth, contacto });
+    } catch (error) {
+      if (error instanceof ErrorSuscripcion) return c.json({ error: error.message }, 400);
+      throw error;
+    }
+    return c.json(estadoPush(db, c.get("usuarioId"), c.get("dispositivoId")), 201);
+  });
+
+  v1.delete("/push/suscripcion", (c) => {
+    desuscribir(db, c.get("dispositivoId"));
+    return c.json({ ok: true });
+  });
+
+  v1.post("/push/prueba", async (c) => {
+    const nombre = db.select().from(usuarios).where(eq(usuarios.id, c.get("usuarioId"))).get()?.nombre.split(" ")[0];
+    const llegaron = await notificar(
+      db,
+      c.get("usuarioId"),
+      {
+        titulo: "Notificaciones activas",
+        cuerpo: `${nombre ? `Listo, ${nombre}. ` : "Listo. "}Cuando registres algo con el Atajo, aquí te confirmo qué anoté.`,
+        url: "/#ajustes",
+        etiqueta: "prueba",
+      },
+      opciones.enviarPush,
+    );
+    if (!llegaron) return c.json({ error: "No llegó a ningún dispositivo. Vuelve a activar las notificaciones.", enviadas: 0 }, 502);
+    return c.json({ enviadas: llegaron });
+  });
+
+  // La bienvenida que dice el Atajo la primera vez, con el nombre que tenga la cuenta en ese momento.
+  v1.get("/atajo/bienvenida", (c) => {
+    const nombre = db.select().from(usuarios).where(eq(usuarios.id, c.get("usuarioId"))).get()?.nombre;
+    const guion = guionBienvenida(nombre);
+    return c.json({ ...guion, explicacion: guion.explicacion.join(" ") });
   });
 
   // Estado de un dictado que quedó pendiente. Con ?esperar_ms= espera a que termine.
@@ -498,14 +674,18 @@ export function crearApp(opciones: OpcionesApp) {
   });
 
   // Prepara el Atajo con un token propio y deja el archivo firmado 10 minutos para descargarlo.
+  // tipo "apple_pay" prepara el Atajo que corre la automatización de la Cartera.
   v1.post("/atajo", async (c) => {
-    const cuerpo = z.object({ servidor: esquemaServidor }).safeParse(await c.req.json().catch(() => null));
+    const cuerpo = z
+      .object({ servidor: esquemaServidor, tipo: z.enum(["finanzas", "apple_pay"]).default("finanzas") })
+      .safeParse(await c.req.json().catch(() => null));
     if (!cuerpo.success) return c.json({ error: "Falta la dirección del servidor (servidor)." }, 400);
     if (!servidorPropio(c, cuerpo.data.servidor)) return c.json({ error: "La dirección del servidor no es esta." }, 400);
     const usuarioId = c.get("usuarioId");
-    const { token, dispositivo } = crearDispositivoPara(db, usuarioId, NOMBRE_ATAJO);
+    const { tipo } = cuerpo.data;
+    const { token, dispositivo } = crearDispositivoPara(db, usuarioId, ATAJOS[tipo].dispositivo);
     try {
-      return c.json(await prepararAtajo(cuerpo.data.servidor, token, usuarioId, dispositivo.id), 201);
+      return c.json(await prepararAtajo(cuerpo.data.servidor, token, usuarioId, dispositivo.id, tipo), 201);
     } catch (error) {
       // Sin Atajo, el token nuevo no sirve de nada.
       revocarDispositivo(db, usuarioId, dispositivo.id);

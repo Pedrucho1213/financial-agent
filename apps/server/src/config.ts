@@ -11,6 +11,9 @@ export const config = {
   moneda: env("MONEDA", "MXN"),
   // La PWA compilada (bun run web:build), servida en la misma dirección que la API.
   carpetaWeb: env("CARPETA_WEB", join(import.meta.dir, "../../web/dist")),
+  // Contacto (mailto: o https:) que se le da a Apple al mandar notificaciones. Sin valor, la dirección
+  // pública con la que se abrió la app.
+  contactoPush: process.env.PUSH_CONTACTO?.trim() || undefined,
   // Cuánto espera el iPhone a la IA. Si tarda más, la Mac contesta "anotado" y lo termina sola.
   // A una pregunta se le da más tiempo porque la respuesta es lo que importa.
   espera: {

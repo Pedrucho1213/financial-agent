@@ -9,7 +9,10 @@ import {
   ErrorFirma,
   firmarAtajo,
   generarAtajo,
+  generarAtajoApplePay,
   guionBienvenida,
+  NOMBRE_ATAJO_APPLE_PAY,
+  PROPIEDADES_TRANSACCION,
   PALABRAS_PARA_TERMINAR,
   QUIERE_EXPLICACION,
 } from "../src/atajo/generar";
@@ -312,7 +315,7 @@ describe("generarAtajo", () => {
     expect(xml).not.toContain(token);
     const leido = leerPlist(xml) as Dict;
     const textos = [...recorrer(leido)].map(([, v]) => v).filter((v) => typeof v === "string");
-    expect(textos.filter((t) => t === `Bearer ${token}`)).toHaveLength(3); // hablar, entradas y reenvío
+    expect(textos.filter((t) => t === `Bearer ${token}`)).toHaveLength(4); // hablar, entradas, reenvío y bienvenida
     expect(textos.filter((t) => t === "https://ejemplo.ts.net/v1/hablar")).toHaveLength(2);
     expect(textos).toContain("https://ejemplo.ts.net/v1/entradas/￼?esperar_ms=45000");
   });
@@ -357,9 +360,11 @@ describe("comportamiento", () => {
 
   test("nada que use la red corre antes de guardar el dictado", () => {
     const primerGuardado = guardados[0]!;
-    expect(primerGuardado).toBeGreaterThan(indice("dictatetext"));
+    const turnos = indice("repeat.count");
+    expect(primerGuardado).toBeGreaterThan(turnos);
+    // La única red antes de los turnos es el saludo de la bienvenida (ver "bienvenida").
     for (const red of ["downloadurl", "getcurrentlocation", "properties.locations"]) {
-      expect(indice(red)).toBeGreaterThan(primerGuardado);
+      expect(acciones.findIndex((a, k) => k > turnos && id(a) === red)).toBeGreaterThan(primerGuardado);
     }
     // Y cada envío a /v1/hablar manda un archivo.
     const envios = acciones.filter((x) => id(x) === "downloadurl" && parametros(x).WFHTTPMethod === "POST");
@@ -491,18 +496,26 @@ describe("bienvenida", () => {
   const leer = acciones.findIndex((a) => id(a) === "documentpicker.open" && parametros(a).WFGetFilePath === ARCHIVO_BIENVENIDA);
   const loop = indice("repeat.count");
 
-  test("la primera vez saluda por su nombre, pregunta y marca que ya saludó, sin usar la red", () => {
+  test("la primera vez pide el saludo al servidor, pregunta y después marca que ya saludó", () => {
     expect(leer).toBeGreaterThan(-1);
     expect(leer).toBeLessThan(loop);
     expect(parametros(acciones[leer]!)).toMatchObject({ WFShowFilePicker: false, WFFileErrorIfNotFound: false });
     const tramo = acciones.slice(leer, loop);
+    // El nombre lo da el servidor (se puede cambiar sin reinstalar); el de la instalación queda de respaldo.
+    const pedir = tramo.findIndex((a) => id(a) === "downloadurl");
+    expect(parametros(tramo[pedir]!)).toMatchObject({ WFHTTPMethod: "GET", WFURL: `${SERVIDOR}/v1/atajo/bienvenida` });
+    const respaldo = tramo.find((a) => parametros(a).CustomOutputName === "Saludo de siempre")!;
+    expect(parametros(respaldo).WFTextActionText).toStartWith("¡Hola, Pedro! ");
     const dichos = tramo.filter((a) => id(a) === "speaktext").map((a) => parametros(a).WFText);
-    expect(dichos[0]).toStartWith("¡Hola, Pedro! ");
+    const saludo = ((dichos[0] as Dict).Value as Dict).attachmentsByRange as Dict;
+    expect(Object.values(saludo)).toEqual([{ Type: "Variable", VariableName: "Saludo" }]);
+    // Sin red el Atajo se detiene al pedir el saludo: la marca va después, para intentarlo otra vez.
+    expect(tramo.findIndex((a) => id(a) === "documentpicker.save")).toBeGreaterThan(pedir);
     expect(dichos).toContain(guionBienvenida().cierre);
     expect(dichos).toHaveLength(guionBienvenida().explicacion.length + 3);
     const marca = tramo.find((a) => id(a) === "documentpicker.save")!;
     expect(parametros(marca)).toMatchObject({ WFFileDestinationPath: ARCHIVO_BIENVENIDA, WFAskWhereToSave: false, WFSaveFileOverwrite: true });
-    for (const red of ["downloadurl", "getcurrentlocation"]) expect(tramo.some((a) => id(a) === red)).toBe(false);
+    expect(tramo.some((a) => id(a) === "getcurrentlocation")).toBe(false);
     // Todo va dentro del Si "no existe la marca".
     const si = parametros(acciones[leer + 1]!);
     expect(si.WFCondition).toBe(101);
@@ -602,5 +615,71 @@ describe("firmarAtajo", () => {
   test("construirAtajo y generarAtajo describen lo mismo", () => {
     const objeto = JSON.parse(JSON.stringify(construirAtajo({ servidor: SERVIDOR, token: TOKEN })));
     expect(leerPlist(generarAtajo({ servidor: SERVIDOR, token: TOKEN }))).toEqual(objeto);
+  });
+});
+
+describe("Atajo de Apple Pay", () => {
+  const ap = leerPlist(generarAtajoApplePay({ servidor: SERVIDOR, token: TOKEN })) as Dict;
+  const pasos = ap.WFWorkflowActions as unknown as Accion[];
+  const donde = (identificador: string) => pasos.findIndex((a) => id(a) === identificador);
+
+  test("es otro Atajo, con su nombre, que recibe la entrada de la automatización", () => {
+    expect(ap.WFWorkflowName).toBe(NOMBRE_ATAJO_APPLE_PAY);
+    expect(ap.WFWorkflowHasShortcutInputVariables).toBe(true);
+    for (const a of pasos) expect(PERMITIDAS.has(id(a))).toBe(true);
+    const propiedades = new Set<string>();
+    for (const a of pasos) {
+      for (const [, v] of recorrer(parametros(a))) {
+        if (v && typeof v === "object" && (v as Dict).Type === "ExtensionInput") {
+          const [agr] = (v as Dict).Aggrandizements as Dict[];
+          expect(agr!.Type).toBe("WFPropertyVariableAggrandizement");
+          propiedades.add(agr!.PropertyName as string);
+        }
+      }
+    }
+    expect([...propiedades].sort()).toEqual(Object.values(PROPIEDADES_TRANSACCION).sort());
+  });
+
+  test("referencias y bloques bien formados", () => {
+    const vistos = new Map<string, string>();
+    const pila: string[] = [];
+    for (const a of pasos) {
+      const p = parametros(a);
+      for (const [, v] of recorrer(p)) {
+        if (v && typeof v === "object" && !Array.isArray(v) && (v as Dict).Type === "ActionOutput") {
+          expect(vistos.get((v as Dict).OutputUUID as string)).toBe((v as Dict).OutputName as string);
+        }
+      }
+      if (typeof p.UUID === "string") vistos.set(p.UUID, (p.CustomOutputName as string) ?? "");
+      if (BLOQUES.has(id(a))) {
+        if (p.WFControlFlowMode === 0) pila.push(p.GroupingIdentifier as string);
+        if (p.WFControlFlowMode === 2) expect(pila.pop()).toBe(p.GroupingIdentifier as string);
+      }
+    }
+    expect(pila).toEqual([]);
+  });
+
+  test("guarda el pago en la cola antes de usar la red y lo manda a /v1/hablar como apple_pay", () => {
+    const guardar = donde("documentpicker.save");
+    expect(parametros(pasos[guardar]!)).toMatchObject({ WFFileDestinationPath: ARCHIVO_COLA, WFSaveFileOverwrite: true });
+    for (const red of ["downloadurl", "getcurrentlocation"]) expect(donde(red)).toBeGreaterThan(guardar);
+    expect(pasos.some((a) => id(a).startsWith("file."))).toBe(false);
+    const envio = pasos[donde("downloadurl")]!;
+    expect(parametros(envio)).toMatchObject({ WFURL: `${SERVIDOR}/v1/hablar`, WFHTTPMethod: "POST", WFHTTPBodyType: "File" });
+    const peticion = pasos.find((a) => parametros(a).CustomOutputName === "Petición")!;
+    const campos = (((parametros(peticion).WFItems as Dict).Value as Dict).WFDictionaryFieldValueItems as Dict[]).map((c) => [
+      ((c.WFKey as Dict).Value as Dict).string,
+      ((c.WFValue as Dict).Value as Dict).string,
+    ]);
+    expect(Object.fromEntries(campos).origen).toBe("apple_pay");
+    expect(campos.map(([k]) => k).sort()).toEqual(["capturado_en", "client_id", "comercio", "lat", "lon", "monto", "nombre", "origen", "tarjeta"]);
+  });
+
+  test("al pagar no habla ni escucha; corrido a mano dice si quedó listo", () => {
+    expect(donde("dictatetext")).toBe(-1);
+    const habla = donde("speaktext");
+    const si = pasos.slice(0, habla).findLast((a) => id(a) === "conditional" && parametros(a).WFControlFlowMode === 0)!;
+    expect(parametros(si).WFCondition).toBe(101); // "Trae monto" no tiene valor
+    expect(habla).toBeGreaterThan(donde("downloadurl"));
   });
 });

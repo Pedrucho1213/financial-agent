@@ -275,6 +275,10 @@ export const entradas = sqliteTable(
     lon: real("lon"),
     lugar: text("lugar"),
     capturadoEn: text("capturado_en").notNull(),
+    // De dónde llegó: un dictado o un pago con Apple Pay que mandó el Atajo de la Cartera.
+    origen: text("origen", { enum: ["voz", "apple_pay"] })
+      .notNull()
+      .default("voz"),
     estado: text("estado", { enum: ["procesando", "listo", "error"] })
       .notNull()
       .default("procesando"),
@@ -320,4 +324,58 @@ export const bitacora = sqliteTable(
     deshechoPor: text("deshecho_por"),
   },
   (t) => [index("bitacora_usuario").on(t.usuarioId, t.creadoEn)],
+);
+
+// Ajustes del servidor que se generan una vez y se guardan con los datos (las llaves de las notificaciones).
+export const configuracion = sqliteTable("configuracion", {
+  clave: text("clave").primaryKey(),
+  valor: text("valor", { mode: "json" }).$type<unknown>().notNull(),
+  creadoEn: creadoEn(),
+});
+
+// Dónde mandar notificaciones push: la app instalada en la pantalla de inicio de cada dispositivo.
+export const suscripcionesPush = sqliteTable(
+  "suscripciones_push",
+  {
+    id: id(),
+    usuarioId: text("usuario_id")
+      .notNull()
+      .references(() => usuarios.id),
+    dispositivoId: text("dispositivo_id")
+      .notNull()
+      .references(() => dispositivos.id),
+    endpoint: text("endpoint").notNull(),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    // mailto: o https: para el servicio de push (Apple lo pide): la dirección desde la que se activó.
+    contacto: text("contacto").notNull(),
+    creadoEn: creadoEn(),
+    ultimoEnvio: text("ultimo_envio"),
+    ultimoError: text("ultimo_error"),
+  },
+  (t) => [uniqueIndex("suscripciones_push_endpoint").on(t.endpoint), index("suscripciones_push_usuario").on(t.usuarioId)],
+);
+
+// Lo que el revisor nocturno encuentra (fugas, presupuestos, cobros): el Atajo lo dice una vez al usarlo
+// y sale como notificación en la mañana.
+export const avisos = sqliteTable(
+  "avisos",
+  {
+    id: id(),
+    usuarioId: text("usuario_id")
+      .notNull()
+      .references(() => usuarios.id),
+    // Día local (YYYY-MM-DD) para el que es el aviso.
+    fecha: text("fecha").notNull(),
+    tipo: text("tipo").notNull(),
+    titulo: text("titulo").notNull(),
+    texto: text("texto").notNull(),
+    // Ruta de la app a la que lleva tocar la notificación.
+    url: text("url"),
+    prioridad: integer("prioridad").notNull().default(0),
+    creadoEn: creadoEn(),
+    dichoEn: text("dicho_en"),
+    notificadoEn: text("notificado_en"),
+  },
+  (t) => [uniqueIndex("avisos_unico").on(t.usuarioId, t.fecha, t.tipo, t.titulo)],
 );
