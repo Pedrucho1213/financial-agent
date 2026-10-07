@@ -46,7 +46,7 @@ describe("API", () => {
     const r = await hablar({ texto: "café 60 y gasolina 800", client_id: "dictado-0001", lat: 19.43, lon: -99.13, lugar: "" });
     expect(r.status).toBe(200);
     const cuerpo = (await r.json()) as { respuesta: string; conversacion_id: string; acciones: unknown[] };
-    expect(cuerpo.respuesta).toBe("Listo, café de $60 y gasolina de $800.");
+    expect(cuerpo.respuesta).toBe("Listo, café de 60 pesos y gasolina de 800 pesos.");
     expect(cuerpo.acciones).toHaveLength(1);
     // Solo registró: la confirmación sale de lo guardado, sin otra vuelta del modelo.
     expect(modelo.doGenerateCalls).toHaveLength(1);
@@ -106,7 +106,7 @@ describe("API", () => {
     const enMedio = (await (await hablar({ texto: "borra el café", client_id: "dictado-seguir-03" })).json()) as { seguir?: boolean };
     expect(enMedio.seguir).toBe(true);
     const registro = (await (await hablar({ texto: "85 pesos", client_id: "dictado-seguir-02" })).json()) as Record<string, unknown>;
-    expect(registro.respuesta).toBe("Listo, café de $85.");
+    expect(registro.respuesta).toBe("Listo, café de 85 pesos.");
     expect(registro).not.toHaveProperty("seguir");
     // La consulta de un dictado ya contestado también lo dice.
     expect(((await (await get("/v1/entradas/dictado-seguir-01")).json()) as { seguir?: boolean }).seguir).toBe(true);
@@ -203,7 +203,7 @@ describe("API", () => {
       llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 219, comercio: "Netflix" }] }),
     ]);
     const r = (await (await hablar({ texto: "Netflix me cobró 219", client_id: "dictado-0007" })).json()) as { respuesta: string };
-    expect(r.respuesta).toStartWith("Listo, Netflix de $219");
+    expect(r.respuesta).toStartWith("Listo, Netflix de 219 pesos");
     expect(JSON.stringify(modelo.doGenerateCalls[1]?.prompt)).toContain("no se guardó ni se consultó nada");
     expect(((await (await get("/v1/movimientos")).json()) as { total: number }).total).toBe(1);
   });
@@ -231,7 +231,7 @@ describe("API", () => {
     const r = (await (await hablar({ texto: "El súper de hoy fue con la tarjeta de crédito Nu", client_id: "dictado-0010" })).json()) as {
       respuesta: string;
     };
-    expect(r.respuesta).toBe("Listo, quedó Walmart de $1,850 en Súper con Nu.");
+    expect(r.respuesta).toBe("Listo, quedó Walmart de 1,850 pesos en Súper con Nu.");
     expect(modelo.doGenerateCalls).toHaveLength(1);
     // "Con mis amigos" no es un medio de pago: no se toca nada y queda la respuesta del modelo.
     const r2 = (await (await hablar({ texto: "La cena de hoy fue con mis amigos", client_id: "dictado-0011" })).json()) as {

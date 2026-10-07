@@ -31,6 +31,7 @@ import {
 } from "./finanzas/movimientos";
 import { listarRecurrentes } from "./finanzas/recurrentes";
 import { listarMovimientosApp, movimientoApp, tablero } from "./finanzas/vista";
+import { montosParaVoz } from "./lib/dinero";
 import { hostsDeLaPeticion, ipDelCliente, LimiteIntentos } from "./lib/limites";
 import { montosDelTexto } from "./lib/numeros";
 import { esPregunta } from "./lib/texto";
@@ -175,6 +176,9 @@ export function crearApp(opciones: OpcionesApp) {
   const app = new Hono<{ Variables: VariablesAuth }>();
   const intentos = new LimiteIntentos(VENTANA_INTENTOS_MS, MAX_INTENTOS_POR_IP, MAX_INTENTOS_TOTAL);
   const atajos = new Map<string, { archivo: Uint8Array; expira: number; descargas: number }>();
+  /** Lo que el Atajo lee en voz: los montos dichos ("50 pesos", no "$50") y si sigue escuchando. */
+  const paraVoz = <T extends { respuesta?: string; pendiente?: boolean }>(r: T) =>
+    conSeguir(r.respuesta ? { ...r, respuesta: montosParaVoz(r.respuesta, opciones.monedaBase) } : r);
   const firmar = opciones.firmarAtajo ?? firmarAtajo;
   const contexto = (usuarioId: string) =>
     crearContexto({ db, usuarioId, zonaHoraria: opciones.zonaHoraria, monedaBase: opciones.monedaBase });
@@ -290,7 +294,7 @@ export function crearApp(opciones: OpcionesApp) {
     // el archivo en la cola para siempre y no diría nada.
     if (crudo && typeof crudo === "object" && typeof crudo.texto === "string" && !crudo.texto.trim()) {
       const conversacion = typeof crudo.conversacion_id === "string" ? crudo.conversacion_id : "";
-      return c.json(conSeguir({ respuesta: "No te escuché. ¿Me lo repites?", conversacion_id: conversacion, acciones: [] }));
+      return c.json(paraVoz({ respuesta: "No te escuché. ¿Me lo repites?", conversacion_id: conversacion, acciones: [] }));
     }
     const cuerpo = esquemaHablar.safeParse(sinVacios(crudo));
     if (!cuerpo.success) {
@@ -317,7 +321,7 @@ export function crearApp(opciones: OpcionesApp) {
         { esperaMs, esPregunta: pregunta },
       );
       // 202: la Mac ya lo guardó y lo termina sola; el Atajo no debe reenviarlo.
-      return c.json(conSeguir(respuesta), respuesta.pendiente ? 202 : 200);
+      return c.json(paraVoz(respuesta), respuesta.pendiente ? 202 : 200);
     } catch (error) {
       if (error instanceof ErrorEnProceso) {
         return c.json({ error: error.message, respuesta: "Ese mensaje todavía se está procesando.", reintentar: true }, 409);
@@ -344,7 +348,7 @@ export function crearApp(opciones: OpcionesApp) {
     const esperaMs = Math.min(Math.max(Number(c.req.query("esperar_ms") ?? 0) || 0, 0), MAX_ESPERA_MS);
     const estado = await consultarEntrada(db, c.get("usuarioId"), c.req.param("client_id"), esperaMs);
     if (!estado) return c.json({ error: "No conozco ese dictado." }, 404);
-    return c.json(conSeguir(estado));
+    return c.json(paraVoz(estado));
   });
 
   // El Atajo lo llama al abrirse para que el modelo ya esté cargado cuando termines de hablar.

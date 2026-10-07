@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { montosParaVoz } from "../src/lib/dinero";
 import { esPregunta, monedaDelTexto } from "../src/lib/texto";
 
 describe("esPregunta", () => {
@@ -43,4 +44,18 @@ test("libras de peso no son libras esterlinas", () => {
   expect(monedaDelTexto("Compré 2 libras de carne en 180")).toBeUndefined();
   expect(monedaDelTexto("Pagué 20 libras en Londres")).toBe("GBP");
   expect(monedaDelTexto("Me cobraron 15 libras esterlinas")).toBe("GBP");
+});
+
+describe("montosParaVoz", () => {
+  // La voz del iPhone lee "$50" como "50 dólares".
+  test("los pesos se dicen pesos y las otras monedas por su nombre", () => {
+    expect(montosParaVoz("Listo, Oxxo de $50 en Café.")).toBe("Listo, Oxxo de 50 pesos en Café.");
+    expect(montosParaVoz("Llevas $1,250.50; ayer $85 y $1.")).toBe("Llevas 1,250.50 pesos; ayer 85 pesos y 1 peso.");
+    expect(montosParaVoz("Spotify de 10 USD y Disney de 8 EUR.")).toBe("Spotify de 10 dólares y Disney de 8 euros.");
+  });
+
+  test("no repite la moneda si el modelo ya la escribió", () => {
+    expect(montosParaVoz("$50 pesos, $20 USD, US$5 y $ 300")).toBe("50 pesos, 20 dólares, 5 dólares y 300 pesos");
+    expect(montosParaVoz("Tienes 3 cafés y 2 Ubers.")).toBe("Tienes 3 cafés y 2 Ubers.");
+  });
 });

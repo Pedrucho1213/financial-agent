@@ -42,6 +42,8 @@ Si contestas "Permitir una vez", te lo vuelve a preguntar la próxima vez. Si co
 
 Hablas después del sonido y se detiene solo tras una pausa. Te contesta y el Atajo se cierra. Si su respuesta termina en pregunta, te sigue escuchando: contéstale, o di "no", "listo", "gracias", "es todo" o "adiós" para terminar. Si no dices nada, se cierra (y si fue lo primero, te dice "No te escuché"). Son hasta 10 turnos por vez.
 
+Los montos te los dice en pesos ("50 pesos"): el servidor cambia "$50" antes de mandarlo, porque la voz del iPhone lee el signo "$" como dólares.
+
 Quien decide si sigue escuchando es el servidor: manda `seguir: true` solo cuando la respuesta pregunta algo (lleva "?", al final o en medio). Las instrucciones de la IA le piden no cerrar con ofrecimientos como "¿algo más?".
 
 ## Sin conexión
