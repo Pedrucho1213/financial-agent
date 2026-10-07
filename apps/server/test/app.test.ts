@@ -95,12 +95,16 @@ describe("API", () => {
   test("el Atajo sigue escuchando solo cuando la respuesta pregunta algo", async () => {
     const { hablar, get } = montar([
       texto("¿De cuánto fue el café?"),
+      texto("¿Cuál de los dos? El de $85 o el de $60."),
       llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 85, categoria: "Café" }] }),
     ]);
     const pregunta = (await (await hablar({ texto: "compré un café", client_id: "dictado-seguir-01" })).json()) as {
       seguir?: boolean;
     };
     expect(pregunta.seguir).toBe(true);
+    // La pregunta también cuenta si no va al final.
+    const enMedio = (await (await hablar({ texto: "borra el café", client_id: "dictado-seguir-03" })).json()) as { seguir?: boolean };
+    expect(enMedio.seguir).toBe(true);
     const registro = (await (await hablar({ texto: "85 pesos", client_id: "dictado-seguir-02" })).json()) as Record<string, unknown>;
     expect(registro.respuesta).toBe("Listo, café de $85.");
     expect(registro).not.toHaveProperty("seguir");

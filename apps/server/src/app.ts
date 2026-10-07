@@ -153,10 +153,11 @@ const cuerpoMuyGrande = (c: Context) => c.json({ error: "La petición es demasia
 
 /**
  * El Atajo sigue escuchando solo si la respuesta le pregunta algo a la persona; si no, contesta y se cierra.
- * La clave va solo cuando es true, así el Atajo solo revisa si existe.
+ * La pregunta puede ir en medio ("¿Cuál de los dos? El de $85 o el de $60."). La clave va solo cuando es
+ * true, así el Atajo solo revisa si existe.
  */
 function conSeguir<T extends { respuesta?: string; pendiente?: boolean }>(r: T): T & { seguir?: true } {
-  return !r.pendiente && r.respuesta && /\?\s*$/.test(r.respuesta) ? { ...r, seguir: true } : r;
+  return !r.pendiente && r.respuesta?.includes("?") ? { ...r, seguir: true } : r;
 }
 
 /** La dirección del Atajo tiene que ser este mismo servidor, como lo ve quien la pide. */
