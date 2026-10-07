@@ -1,5 +1,5 @@
 import { generateText, isStepCount, type LanguageModel, type ModelMessage } from "ai";
-import { and, asc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { cuentas, entradas, mensajes, movimientos } from "../db/schema";
 import { type Contexto, crearContexto } from "../finanzas/contexto";
@@ -10,7 +10,7 @@ import { cobrosPorAvisar } from "../finanzas/recurrentes";
 import { formatearMonto } from "../lib/dinero";
 import { montosDelTexto } from "../lib/numeros";
 import { esOrdenSobreLoAnotado, esPregunta, normalizar, pideInformacion, tipoDelTexto } from "../lib/texto";
-import { confirmacionDirecta, confirmarRegistro, type Ejecutada } from "./confirmacion";
+import { confirmacionDirecta, confirmarRegistro, type Ejecutada, type Movimiento, preguntarSiRepite } from "./confirmacion";
 import { construirInstrucciones, datosDelUsuario } from "./instrucciones";
 import { pagoDeFrase } from "../finanzas/applepay";
 import { crearHerramientas, type Accion } from "./herramientas";
@@ -526,6 +526,66 @@ async function anotarPagoDirecto(ctx: Contexto, texto: string, acciones: Accion[
   return confirmarRegistro(resultado.registrados, ctx.hoy);
 }
 
+// Un registro dictado otra vez en la misma conversación a los pocos minutos casi siempre es el mismo
+// (no se oyó la respuesta, o se repitió por si acaso): se pregunta antes de anotarlo dos veces.
+const VENTANA_REPETIDO_MS = 10 * 60_000;
+// El modelo contesta que ya lo tenía: "Ya registré los tacos hace un momento", "ya está anotado".
+const YA_LO_TENIA = /\bya (lo |la |los |las |te |tengo |tenia |habia |esta |estan |estaba |quedo |quedaron )?(registr|anot|guard|apunt)/;
+
+/** Lo que registró un dictado reciente de esta conversación que cumple `coincide` y sigue ahí (no se borró). */
+function anotadoHaceUnMomento(ctx: Contexto, entrada: Entrada, coincide: (texto: string) => boolean): Movimiento[] | undefined {
+  const ahora = Date.parse(entrada.capturadoEn);
+  const previas = ctx.db
+    .select({ id: entradas.id, texto: entradas.texto, capturadoEn: entradas.capturadoEn, respuesta: entradas.respuesta })
+    .from(entradas)
+    .where(
+      and(
+        eq(entradas.usuarioId, entrada.usuarioId),
+        eq(entradas.conversacionId, entrada.conversacionId),
+        eq(entradas.estado, "listo"),
+        ne(entradas.id, entrada.id),
+      ),
+    )
+    .orderBy(desc(sql`rowid`))
+    .limit(10)
+    .all();
+  for (const previa of previas) {
+    if (Math.abs(ahora - Date.parse(previa.capturadoEn)) > VENTANA_REPETIDO_MS || !coincide(previa.texto)) continue;
+    const acciones = (previa.respuesta as Respuesta | null)?.acciones ?? [];
+    const registrados = acciones.flatMap((a) =>
+      a.herramienta === "registrar_movimientos" ? ((a.resultado as { registrados?: Movimiento[] } | undefined)?.registrados ?? []) : [],
+    );
+    if (registrados.length === 0) continue;
+    const sigue = ctx.db
+      .select({ id: movimientos.id })
+      .from(movimientos)
+      .where(and(eq(movimientos.entradaId, previa.id), isNull(movimientos.eliminadoEn)))
+      .get();
+    if (sigue) return registrados;
+  }
+  return undefined;
+}
+
+/** "Gasté 120 en tacos" igual que hace un momento: se pregunta sin llamar al modelo. */
+function dictadoRepetido(ctx: Contexto, entrada: Entrada): string | undefined {
+  // Cada pago de Apple Pay es un cobro real, aunque se repita.
+  if (entrada.origen !== "voz") return undefined;
+  const texto = entrada.texto;
+  if (montosDelTexto(texto).length === 0 || esPregunta(texto) || esOrdenSobreLoAnotado(texto)) return undefined;
+  const igual = normalizar(texto);
+  const registrados = anotadoHaceUnMomento(ctx, entrada, (previo) => normalizar(previo) === igual);
+  return registrados ? preguntarSiRepite(registrados, ctx.hoy) : undefined;
+}
+
+/** El modelo dice que ya lo había anotado sin usar herramientas: si es cierto, se pregunta si es otro. */
+function yaLoTenia(ctx: Contexto, entrada: Entrada, respuesta: string): string | undefined {
+  if (!YA_LO_TENIA.test(normalizar(respuesta))) return undefined;
+  const montos = montosDelTexto(entrada.texto);
+  if (montos.length === 0) return undefined;
+  const registrados = anotadoHaceUnMomento(ctx, entrada, (previo) => montosDelTexto(previo).some((m) => montos.includes(m)));
+  return registrados ? preguntarSiRepite(registrados, ctx.hoy) : undefined;
+}
+
 async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta> {
   const { db } = deps;
   const usuarioId = entrada.usuarioId;
@@ -585,49 +645,62 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   };
   let texto: string;
   let mensajesRespuesta: ModelMessage[];
-  try {
-    let resultado = await generar();
-    texto = confirmacion ?? resultado.text;
-    // Un "Listo" sin haber llamado a ninguna herramienta es una confirmación falsa: se reintenta una vez.
-    if (respuestaSinSustento(entrada.texto, texto, acciones)) {
-      resultado = await generar(AVISO_SIN_HERRAMIENTAS);
+  const repetido = dictadoRepetido(ctx, entrada);
+  if (repetido) {
+    texto = repetido;
+    mensajesRespuesta = [{ role: "assistant", content: repetido }];
+  } else {
+    try {
+      let resultado = await generar();
       texto = confirmacion ?? resultado.text;
-    }
-    mensajesRespuesta = resultado.response.messages;
-    if (confirmacion) mensajesRespuesta = [...mensajesRespuesta, { role: "assistant", content: confirmacion }];
-    // "El súper de hoy fue con la Nu" sin herramientas (o tras solo buscarlo): el modelo suele preguntar
-    // el monto o "¿te refieres al de 230?"; se corrige aquí.
-    const nadaCambio = () => acciones.every((a) => SOLO_CONSULTA.has(a.herramienta));
-    if (nadaCambio()) {
-      const corregido = await corregirCuenta(ctx, entrada.texto, acciones);
-      if (corregido) {
-        texto = corregido;
-        mensajesRespuesta = [{ role: "assistant", content: corregido }];
+      // "Ya lo registré hace un momento" sin herramientas: si de verdad ya estaba, no se reintenta (el
+      // reintento lo anotaría dos veces) ni se dice que no se guardó nada.
+      const yaEstaba = acciones.length === 0 ? yaLoTenia(ctx, entrada, texto) : undefined;
+      // Un "Listo" sin haber llamado a ninguna herramienta es una confirmación falsa: se reintenta una vez.
+      if (!yaEstaba && respuestaSinSustento(entrada.texto, texto, acciones)) {
+        resultado = await generar(AVISO_SIN_HERRAMIENTAS);
+        texto = confirmacion ?? resultado.text;
       }
-    }
-    if (nadaCambio()) {
-      const deSiempre = await registrarDeSiempre(ctx, entrada.texto, texto, acciones);
-      if (deSiempre) {
-        texto = deSiempre;
-        mensajesRespuesta = [{ role: "assistant", content: deSiempre }];
+      mensajesRespuesta = resultado.response.messages;
+      if (confirmacion) mensajesRespuesta = [...mensajesRespuesta, { role: "assistant", content: confirmacion }];
+      if (yaEstaba) {
+        texto = yaEstaba;
+        mensajesRespuesta = [{ role: "assistant", content: yaEstaba }];
       }
-    }
-    // Un pago de Apple Pay siempre se anota: si el modelo no lo hizo, se anota con lo que dio la Cartera.
-    if (entrada.origen === "apple_pay" && nadaCambio()) {
-      const directo = await anotarPagoDirecto(ctx, entrada.texto, acciones);
-      if (directo) {
-        texto = directo;
-        mensajesRespuesta = [{ role: "assistant", content: directo }];
+      // "El súper de hoy fue con la Nu" sin herramientas (o tras solo buscarlo): el modelo suele preguntar
+      // el monto o "¿te refieres al de 230?"; se corrige aquí.
+      const nadaCambio = () => acciones.every((a) => SOLO_CONSULTA.has(a.herramienta));
+      if (nadaCambio()) {
+        const corregido = await corregirCuenta(ctx, entrada.texto, acciones);
+        if (corregido) {
+          texto = corregido;
+          mensajesRespuesta = [{ role: "assistant", content: corregido }];
+        }
       }
+      if (nadaCambio()) {
+        const deSiempre = await registrarDeSiempre(ctx, entrada.texto, texto, acciones);
+        if (deSiempre) {
+          texto = deSiempre;
+          mensajesRespuesta = [{ role: "assistant", content: deSiempre }];
+        }
+      }
+      // Un pago de Apple Pay siempre se anota: si el modelo no lo hizo, se anota con lo que dio la Cartera.
+      if (entrada.origen === "apple_pay" && nadaCambio()) {
+        const directo = await anotarPagoDirecto(ctx, entrada.texto, acciones);
+        if (directo) {
+          texto = directo;
+          mensajesRespuesta = [{ role: "assistant", content: directo }];
+        }
+      }
+      if (nadaCambio() && PIDE_ALGO.test(normalizar(entrada.texto)) && diceQueHizo(texto)) {
+        texto = RESPUESTA_NO_GUARDADA;
+        mensajesRespuesta = [{ role: "assistant", content: texto }];
+      }
+    } catch (error) {
+      revertirEntrada(ctx, entrada.id);
+      db.update(entradas).set({ estado: "error" }).where(eq(entradas.id, entrada.id)).run();
+      throw new ErrorIA(error instanceof Error ? error.message : String(error));
     }
-    if (nadaCambio() && PIDE_ALGO.test(normalizar(entrada.texto)) && diceQueHizo(texto)) {
-      texto = RESPUESTA_NO_GUARDADA;
-      mensajesRespuesta = [{ role: "assistant", content: texto }];
-    }
-  } catch (error) {
-    revertirEntrada(ctx, entrada.id);
-    db.update(entradas).set({ estado: "error" }).where(eq(entradas.id, entrada.id)).run();
-    throw new ErrorIA(error instanceof Error ? error.message : String(error));
   }
 
   // Si hizo algo y no espera respuesta, aprovecha para dar un dato que importa: que cruzó el 80% o el

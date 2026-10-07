@@ -4,7 +4,7 @@ import { esPregunta, normalizar } from "../lib/texto";
 import { ESCRITURAS_PLANES } from "./herramientas-planes";
 
 /** Lo que la herramienta regresó de un movimiento (ver `describir`). */
-type Movimiento = {
+export type Movimiento = {
   fecha: string;
   tipo: string;
   monto: string;
@@ -70,6 +70,15 @@ function enumerar(partes: string[]): string {
 }
 
 const esError = (resultado: unknown) => !!resultado && typeof resultado === "object" && "error" in resultado;
+
+/**
+ * El mismo registro dictado otra vez a los pocos minutos: "Ya anoté tacos de $120 en Antojos hace un momento.
+ * ¿Es otra compra?". Si dice que sí, el modelo lo anota con el historial a la vista.
+ */
+export function preguntarSiRepite(registrados: Movimiento[], hoy: string): string {
+  const otra = registrados.every((m) => m.tipo === "gasto") ? "¿Es otra compra?" : "¿Lo anoto otra vez?";
+  return `Ya anoté ${enumerar(registrados.map((m) => describirMovimiento(m, hoy)))} hace un momento. ${otra}`;
+}
 
 /** "Listo, café de $85 en Café." Si no dijo el monto y se usó el de siempre, lo dice para que lo corrija. */
 export function confirmarRegistro(registrados: Movimiento[], hoy: string): string {
