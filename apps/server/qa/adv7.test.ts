@@ -39,10 +39,13 @@ describe("PR #7 adversarial", () => {
     await hablar({ texto: "gasté 100", client_id: "adv-0000001" });
     await hablar({ texto: "gasté 200", client_id: "adv-0000002" });
     const r = await hablar({ texto: "deshaz eso y ya", client_id: "adv-0000003" });
-    expect(r.status).toBe(202);
-    await dormir(120); // falla en segundo plano y queda esperando reintento
+    // Desde el PR #11 una orden espera como pregunta: si la IA falla dentro de la espera, 503 y el iPhone lo guarda.
+    expect([202, 503]).toContain(r.status);
+    await dormir(120); // falla y queda esperando reintento (en la Mac y/o en la cola del iPhone)
     await hablar({ texto: "gasté 300", client_id: "adv-0000004" }); // sale bien y adelanta el reintento
     await dormir(200);
+    if (r.status === 503) await hablar({ texto: "deshaz eso y ya", client_id: "adv-0000003" }); // el iPhone lo reenvía
+    await dormir(100);
     const lista = await pedir("/v1/movimientos?periodo=todo");
     // Quien dijo "deshaz eso" quería quitar el de 200, no el de 300.
     const montos = lista.cuerpo.movimientos.map((m: Resp) => String(m.monto).replace(/\D/g, ""));
@@ -65,12 +68,15 @@ describe("PR #7 adversarial", () => {
     }, { reintentosMs: [60_000], espera: { registroMs: 20, preguntaMs: 1000 } });
     await hablar({ texto: "gasté 100", client_id: "adb-0000001" });
     await hablar({ texto: "gasté 200", client_id: "adb-0000002" });
-    expect((await hablar({ texto: "borra el último porfa", client_id: "adb-0000003" })).status).toBe(202);
+    const rb = await hablar({ texto: "borra el último porfa", client_id: "adb-0000003" });
+    expect([202, 503]).toContain(rb.status);
     await dormir(120);
     await dormir(5);
     await pedir("/v1/movimientos", { method: "POST", body: JSON.stringify({ tipo: "gasto", monto: 400 }) });
     await hablar({ texto: "gasté 300", client_id: "adb-0000004" });
     await dormir(200);
+    if (rb.status === 503) await hablar({ texto: "borra el último porfa", client_id: "adb-0000003" }); // el iPhone lo reenvía
+    await dormir(100);
     const montos = (await pedir("/v1/movimientos?periodo=todo")).cuerpo.movimientos.map((m: Resp) => String(m.monto).replace(/\D/g, ""));
     console.log("quedan (borra):", montos);
     expect(montos.sort()).toEqual(["100", "300", "400"]);

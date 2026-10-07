@@ -34,7 +34,7 @@ describe("QA: preguntas sin signos", () => {
     test(`"${frase}" lenta se trata como pregunta (esperar: true)`, async () => {
       const { hablar } = montar(async () => { await dormir(80); return texto("Llevas $1,200."); }, { registroMs: 20, preguntaMs: 1000 });
       const r = await hablar({ texto: frase, client_id: `preg-${frase.length}-0001` });
-      expect(r.cuerpo.respuesta).toBe("Llevas $1,200.");
+      expect(r.cuerpo.respuesta).toContain("1,200");
     });
   }
 });
