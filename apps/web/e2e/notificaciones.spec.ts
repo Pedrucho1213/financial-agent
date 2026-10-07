@@ -75,7 +75,7 @@ test.describe("Notificaciones en Ajustes", () => {
     const interruptor = page.getByRole("switch", { name: "Notificaciones" });
     await interruptor.click();
     await page.clock.fastForward(15_000);
-    await expect(page.getByText("No se pudieron activar, inténtalo de nuevo.")).toBeVisible();
+    await expect(page.getByText("No se pudieron activar las notificaciones. Inténtalo de nuevo.")).toBeVisible();
     await expect(interruptor).not.toBeChecked();
     await expect(interruptor).toBeEnabled();
     expect(api.de("POST", "/v1/push/suscripcion")).toHaveLength(0);
