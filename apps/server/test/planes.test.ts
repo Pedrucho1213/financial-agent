@@ -476,6 +476,10 @@ describe("casos de la revisión de código", () => {
     expect((await llamar(dictado(ctx, "guardé 500 al carro nuevo"), "registrar_movimientos", gastoDe(500))).error).toMatch(/meta/);
     expect((await llamar(dictado(ctx, "le devolví los 300 a Luz"), "registrar_movimientos", gastoDe(300))).error).toMatch(/prestamo/);
     expect((await llamar(dictado(ctx, "saqué una tele de 9 mil a 12 meses"), "registrar_movimientos", gastoDe(9000))).error).toMatch(/compra_msi/);
+    for (const frase of ["Luz me pagó 200 de la deuda", "Luz me pagó 200 del préstamo"]) {
+      expect((await llamar(dictado(ctx, frase), "registrar_movimientos", { movimientos: [{ tipo: "ingreso", monto: 200 }] })).error).toMatch(/prestamo/);
+    }
+    expect((await llamar(dictado(ctx, "me prestaron una bici y gasté 300"), "registrar_movimientos", gastoDe(300))).registrados).toHaveLength(1);
     expect((await llamar(dictado(ctx, "Luz me pagó 200 de lo que le debía"), "registrar_movimientos", { movimientos: [{ tipo: "ingreso", monto: 200 }] })).error).toMatch(/prestamo/);
     // La mensualidad de una compra a meses ya se anota sola: anotarla a mano la contaría dos veces.
     expect((await llamar(dictado(ctx, "pagué la mensualidad de la pantalla, mil pesos"), "registrar_movimientos", gastoDe(1000))).error).toMatch(/ya se anotan solas el día del cargo; la próxima es el 2026-11-07/);

@@ -241,9 +241,9 @@ const primeras = (nombres: string[]) =>
   nombres.map((n) => normalizar(n).split(" ")[0] ?? "").filter((p) => p.length > 2).map(escapar);
 
 // Un monto dicho: "500", "2 mil", "mil", "quinientos".
-const MONTO = "(\\d|un |una |dos |tres |cuatro |cinco |seis |siete |ocho |nueve |diez |veinte |cien|mil\\b|doscientos|trescientos|quinientos)";
+const MONTO = "(\\d|dos |tres |cuatro |cinco |seis |siete |ocho |nueve |diez |veinte |cien|mil\\b|doscientos|trescientos|quinientos)";
 // Para qué fue el dinero ("del corte", "por la comida"): un pago así es un gasto, no un abono. "De los 500" sí habla del préstamo.
-const PARA_QUE = /\b(por|del|de la|de los|de las|de un|de una) (?!\d|lo que|la deuda|el prestamo|lo que)\S/;
+const PARA_QUE = /\b(por|del|de la|de los|de las|de un|de una) (?!\d|lo que|deuda|prestamo|lana|dinero)\S/;
 
 /**
  * Prestar o pedir prestado dinero, con el monto junto al verbo: "le presté 500 a Juan", "me prestaron
