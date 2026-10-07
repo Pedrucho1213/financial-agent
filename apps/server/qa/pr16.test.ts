@@ -109,3 +109,26 @@ describe("PR #16 (278f586): chat de la PWA, que conserva la conversación", () =
     expect(montos(ctx)).toHaveLength(2);
   });
 });
+
+describe("PR #16 (724799d): SENALA_UNO acepta plurales ('los dos cafés', 'ambos')", () => {
+  const casos: [string, string][] = [
+    ["Borra lo de los tacos", "Tacos"],
+    ["Borra la compra de las tortillas", "Tortillas"],
+    ["Borra el café de las tres", "Café"],
+    ["Quita el Uber de los martes", "Uber"],
+  ];
+  for (const [frase, cosa] of casos) {
+    test(`"${frase}" con dos que coinciden pregunta cuál`, async () => {
+      const { ctx, hablar } = montar([
+        llamada("eliminar_movimiento", { buscar: { texto: cosa, mas_reciente: true } }),
+        texto("¿Cuál, el de 60 o el de 85?"),
+        texto("¿Cuál, el de 60 o el de 85?"),
+      ]);
+      crearMovimiento(ctx, { tipo: "gasto", monto: 85, comercio: cosa, descripcion: cosa, fecha: "ayer" });
+      crearMovimiento(ctx, { tipo: "gasto", monto: 60, comercio: cosa, descripcion: cosa });
+      const r = await hablar(frase);
+      console.log(`  ${frase} → ${r.respuesta} | quedan ${montos(ctx)}`);
+      expect(montos(ctx)).toHaveLength(2);
+    });
+  }
+});
