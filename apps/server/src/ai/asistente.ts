@@ -386,6 +386,9 @@ function loQuePago(acciones: Accion[]): string[] {
   });
 }
 
+// Herramientas que solo leen: si el modelo solo usó estas, no cambió nada.
+const SOLO_CONSULTA = new Set(["buscar_movimientos", "consultar_gastos", "listar_recurrentes"]);
+
 // La respuesta pide elegir entre varios: "¿Cuál café?", "¿El de Oxxo o el de Starbucks?".
 const PIDE_ELEGIR = /\b(cual|cuales)\b|\bo (el|la|los|las) de\b/;
 
@@ -482,22 +485,24 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
     }
     mensajesRespuesta = resultado.response.messages;
     if (confirmacion) mensajesRespuesta = [...mensajesRespuesta, { role: "assistant", content: confirmacion }];
-    // "El súper de hoy fue con la Nu" sin herramientas: el modelo suele preguntar el monto; se corrige aquí.
-    if (acciones.length === 0) {
+    // "El súper de hoy fue con la Nu" sin herramientas (o tras solo buscarlo): el modelo suele preguntar
+    // el monto o "¿te refieres al de 230?"; se corrige aquí.
+    const nadaCambio = () => acciones.every((a) => SOLO_CONSULTA.has(a.herramienta));
+    if (nadaCambio()) {
       const corregido = await corregirCuenta(ctx, entrada.texto, acciones);
       if (corregido) {
         texto = corregido;
         mensajesRespuesta = [{ role: "assistant", content: corregido }];
       }
     }
-    if (acciones.length === 0) {
+    if (nadaCambio()) {
       const deSiempre = await registrarDeSiempre(ctx, entrada.texto, texto, acciones);
       if (deSiempre) {
         texto = deSiempre;
         mensajesRespuesta = [{ role: "assistant", content: deSiempre }];
       }
     }
-    if (acciones.length === 0 && PIDE_ALGO.test(normalizar(entrada.texto)) && diceQueHizo(texto)) {
+    if (nadaCambio() && PIDE_ALGO.test(normalizar(entrada.texto)) && diceQueHizo(texto)) {
       texto = RESPUESTA_NO_GUARDADA;
       mensajesRespuesta = [{ role: "assistant", content: texto }];
     }

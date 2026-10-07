@@ -64,11 +64,21 @@ const tipoRecurrente = z.preprocess((valor) => {
   return [t, t.replace(/es$/, ""), t.replace(/s$/, "")].find((x) => tipos.includes(x)) ?? t;
 }, z.enum(TIPOS_RECURRENTE));
 
-// La frase señala cuál: "el último", "ese", "bórralo", "el de ahorita"; o pide varios: "borra los dos
-// cafés", "ambos", "bórralos" (el modelo los toma uno por uno, del más reciente al más antiguo). Un plural
-// más adelante no cuenta: "el café de las tres" es una hora y "lo de los tacos" es uno.
-const SENALA_UNO =
-  /\b(ultim[oa]s?|reciente|nuevo|nueva|ahorita|hace rato|ese|esa|eso|este|esta|esto|acabo|(borra|elimina|quita|cancela|cambia|corrige|pasa)(lo|la|los|las|melo|mela|melos|melas)|ambos|ambas|todos|todas)\b|\b(borra|elimina|quita|cambia|corrige|cancela|pasa)r?(me)? (los|las) /;
+// Verbos con que se pide borrar o cambiar algo ya anotado: "borra", "bórrame", "quitar".
+const VERBO = String.raw`(borra|elimina|quita|cancela|cambia|corrige|pasa)r?(me)?`;
+
+// La frase señala cuál: "el último", "ese", "bórralo", "el de ahorita"; o dice cuántos: "borra los dos
+// cafés" (el modelo los toma uno por uno, del más reciente al más antiguo). Un plural más adelante no
+// cuenta: "el café de las tres" es una hora y "lo de los tacos" es uno.
+const SENALA_UNO = new RegExp(
+  String.raw`\b(ultim[oa]s?|reciente|nuevo|nueva|ahorita|hace rato|ese|esa|eso|este|esta|esto|acabo|${VERBO}(lo|la|melo|mela))\b|\b${VERBO} (los|las) (ultim[oa]s )?(dos|tres|cuatro|cinco|2|3|4|5)\b`,
+);
+
+// Pide varios sin decir cuántos: "borra los tacos", "bórralos", "todos", "ambos". Con mas_reciente el
+// modelo borraría solo uno; sin él, el error le da el id de cada uno.
+const PIDE_VARIOS = new RegExp(
+  String.raw`\b(ambos|ambas|todos|todas|${VERBO}(los|las|melos|melas))\b|\b${VERBO} (los|las) (?!(ultim[oa]s )?(dos|tres|cuatro|cinco|2|3|4|5)\b)`,
+);
 
 // Algo que se repite: "cada día 15", "cada mes", "mensual", "cada quincena".
 const SE_REPITE = /\b(cada|al mes|por mes|a la semana|por semana|al ano|mensual|mensualmente|semanal|quincenal|anual|diario)\b/;
@@ -91,10 +101,13 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
 
   // "Borra el café" con varios cafés: el modelo a veces manda mas_reciente aunque la frase no diga cuál.
   // Si nombra algo ("el café") sin señalar uno ("el último", "ese", "bórralo") y coinciden varios, que
-  // pregunte. "Fueron 70" a secas, sin nombrar nada, sí es lo último que anotó.
+  // pregunte; si pidió varios ("borra los tacos"), que use el id de cada uno. "Fueron 70" a secas, sin
+  // nombrar nada, sí es lo último que anotó.
+  const pideVarios = !!ctx.textoOriginal && PIDE_VARIOS.test(normalizar(ctx.textoOriginal));
   const comoLoDijo = <B extends { texto?: string; categoria?: string; mas_reciente?: boolean }>(buscar?: B): B | undefined => {
     const nombraAlgo = !!(buscar?.texto || buscar?.categoria);
-    const senala = ctx.confiarEnMasReciente || !ctx.textoOriginal || SENALA_UNO.test(normalizar(ctx.textoOriginal));
+    const senala =
+      !pideVarios && (ctx.confiarEnMasReciente || !ctx.textoOriginal || SENALA_UNO.test(normalizar(ctx.textoOriginal)));
     return buscar?.mas_reciente && nombraAlgo && !senala ? { ...buscar, mas_reciente: false } : buscar;
   };
 
@@ -199,7 +212,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         // Un "" del modelo no borra nada: para la IA, vacío es lo mismo que no mandarlo.
         editado: editarMovimiento(
           ctx,
-          idDelMovimiento(ctx, id, comoLoDijo(buscar)),
+          idDelMovimiento(ctx, id, comoLoDijo(buscar), pideVarios),
           Object.fromEntries(Object.entries(cambios).filter(([, v]) => v !== "")),
         ),
       })),
@@ -212,7 +225,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         buscar: busqueda.optional(),
       }),
       execute: ejecutar("eliminar_movimiento", ({ id, buscar }) => ({
-        eliminado: eliminarMovimiento(ctx, idDelMovimiento(ctx, id, comoLoDijo(buscar))),
+        eliminado: eliminarMovimiento(ctx, idDelMovimiento(ctx, id, comoLoDijo(buscar), pideVarios)),
       })),
     }),
 

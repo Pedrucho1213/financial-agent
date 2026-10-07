@@ -384,3 +384,57 @@ describe("segunda revisión del PR", () => {
     expect(todos(ctx)).toHaveLength(2);
   });
 });
+
+describe("tercera vuelta con la IA real", () => {
+  const ids = (error: string) => [...error.matchAll(/\(id ([^)]+)\)/g)].map((m) => m[1]!);
+
+  test("\"borra los tacos\" con dos tacos no borra solo uno: pide ir uno por uno con su id", async () => {
+    const { ctx } = preparar();
+    crearMovimiento(ctx, { tipo: "gasto", monto: 120, descripcion: "Tacos", categoria: "Restaurantes", fecha: "ayer" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 95, descripcion: "Tacos", categoria: "Restaurantes" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 300, categoria: "Súper" });
+    const c = dictado(ctx, "Borra los tacos");
+    const r = await llamar(c, "eliminar_movimiento", { buscar: { texto: "tacos", mas_reciente: true } });
+    expect(r.error).toContain("Coinciden 2");
+    expect(r.error).toContain("uno por uno");
+    expect(r.error).not.toContain("Pregunta cuál");
+    for (const id of ids(r.error)) expect((await llamar(c, "eliminar_movimiento", { id })).eliminado).toBeDefined();
+    expect(todos(ctx).map((m) => m.monto)).toEqual(["$300"]);
+  });
+
+  test("\"bórralos\", \"todos\" y \"ambos\" también son varios; con muchos pregunta", async () => {
+    const { ctx } = preparar();
+    crearMovimiento(ctx, { tipo: "gasto", monto: 45, categoria: "Café", fecha: "ayer" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 60, categoria: "Café" });
+    for (const frase of ["Bórralos", "Borra todos los cafés", "Ambos", "Quítame las tortillas y los cafés"]) {
+      const r = await llamar(dictado(ctx, frase), "eliminar_movimiento", { buscar: { texto: "café", mas_reciente: true } });
+      expect(r.error).toContain("uno por uno");
+    }
+    crearMovimiento(ctx, { tipo: "gasto", monto: 30, categoria: "Café" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 35, categoria: "Café" });
+    const r = await llamar(dictado(ctx, "Borra los cafés"), "eliminar_movimiento", { buscar: { texto: "café" } });
+    expect(r.error).toContain("pregunta si son todos");
+    expect(todos(ctx)).toHaveLength(4);
+  });
+
+  test("decir cuántos o señalar uno sigue igual", async () => {
+    const { ctx } = preparar();
+    for (const monto of [45, 60, 30]) crearMovimiento(ctx, { tipo: "gasto", monto, categoria: "Café" });
+    for (const frase of ["Borra los últimos dos cafés", "Bórralo", "Borra el último café"]) {
+      expect((await llamar(dictado(ctx, frase), "eliminar_movimiento", { buscar: { texto: "café", mas_reciente: true } })).eliminado).toBeDefined();
+    }
+    expect(todos(ctx)).toHaveLength(0);
+  });
+
+  test("\"el Uber de ayer lo pagué con la Nu\" se corrige aunque el modelo solo lo haya buscado", async () => {
+    const { ctx, hablar } = montar([
+      llamada("buscar_movimientos", { texto: "Uber", periodo: "ayer" }),
+      texto("¿Te refieres al Uber de 230 pesos de ayer?"),
+    ]);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 230, comercio: "Uber", categoria: "Transporte", fecha: "ayer" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 50, categoria: "Café", cuenta: "Nu" });
+    const r = await hablar("El Uber de ayer lo pagué con la Nu");
+    expect(r.respuesta).toStartWith("Listo");
+    expect(todos(ctx).find((m) => m.comercio === "Uber")?.cuenta).toBe("Nu");
+  });
+});
