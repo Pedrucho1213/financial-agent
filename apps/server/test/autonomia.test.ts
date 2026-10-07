@@ -208,6 +208,16 @@ describe("preguntas de más", () => {
     expect((await hablar("Gasté en el súper")).respuesta).toBe("¿De cuánto fue el gasto?");
   });
 
+  test("las preguntas con \"¿quieres que...?\" que piden decidir algo se quedan (QA-033)", async () => {
+    const preguntas = [
+      "Hay dos cafés de 85 pesos. ¿Quieres que borre el de las 9 o el de las 11?",
+      "¿Te gustaría registrarlo como pago de la Nu o de la BBVA?",
+      "Hoy tienes 4 gastos. ¿Deseas que los borre todos?",
+    ];
+    const { hablar } = montar(preguntas.map((p) => texto(p)));
+    for (const p of preguntas) expect((await hablar("Borra todo lo de hoy")).respuesta).toBe(p);
+  });
+
   test("'borra el café' con varios cafés pregunta cuál; 'el último' borra el más reciente", async () => {
     const borrar = (buscar: unknown) => llamada("eliminar_movimiento", { buscar });
     const { ctx, hablar } = montar([
@@ -221,5 +231,34 @@ describe("preguntas de más", () => {
     expect(todos(ctx)).toHaveLength(2);
     expect((await hablar("Borra el último café")).respuesta).toBe("Listo, borré café de 60 pesos.");
     expect(todos(ctx).map((m) => m.monto)).toEqual(["$85"]);
+  });
+
+  test("al contestar \"¿cuál?\", el modelo ya sabe cuál y no vuelve a preguntar (QA-034)", async () => {
+    const borrar = (buscar: unknown) => llamada("eliminar_movimiento", { buscar });
+    const { ctx, hablar } = montar([
+      borrar({ texto: "café", mas_reciente: true }),
+      texto("¿Cuál café, el de $60 o el de $85?"),
+      borrar({ texto: "café", mas_reciente: true }),
+      texto("Listo, borré el café de $60."),
+    ]);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café", fecha: "ayer" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 60, categoria: "Café" });
+    const pregunta = await hablar("Borra el café");
+    await hablar("El segundo", pregunta.conversacion_id);
+    expect(todos(ctx).map((m) => m.monto)).toEqual(["$85"]);
+  });
+
+  test("al editar, \"el café\" con varios pregunta cuál; \"fueron 70\" a secas es lo último (QA-035)", async () => {
+    const editar = (buscar: unknown, monto: number) => llamada("editar_movimiento", { buscar, cambios: { monto } });
+    const { ctx, hablar } = montar([
+      editar({ texto: "café", mas_reciente: true }, 95),
+      texto("¿Cuál café, el de $60 o el de $85?"),
+      editar({ mas_reciente: true }, 70),
+    ]);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café", fecha: "ayer" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 60, categoria: "Café" });
+    expect((await hablar("Cambia el café a 95")).respuesta).toBe("¿Cuál café, el de 60 pesos o el de 85 pesos?");
+    expect((await hablar("No, fueron 70")).respuesta).toBe("Listo, quedó café de 70 pesos.");
+    expect(todos(ctx).map((m) => m.monto)).toEqual(["$70", "$85"]);
   });
 });

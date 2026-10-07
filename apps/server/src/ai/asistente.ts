@@ -111,8 +111,9 @@ function respuestaPorOmision(acciones: Accion[]): string {
 
 // Preguntas que solo ofrecen más ayuda ("¿En qué puedo ayudarte?", "¿Algo más?"): dejarían el micrófono
 // abierto sin necesidad, y las instrucciones ya piden no hacerlas.
+// "¿Quieres que borre el de las 9 o el de las 11?" sí pide una respuesta: "quieres que" solo es cortesía si ofrece ayuda.
 const OFRECE_AYUDA =
-  /^¿\s*(y\s+)?(en qu[eé] (m[aá]s )?(te |le )?puedo (ayudar|apoyar|servir)|(hay |necesitas |quieres |se te ofrece )?algo m[aá]s|qu[eé] m[aá]s|(te |le )?puedo ayudar|quieres que|te gustar[ií]a|deseas|necesitas ayuda)/i;
+  /^¿\s*(y\s+)?(en qu[eé] (m[aá]s )?(te |le )?(puedo |podr[ií]a )?(ayud|apoy|serv)|(hay |necesitas |quieres |deseas |se te ofrece )?algo m[aá]s|qu[eé] m[aá]s|((te|le) )?(puedo|podr[ií]a) (ayudar|apoyar)|(quieres|te gustar[ií]a|deseas|necesitas)\b[^?]*\b(ayud\w*|algo m[aá]s))/i;
 // "¿De cuánto fue y con qué pagaste?": decir con qué pagó es opcional y nunca se pregunta.
 const Y_CON_QUE_PAGO = /,?\s+y\s+con\s+qu[eé]\s+(lo\s+|la\s+)?(pagaste|pag[oó]|tarjeta|cuenta|m[eé]todo)[^?]*(?=\?)/i;
 const CON_QUE_PAGO = /^¿\s*(y\s+)?con\s+qu[eé]\s+(lo\s+|la\s+)?(pagaste|pag[oó]|tarjeta|cuenta|m[eé]todo)[^?]*\?$/i;
@@ -358,7 +359,8 @@ async function corregirCuenta(ctx: Contexto, texto: string, acciones: Accion[]):
     .flatMap((c) => [c.nombre, ...c.alias]);
   const correccion = correccionDeCuenta(texto, conocidas);
   if (!correccion) return undefined;
-  const editar = crearHerramientas(ctx, acciones).editar_movimiento;
+  // Sin día, "el súper" es a propósito el más reciente de la semana (ver `correccionDeCuenta`).
+  const editar = crearHerramientas({ ...ctx, confiarEnMasReciente: true }, acciones).editar_movimiento;
   const resultado = await editar.execute!(
     { buscar: correccion.buscar, cambios: { cuenta: correccion.cuenta } },
     { toolCallId: "respaldo-cuenta", messages: [], context: {} },
@@ -414,6 +416,9 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   const acciones: Accion[] = [];
   const mensajeUsuario: ModelMessage = { role: "user", content: entrada.texto };
   const historial = cargarHistorial(db, usuarioId, conversacionId);
+  // El Atajo solo sigue la conversación si la respuesta anterior preguntaba algo ("¿cuál café?"): lo que
+  // se dice ahora la contesta, y el modelo ya sabe de cuál se habla.
+  ctx.confiarEnMasReciente = historial.length > 0;
   // Si un paso solo guardó, corrigió o borró, la confirmación se arma aquí y el modelo no da otra vuelta.
   let confirmacion: string | undefined;
   const generar = (aviso = "") => {

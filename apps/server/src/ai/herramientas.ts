@@ -64,8 +64,9 @@ const tipoRecurrente = z.preprocess((valor) => {
   return [t, t.replace(/es$/, ""), t.replace(/s$/, "")].find((x) => tipos.includes(x)) ?? t;
 }, z.enum(TIPOS_RECURRENTE));
 
-// La frase señala un movimiento en particular: "el último", "ese", "bórralo", "el que acabo de anotar".
-const SENALA_UNO = /\b(ultim[oa]s?|reciente|ese|esa|eso|este|esta|esto|acabo|(borra|elimina|quita|cancela)(lo|la|melo|mela))\b/;
+// La frase señala un movimiento en particular: "el último", "ese", "bórralo", "el de ahorita".
+const SENALA_UNO =
+  /\b(ultim[oa]s?|reciente|nuevo|nueva|ahorita|hace rato|ese|esa|eso|este|esta|esto|acabo|(borra|elimina|quita|cancela|cambia|corrige|pasa)(lo|la|melo|mela))\b/;
 
 /** Las herramientas que la IA puede usar. Cada una solo toca datos del usuario del contexto. */
 export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
@@ -82,6 +83,15 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         throw error;
       }
     };
+
+  // "Borra el café" con varios cafés: el modelo a veces manda mas_reciente aunque la frase no diga cuál.
+  // Si nombra algo ("el café") sin señalar uno ("el último", "ese", "bórralo") y coinciden varios, que
+  // pregunte. "Fueron 70" a secas, sin nombrar nada, sí es lo último que anotó.
+  const comoLoDijo = <B extends { texto?: string; categoria?: string; mas_reciente?: boolean }>(buscar?: B): B | undefined => {
+    const nombraAlgo = !!(buscar?.texto || buscar?.categoria);
+    const senala = ctx.confiarEnMasReciente || !ctx.textoOriginal || SENALA_UNO.test(normalizar(ctx.textoOriginal));
+    return buscar?.mas_reciente && nombraAlgo && !senala ? { ...buscar, mas_reciente: false } : buscar;
+  };
 
   // "Spotify me cobra 10 dólares": la moneda de la frase manda si el modelo no dijo otra.
   const monedaDicha = (moneda?: string) => {
@@ -181,7 +191,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         // Un "" del modelo no borra nada: para la IA, vacío es lo mismo que no mandarlo.
         editado: editarMovimiento(
           ctx,
-          idDelMovimiento(ctx, id, buscar),
+          idDelMovimiento(ctx, id, comoLoDijo(buscar)),
           Object.fromEntries(Object.entries(cambios).filter(([, v]) => v !== "")),
         ),
       })),
@@ -193,12 +203,9 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         id: z.string().optional().describe("id, si ya lo tienes"),
         buscar: busqueda.optional(),
       }),
-      execute: ejecutar("eliminar_movimiento", ({ id, buscar }) => {
-        // "Borra el café" con varios cafés: el modelo a veces manda mas_reciente aunque la frase no diga
-        // cuál ("el último", "ese", "bórralo"). Si coinciden varios, mejor que pregunte.
-        const sinDecirCual = buscar?.mas_reciente && ctx.textoOriginal && !SENALA_UNO.test(normalizar(ctx.textoOriginal));
-        return { eliminado: eliminarMovimiento(ctx, idDelMovimiento(ctx, id, sinDecirCual ? { ...buscar, mas_reciente: false } : buscar)) };
-      }),
+      execute: ejecutar("eliminar_movimiento", ({ id, buscar }) => ({
+        eliminado: eliminarMovimiento(ctx, idDelMovimiento(ctx, id, comoLoDijo(buscar))),
+      })),
     }),
 
     deshacer: tool({
