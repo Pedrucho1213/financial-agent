@@ -409,17 +409,25 @@ describe("Apple Pay", () => {
     expect(db.select().from(movimientos).all()).toHaveLength(1);
   });
 
-  test("DISEÑO: dos compras idénticas separadas por >3 min se anotan las dos; otra tarjeta u otro monto no se bloquea", async () => {
+  test("DISEÑO (23c535b): se compara la hora del pago (capturado_en, 90 s), no la de llegada", async () => {
     const reg = registrador((d) => Number(d.match(/Pagué (\d+)/)?.[1] ?? 0));
     const { pedir, db } = montar(async (o: any) => (await Bun.sleep(5), reg(o)));
-    await pedir("/v1/hablar", "POST", { ...PAGO, client_id: "applepay-cafe-0000001" });
+    const t = Date.parse("2026-10-07T15:00:00.000Z");
+    const en = (ms: number) => new Date(t + ms).toISOString();
+    await pedir("/v1/hablar", "POST", { ...PAGO, client_id: "applepay-cafe-0000001", capturado_en: en(0) });
     await hasta(() => db.select().from(movimientos).all().length === 1);
-    (db.$client as any).run(`update entradas set creado_en = strftime('%Y-%m-%dT%H:%M:%fZ','now','-4 minutes')`);
-    const r = await pedir("/v1/hablar", "POST", { ...PAGO, client_id: "applepay-cafe-0000002" });
-    expect(r.cuerpo.duplicado).toBeUndefined();
-    await pedir("/v1/hablar", "POST", { ...PAGO, tarjeta: "BBVA", client_id: "applepay-cafe-0000003" });
-    await pedir("/v1/hablar", "POST", { ...PAGO, monto: "$86.00", client_id: "applepay-cafe-0000004" });
-    await hasta(() => db.select().from(movimientos).all().length === 4);
+    // La Cartera corre dos veces el mismo pago, segundos aparte: uno solo.
+    expect((await pedir("/v1/hablar", "POST", { ...PAGO, client_id: "applepay-cafe-0000002", capturado_en: en(60_000) })).cuerpo.duplicado).toBe(true);
+    // Mismo café 4 min después, o en la tarde reenviado por la cola junto con el de la mañana: son pagos distintos.
+    expect((await pedir("/v1/hablar", "POST", { ...PAGO, client_id: "applepay-cafe-0000003", capturado_en: en(4 * 60_000) })).cuerpo.duplicado).toBeUndefined();
+    expect((await pedir("/v1/hablar", "POST", { ...PAGO, client_id: "applepay-cafe-0000004", capturado_en: en(6 * 3600_000) })).cuerpo.duplicado).toBeUndefined();
+    // Pago que llegó antes con la hora de un pago anterior (cola fuera de orden) también se compara por hora.
+    expect((await pedir("/v1/hablar", "POST", { ...PAGO, client_id: "applepay-cafe-0000005", capturado_en: en(-30_000) })).cuerpo.duplicado).toBe(true);
+    await pedir("/v1/hablar", "POST", { ...PAGO, tarjeta: "BBVA", client_id: "applepay-cafe-0000006", capturado_en: en(0) });
+    await pedir("/v1/hablar", "POST", { ...PAGO, monto: "$86.00", client_id: "applepay-cafe-0000007", capturado_en: en(0) });
+    await hasta(() => db.select().from(movimientos).all().length === 5);
+    await Bun.sleep(50);
+    expect(db.select().from(movimientos).all()).toHaveLength(5);
   });
 
   test("DISEÑO (tradeoff): el mismo café comprado dos veces con la misma tarjeta en <3 min solo se anota una vez", async () => {
@@ -626,7 +634,7 @@ describe("Atajo y PWA", () => {
       const ua = "Shortcuts/2210.0.1 CFNetwork/1568.100.1 Darwin/24.0.0";
       const r = await pedir("/v1/hablar", "POST", { texto: "gasté 85 en Starbucks", client_id: "reloj-ua-0001" }, undefined, { "user-agent": ua });
       expect(r.cuerpo.respuesta).toBe(RESPUESTA_RAPIDA);
-      expect(lineas).toContain(`Atajo desde: ${ua}`);
+      expect(lineas).toContain(`Atajo desde un User-Agent nuevo: ${ua}`);
       const reloj = await pedir("/v1/hablar", "POST", { texto: "gasté 40 en Starbucks", client_id: "reloj-ua-0002" }, undefined, {
         "user-agent": "Shortcuts/2210 CFNetwork Darwin/24.0.0 Watch7,1",
       });

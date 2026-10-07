@@ -1,10 +1,10 @@
 // QA PR #23: sondas del lado servidor (detalle por id, /v1/estado, CSP del mapa, cuenta).
-// Convención: "reproduce:" = la prueba PASA mientras el hallazgo exista. Lo demás = comportamiento correcto.
+// Re-prueba tras 62a4d60/9bcad2d: las antiguas "reproduce:" (QA-064, QA-065, código sin el actual) ahora afirman el comportamiento corregido.
 import { describe, expect, test } from "bun:test";
 import { MockLanguageModelV4 } from "ai/test";
 import { crearApp, type OpcionesApp } from "../src/app";
 import { crearDispositivo, crearUsuario } from "../src/auth";
-import { estadoModelo } from "../src/ai/modelo";
+import { esOllama, estadoModelo } from "../src/ai/modelo";
 import { abrirBaseDatos } from "../src/db/client";
 import { sembrarCategorias } from "../src/finanzas/catalogos";
 
@@ -69,22 +69,41 @@ describe("GET /v1/estado", () => {
     expect((await pedir("/v1/estado")).estado).toBe(401);
   });
 
-  test("reproduce: cualquier cuenta (p. ej. un invitado) ve el modelo y el commit exacto desplegado", async () => {
+  test("QA-064: solo el dueño (primera cuenta) ve modelo, commit y arranque; un invitado no", async () => {
     const { pedir, cuenta } = montar({
       estadoIa: async () => ({ modelo: "gemma4:12b-it-qat", disponible: true, cargada: true }),
       version: { commit: "2958a9a", commitEn: "2026-10-07T03:52:00Z" },
     });
+    const dueno = cuenta("Pedro");
     const invitado = cuenta("Invitado");
     const r = await pedir("/v1/estado", { token: invitado.token });
     expect(r.estado).toBe(200);
-    expect(r.cuerpo.ia.modelo).toBe("gemma4:12b-it-qat");
-    expect(r.cuerpo.servidor.commit).toBe("2958a9a");
-    // No expone rutas, IPs ni llaves:
+    expect(r.cuerpo.servidor).toBeNull();
+    expect(r.cuerpo.ia).toEqual({ disponible: true, cargada: true });
     const texto = JSON.stringify(r.cuerpo);
-    expect(texto).not.toMatch(/\/Users\/|\/home\/|https?:\/\/|apiKey|Bearer|\d+\.\d+\.\d+\.\d+/);
+    expect(texto).not.toContain("gemma4");
+    expect(texto).not.toContain("2958a9a");
+    expect(texto).not.toContain("arrancadoEn");
+    const d = await pedir("/v1/estado", { token: dueno.token });
+    expect(d.cuerpo.ia.modelo).toBe("gemma4:12b-it-qat");
+    expect(d.cuerpo.servidor.commit).toBe("2958a9a");
+    expect(typeof d.cuerpo.servidor.arrancadoEn).toBe("string");
+    // Nada de rutas, IPs ni llaves, ni para el dueño:
+    expect(JSON.stringify(d.cuerpo)).not.toMatch(/\/Users\/|\/home\/|https?:\/\/|apiKey|Bearer|\d+\.\d+\.\d+\.\d+/);
   });
 
-  test("reproduce: cada GET /v1/estado consulta a la IA (sin caché); 25 peticiones = 25 consultas a Ollama/proveedor", async () => {
+  test("QA-064: el dueño sigue siendo la primera cuenta aunque la segunda se cree en el mismo milisegundo", async () => {
+    const { pedir, cuenta } = montar({
+      estadoIa: async () => ({ modelo: "m", disponible: true, cargada: true }),
+      version: { commit: "abc", commitEn: null as any },
+    });
+    const a = cuenta("Primero");
+    const b = cuenta("Segundo");
+    expect((await pedir("/v1/estado", { token: a.token })).cuerpo.servidor).not.toBeNull();
+    expect((await pedir("/v1/estado", { token: b.token })).cuerpo.servidor).toBeNull();
+  });
+
+  test("QA-064: 25 GET /v1/estado (dos cuentas) = 1 consulta a la IA; pasados 10 s vuelve a consultar", async () => {
     let llamadas = 0;
     const { pedir, cuenta } = montar({
       estadoIa: async () => {
@@ -92,11 +111,27 @@ describe("GET /v1/estado", () => {
         return { modelo: "m", disponible: true, cargada: false };
       },
     });
-    const { token } = cuenta("Pedro");
-    await Promise.all(Array.from({ length: 25 }, () => pedir("/v1/estado", { token })));
-    expect(llamadas).toBe(25);
+    const a = cuenta("Pedro");
+    const b = cuenta("Ana");
+    await Promise.all(Array.from({ length: 25 }, (_, i) => pedir("/v1/estado", { token: i % 2 ? a.token : b.token })));
+    expect(llamadas).toBe(1);
+    const ahora = Date.now;
+    try {
+      Date.now = () => ahora() + 10_500;
+      await pedir("/v1/estado", { token: a.token });
+      expect(llamadas).toBe(2);
+    } finally {
+      Date.now = ahora;
+    }
   });
 
+  test("QA-064: si la IA falla (rechaza) no se rompe /v1/estado", async () => {
+    const { pedir, cuenta } = montar({ estadoIa: async () => { throw new Error("caída"); } });
+    const { token } = cuenta("Pedro");
+    const r = await pedir("/v1/estado", { token });
+    expect(r.estado).toBe(200);
+    expect(r.cuerpo.ia).toEqual({ modelo: "", disponible: false, cargada: false });
+  });
 });
 
 describe("estadoModelo (Ollama)", () => {
@@ -116,7 +151,7 @@ describe("estadoModelo (Ollama)", () => {
     ollama.stop(true);
   });
 
-  test("reproduce: IA_URL con 127.0.0.1 y OLLAMA_URL por omisión (localhost) se trata como 'otro proveedor': cargada=disponible aunque no esté en memoria", async () => {
+  test("QA-065: IA_URL con 127.0.0.1 y OLLAMA_URL localhost es el mismo Ollama: lee /api/ps y /api/tags", async () => {
     const pedidas: string[] = [];
     const ollama = Bun.serve({
       port: 0,
@@ -135,9 +170,22 @@ describe("estadoModelo (Ollama)", () => {
       apiKey: "ollama",
     } as any;
     const e = await estadoModelo(ia);
-    expect(pedidas).toEqual(["/v1/models"]);
-    expect(e.cargada).toBe(true); // la app dirá "Lista" aunque el modelo no esté cargado
+    expect(pedidas.sort()).toEqual(["/api/ps", "/api/tags"]);
+    expect(e).toEqual({ modelo: "gemma4:12b-it-qat", disponible: true, cargada: false });
     ollama.stop(true);
+  });
+
+  test("QA-065: esOllama compara protocolo/host/puerto, no prefijos", () => {
+    const o = "http://localhost:11434";
+    expect(esOllama({ url: "http://127.0.0.1:11434/v1", ollamaUrl: o })).toBe(true);
+    expect(esOllama({ url: "http://localhost:11434/v1", ollamaUrl: "http://127.0.0.1:11434" })).toBe(true);
+    expect(esOllama({ url: "http://[::1]:11434/v1", ollamaUrl: o })).toBe(true);
+    expect(esOllama({ url: "http://LOCALHOST:11434/v1", ollamaUrl: o })).toBe(true);
+    expect(esOllama({ url: "https://localhost:11434/v1", ollamaUrl: o })).toBe(false);
+    expect(esOllama({ url: "http://localhost:11435/v1", ollamaUrl: o })).toBe(false);
+    expect(esOllama({ url: "http://localhost:11434@evil.com/v1", ollamaUrl: o })).toBe(false);
+    expect(esOllama({ url: "http://mac.tu-red.ts.net:11434/v1", ollamaUrl: "http://mac.tu-red.ts.net:11434" })).toBe(true);
+    expect(esOllama({ url: "", ollamaUrl: o })).toBe(false);
   });
 });
 
@@ -153,20 +201,36 @@ describe("CSP con el mapa", () => {
   });
 });
 
-describe("cuenta (solo si el servidor ya tiene PR #20)", () => {
-  test("reproduce: con solo el token de un dispositivo (p. ej. el del Atajo) se pone un código nuevo sin pedir el actual, y se entra desde otro lado", async () => {
+describe("cuenta: cambiar/quitar el código pide el actual (QA-062 lado servidor)", () => {
+  test("con solo el token no se cambia el código; con el actual sí; uno equivocado da 403", async () => {
     const { pedir, cuenta } = montar();
     const pedro = cuenta("Pedro");
-    const usuario = await pedir("/v1/yo", { metodo: "PATCH", cuerpo: { usuario: "pedro" }, token: pedro.token });
-    if (usuario.estado === 404) return; // PR #23 sin PR #20: no aplica
+    const otro = cuenta("Otro");
+    expect((await pedir("/v1/yo", { metodo: "PATCH", cuerpo: { usuario: "pedro" }, token: pedro.token })).estado).toBe(200);
     const primero = await pedir("/v1/yo/codigo", { metodo: "PUT", cuerpo: { codigo: "frase-del-dueno-1" }, token: pedro.token });
     expect(primero.estado).toBe(200);
-    // Quien tiene el token (no el código) lo cambia sin conocer el anterior:
-    const robado = await pedir("/v1/yo/codigo", { metodo: "PUT", cuerpo: { codigo: "codigo-del-ladron" }, token: pedro.token });
-    expect(robado.estado).toBe(200);
-    const entra = await pedir("/v1/entrar", { cuerpo: { usuario: "pedro", codigo: "codigo-del-ladron", dispositivo: "Laptop" } });
-    expect(entra.estado).toBe(201);
-    const dueno = await pedir("/v1/entrar", { cuerpo: { usuario: "pedro", codigo: "frase-del-dueno-1", dispositivo: "iPhone" } });
-    expect(dueno.estado).toBe(401);
+    const sinActual = await pedir("/v1/yo/codigo", { metodo: "PUT", cuerpo: { codigo: "codigo-del-ladron" }, token: pedro.token });
+    expect(sinActual.estado).toBe(400);
+    const malo = await pedir("/v1/yo/codigo", { metodo: "PUT", cuerpo: { codigo: "codigo-del-ladron", actual: "no-es-este-1" }, token: pedro.token });
+    expect(malo.estado).toBe(403);
+    expect((await pedir("/v1/entrar", { cuerpo: { usuario: "pedro", codigo: "codigo-del-ladron", dispositivo: "Laptop" } })).estado).toBe(401);
+    // Otro dispositivo de Pedro, para cerrarOtros:
+    const laptop = await pedir("/v1/entrar", { cuerpo: { usuario: "pedro", codigo: "frase-del-dueno-1", dispositivo: "Laptop" } });
+    expect(laptop.estado).toBe(201);
+    const bien = await pedir("/v1/yo/codigo", {
+      metodo: "PUT",
+      cuerpo: { codigo: "frase-nueva-del-dueno-2", actual: "frase-del-dueno-1", cerrarOtros: true },
+      token: pedro.token,
+    });
+    expect(bien.estado).toBe(200);
+    expect(bien.cuerpo.cerrados).toBeGreaterThanOrEqual(1);
+    expect((await pedir("/v1/yo", { token: laptop.cuerpo.token })).estado).toBe(401);
+    expect((await pedir("/v1/yo", { token: pedro.token })).estado).toBe(200);
+    expect((await pedir("/v1/yo", { token: otro.token })).estado).toBe(200); // otras cuentas no se tocan
+    // Quitar: sin actual 400, con uno equivocado 403, con el bueno 200.
+    expect((await pedir("/v1/yo/codigo", { metodo: "DELETE", token: pedro.token })).estado).toBe(400);
+    expect((await pedir("/v1/yo/codigo", { metodo: "DELETE", cuerpo: { actual: "frase-del-dueno-1" }, token: pedro.token })).estado).toBe(403);
+    expect((await pedir("/v1/yo/codigo", { metodo: "DELETE", cuerpo: { actual: "frase-nueva-del-dueno-2" }, token: pedro.token })).estado).toBe(200);
+    expect((await pedir("/v1/entrar", { cuerpo: { usuario: "pedro", codigo: "frase-nueva-del-dueno-2", dispositivo: "X" } })).estado).toBe(401);
   });
 });
