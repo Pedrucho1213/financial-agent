@@ -41,6 +41,18 @@ const COLOR_ESTADO: Record<Presupuesto["estado"], string> = {
 /** Sin ",00" cuando son pesos cerrados (se lee mejor y cabe), pero sin redondear centavos. */
 const pesos = (centavos: number, moneda: string) => dineroCorto(centavos, moneda);
 
+/** "$1,627.81 de $1,500.51": si no cabe, baja "de $1,500.51" a otra línea en vez de cortar el tope (QA-073). */
+function DeTotal({ parte, total }: { parte: string; total: string }) {
+  return (
+    <>
+      <span className="whitespace-nowrap">{parte}</span> <span className="whitespace-nowrap">de {total}</span>
+    </>
+  );
+}
+
+/** El subtítulo de una fila se corta en una línea; estos llevan montos que no deben perderse. */
+const enVariasLineas = (contenido: ReactNode) => <span className="block whitespace-normal">{contenido}</span>;
+
 const nombrePresupuesto = (p: Presupuesto) =>
   p.categoriaId === null ? "Todo el mes" : (p.categoria?.replace(/ > /g, " › ") ?? "Categoría");
 
@@ -204,23 +216,23 @@ export function Plan({ params }: { params: URLSearchParams }) {
 
 function subtituloPresupuesto(p: Presupuesto, moneda: string): ReactNode {
   if (p.restanteCentavos < 0) return <span className="text-negative">Te pasaste {dinero(-p.restanteCentavos, moneda)}</span>;
-  const base = `Quedan ${pesos(p.restanteCentavos, moneda)} de ${pesos(p.limiteCentavos, moneda)}`;
+  const base = <DeTotal parte={`Quedan ${pesos(p.restanteCentavos, moneda)}`} total={pesos(p.limiteCentavos, moneda)} />;
   // Solo se avisa del ritmo cuando de verdad no alcanza.
   if (p.proyeccionCentavos > p.limiteCentavos)
-    return (
+    return enVariasLineas(
       <>
         {base} · <span className="text-orange">al ritmo de hoy, {pesos(p.proyeccionCentavos, moneda)}</span>
-      </>
+      </>,
     );
-  return base;
+  return enVariasLineas(base);
 }
 
 function subtituloMeta(m: Meta, hoy: string, moneda: string) {
   if (m.completada) return `¡Lograda! ${dinero(m.ahorradoCentavos, moneda)}`;
-  const base = `${pesos(m.ahorradoCentavos, moneda)} de ${pesos(m.objetivoCentavos, moneda)}`;
-  if (!m.fechaLimite) return base;
-  if (diasHasta(m.fechaLimite, hoy) <= 0) return `${base} · venció`;
-  return m.mensualSugeridoCentavos ? `${base} · ${pesos(m.mensualSugeridoCentavos, moneda)}/mes` : base;
+  const base = <DeTotal parte={pesos(m.ahorradoCentavos, moneda)} total={pesos(m.objetivoCentavos, moneda)} />;
+  if (!m.fechaLimite) return enVariasLineas(base);
+  if (diasHasta(m.fechaLimite, hoy) <= 0) return enVariasLineas(<>{base} · venció</>);
+  return enVariasLineas(m.mensualSugeridoCentavos ? <>{base} · {pesos(m.mensualSugeridoCentavos, moneda)}/mes</> : base);
 }
 
 const fCorto = (iso: string) => fDia.format(aFecha(iso)).replace(".", "");
@@ -363,13 +375,13 @@ function Resumen({
         <Anillos anillos={anillos} tamano={132} grosor={15} separacion={3} />
         <dl className="min-w-0 flex-1 space-y-2.5">
           <Leyenda color="var(--anillo-gasto)" titulo="Gastado">
-            {limite > 0 ? `${pesos(gastado, moneda)} de ${pesos(limite, moneda)}` : "Sin presupuesto"}
+            {limite > 0 ? <DeTotal parte={pesos(gastado, moneda)} total={pesos(limite, moneda)} /> : "Sin presupuesto"}
           </Leyenda>
           <Leyenda color="var(--anillo-mes)" titulo="Mes">
             Día {dia} de {diasMes}
           </Leyenda>
           <Leyenda color="var(--anillo-meta)" titulo="Metas">
-            {objetivo > 0 ? `${pesos(ahorrado, moneda)} de ${pesos(objetivo, moneda)}` : "Sin metas"}
+            {objetivo > 0 ? <DeTotal parte={pesos(ahorrado, moneda)} total={pesos(objetivo, moneda)} /> : "Sin metas"}
           </Leyenda>
         </dl>
       </div>
@@ -384,7 +396,7 @@ function Leyenda({ color, titulo, children }: { color: string; titulo: string; c
       <dt className="text-[13px] font-semibold" style={{ color }}>
         {titulo}
       </dt>
-      <dd className="truncate text-[15px] font-semibold tabular">{children}</dd>
+      <dd className="text-[15px] leading-tight font-semibold tabular">{children}</dd>
     </div>
   );
 }

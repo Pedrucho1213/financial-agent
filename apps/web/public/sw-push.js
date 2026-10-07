@@ -31,7 +31,7 @@ self.addEventListener("notificationclick", (evento) => {
       const abiertas = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
       const app = abiertas.find((c) => new URL(c.url).origin === self.location.origin);
       if (app) {
-        // La app ya abierta cambia de pantalla sola (ver lib/notificaciones.ts); navigate() la recargaría.
+        // La app ya abierta cambia de pantalla sola (el listener de "fa:abrir" en App.tsx); navigate() la recargaría.
         app.postMessage({ tipo: "fa:abrir", url });
         await app.focus();
         return;
