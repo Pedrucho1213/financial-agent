@@ -31,7 +31,7 @@ const CASOS: [string, boolean][] = [
   ["Gracias", false],
 ];
 
-const seguir = (r: { respuesta?: string; pendiente?: boolean }) => !r.pendiente && !!r.respuesta && /\?\s*$/.test(r.respuesta);
+const seguir = (r: { respuesta?: string; pendiente?: boolean }) => !r.pendiente && !!r.respuesta && r.respuesta.includes("?");
 const ia = { ...config.ia };
 await despertarModelo(ia, config.ia.modelo);
 const modelo = crearModelo(ia, config.ia.modelo);
