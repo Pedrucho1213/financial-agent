@@ -71,10 +71,41 @@ describe("PR #16: borrar sin decir cuál", () => {
     const { ctx, hablar } = montar([
       llamada("editar_movimiento", { buscar: { texto: "café", mas_reciente: true }, cambios: { monto: 95 } }),
       texto("Listo, café a 95 pesos."),
+      texto("¿Cuál café, el de 60 o el de 85?"),
     ]);
     crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café", fecha: "ayer" });
     crearMovimiento(ctx, { tipo: "gasto", monto: 60, categoria: "Café" });
     const r = await hablar("Cambia el café a 95");
     console.log(`  editar → ${r.respuesta} | quedan ${montos(ctx)}`);
+  });
+});
+
+describe("PR #16 (278f586): chat de la PWA, que conserva la conversación", () => {
+  test("'borra el café' en una conversación que ya traía otra cosa también pregunta cuál", async () => {
+    const { db, usuario, ctx } = preparar();
+    const token = crearDispositivo(db, usuario.id, "iPhone");
+    // El modelo falso contesta según el último mensaje: así no importa cuántas vueltas dé el servidor.
+    const modelo = new MockLanguageModelV4({
+      doGenerate: async ({ prompt }: any) => {
+        const ultimo = prompt.at(-1);
+        if (ultimo.role !== "user") return texto("¿Cuál café, el de 60 o el de 85?") as never;
+        const dicho = JSON.stringify(ultimo.content);
+        if (dicho.includes("Borra")) return llamada("eliminar_movimiento", { buscar: { texto: "café", mas_reciente: true } }) as never;
+        return texto("Llevas 145 pesos en café este mes.") as never;
+      },
+    });
+    const app = crearApp({ db, modelo, zonaHoraria: "America/Mexico_City", monedaBase: "MXN" });
+    const hablar = async (frase: string, client_id: string, conversacion_id?: string) =>
+      (await (await app.request("/v1/hablar", {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ texto: frase, client_id, conversacion_id, capturado_en: AHORA.toISOString() }),
+      })).json()) as any;
+    crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café", fecha: "ayer" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 60, categoria: "Café" });
+    const a = await hablar("¿Cuánto llevo en café?", "pwa-00000001");
+    const b = await hablar("Borra el café", "pwa-00000002", a.conversacion_id);
+    console.log(`  PWA → ${a.respuesta} / ${b.respuesta} | quedan ${montos(ctx)}`);
+    expect(montos(ctx)).toHaveLength(2);
   });
 });
