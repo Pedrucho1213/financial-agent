@@ -25,6 +25,8 @@ export type EnviarPush = (
 ) => Promise<ResultadoEnvio>;
 
 const CLAVE_VAPID = "vapid";
+/** Cuánto esperar antes de reintentar un envío que el servicio rechazó por saturación (las pruebas lo bajan). */
+export const espera = { reintentoMs: 2000 };
 
 /** Las llaves VAPID del servidor; se crean la primera vez. Cambiarlas invalidaría todas las suscripciones. */
 export function clavesVapid(db: Db): ClavesVapid {
@@ -36,11 +38,22 @@ export function clavesVapid(db: Db): ClavesVapid {
   return db.select().from(configuracion).where(eq(configuracion.clave, CLAVE_VAPID)).get()!.valor as ClavesVapid;
 }
 
-export class ErrorSuscripcion extends Error {}
+export class ErrorSuscripcion extends Error {
+  /** La suscripción (el endpoint) ya es de otra cuenta: el navegador tiene que hacer una nueva. */
+  constructor(
+    mensaje: string,
+    readonly ajena = false,
+  ) {
+    super(mensaje);
+  }
+}
 
 /** Guarda (o actualiza) la suscripción de este dispositivo. Un dispositivo tiene a lo más una. */
 export function suscribir(db: Db, usuarioId: string, dispositivoId: string, datos: Suscripcion & { contacto: string; enIphone?: boolean }) {
   if (!endpointValido(datos.endpoint)) throw new ErrorSuscripcion("Ese servicio de notificaciones no está permitido.");
+  const otra = db.select({ usuarioId: suscripcionesPush.usuarioId }).from(suscripcionesPush).where(eq(suscripcionesPush.endpoint, datos.endpoint)).get();
+  // Nadie puede quedarse con las notificaciones de otra cuenta, aunque conozca su endpoint.
+  if (otra && otra.usuarioId !== usuarioId) throw new ErrorSuscripcion("Esa suscripción es de otra cuenta.", true);
   db.transaction((tx) => {
     tx.delete(suscripcionesPush).where(eq(suscripcionesPush.dispositivoId, dispositivoId)).run();
     tx.delete(suscripcionesPush).where(eq(suscripcionesPush.endpoint, datos.endpoint)).run();
@@ -124,9 +137,16 @@ export async function notificar(db: Db, usuarioId: string, n: Notificacion, envi
   const mensaje = mensajeDe(n);
   const resultados = await Promise.all(
     lista.map(async (s) => {
-      const r = await enviar(s, mensaje, claves, s.contacto, { urgencia: n.urgencia, ttl: n.ttl, tema: n.etiqueta }).catch(
-        (error: Error): ResultadoEnvio => ({ ok: false, estado: 0, vencida: false, detalle: error.message }),
-      );
+      const intento = () =>
+        enviar(s, mensaje, claves, s.contacto, { urgencia: n.urgencia, ttl: n.ttl, tema: n.etiqueta }).catch(
+          (error: Error): ResultadoEnvio => ({ ok: false, estado: 0, vencida: false, detalle: error.message }),
+        );
+      let r = await intento();
+      // Apple saturado (429) o con un error suyo (5xx): un reintento poco después.
+      if (r.estado === 429 || r.estado >= 500) {
+        await Bun.sleep(espera.reintentoMs);
+        r = await intento();
+      }
       if (r.vencida) {
         db.delete(suscripcionesPush).where(eq(suscripcionesPush.id, s.id)).run();
       } else {

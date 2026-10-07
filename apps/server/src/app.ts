@@ -19,7 +19,7 @@ import {
   type VariablesAuth,
 } from "./auth";
 import { entradas, invitaciones, usuarios } from "./db/schema";
-import { fraseDePago } from "./finanzas/applepay";
+import { esDevolucion, fraseDePago } from "./finanzas/applepay";
 import { avisoDelDia } from "./finanzas/avisos";
 import { listarCategorias, nombreCompleto } from "./finanzas/catalogos";
 import { crearContexto } from "./finanzas/contexto";
@@ -460,7 +460,11 @@ export function crearApp(opciones: OpcionesApp) {
         );
       }
       return c.json({
-        respuesta: prueba ? "Listo. Cuando pagues con Apple Pay lo anoto solo." : "Ese pago no trae monto; no anoté nada.",
+        respuesta: prueba
+          ? "Listo. Cuando pagues con Apple Pay lo anoto solo."
+          : p.monto && esDevolucion(p.monto)
+            ? "Es una devolución; no la anoté como gasto."
+            : "Ese pago no trae monto; no anoté nada.",
         prueba,
         acciones: [],
       });
@@ -516,7 +520,7 @@ export function crearApp(opciones: OpcionesApp) {
     try {
       suscribir(db, c.get("usuarioId"), c.get("dispositivoId"), { endpoint, p256dh: keys.p256dh, auth: keys.auth, contacto, enIphone });
     } catch (error) {
-      if (error instanceof ErrorSuscripcion) return c.json({ error: error.message }, 400);
+      if (error instanceof ErrorSuscripcion) return c.json({ error: error.message, ajena: error.ajena || undefined }, error.ajena ? 409 : 400);
       throw error;
     }
     return c.json(estadoPush(db, c.get("usuarioId"), c.get("dispositivoId")), 201);

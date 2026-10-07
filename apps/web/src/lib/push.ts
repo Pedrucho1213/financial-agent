@@ -1,4 +1,4 @@
-import { api } from "./api";
+import { api, ErrorApi } from "./api";
 import { enPantallaDeInicio, esIOS } from "./plataforma";
 
 // Notificaciones push. En el iPhone solo funcionan con la app agregada a la pantalla de inicio (iOS 16.4+)
@@ -67,6 +67,17 @@ export async function activarPush(permisoPedido: Promise<NotificationPermission>
     sub = null;
   }
   sub ??= await r.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes(clave) });
+  try {
+    return await mandar(sub);
+  } catch (error) {
+    // Quedó de otra cuenta que usó este navegador: se pide una suscripción nueva.
+    if (!(error instanceof ErrorApi) || error.estado !== 409) throw error;
+    await sub.unsubscribe();
+    return mandar(await r.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes(clave) }));
+  }
+}
+
+function mandar(sub: PushSubscription): Promise<EstadoPushServidor> {
   const datos = sub.toJSON();
   return api<EstadoPushServidor>("/v1/push/suscripcion", {
     method: "POST",
@@ -87,11 +98,19 @@ export async function sincronizarPush(servidor: EstadoPushServidor): Promise<Est
   if (servidor.activo || permiso() !== "granted") return servidor;
   const sub = await suscripcionActual();
   if (!sub) return servidor;
-  const datos = sub.toJSON();
-  return api<EstadoPushServidor>("/v1/push/suscripcion", {
-    method: "POST",
-    body: { endpoint: datos.endpoint, keys: datos.keys, origen: window.location.origin, en_iphone: enIphone() },
-  });
+  return mandar(sub);
+}
+
+/**
+ * Al cerrar sesión, este dispositivo deja de recibir las notificaciones de la cuenta. Si la Mac no
+ * contesta pronto, la sesión se cierra igual y al menos el navegador ya no tiene la suscripción.
+ */
+export async function soltarPush(): Promise<void> {
+  await Promise.race([
+    api("/v1/push/suscripcion", { method: "DELETE" }).catch(() => {}),
+    new Promise((listo) => setTimeout(listo, 3000)),
+  ]);
+  await (await suscripcionActual().catch(() => null))?.unsubscribe().catch(() => false);
 }
 
 /**

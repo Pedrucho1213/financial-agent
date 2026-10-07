@@ -18,6 +18,7 @@ import { abrirAtajo } from "../lib/atajo";
 import { useEnLinea } from "../lib/conexion";
 import { claves, useYo } from "../lib/consultas";
 import { fechaHora, haceCuanto } from "../lib/formato";
+import { soltarPush } from "../lib/push";
 import { cerrarSesion } from "../lib/sesion";
 import type { AtajoPreparado, Dispositivo, InvitacionCreada } from "../lib/tipos";
 
@@ -238,7 +239,10 @@ export function Ajustes() {
         titulo="¿Cerrar sesión?"
         descripcion="Para volver a entrar en este dispositivo necesitarás un código de invitación."
         confirmar="Cerrar sesión"
-        onConfirmar={cerrarSesion}
+        onConfirmar={async () => {
+          await soltarPush();
+          cerrarSesion();
+        }}
       />
     </Pantalla>
   );

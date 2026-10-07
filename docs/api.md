@@ -23,7 +23,7 @@ Para el primer usuario: `bun run invitar -- --nombre Pedro` crea la cuenta (si n
 | `POST /v1/hablar` | `{ texto, client_id, conversacion_id?, lat?, lon?, lugar?, capturado_en?, equipo?, espera_ms? }` (`equipo`: el modelo del dispositivo, "iPhone" o "Apple Watch"; también se reconoce el reloj por el User-Agent) | 200 `{ respuesta, conversacion_id, acciones, duplicado? }`; 202 con `pendiente: true` (y `esperar: true` si era pregunta) cuando la IA tarda más que la espera |
 | `GET /v1/entradas/:client_id?esperar_ms=` | | `{ estado: "procesando" \| "listo" \| "error", respuesta?, ... }` |
 | `POST /v1/despertar` | | `{ ok: true }`; precarga el modelo |
-| `POST /v1/hablar` con `origen: "apple_pay"` | `{ origen, client_id, monto?, comercio?, nombre?, tarjeta?, lat?, lon?, capturado_en? }` (lo que da la Cartera; `monto` como texto, "$85.00"). La IA solo puede usar `registrar_movimientos` y el comercio va entre comillas: es un nombre que escribe un tercero, no una orden. El mismo pago (misma frase) con otro `client_id` en 3 minutos es 200 `{ duplicado: true }` | 202 `{ pendiente: true, ... }`: se registra en segundo plano como "Pagué 85 pesos en ... (Apple Pay)" con `origen: "apple_pay"`. Sin ningún dato es la prueba del Atajo corrido a mano: 200 `{ prueba: true, respuesta }` y una notificación de prueba. Va por `/v1/hablar` para que la cola del Atajo "Finanzas" también lo reenvíe |
+| `POST /v1/hablar` con `origen: "apple_pay"` | `{ origen, client_id, monto?, comercio?, nombre?, tarjeta?, lat?, lon?, capturado_en? }` (lo que da la Cartera; `monto` como texto, "$85.00"). La IA solo puede usar `registrar_movimientos` y el comercio va entre comillas: es un nombre que escribe un tercero, no una orden. Se anota un solo gasto con el monto y la moneda de la Cartera, aunque el modelo diga otra cosa. Un monto negativo ("-$85.00", "($85.00)") es una devolución: no se anota. El mismo pago (misma frase) con otro `client_id` en 3 minutos es 200 `{ duplicado: true }` | 202 `{ pendiente: true, ... }`: se registra en segundo plano como "Pagué 85 pesos en ... (Apple Pay)" con `origen: "apple_pay"`. Sin ningún dato es la prueba del Atajo corrido a mano: 200 `{ prueba: true, respuesta }` y una notificación de prueba. Va por `/v1/hablar` para que la cola del Atajo "Finanzas" también lo reenvíe |
 
 Quién no manda `espera_ms` es el Atajo. Para él:
 
@@ -40,11 +40,11 @@ Web Push a la app instalada en la pantalla de inicio (iOS 16.4 o más reciente; 
 | Método y ruta | Cuerpo | Respuesta |
 |---|---|---|
 | `GET /v1/push` | | `{ clave, activo, endpoint, otros, ultimoError }`: la llave pública VAPID (base64url) para `pushManager.subscribe`, si este dispositivo está suscrito y cuántos otros de la cuenta lo están |
-| `POST /v1/push/suscripcion` | `{ endpoint, keys: { p256dh, auth }, origen?, en_iphone? }` (`PushSubscription.toJSON()` y `location.origin`, que se le da a Apple como contacto si es este servidor por https; `PUSH_CONTACTO` lo reemplaza. `en_iphone`: la app corre en un iPhone; solo esas suscripciones activan la respuesta rápida del Atajo) | 201 con el estado. Una suscripción por dispositivo; 400 si el servicio no está permitido |
+| `POST /v1/push/suscripcion` | `{ endpoint, keys: { p256dh, auth }, origen?, en_iphone? }` (`PushSubscription.toJSON()` y `location.origin`, que se le da a Apple como contacto si es este servidor por https; `PUSH_CONTACTO` lo reemplaza. `en_iphone`: la app corre en un iPhone; solo esas suscripciones activan la respuesta rápida del Atajo) | 201 con el estado. Una suscripción por dispositivo; 400 si el servicio no está permitido; 409 `{ ajena: true }` si ese endpoint ya es de otra cuenta (la app pide uno nuevo) |
 | `DELETE /v1/push/suscripcion` | | `{ ok: true }` |
 | `POST /v1/push/prueba` | | `{ enviadas }`; 502 si no llegó a ningún dispositivo; 429 si este dispositivo mandó otra hace menos de 15 s |
 
-El mensaje que recibe el service worker (`public/sw-push.js`) es `{ titulo, cuerpo, url, etiqueta? }`. Una suscripción que el servicio da por vencida (404 o 410) se borra; la de un dispositivo revocado ya no recibe.
+El mensaje que recibe el service worker (`public/sw-push.js`) es `{ titulo, cuerpo, url, etiqueta? }`. Una suscripción que el servicio da por vencida (404 o 410) se borra; la de un dispositivo revocado ya no recibe. Un 429 o 5xx se reintenta una vez. Al cerrar sesión, la app quita la suscripción de ese dispositivo.
 
 ## Avisos del día
 

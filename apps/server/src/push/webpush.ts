@@ -127,7 +127,8 @@ export async function enviarPush(
   try {
     cuerpo = cifrar(suscripcion, new TextEncoder().encode(mensaje));
   } catch (error) {
-    return { ok: false, estado: 0, vencida: true, detalle: (error as Error).message };
+    // Un mensaje que no se pudo cifrar no dice nada de la suscripción: no se borra.
+    return { ok: false, estado: 0, vencida: false, detalle: (error as Error).message };
   }
   const encabezados: Record<string, string> = {
     Authorization: `vapid t=${firmaVapid(suscripcion.endpoint, claves, contacto)}, k=${claves.publica}`,

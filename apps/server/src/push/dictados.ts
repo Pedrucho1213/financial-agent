@@ -17,6 +17,9 @@ function movimientosDe(respuesta: Respuesta): Registrado[] {
   });
 }
 
+/** Cuántos movimientos caben en el enlace de una notificación (cada id son 36 caracteres). */
+const MAX_DETALLE = 20;
+
 const concepto = (m: Registrado) => m.comercio ?? m.categoria?.split(" > ").at(-1) ?? m.descripcion ?? "Movimiento";
 
 // Una pregunta que llegó por notificación se contesta abriendo el Atajo otra vez: el próximo dictado
@@ -47,7 +50,8 @@ export function notificacionDeDictado(entrada: Entrada, respuesta: Respuesta | u
     };
   }
   const movimientos = movimientosDe(respuesta).filter((m) => m.id);
-  const pregunta = respuesta.respuesta.includes("?");
+  // Un pago con Apple Pay no se contesta por voz (y su comercio puede traer "?": "WHY? CAFE").
+  const pregunta = !applePay && respuesta.respuesta.includes("?");
   const prefijo = applePay ? "Apple Pay · " : "";
   const [primero] = movimientos;
   const titulo =
@@ -69,7 +73,13 @@ export function notificacionDeDictado(entrada: Entrada, respuesta: Respuesta | u
     titulo,
     cuerpo,
     // Un pago de Apple Pay abre el editor para agregarle detalles.
-    url: movimientos.length ? `/#movimientos?detalle=${movimientos.map((m) => m.id).join(",")}${applePay ? "&editar=1" : ""}` : "/#inicio",
+    // Con muchos movimientos el enlace no cabría en la notificación: abre la lista.
+    url:
+      movimientos.length && movimientos.length <= MAX_DETALLE
+        ? `/#movimientos?detalle=${movimientos.map((m) => m.id).join(",")}${applePay ? "&editar=1" : ""}`
+        : movimientos.length
+          ? "/#movimientos"
+          : "/#inicio",
     etiqueta,
     urgencia: "high",
     // Pasado un día, ya no sirve saber que se anotó.
@@ -82,7 +92,7 @@ export function avisoDeDictado(db: Db, enviar?: EnviarPush) {
   return (entrada: Entrada, respuesta: Respuesta | undefined) => {
     // Aunque la última no haya llegado: es lo único que le avisa de este dictado.
     if (!tieneSuscripciones(db, entrada.usuarioId)) return;
-    if (respuesta?.respuesta.includes("?")) {
+    if (entrada.origen !== "apple_pay" && respuesta?.respuesta.includes("?")) {
       preguntas.set(entrada.usuarioId, { conversacionId: respuesta.conversacion_id, hasta: Date.now() + VIGENCIA_PREGUNTA_MS });
     }
     // Sin esperar, pero sin dejar un rechazo suelto: tumbaría el servidor.

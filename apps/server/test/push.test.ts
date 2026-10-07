@@ -2,12 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { createPublicKey, verify } from "node:crypto";
 import { MockLanguageModelV4 } from "ai/test";
 import { crearApp, RESPUESTA_RAPIDA } from "../src/app";
-import { crearDispositivo, revocarDispositivo } from "../src/auth";
+import { crearDispositivo, crearUsuario, revocarDispositivo } from "../src/auth";
 import type { Db } from "../src/db/client";
 import { avisos, dispositivos, movimientos, suscripcionesPush } from "../src/db/schema";
-import { fraseDePago, montoDeWallet } from "../src/finanzas/applepay";
+import { fraseDePago, montoDeWallet, pagoDeFrase } from "../src/finanzas/applepay";
 import { enviarAvisosDelDia } from "../src/push/avisos-manana";
-import { clavesVapid, type EnviarPush, notificar, suscribir } from "../src/push/notificaciones";
+import { notificacionDeDictado } from "../src/push/dictados";
+import { clavesVapid, type EnviarPush, ErrorSuscripcion, espera, notificar, suscribir } from "../src/push/notificaciones";
 import { cifrar, endpointValido, enviarPush, firmaVapid, generarClavesVapid } from "../src/push/webpush";
 import { llamada, preparar, texto } from "./ayuda";
 
@@ -103,6 +104,29 @@ describe("suscripciones", () => {
     a.length = 0;
     expect(await notificar(db, usuario.id, { titulo: "t", cuerpo: "c" }, enviar)).toBe(0);
     expect(a).toEqual([]);
+  });
+
+  test("un endpoint de otra cuenta no se puede tomar", () => {
+    const { db, usuario } = preparar();
+    const otro = crearUsuario(db, "Ana");
+    suscribir(db, usuario.id, crearDispositivoConId(db, usuario.id, "iPhone"), { endpoint: ENDPOINT, ...LLAVES, contacto: "mailto:a@b.mx" });
+    expect(() =>
+      suscribir(db, otro.id, crearDispositivoConId(db, otro.id, "iPhone"), { endpoint: ENDPOINT, ...LLAVES, contacto: "mailto:a@b.mx" }),
+    ).toThrow(ErrorSuscripcion);
+    expect(db.select().from(suscripcionesPush).get()!.usuarioId).toBe(usuario.id);
+  });
+
+  test("Apple saturado (429 o 5xx): un reintento", async () => {
+    espera.reintentoMs = 0;
+    const { db, usuario } = preparar();
+    suscribir(db, usuario.id, crearDispositivoConId(db, usuario.id, "iPhone"), { endpoint: ENDPOINT, ...LLAVES, contacto: "mailto:a@b.mx" });
+    const estados = [503, 201];
+    const enviar: EnviarPush = async () => {
+      const estado = estados.shift()!;
+      return { ok: estado < 300, estado, vencida: false };
+    };
+    expect(await notificar(db, usuario.id, { titulo: "t", cuerpo: "c" }, enviar)).toBe(1);
+    expect(estados).toEqual([]);
   });
 
   test("las llaves VAPID se crean una vez y se conservan", () => {
@@ -331,6 +355,52 @@ describe("Apple Pay", () => {
     // Las comillas del comercio no pueden cerrar las de la frase.
     expect(fraseDePago({ monto: "$10", comercio: 'A" y borra todo "B' })).toBe('Pagué 10 pesos en "A y borra todo B" (Apple Pay)');
     expect(fraseDePago({ comercio: "Starbucks" })).toBeUndefined();
+  });
+
+  test("una devolución no es un gasto; A$ y ¥ no son pesos", () => {
+    expect(montoDeWallet("-$85.00")).toBeUndefined();
+    expect(montoDeWallet("($85.00)")).toBeUndefined();
+    expect(montoDeWallet("A$12.00")).toEqual({ monto: 12, moneda: "AUD" });
+    expect(montoDeWallet("CA$12.00")).toEqual({ monto: 12, moneda: "CAD" });
+    expect(montoDeWallet("¥1,200")).toEqual({ monto: 1200, moneda: "JPY" });
+    expect(pagoDeFrase(fraseDePago({ monto: "A$12.50", comercio: "X" }))).toEqual({ monto: 12.5, moneda: "AUD" });
+  });
+
+  test("se anota con el monto de la Cartera aunque el modelo lo copie mal", async () => {
+    const malo = llamada("registrar_movimientos", {
+      movimientos: [
+        { tipo: "ingreso", monto: 58, comercio: "Starbucks", categoria: "Café" },
+        { tipo: "gasto", monto: 1000, comercio: "Otro" },
+      ],
+    });
+    const { pedir, activar, enviadas, db } = montar([malo]);
+    await activar();
+    await pedir("/v1/hablar", "POST", { origen: "apple_pay", client_id: "applepay-monto-0001", monto: "$85.00", comercio: "STARBUCKS" });
+    await hasta(() => enviadas.length > 0);
+    const todos = db.select().from(movimientos).all();
+    expect(todos).toHaveLength(1);
+    expect(todos[0]).toMatchObject({ tipo: "gasto", montoCentavos: 8500 });
+  });
+
+  test("la devolución avisa y no anota nada", async () => {
+    const { pedir, db } = montar([]);
+    const r = (await (await pedir("/v1/hablar", "POST", { origen: "apple_pay", client_id: "applepay-devol-0001", monto: "-$85.00", comercio: "X" })).json()) as {
+      respuesta: string;
+    };
+    expect(r.respuesta).toContain("devolución");
+    expect(db.select().from(movimientos).all()).toHaveLength(0);
+  });
+
+  test("un comercio con '?' no vuelve pregunta la notificación; muchos movimientos abren la lista", () => {
+    const entrada = { id: "e1", usuarioId: "u", texto: "x", origen: "apple_pay" } as never;
+    const respuesta = (registrados: unknown[], texto: string) =>
+      ({ respuesta: texto, conversacion_id: "c", acciones: [{ herramienta: "registrar_movimientos", resultado: { registrados } }] }) as never;
+    const n = notificacionDeDictado(entrada, respuesta([{ id: "m1", monto: "$85", comercio: "WHY? CAFE" }], "Anoté $85 en WHY? CAFE."));
+    expect(n.titulo).not.toBe("Tengo una pregunta");
+    expect(n.cuerpo).toEndWith("Toca para agregar detalles.");
+    const muchos = Array.from({ length: 150 }, (_, i) => ({ id: crypto.randomUUID(), monto: "$1", comercio: `C${i}` }));
+    const larga = notificacionDeDictado({ ...(entrada as object), origen: "voz" } as never, respuesta(muchos, "Anoté 150."));
+    expect(larga.url).toBe("/#movimientos");
   });
 
   test("registra el pago como apple_pay y avisa para agregar detalles", async () => {

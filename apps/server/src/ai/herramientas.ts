@@ -12,6 +12,7 @@ import {
   idDelMovimiento,
   resumir,
 } from "../finanzas/movimientos";
+import { pagoDeFrase } from "../finanzas/applepay";
 import { listarCategorias } from "../finanzas/catalogos";
 import {
   cuentaHabitual,
@@ -145,6 +146,9 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
       inputSchema: z.object({ movimientos: z.array(datosMovimiento).min(1) }),
       execute: ejecutar("registrar_movimientos", ({ movimientos }) => {
         const texto = ctx.textoOriginal;
+        // Un pago de Apple Pay es un gasto, uno solo, con el monto y la moneda que dio la Cartera.
+        const pago = ctx.origen === "apple_pay" ? pagoDeFrase(texto) : undefined;
+        if (pago) movimientos = [{ ...movimientos[0]!, tipo: "gasto", monto: pago.monto, moneda: pago.moneda }];
         // Préstamos, metas y meses sin intereses tienen su herramienta. Con varios montos en la frase
         // ("200 de tacos y le presté 100 a Juan") puede haber gastos de verdad: ahí no se frena.
         if (texto && montosDelTexto(texto).length <= 1) {
