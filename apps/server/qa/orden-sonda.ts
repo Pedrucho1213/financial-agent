@@ -1,0 +1,3 @@
+import { esOrdenSobreLoAnotado } from "../src/lib/texto";
+for (const f of ["bórrame el café de 85", "quítame lo de 200", "cámbiame el de 95", "pásale el de 50 a la Nu", "bórralos, los de 30", "quiero borrar el de 85", "puedes cambiar el de 40 a 45", "Pagué 300 del cambio de aceite", "Gasté 200 en la cancha", "Me cobraron 50 por cancelación", "Pasé al Oxxo, 45", "Quité 500 del cajero", "Pagué 150 de borrar un tatuaje", "Compré 2 kilos de pasas, 80", "Le pasé 500 a mi mamá", "Gasté 90 en un pase del metro", "Le cambié el aceite al coche, 800", "Corrí 5 km y me tomé un agua de 20"])
+  console.log(esOrdenSobreLoAnotado(f) ? "30 s" : " 5 s", f);
