@@ -44,6 +44,14 @@ const PLURAL = /\b(los|las|estos|estas|esos|esas|unos|unas|ambos|ambas|todos|tod
 const OTRA_ACCION =
   /\b(borra|elimina|quita|cambia|corrige|deshaz|registra que|anota que|apunta que|fue con|fue el|fue del|era de|era del|no era)/;
 
+// Se corrige al dictar: "450, no, perdón, fueron 540". El monto que corrige no es otro movimiento.
+const SE_CORRIGE = /\d[^\d]*\b(no perdon|perdon|no digo|digo|mejor dicho|me equivoque|no espera)\b[^\d]*\d/g;
+
+/** Cuántos montos dijo, sin contar los que corrigió en la misma frase. */
+function montosDichos(texto: string): number {
+  return montosDelTexto(texto).length - (normalizar(texto).match(SE_CORRIGE)?.length ?? 0);
+}
+
 function fechaHablada(fecha: string, hoy: string): string {
   if (fecha === hoy) return "";
   if (fecha === sumarDias(hoy, -1)) return " de ayer";
@@ -123,7 +131,7 @@ export function confirmacionDirecta(texto: string, hoy: string, ejecutadas: Ejec
   if (nombre === "registrar_movimientos") {
     const registrados = ejecutadas.flatMap((e) => (e.resultado as { registrados: Movimiento[] }).registrados);
     // Si la frase trae más montos que registros, quizá falta alguno: que el modelo lo revise.
-    if (registrados.length === 0 || OTRA_ACCION.test(plano) || montosDelTexto(texto).length > registrados.length) return undefined;
+    if (registrados.length === 0 || OTRA_ACCION.test(plano) || montosDichos(texto) > registrados.length) return undefined;
     return confirmarRegistro(registrados, hoy);
   }
   if (ejecutadas.length === 1 && nombre === "recordar") return "Listo, lo voy a recordar.";
