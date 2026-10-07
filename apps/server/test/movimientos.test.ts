@@ -7,9 +7,12 @@ import {
   editarMovimiento,
   eliminarMovimiento,
   ErrorFinanzas,
+  idDelMovimiento,
   resumir,
   revertirEntrada,
 } from "../src/finanzas/movimientos";
+import { eq } from "drizzle-orm";
+import { entradas, movimientos } from "../src/db/schema";
 import { crearRecurrente, listarRecurrentes } from "../src/finanzas/recurrentes";
 import { AHORA, preparar } from "./ayuda";
 
@@ -211,9 +214,29 @@ describe("hallazgos de QA", () => {
   });
 
   test("una fecha que aún no llega se guarda como la dijo, marcada para revisar", () => {
-    const { ctx } = preparar(); // 7 de octubre
+    const { db, ctx } = preparar(); // 7 de octubre
     expect(crearMovimiento(ctx, { tipo: "gasto", monto: 80, categoria: "Café", fecha: "20 de octubre" })).toMatchObject({ fecha: "2026-10-20", revisar: true });
     expect(crearMovimiento(ctx, { tipo: "gasto", monto: 80, categoria: "Café", fecha: "ayer" }).revisar).toBeUndefined();
+    // Editarla a una fecha futura también la marca.
+    const m = crearMovimiento(ctx, { tipo: "gasto", monto: 90, categoria: "Café" });
+    editarMovimiento(ctx, m.id, { fecha: "25 de octubre" });
+    expect(db.select().from(movimientos).where(eq(movimientos.id, m.id)).get()?.revisar).toBe(true);
+  });
+
+  test("'el último' de un dictado reintentado no toma lo que dictaste después (QA-021)", () => {
+    const { db, usuario, ctx } = preparar();
+    const entrada = (clientId: string) =>
+      db
+        .insert(entradas)
+        .values({ usuarioId: usuario.id, clientId, conversacionId: "c", texto: clientId, capturadoEn: AHORA.toISOString() })
+        .returning()
+        .get().id;
+    const primera = entrada("gasté 100 en café");
+    const borra = entrada("borra el último café");
+    const despues = entrada("gasté 300 en café");
+    const cien = crearMovimiento({ ...ctx, entradaId: primera }, { tipo: "gasto", monto: 100, categoria: "Café" });
+    crearMovimiento({ ...ctx, entradaId: despues }, { tipo: "gasto", monto: 300, categoria: "Café" });
+    expect(idDelMovimiento({ ...ctx, entradaId: borra }, undefined, { texto: "café", mas_reciente: true })).toBe(cien.id);
   });
 
   test("si 'deshaz eso' falla y se reintenta, no deshace dos cosas", () => {

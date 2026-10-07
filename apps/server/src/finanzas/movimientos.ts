@@ -1,5 +1,5 @@
 import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
-import { bitacora, comercios, cuentas, movimientos, recurrentes, TIPOS_MOVIMIENTO } from "../db/schema";
+import { bitacora, comercios, cuentas, entradas, movimientos, recurrentes, TIPOS_MOVIMIENTO } from "../db/schema";
 import { aCentavos, formatearMonto } from "../lib/dinero";
 import { mediodiaUtc, resolverFecha, resolverPeriodo } from "../lib/fechas";
 import { normalizar } from "../lib/texto";
@@ -250,12 +250,36 @@ export function buscarMovimientos(ctx: Contexto, filtro: FiltroMovimientos) {
 
 export type Busqueda = FiltroMovimientos & { mas_reciente?: boolean };
 
+/**
+ * Si un dictado se reintenta más tarde, "deshaz eso" y "el último" se refieren a lo que había cuando
+ * lo dijiste, no a lo que hicieron los dictados (o la app) que llegaron después.
+ */
+function vinoDespues(ctx: Contexto): (fila: { entradaId: string | null; creadoEn: string }) => boolean {
+  if (!ctx.entradaId) return () => false;
+  const propia = ctx.db
+    .select({ creadoEn: entradas.creadoEn, orden: sql<number>`rowid` })
+    .from(entradas)
+    .where(and(eq(entradas.id, ctx.entradaId), eq(entradas.usuarioId, ctx.usuarioId)))
+    .get();
+  if (!propia) return () => false;
+  const posteriores = new Set(
+    ctx.db
+      .select({ id: entradas.id })
+      .from(entradas)
+      .where(and(eq(entradas.usuarioId, ctx.usuarioId), sql`rowid > ${propia.orden}`))
+      .all()
+      .map((e) => e.id),
+  );
+  return (fila) => (fila.entradaId ? posteriores.has(fila.entradaId) : fila.creadoEn > propia.creadoEn);
+}
+
 /** El movimiento a editar o eliminar: por id, o con una búsqueda que deje uno solo. */
 export function idDelMovimiento(ctx: Contexto, id?: string, buscar?: Busqueda): string {
   if (id) return id;
   if (!buscar) throw new ErrorFinanzas("Indica el id o qué buscar.");
   const cats = listarCategorias(ctx.db, ctx.usuarioId);
-  const { filas } = filtrar(ctx, buscar, cats);
+  const despues = vinoDespues(ctx);
+  const filas = filtrar(ctx, buscar, cats).filas.filter((m) => !despues(m));
   if (filas.length === 0) {
     throw new ErrorFinanzas("No encontré ningún movimiento con esos datos. Prueba con menos filtros.");
   }
@@ -315,6 +339,7 @@ export function editarMovimiento(ctx: Contexto, id: string, cambios: Partial<Dat
       if (elegida.revisar) nuevo.revisar = true;
     }
   }
+  if (nuevo.fecha && nuevo.fecha > ctx.hoy) nuevo.revisar = true;
   if (Object.keys(nuevo).length === 0) throw new ErrorFinanzas("No indicaste qué cambiar.");
   const despues = ctx.db
     .update(movimientos)
@@ -462,7 +487,10 @@ function pendientesDeDeshacer(ctx: Contexto) {
 
 /** Revierte todo lo que hizo la entrada anterior (la última cosa que dijiste). */
 export function deshacer(ctx: Contexto) {
-  const pendientes = pendientesDeDeshacer(ctx).filter((b) => !ctx.entradaId || b.entradaId !== ctx.entradaId);
+  const despues = vinoDespues(ctx);
+  const pendientes = pendientesDeDeshacer(ctx).filter(
+    (b) => !despues(b) && (!ctx.entradaId || b.entradaId !== ctx.entradaId),
+  );
   const ultima = pendientes[0];
   if (!ultima) return { deshecho: false, mensaje: "No hay nada que deshacer." };
   const grupo = ultima.entradaId ? pendientes.filter((b) => b.entradaId === ultima.entradaId) : [ultima];
