@@ -31,6 +31,17 @@ describe("confirmación sin otra vuelta del modelo", () => {
     ).toBe("Listo, café de $60 y gasolina de $800. No supe bien la categoría; la dejé para que la revises.");
   });
 
+  test("si se corrige al dictar, el monto corregido no cuenta como otro registro (QA-079)", () => {
+    const farmacia = registro({ monto: "$540", categoria: "Salud > Farmacia", descripcion: "farmacia" });
+    expect(confirmacionDirecta("Gasté 450 en la farmacia, no, perdón, fueron 540", HOY, [farmacia])).toBe("Listo, farmacia de $540.");
+    expect(confirmacionDirecta("Gasté 450 en la farmacia, digo, 540", HOY, [farmacia])).toBe("Listo, farmacia de $540.");
+    // Sin corregirse, dos montos y un registro siguen dejando que el modelo revise.
+    expect(confirmacionDirecta("Gasté 450 en la farmacia y 540 en el súper", HOY, [farmacia])).toBeUndefined();
+    // Un "perdón" o "digo" con una "y" entre los montos no corrige: son dos gastos.
+    expect(confirmacionDirecta("Gasté 200 en tacos, perdón, y 100 en refresco", HOY, [registro({ monto: "$200" })])).toBeUndefined();
+    expect(confirmacionDirecta("Gasté 300 en gasolina y te digo que 200 en comida", HOY, [registro({ monto: "$300" })])).toBeUndefined();
+  });
+
   test("deja seguir al modelo si la frase pide algo más que registrar", () => {
     // Dos montos y un solo registro: quizá falta uno.
     expect(confirmacionDirecta("Café 60 y gasolina 800", HOY, [registro({ monto: "$60" })])).toBeUndefined();

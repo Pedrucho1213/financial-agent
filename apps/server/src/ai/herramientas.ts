@@ -47,7 +47,7 @@ const periodo = z
 
 const datosMovimiento = z.object({
   tipo: tipoMovimiento,
-  monto: z.number().positive().describe("Monto en números, sin signo. 2 mil quinientos = 2500."),
+  monto: z.number().positive().describe("Monto en números, sin signo, nunca 0. 2 mil quinientos = 2500."),
   moneda: z.string().optional().describe("Solo si no es MXN, por ejemplo USD."),
   categoria: z.string().optional().describe("Nombre de una categoría existente, de preferencia la más específica."),
   comercio: z.string().optional().describe("Tienda, app o persona: Oxxo, Uber, Liverpool."),
@@ -162,7 +162,8 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
   return {
     registrar_movimientos: tool({
       description:
-        "Registra uno o varios gastos o ingresos. Si el usuario menciona varios, mándalos todos en una sola llamada.",
+        "Registra uno o varios gastos o ingresos. Si el usuario menciona varios, mándalos todos en una sola llamada. " +
+        "Llámala solo con un monto que el usuario dijo o uno de sus montos de siempre: si no sabes cuánto fue, pregunta sin llamarla.",
       inputSchema: z.object({ movimientos: z.array(datosMovimiento).min(1) }),
       execute: ejecutar("registrar_movimientos", ({ movimientos }) => {
         const texto = ctx.textoOriginal;
