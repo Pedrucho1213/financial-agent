@@ -5,7 +5,13 @@ import { config } from "./config";
 import { abrirBaseDatos } from "./db/client";
 
 const db = abrirBaseDatos(config.baseDatos);
-const deps = { db, modelo: crearModelo(config.ia), zonaHoraria: config.zonaHoraria, monedaBase: config.moneda };
+const deps = {
+  db,
+  modelo: crearModelo(config.ia),
+  zonaHoraria: config.zonaHoraria,
+  monedaBase: config.moneda,
+  paralelo: config.ia.paralelo,
+};
 const app = crearApp({
   ...deps,
   espera: config.espera,
