@@ -115,4 +115,4 @@ Solo si no puedes instalarlo desde la app. Son las mismas acciones que trae el A
 ## Más adelante
 
 - En el iPhone 17 Pro Max se puede agregar la acción **Usar modelo** (Apple Intelligence, en el dispositivo) para entender el dictado sin conexión. En el iPhone 13 no existe, así que es opcional.
-- Si el primer dictado después de un rato se siente lento, es el modelo cargándose. Abrir el Atajo ya lo carga mientras hablas; si aun así tarda, se puede subir `OLLAMA_KEEP_ALIVE` en el servicio de Ollama a costa de más memoria ocupada.
+- Si el primer dictado después de un rato se siente lento (15 a 18 s), es el modelo cargándose. El Atajo no lo despierta al abrirse a propósito: en Atajos una petición que falla detiene todo, y sin conexión o con la Mac dormida se perdería el dictado antes de escucharlo. Para que tarde menos, se puede subir `OLLAMA_KEEP_ALIVE` en el servicio de Ollama a costa de más memoria ocupada.
