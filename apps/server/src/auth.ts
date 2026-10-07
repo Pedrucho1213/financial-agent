@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, gte, isNull, ne } from "drizzle-orm";
 import { createMiddleware } from "hono/factory";
 import type { Db } from "./db/client";
 import { dispositivos, invitaciones, usuarios } from "./db/schema";
@@ -111,10 +111,19 @@ export function consultarInvitacion(db: Db, codigo: string) {
   return { para: "dispositivo" as const, nombre: usuario?.nombre };
 }
 
-/** Usa el código: crea la cuenta (si es nueva) y el dispositivo, y devuelve su token. */
-export function canjearInvitacion(db: Db, datos: { codigo: string; nombre?: string; dispositivo: string }) {
+/**
+ * Usa el código: crea la cuenta (si es nueva) y el dispositivo, y devuelve su token.
+ * Con `soloCuentaExistente` (el Atajo) un código de cuenta nueva no sirve.
+ */
+export function canjearInvitacion(
+  db: Db,
+  datos: { codigo: string; nombre?: string; dispositivo: string; soloCuentaExistente?: boolean },
+) {
   return db.transaction((tx) => {
     const fila = invitacionVigente(tx as unknown as Db, datos.codigo);
+    if (datos.soloCuentaExistente && !fila.usuarioId) {
+      throw new ErrorInvitacion("Este código es para crear una cuenta. Ábrelo en la app.", 400);
+    }
     let usuario = fila.usuarioId ? tx.select().from(usuarios).where(eq(usuarios.id, fila.usuarioId)).get() : undefined;
     if (!usuario) {
       const nombre = datos.nombre?.trim();
@@ -132,6 +141,38 @@ export function canjearInvitacion(db: Db, datos: { codigo: string; nombre?: stri
       usuario: { id: usuario.id, nombre: usuario.nombre },
       dispositivo: { id: dispositivo.id, nombre: dispositivo.nombre },
     };
+  });
+}
+
+/**
+ * Al preparar un Atajo nuevo, los que se prepararon hace poco y nunca se usaron sobran (instalaciones que
+ * no terminaron). Solo los de la última media hora: uno más viejo puede estar instalado en otro iPhone.
+ */
+export function revocarAtajosSinUsar(db: Db, usuarioId: string, nombre: string, excepto: string) {
+  const desde = new Date(Date.now() - 30 * 60_000).toISOString();
+  db.update(dispositivos)
+    .set({ revocadoEn: new Date().toISOString() })
+    .where(
+      and(
+        eq(dispositivos.usuarioId, usuarioId),
+        eq(dispositivos.nombre, nombre),
+        isNull(dispositivos.ultimoUso),
+        isNull(dispositivos.revocadoEn),
+        gte(dispositivos.creadoEn, desde),
+        ne(dispositivos.id, excepto),
+      ),
+    )
+    .run();
+}
+
+/** Deshace un canje que no llegó a nada (la Mac no pudo firmar el Atajo): el código vuelve a servir. */
+export function devolverInvitacion(db: Db, codigo: string, dispositivoId: string) {
+  db.transaction((tx) => {
+    tx.update(dispositivos).set({ revocadoEn: new Date().toISOString() }).where(eq(dispositivos.id, dispositivoId)).run();
+    tx.update(invitaciones)
+      .set({ usadaEn: null, dispositivoId: null })
+      .where(and(eq(invitaciones.codigo, normalizarCodigo(codigo)), eq(invitaciones.dispositivoId, dispositivoId)))
+      .run();
   });
 }
 

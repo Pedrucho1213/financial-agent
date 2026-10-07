@@ -7,9 +7,11 @@ import {
   consultarInvitacion,
   crearDispositivoPara,
   crearInvitacion,
+  devolverInvitacion,
   ErrorInvitacion,
   listarDispositivos,
   requiereToken,
+  revocarAtajosSinUsar,
   revocarDispositivo,
   type VariablesAuth,
 } from "./auth";
@@ -97,6 +99,8 @@ const esquemaEdicion = esquemaMovimiento.partial().extend({
   cuenta: esquemaMovimiento.shape.cuenta.unwrap().nullable().optional(),
 });
 
+const esquemaServidor = z.url({ protocol: /^https?$/ });
+
 const esquemaRegistro = z.object({
   codigo: z.string().trim().min(6).max(12),
   nombre: z.string().trim().max(80).optional(),
@@ -108,6 +112,7 @@ const esquemaRegistro = z.object({
 const VENTANA_INTENTOS_MS = 10 * 60_000;
 const MAX_INTENTOS_FALLIDOS = 20;
 const ATAJO_VIGENCIA_MS = 10 * 60_000;
+const NOMBRE_ATAJO = "Atajo Finanzas";
 
 export function crearApp(opciones: OpcionesApp) {
   const { db } = opciones;
@@ -117,6 +122,22 @@ export function crearApp(opciones: OpcionesApp) {
   const firmar = opciones.firmarAtajo ?? firmarAtajo;
   const contexto = (usuarioId: string) =>
     crearContexto({ db, usuarioId, zonaHoraria: opciones.zonaHoraria, monedaBase: opciones.monedaBase });
+
+  /** Arma y firma el Atajo con ese token y lo deja unos minutos para descargarlo. Lanza ErrorFirma. */
+  const prepararAtajo = async (servidor: string, token: string, usuarioId: string, dispositivoId: string) => {
+    const nombre = db.select().from(usuarios).where(eq(usuarios.id, usuarioId)).get()?.nombre;
+    const archivo = await firmar(generarAtajo({ servidor: servidor.replace(/\/+$/, ""), token, nombre }));
+    revocarAtajosSinUsar(db, usuarioId, NOMBRE_ATAJO, dispositivoId);
+    const id = crypto.randomUUID();
+    const expira = Date.now() + ATAJO_VIGENCIA_MS;
+    for (const [clave, a] of atajos) if (a.expira < Date.now()) atajos.delete(clave);
+    atajos.set(id, { archivo, expira });
+    return { url: `/atajo/${id}.shortcut`, expiraEn: new Date(expira).toISOString(), nombre: nombre ?? null };
+  };
+  const sinFirma = (error: ErrorFirma) => {
+    console.error("No se pudo firmar el Atajo:", error.message);
+    return { error: "Esta computadora no puede firmar Atajos.", detalle: error.message };
+  };
 
   app.get("/salud", (c) => c.json({ ok: true }));
 
@@ -154,6 +175,30 @@ export function crearApp(opciones: OpcionesApp) {
     } catch (error) {
       const e = errorInvitacion(error);
       return c.json({ error: e.message }, e.estado);
+    }
+  });
+  // El enlace para instalar el Atajo directo: un código de dispositivo se vuelve el Atajo de esa cuenta.
+  publico.post("/atajo/canjear", async (c) => {
+    if (demasiadosIntentos()) return c.json({ error: "Demasiados intentos. Espera unos minutos." }, 429);
+    const cuerpo = z
+      .object({ codigo: z.string().trim().min(6).max(12), servidor: esquemaServidor })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!cuerpo.success) return c.json({ error: "Faltan el código o la dirección del servidor." }, 400);
+    const { codigo, servidor } = cuerpo.data;
+    let canje: ReturnType<typeof canjearInvitacion>;
+    try {
+      canje = canjearInvitacion(db, { codigo, dispositivo: NOMBRE_ATAJO, soloCuentaExistente: true });
+    } catch (error) {
+      const e = errorInvitacion(error);
+      return c.json({ error: e.message }, e.estado);
+    }
+    try {
+      return c.json(await prepararAtajo(servidor, canje.token, canje.usuario.id, canje.dispositivo.id), 201);
+    } catch (error) {
+      // Sin Atajo no se gasta el código: se puede volver a intentar con el mismo enlace.
+      devolverInvitacion(db, codigo, canje.dispositivo.id);
+      if (error instanceof ErrorFirma) return c.json(sinFirma(error), 501);
+      throw error;
     }
   });
   app.route("/v1", publico);
@@ -374,27 +419,16 @@ export function crearApp(opciones: OpcionesApp) {
 
   // Prepara el Atajo con un token propio y deja el archivo firmado 10 minutos para descargarlo.
   v1.post("/atajo", async (c) => {
-    const cuerpo = z
-      .object({ servidor: z.url({ protocol: /^https?$/ }) })
-      .safeParse(await c.req.json().catch(() => null));
+    const cuerpo = z.object({ servidor: esquemaServidor }).safeParse(await c.req.json().catch(() => null));
     if (!cuerpo.success) return c.json({ error: "Falta la dirección del servidor (servidor)." }, 400);
-    const servidor = cuerpo.data.servidor.replace(/\/+$/, "");
     const usuarioId = c.get("usuarioId");
-    const { token, dispositivo } = crearDispositivoPara(db, usuarioId, "Atajo Finanzas");
+    const { token, dispositivo } = crearDispositivoPara(db, usuarioId, NOMBRE_ATAJO);
     try {
-      const archivo = await firmar(generarAtajo({ servidor, token }));
-      const id = crypto.randomUUID();
-      const expira = Date.now() + ATAJO_VIGENCIA_MS;
-      for (const [clave, a] of atajos) if (a.expira < Date.now()) atajos.delete(clave);
-      atajos.set(id, { archivo, expira });
-      return c.json({ url: `/atajo/${id}.shortcut`, expiraEn: new Date(expira).toISOString() }, 201);
+      return c.json(await prepararAtajo(cuerpo.data.servidor, token, usuarioId, dispositivo.id), 201);
     } catch (error) {
       // Sin Atajo, el token nuevo no sirve de nada.
       revocarDispositivo(db, usuarioId, dispositivo.id);
-      if (error instanceof ErrorFirma) {
-        console.error("No se pudo firmar el Atajo:", error.message);
-        return c.json({ error: "Esta computadora no puede firmar Atajos.", detalle: error.message }, 501);
-      }
+      if (error instanceof ErrorFirma) return c.json(sinFirma(error), 501);
       throw error;
     }
   });

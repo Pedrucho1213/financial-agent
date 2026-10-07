@@ -6,7 +6,7 @@ import { VitePWA } from "vite-plugin-pwa";
 // En desarrollo la API corre aparte; en producción el servidor sirve esta app en el mismo origen.
 const API = "http://127.0.0.1:8787";
 
-// Rutas que nunca deben pasar por la caché del service worker.
+// Rutas que la navegación sin conexión nunca debe responder con index.html.
 const SOLO_RED = /^\/(v1|atajo)\//;
 
 export default defineConfig({
@@ -41,12 +41,10 @@ export default defineConfig({
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [SOLO_RED, /^\/salud$/],
         cleanupOutdatedCaches: true,
-        runtimeCaching: [
-          {
-            urlPattern: ({ url }) => url.pathname.startsWith("/v1/") || url.pathname.startsWith("/atajo/"),
-            handler: "NetworkOnly",
-          },
-        ],
+        // /atajo/* no tiene ninguna ruta a propósito: si el service worker responde la descarga
+        // (aunque sea con NetworkOnly), Safari la guarda como "Finanzas.shortcut.html" y iOS
+        // ya no la abre en Atajos. Sin ruta, el navegador la descarga por su cuenta.
+        runtimeCaching: [{ urlPattern: ({ url }) => url.pathname.startsWith("/v1/"), handler: "NetworkOnly" }],
       },
     }),
   ],

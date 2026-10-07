@@ -8,7 +8,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { aPlistXml, type ValorPlist } from "./plist";
 
-export type OpcionesAtajo = { servidor: string; token: string };
+export type OpcionesAtajo = {
+  servidor: string;
+  token: string;
+  /** Para saludar por su nombre la primera vez. */
+  nombre?: string;
+};
 
 /** La Mac no pudo firmar el Atajo: no es macOS, falta `shortcuts` o la firma falló. */
 export class ErrorFirma extends Error {
@@ -21,6 +26,35 @@ export const CARPETA_PENDIENTES = "/Finanzas/pendientes";
 export const PALABRAS_PARA_TERMINAR = "^\\s*¡?\\s*(no|nada|listo|ya|es todo|gracias)\\s*[.!]?\\s*$";
 export const TURNOS = 10;
 export const IDIOMA = "es-MX";
+/**
+ * Si existe, ya se dio la bienvenida (en iCloud Drive, así no se repite al reinstalar). Va en la raíz de la
+ * carpeta de Atajos y no en /Finanzas: es lo primero que corre y esa subcarpeta aún no existe la primera vez.
+ */
+export const ARCHIVO_BIENVENIDA = "/Finanzas-bienvenida.txt";
+/** Un "sí" a "¿quieres que te cuente cómo funciono?". */
+export const QUIERE_EXPLICACION =
+  "^\\W*(s[ií]|claro|va|dale|ok|okay|por favor|cu[eé]ntame|expl[ií]ca|[aá]ndale|sale|bueno|me gustar[ií]a|quiero)";
+
+/** Lo que dice la primera vez: un saludo, la pregunta y, si quiere, cómo usarlo. */
+export function guionBienvenida(nombre?: string) {
+  const primero = nombre?.trim().split(/\s+/)[0]?.replace(/[^\p{L}\p{M}'-]/gu, "");
+  return {
+    saludo:
+      `¡Hola${primero ? `, ${primero}` : ""}! Qué gusto saludarte. Soy tu asistente de finanzas: ` +
+      "tú me cuentas lo que gastas y yo llevo las cuentas por ti. ¿Quieres que te cuente cómo funciono?",
+    explicacion: [
+      "Es muy fácil. Cuando gastes algo, dímelo como se lo contarías a un amigo. " +
+        "Por ejemplo: gasté 85 pesos en un café, o pagué la renta por transferencia.",
+      "También puedes preguntarme cosas como: ¿cuánto llevo gastado este mes?, o ¿cuánto gasté en Uber la semana pasada? " +
+        "Yo hago las cuentas.",
+      "Si me equivoco, corrígeme: no eran 85, eran 95. Si no tienes internet, guardo lo que me digas y lo mando después. " +
+        "Y cuando termines, solo di: listo.",
+      "Tus gráficas y tus movimientos están en la app Finanzas de tu pantalla de inicio.",
+    ],
+    sinExplicacion: "Va.",
+    cierre: "Cuando quieras, dime tu primer gasto o hazme una pregunta.",
+  };
+}
 /** Cuánto espera la respuesta de una pregunta que la Mac sigue pensando. */
 export const ESPERA_RESPUESTA_MS = 45_000;
 
@@ -148,12 +182,23 @@ class Constructor {
     this.bloque("conditional", apertura, entonces, deLoContrario);
   }
 
+  private repeticiones = 0;
+
   repetir(veces: number, cuerpo: () => void): void {
+    this.repeticiones++;
     this.bloque("repeat.count", { WFRepeatCount: veces }, cuerpo);
+    this.repeticiones--;
   }
 
-  repetirConCada(lista: Ref, cuerpo: () => void): void {
-    this.bloque("repeat.each", { WFInput: adjunto(lista) }, cuerpo);
+  /**
+   * Repetir con cada elemento. Atajos nombra el elemento actual según cuántos Repetir lo encierran:
+   * "Repeat Item" en el primero, "Repeat Item 2" dentro de otro (así lo guarda iOS 27 al elegirlo a mano).
+   */
+  repetirConCada(lista: Ref, cuerpo: (elemento: Variable) => void): void {
+    this.repeticiones++;
+    const elemento = variable(this.repeticiones === 1 ? "Repeat Item" : `Repeat Item ${this.repeticiones}`);
+    this.bloque("repeat.each", { WFInput: adjunto(lista) }, () => cuerpo(elemento));
+    this.repeticiones--;
   }
 
   establecer(nombre: string, valor: Ref): Variable {
@@ -341,8 +386,8 @@ export function construirAtajo(opciones: OpcionesAtajo): Record<string, ValorPli
           WFFolder: adjunto(carpeta),
           Recursive: false,
         });
-        a.repetirConCada(archivos, () => {
-          const archivo = a.establecer("Archivo", variable("Repeat Item"));
+        a.repetirConCada(archivos, (elemento) => {
+          const archivo = a.establecer("Archivo", elemento);
           const contestacionPendiente = enviar("Contestación del pendiente", archivo);
           siYaQuedo(contestacionPendiente, " del pendiente", () => borrar(archivo));
         });
@@ -357,6 +402,46 @@ export function construirAtajo(opciones: OpcionesAtajo): Record<string, ValorPli
       "antes de enviarse y se borra cuando el servidor lo recibe.",
   });
   a.establecer("Conversación", a.texto("Sin conversación", ""));
+
+  // La primera vez se presenta y, si le dicen que sí, explica cómo usarlo. No necesita internet.
+  const guion = guionBienvenida(opciones.nombre);
+  const bienvenidaPrevia = a.conSalida("documentpicker.open", "Bienvenida previa", {
+    WFShowFilePicker: false,
+    WFGetFilePath: ARCHIVO_BIENVENIDA,
+    WFFileErrorIfNotFound: false,
+  });
+  a.si(bienvenidaPrevia, SIN_VALOR, () => {
+    decir(guion.saludo);
+    const contesta = a.conSalida("dictatetext", "Respuesta a la bienvenida", {
+      WFSpeechLanguage: IDIOMA,
+      WFDictateTextStopListening: "After Pause",
+    });
+    // Se marca antes de explicar: si lo cierra a la mitad, no vuelve a empezar desde el saludo.
+    const marca = a.conSalida("setitemname", "Archivo de bienvenida", {
+      WFInput: adjunto(a.texto("Bienvenida", "Ya te saludé. Borra este archivo para escuchar la bienvenida otra vez.")),
+      WFName: ARCHIVO_BIENVENIDA.slice(1),
+    });
+    a.accion("documentpicker.save", {
+      WFInput: adjunto(marca),
+      WFAskWhereToSave: false,
+      WFFileDestinationPath: ARCHIVO_BIENVENIDA,
+      WFSaveFileOverwrite: true,
+    });
+    const quiere = a.conSalida("text.match", "Quiere la explicación", {
+      WFMatchTextPattern: QUIERE_EXPLICACION,
+      text: texto(contesta),
+      WFMatchTextCaseSensitive: false,
+    });
+    a.si(
+      quiere,
+      TIENE_VALOR,
+      () => {
+        for (const parte of guion.explicacion) decir(parte);
+      },
+      () => decir(guion.sinExplicacion),
+    );
+    decir(guion.cierre);
+  });
 
   a.repetir(TURNOS, () => {
     const dictado = a.conSalida("dictatetext", "Dictado", {

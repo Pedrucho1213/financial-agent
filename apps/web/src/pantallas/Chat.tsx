@@ -1,10 +1,18 @@
-import { ArrowUp, Check, CircleAlert, Clock, MessageCircle, Mic, Search, SquarePen, Square } from "lucide-react";
+import { ArrowUp, Check, CircleAlert, Clock, MessageCircle, Mic, RotateCw, Search, SquarePen, Square } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Pantalla } from "../components/Pantalla";
 import { Button } from "../components/ui/button";
 import { FilaBoton, Grupo } from "../components/ui/lista";
-import { accionCambiaDatos, enviarMensaje, etiquetaAccion, type Mensaje, nuevaConversacion, useChat } from "../lib/chat";
+import {
+  accionCambiaDatos,
+  enviarMensaje,
+  etiquetaAccion,
+  type Mensaje,
+  nuevaConversacion,
+  reintentar,
+  useChat,
+} from "../lib/chat";
 import { useEnLinea } from "../lib/conexion";
 import { useTeclado } from "../lib/teclado";
 import { cn } from "../lib/utils";
@@ -67,7 +75,7 @@ export function Chat() {
       className="bg-card dark:bg-background"
       derecha={
         mensajes.length ? (
-          <Button variant="plain" size="icon" aria-label="Nueva conversación" onClick={nuevaConversacion} disabled={ocupado}>
+          <Button variant="plain" size="icon" aria-label="Nueva conversación" onClick={nuevaConversacion}>
             <SquarePen className="size-[22px]" />
           </Button>
         ) : null
@@ -102,7 +110,7 @@ export function Chat() {
         ) : (
           <ol className="flex flex-col pt-2" aria-live="polite">
             {mensajes.map((m, i) => (
-              <Burbuja key={m.id} m={m} pegada={mensajes[i - 1]?.rol === m.rol} />
+              <Burbuja key={m.id} m={m} pegada={mensajes[i - 1]?.rol === m.rol} enLinea={enLinea} />
             ))}
           </ol>
         )}
@@ -161,7 +169,7 @@ export function Chat() {
   );
 }
 
-function Burbuja({ m, pegada }: { m: Mensaje; pegada: boolean }) {
+function Burbuja({ m, pegada, enLinea }: { m: Mensaje; pegada: boolean; enLinea: boolean }) {
   const mia = m.rol === "yo";
   return (
     <li className={cn("flex flex-col animate-burbuja", mia ? "items-end" : "items-start", pegada ? "mt-1" : "mt-3")}>
@@ -203,9 +211,22 @@ function Burbuja({ m, pegada }: { m: Mensaje; pegada: boolean }) {
         </span>
       ) : null}
       {m.estado === "error" ? (
-        <span className="mt-1 flex items-center gap-1 px-2 text-[12px] text-negative">
-          <CircleAlert className="size-3" /> No se completó
-        </span>
+        <div className="mt-1 flex items-center gap-2 px-2">
+          <span className="flex items-center gap-1 text-[12px] text-negative">
+            <CircleAlert className="size-3" /> No se completó
+          </span>
+          {m.reintentable ? (
+            <Button
+              variant="tinted"
+              size="sm"
+              className="relative h-7 gap-1 px-2.5 text-[13px] after:absolute after:-inset-x-1 after:-inset-y-2 after:content-[''] [&_svg:not([class*='size-'])]:size-3.5"
+              disabled={!enLinea}
+              onClick={() => void reintentar(m.id)}
+            >
+              <RotateCw strokeWidth={2.5} /> Reintentar
+            </Button>
+          ) : null}
+        </div>
       ) : null}
       {m.acciones?.length ? (
         <ul className="mt-1.5 flex max-w-[90%] flex-wrap gap-1.5" aria-label="Lo que hizo">

@@ -3,12 +3,15 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  ARCHIVO_BIENVENIDA,
   CARPETA_PENDIENTES,
   construirAtajo,
   ErrorFirma,
   firmarAtajo,
   generarAtajo,
+  guionBienvenida,
   PALABRAS_PARA_TERMINAR,
+  QUIERE_EXPLICACION,
 } from "../src/atajo/generar";
 import { aPlistXml, escaparXml, real } from "../src/atajo/plist";
 
@@ -118,7 +121,7 @@ function* recorrer(valor: Valor, clave = ""): Generator<[string, Valor]> {
 
 const SERVIDOR = "https://macbook-de-pedro.tu-red.ts.net";
 const TOKEN = "fa_prueba123";
-const atajo = leerPlist(generarAtajo({ servidor: SERVIDOR, token: TOKEN })) as Dict;
+const atajo = leerPlist(generarAtajo({ servidor: SERVIDOR, token: TOKEN, nombre: "Pedro Ramírez" })) as Dict;
 const acciones = atajo.WFWorkflowActions as unknown as Accion[];
 const id = (a: Accion) => a.WFWorkflowActionIdentifier.replace("is.workflow.actions.", "");
 const indice = (identificador: string) => acciones.findIndex((a) => id(a) === identificador);
@@ -273,6 +276,18 @@ describe("generarAtajo", () => {
     expect(textos).toBeGreaterThan(20);
   });
 
+  test("el elemento de Repetir con cada lleva el número de su anidamiento", () => {
+    // La cola se recorre dentro de "Repetir 10 veces": el elemento es "Repeat Item 2".
+    const abre = acciones.findIndex((a) => id(a) === "repeat.each" && parametros(a).WFControlFlowMode === 0);
+    expect(abre).toBeGreaterThan(indice("repeat.count"));
+    const archivo = acciones.find((a) => id(a) === "setvariable" && parametros(a).WFVariableName === "Archivo")!;
+    expect(parametros(archivo).WFInput).toEqual({
+      Value: { Type: "Variable", VariableName: "Repeat Item 2" },
+      WFSerializationType: "WFTextTokenAttachment",
+    });
+    expect(JSON.stringify(acciones)).not.toContain('"VariableName":"Repeat Item"');
+  });
+
   test("las variables con nombre que se leen se establecen en algún lado", () => {
     const establecidas = new Set(acciones.filter((a) => id(a) === "setvariable").map((a) => parametros(a).WFVariableName));
     const leidas = new Set<string>();
@@ -283,7 +298,7 @@ describe("generarAtajo", () => {
         }
       }
     }
-    leidas.delete("Repeat Item"); // la pone Repetir con cada
+    for (const nombre of leidas) if (/^Repeat Item( \d+)?$/.test(nombre)) leidas.delete(nombre); // las pone Repetir con cada
     for (const nombre of leidas) expect(establecidas.has(nombre)).toBe(true);
   });
 
@@ -313,7 +328,14 @@ describe("generarAtajo", () => {
 });
 
 describe("comportamiento", () => {
-  const guardados = acciones.flatMap((a, k) => (id(a) === "documentpicker.save" ? [k] : []));
+  const destino = (a: Accion) => {
+    const d = parametros(a).WFFileDestinationPath;
+    return typeof d === "string" ? d : (((d as Dict).Value as Dict).string as string);
+  };
+  // Los de la cola; el otro guardado es la marca de la bienvenida.
+  const guardados = acciones.flatMap((a, k) =>
+    id(a) === "documentpicker.save" && destino(a).startsWith(CARPETA_PENDIENTES) ? [k] : [],
+  );
 
   test("nada que use la red corre antes de guardar el dictado", () => {
     const primerGuardado = guardados[0]!;
@@ -359,7 +381,7 @@ describe("comportamiento", () => {
   });
 
   test("la cola se lee solo después de un envío y sin selector de archivos", () => {
-    const leer = indice("documentpicker.open");
+    const leer = acciones.findIndex((a) => id(a) === "documentpicker.open" && parametros(a).WFGetFilePath === CARPETA_PENDIENTES);
     expect(leer).toBeGreaterThan(indice("downloadurl"));
     expect(leer).toBeGreaterThan(guardados[0]!);
     const p = parametros(acciones[leer]!);
@@ -412,6 +434,43 @@ describe("comportamiento", () => {
     }
     const coincidir = acciones.find((a) => parametros(a).WFMatchTextPattern === PALABRAS_PARA_TERMINAR)!;
     expect(parametros(coincidir).WFMatchTextCaseSensitive).toBe(false);
+  });
+});
+
+describe("bienvenida", () => {
+  const leer = acciones.findIndex((a) => id(a) === "documentpicker.open" && parametros(a).WFGetFilePath === ARCHIVO_BIENVENIDA);
+  const loop = indice("repeat.count");
+
+  test("la primera vez saluda por su nombre, pregunta y marca que ya saludó, sin usar la red", () => {
+    expect(leer).toBeGreaterThan(-1);
+    expect(leer).toBeLessThan(loop);
+    expect(parametros(acciones[leer]!)).toMatchObject({ WFShowFilePicker: false, WFFileErrorIfNotFound: false });
+    const tramo = acciones.slice(leer, loop);
+    const dichos = tramo.filter((a) => id(a) === "speaktext").map((a) => parametros(a).WFText);
+    expect(dichos[0]).toStartWith("¡Hola, Pedro! ");
+    expect(dichos).toContain(guionBienvenida().cierre);
+    expect(dichos).toHaveLength(guionBienvenida().explicacion.length + 3);
+    const marca = tramo.find((a) => id(a) === "documentpicker.save")!;
+    expect(parametros(marca)).toMatchObject({ WFFileDestinationPath: ARCHIVO_BIENVENIDA, WFAskWhereToSave: false, WFSaveFileOverwrite: true });
+    for (const red of ["downloadurl", "getcurrentlocation"]) expect(tramo.some((a) => id(a) === red)).toBe(false);
+    // Todo va dentro del Si "no existe la marca".
+    const si = parametros(acciones[leer + 1]!);
+    expect(si.WFCondition).toBe(101);
+  });
+
+  test("entiende un sí y no confunde un no ni un gasto", () => {
+    const patron = new RegExp(QUIERE_EXPLICACION, "i");
+    for (const dicho of ["Sí", "si", "¡Sí, cuéntame!", "Claro", "dale", "Va", "Ok", "Por favor", "Explícame", "Me gustaría"]) {
+      expect(patron.test(dicho)).toBe(true);
+    }
+    for (const dicho of ["No", "no gracias", "empecemos", "gasté 50 en tacos", "", "ya"]) {
+      expect(patron.test(dicho)).toBe(false);
+    }
+  });
+
+  test("sin nombre saluda igual y solo usa el primer nombre", () => {
+    expect(guionBienvenida().saludo).toStartWith("¡Hola! ");
+    expect(guionBienvenida("  ana maría ").saludo).toStartWith("¡Hola, ana! ");
   });
 });
 

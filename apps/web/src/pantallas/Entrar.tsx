@@ -1,17 +1,19 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { CircleCheck } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, CircleCheck, ClipboardPaste, Copy, Share } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
+import { CasillasCodigo, CodigoGrande } from "../components/CasillasCodigo";
+import { PasosNumerados } from "../components/PasosNumerados";
 import { Spinner } from "../components/Spinner";
 import { Button } from "../components/ui/button";
 import { CampoFila } from "../components/ui/input";
 import { Fila, Grupo } from "../components/ui/lista";
-import { api, ErrorApi } from "../lib/api";
+import { api } from "../lib/api";
+import { codigoDeLaDireccion, codigoDeTexto, LARGO_CODIGO, mensajeInvitacion } from "../lib/codigo";
 import { useEnLinea } from "../lib/conexion";
+import { enPantallaDeInicio, esIOS } from "../lib/plataforma";
 import { guardarToken } from "../lib/sesion";
 import type { Invitacion, Registro } from "../lib/tipos";
-import { cn } from "../lib/utils";
-
-const LARGO = 6;
 
 export function nombreDispositivoPorOmision(ua = navigator.userAgent, toques = navigator.maxTouchPoints) {
   if (/iPhone/i.test(ua)) return "iPhone";
@@ -21,39 +23,37 @@ export function nombreDispositivoPorOmision(ua = navigator.userAgent, toques = n
   return "Navegador";
 }
 
-function limpiarCodigo(texto: string) {
-  return texto
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "")
-    .slice(0, LARGO);
-}
-
-function mensajeInvitacion(error: unknown) {
-  if (error instanceof ErrorApi) {
-    if (error.estado === 404) return "Ese código no existe. Revísalo o pide uno nuevo.";
-    if (error.estado === 410) return "Ese código ya se usó o venció. Pide uno nuevo.";
-    if (error.estado === 429) return "Demasiados intentos. Espera unos minutos y vuelve a intentarlo.";
-    return error.message;
-  }
-  return "No pudimos revisar el código. Inténtalo de nuevo.";
-}
-
-export function Entrar() {
-  const enLinea = useEnLinea();
-  const [codigo, setCodigo] = useState(() => limpiarCodigo(new URLSearchParams(window.location.search).get("codigo") ?? ""));
-  const [nombre, setNombre] = useState("");
-  const [dispositivo, setDispositivo] = useState(() => nombreDispositivoPorOmision());
-  const campo = useRef<HTMLInputElement>(null);
-  const completo = codigo.length === LARGO;
-
-  const invitacion = useQuery({
+function useInvitacion(codigo: string) {
+  return useQuery({
     queryKey: ["invitacion", codigo],
     queryFn: () => api<Invitacion>(`/v1/invitaciones/${encodeURIComponent(codigo)}`, { publica: true }),
-    enabled: completo,
+    enabled: codigo.length === LARGO_CODIGO,
     retry: false,
     staleTime: 60_000,
     gcTime: 0,
   });
+}
+
+export function Entrar() {
+  const [codigoInicial] = useState(codigoDeLaDireccion);
+  const [enSafari, setEnSafari] = useState(false);
+  // En iPhone, la app de la pantalla de inicio no comparte datos con Safari: si el código se
+  // canjeara aquí, la app instalada quedaría pidiendo uno que ya se gastó. Primero, instalarla.
+  if (codigoInicial.length === LARGO_CODIGO && !enSafari && esIOS() && !enPantallaDeInicio()) {
+    return <InstalaLaApp codigo={codigoInicial} alUsarEnSafari={() => setEnSafari(true)} />;
+  }
+  return <Formulario codigoInicial={codigoInicial} />;
+}
+
+function Formulario({ codigoInicial }: { codigoInicial: string }) {
+  const enLinea = useEnLinea();
+  const [codigo, setCodigo] = useState(codigoInicial);
+  const [nombre, setNombre] = useState("");
+  const [dispositivo, setDispositivo] = useState(() => nombreDispositivoPorOmision());
+  const completo = codigo.length === LARGO_CODIGO;
+
+  const invitacion = useInvitacion(codigo);
+  const puedePegar = enPantallaDeInicio() && typeof navigator.clipboard?.readText === "function";
 
   const registro = useMutation({
     mutationFn: () =>
@@ -72,17 +72,26 @@ export function Entrar() {
     },
   });
 
-  useEffect(() => {
-    if (!completo) campo.current?.focus();
-  }, [completo]);
-
   const para = invitacion.data?.para;
   const errorCodigo = invitacion.isError ? mensajeInvitacion(invitacion.error) : null;
   const errorRegistro = registro.isError ? mensajeInvitacion(registro.error) : null;
   const puedeEntrar =
     enLinea && invitacion.isSuccess && dispositivo.trim().length > 0 && (para !== "usuario" || nombre.trim().length > 0);
 
-  const casillas = useMemo(() => Array.from({ length: LARGO }, (_, i) => codigo[i] ?? ""), [codigo]);
+  // En la app de la pantalla de inicio, el código llega copiado desde Safari.
+  const pegar = async () => {
+    try {
+      const pegado = codigoDeTexto(await navigator.clipboard.readText());
+      if (!pegado) {
+        toast.error("Lo que copiaste no tiene un código de 6 caracteres.");
+        return;
+      }
+      registro.reset();
+      setCodigo(pegado);
+    } catch {
+      toast.error("No se pudo pegar. Escribe el código.");
+    }
+  };
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col px-safe pt-[calc(env(safe-area-inset-top)+44px)] pb-[max(1.25rem,env(safe-area-inset-bottom))]">
@@ -101,44 +110,15 @@ export function Entrar() {
           </p>
         </div>
 
-        <label className="relative mx-auto mt-8 block w-full max-w-[22rem]" htmlFor="codigo">
-          <span className="sr-only">Código de invitación</span>
-          <div className={cn("grid grid-cols-6 gap-2", errorCodigo && "animate-sacudir")} aria-hidden>
-            {casillas.map((c, i) => {
-              const activa = i === Math.min(codigo.length, LARGO - 1) && !completo;
-              return (
-                <div
-                  key={i}
-                  className={cn(
-                    "flex h-14 items-center justify-center rounded-xl bg-card text-[26px] font-semibold tabular transition-[box-shadow] duration-150",
-                    activa && "ring-2 ring-primary",
-                    errorCodigo && "ring-2 ring-destructive/70",
-                  )}
-                >
-                  {c || (activa ? <span className="h-7 w-0.5 animate-pulse rounded bg-primary" /> : null)}
-                </div>
-              );
-            })}
-          </div>
-          <input
-            ref={campo}
-            id="codigo"
-            name="codigo"
-            value={codigo}
-            onChange={(e) => {
-              registro.reset();
-              setCodigo(limpiarCodigo(e.target.value));
-            }}
-            autoComplete="one-time-code"
-            autoCapitalize="characters"
-            autoCorrect="off"
-            spellCheck={false}
-            inputMode="text"
-            maxLength={LARGO}
-            aria-invalid={!!errorCodigo}
-            className="absolute inset-0 h-full w-full cursor-text bg-transparent text-transparent caret-transparent outline-none selection:bg-transparent"
-          />
-        </label>
+        <CasillasCodigo
+          className="mt-8"
+          codigo={codigo}
+          error={!!errorCodigo}
+          alCambiar={(c) => {
+            registro.reset();
+            setCodigo(c);
+          }}
+        />
 
         <div className="mt-4 min-h-12 text-center text-[15px]" aria-live="polite">
           {invitacion.isFetching ? (
@@ -156,6 +136,13 @@ export function Entrar() {
             <span className="inline-flex items-center gap-1.5 text-muted-foreground">
               <CircleCheck className="size-[18px] text-positive" aria-hidden /> Código válido. Cuéntanos cómo te llamas.
             </span>
+          ) : null}
+          {puedePegar && (!completo || errorCodigo) && !invitacion.isFetching ? (
+            <div className={errorCodigo ? "mt-3" : undefined}>
+              <Button variant="tinted" size="sm" onClick={pegar}>
+                <ClipboardPaste /> Pegar código
+              </Button>
+            </div>
           ) : null}
         </div>
 
@@ -206,6 +193,84 @@ export function Entrar() {
           </Button>
         </div>
       </form>
+    </div>
+  );
+}
+
+/**
+ * Abierta desde un enlace con ?codigo= en Safari de iPhone: primero se instala la app en la
+ * pantalla de inicio y el código se pega ahí. "Usar en Safari" lo canjea aquí mismo.
+ */
+function InstalaLaApp({ codigo, alUsarEnSafari }: { codigo: string; alUsarEnSafari: () => void }) {
+  const invitacion = useInvitacion(codigo);
+  const [copiado, setCopiado] = useState(false);
+  const aparato = /iPad/i.test(navigator.userAgent) || !/iPhone|iPod/i.test(navigator.userAgent) ? "iPad" : "iPhone";
+
+  const copiar = async () => {
+    try {
+      await navigator.clipboard.writeText(codigo);
+      setCopiado(true);
+      toast.success("Código copiado");
+      window.setTimeout(() => setCopiado(false), 2500);
+    } catch {
+      toast.error("No se pudo copiar. Anota el código.");
+    }
+  };
+
+  return (
+    <div className="mx-auto flex min-h-dvh max-w-md flex-col px-safe pt-[calc(env(safe-area-inset-top)+44px)] pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+      <div className="flex flex-col items-center text-center animate-entrar">
+        <img src="/apple-touch-icon.png" alt="" className="size-20 rounded-[18px] shadow-[0_8px_24px_rgb(0_0_0/0.18)]" />
+        <h1 className="mt-6 text-[28px] leading-tight font-bold tracking-[-0.02em] text-balance">Instala Finanzas en tu {aparato}</h1>
+        <p className="mt-2 max-w-[20rem] text-[17px] leading-snug text-balance text-muted-foreground">
+          Se abre como app desde tu pantalla de inicio. Ahí vas a usar este código:
+        </p>
+      </div>
+
+      <div className="mt-6 flex flex-col items-center">
+        <CodigoGrande codigo={codigo} />
+        <div className="mt-3 min-h-6 text-center text-[15px]" aria-live="polite">
+          {invitacion.isFetching ? (
+            <span className="inline-flex items-center gap-2 text-muted-foreground">
+              <Spinner className="size-4" /> Revisando el código
+            </span>
+          ) : invitacion.isError ? (
+            <span className="text-negative">{mensajeInvitacion(invitacion.error)}</span>
+          ) : invitacion.data?.para === "dispositivo" ? (
+            <span className="text-muted-foreground">
+              Para la cuenta de <strong className="font-semibold text-foreground">{invitacion.data.nombre ?? "tu cuenta"}</strong>
+            </span>
+          ) : invitacion.isSuccess ? (
+            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+              <CircleCheck className="size-[18px] text-positive" aria-hidden /> Código válido
+            </span>
+          ) : null}
+        </div>
+        <Button variant="tinted" size="sm" className="mt-2" onClick={copiar}>
+          {copiado ? <Check /> : <Copy />}
+          {copiado ? "Copiado" : "Copiar código"}
+        </Button>
+      </div>
+
+      <PasosNumerados
+        className="mt-6"
+        etiqueta="Pasos para instalarla"
+        pasos={[
+          <>
+            Toca Compartir <Share aria-label="(el cuadro con la flecha)" className="mb-1 inline size-[18px] text-tint" />.
+          </>,
+          <>
+            Elige <strong className="font-semibold">«Agregar a inicio»</strong>.
+          </>,
+          <>Abre Finanzas desde tu pantalla de inicio y pega el código.</>,
+        ]}
+      />
+
+      <div className="mt-auto pt-8">
+        <Button variant="gray" size="lg" onClick={alUsarEnSafari}>
+          Usar en Safari
+        </Button>
+      </div>
     </div>
   );
 }

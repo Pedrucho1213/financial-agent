@@ -1,8 +1,9 @@
 // Código de invitación para entrar a la app desde un iPhone o navegador nuevo.
-// Uso: bun run invitar -- --nombre Pedro [--url https://finanzas.tu-red.ts.net]
+// Uso: bun run invitar -- --nombre Pedro [--url https://finanzas.tu-red.ts.net] [--atajo]
 // Con --nombre el código entra a la cuenta de esa persona (la crea si no existe), así la app
 // no pregunta el nombre. Sin --nombre, quien lo use escribe su nombre y se crea su cuenta.
-// Sirve una sola vez y vence en 24 horas (--horas para cambiarlo).
+// Con --atajo saca otro código para el enlace que instala el Atajo directo (/instalar?codigo=...).
+// Cada código sirve una sola vez y vence en 24 horas (--horas para cambiarlo).
 import { parseArgs } from "node:util";
 import { eq } from "drizzle-orm";
 import { crearInvitacion, crearUsuario } from "../src/auth";
@@ -17,11 +18,16 @@ const { values } = parseArgs({
     nombre: { type: "string" },
     horas: { type: "string", default: "24" },
     url: { type: "string" },
+    atajo: { type: "boolean", default: false },
   },
 });
 
-const db = abrirBaseDatos(config.baseDatos);
 const nombre = values.nombre?.trim();
+if (values.atajo && !nombre) {
+  console.error("Para el enlace del Atajo hace falta --nombre: el Atajo entra a la cuenta de esa persona.");
+  process.exit(1);
+}
+const db = abrirBaseDatos(config.baseDatos);
 let usuario = nombre ? db.select().from(usuarios).where(eq(usuarios.nombre, nombre)).get() : undefined;
 const nuevo = !!nombre && !usuario;
 if (nombre && !usuario) {
@@ -35,4 +41,10 @@ console.log(`Código: ${invitacion.codigo}`);
 if (!usuario) console.log("Crea una cuenta nueva al usarlo.");
 else console.log(nuevo ? `Creé la cuenta de ${usuario.nombre}; el código entra a ella.` : `Agrega un dispositivo a la cuenta de ${usuario.nombre}.`);
 console.log(`Vence el ${vence} y sirve una sola vez.`);
-if (values.url) console.log(`Ábrelo en el iPhone: ${values.url.replace(/\/+$/, "")}/?codigo=${invitacion.codigo}`);
+const base = values.url?.replace(/\/+$/, "");
+if (base) console.log(`Ábrelo en el iPhone: ${base}/?codigo=${invitacion.codigo}`);
+if (values.atajo) {
+  const atajo = crearInvitacion(db, { usuarioId: usuario!.id, horas: Number(values.horas) || 24 });
+  console.log(`Código del Atajo: ${atajo.codigo}`);
+  if (base) console.log(`Instala el Atajo: ${base}/instalar?codigo=${atajo.codigo}`);
+}

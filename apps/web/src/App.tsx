@@ -19,17 +19,26 @@ const cargas = {
   ajustes: () => import("./pantallas/Ajustes"),
   editor: () => import("./pantallas/EditorMovimiento"),
   entrar: () => import("./pantallas/Entrar"),
+  instalar: () => import("./pantallas/Instalar"),
 };
 const Chat = lazy(() => cargas.chat().then((m) => ({ default: m.Chat })));
 const Ajustes = lazy(() => cargas.ajustes().then((m) => ({ default: m.Ajustes })));
 const EditorMovimiento = lazy(() => cargas.editor().then((m) => ({ default: m.EditorMovimiento })));
 const Entrar = lazy(() => cargas.entrar().then((m) => ({ default: m.Entrar })));
+const Instalar = lazy(() => cargas.instalar().then((m) => ({ default: m.Instalar })));
+
+// /instalar?codigo=X instala el Atajo sin sesión: va antes de pedir la entrada y no toca el token.
+const EN_INSTALAR = /^\/instalar\/?$/.test(window.location.pathname);
 
 export function App() {
   const token = useToken();
   return (
     <>
-      {token ? (
+      {EN_INSTALAR ? (
+        <Suspense fallback={null}>
+          <Instalar />
+        </Suspense>
+      ) : token ? (
         <Aplicacion />
       ) : (
         <Suspense fallback={null}>
@@ -71,12 +80,22 @@ function Aplicacion() {
   useEffect(() => {
     if (window.location.search) window.history.replaceState(null, "", `/${window.location.hash}`);
     retomarPendientes();
+    // Al volver a la app (o al volver la red) se revisa lo que el chat dejó esperando.
+    const alVolver = () => {
+      if (document.visibilityState === "visible") retomarPendientes();
+    };
+    document.addEventListener("visibilitychange", alVolver);
+    window.addEventListener("online", alVolver);
     // Precarga las otras pantallas cuando la app ya está quieta.
     const id = window.setTimeout(() => {
       void cargas.chat();
       void cargas.ajustes();
     }, 1200);
-    return () => window.clearTimeout(id);
+    return () => {
+      window.clearTimeout(id);
+      document.removeEventListener("visibilitychange", alVolver);
+      window.removeEventListener("online", alVolver);
+    };
   }, []);
 
   // Cada pestaña recuerda dónde se quedó, como en iOS.

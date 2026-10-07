@@ -16,7 +16,19 @@ function refrescar() {
   ]);
 }
 
+// POST /v1/deshacer revierte el ÚLTIMO cambio de la cuenta, no uno en particular (no hay
+// forma de restaurar por id). Por eso solo vive un aviso de "Deshacer" a la vez, y se quita
+// en cuanto otro cambio (otro borrado, una edición o algo que hizo el chat) pasa a ser el último.
+let avisoDeshacer: string | number | undefined;
+
+export function olvidarDeshacer() {
+  if (avisoDeshacer === undefined) return;
+  toast.dismiss(avisoDeshacer);
+  avisoDeshacer = undefined;
+}
+
 async function deshacer() {
+  avisoDeshacer = undefined;
   try {
     const r = await api<{ deshecho: boolean; mensaje?: string }>("/v1/deshacer", { method: "POST" });
     toast.success(r.mensaje ?? (r.deshecho ? "Listo, lo regresé." : "No había nada que deshacer."));
@@ -40,11 +52,19 @@ export async function eliminarConDeshacer(m: MovimientoApp, alTerminar?: () => v
   try {
     await api<{ ok: true }>(`/v1/movimientos/${encodeURIComponent(m.id)}`, { method: "DELETE" });
     alTerminar?.();
-    toast("Eliminado", {
+    olvidarDeshacer();
+    const id = toast("Eliminado", {
       description: m.comercio ?? m.descripcion ?? m.categoria ?? undefined,
       duration: 6000,
       action: { label: "Deshacer", onClick: () => void deshacer() },
+      onDismiss: () => {
+        if (avisoDeshacer === id) avisoDeshacer = undefined;
+      },
+      onAutoClose: () => {
+        if (avisoDeshacer === id) avisoDeshacer = undefined;
+      },
     });
+    avisoDeshacer = id;
   } catch (error) {
     for (const [k, datos] of previos) clienteConsultas.setQueryData(k, datos);
     toast.error(mensajeDeError(error));

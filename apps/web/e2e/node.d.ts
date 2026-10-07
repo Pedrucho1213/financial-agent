@@ -4,4 +4,5 @@ declare module "node:fs" {
   export function existsSync(ruta: string): boolean;
   export function readdirSync(ruta: string): string[];
   export function mkdirSync(ruta: string, opciones?: { recursive?: boolean }): void;
+  export function readFileSync(ruta: string, codificacion: "utf8"): string;
 }
