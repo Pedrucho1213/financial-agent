@@ -77,7 +77,10 @@ export function costumbreParaLaIA(ctx: Contexto, texto: string): string | undefi
   if (!puedeComentar(ctx)) return undefined;
   const moneda = monedaDelTexto(texto);
   if (moneda && moneda !== ctx.monedaBase) return undefined;
-  const monto = Math.round(montosDelTexto(texto).reduce((s, n) => s + n, 0) * 100);
+  const montos = montosDelTexto(texto);
+  const monto = Math.round(montos.reduce((s, n) => s + n, 0) * 100);
+  // "Café 60, gasolina 800 y súper 1,300" son tres compras: solo cuentan juntas para el día.
+  const unaCompra = montos.length === 1;
   if (monto <= 0) return undefined;
   const previos = gastosEntre(ctx, sumarDias(ctx.hoy, -60), ctx.hoy);
   if (previos.length < MINIMO_GASTOS) return undefined;
@@ -94,7 +97,7 @@ export function costumbreParaLaIA(ctx: Contexto, texto: string): string | undefi
   const conocido = delLugar.length >= 3;
   const tipica = mediana((conocido ? delLugar : previos).map((g) => g.montoCentavos));
   const veces = Math.floor(monto / tipica);
-  if (monto >= GASTO_ALTO_MINIMO_CENTAVOS && veces >= (conocido ? 2 : 3)) {
+  if (unaCompra && monto >= GASTO_ALTO_MINIMO_CENTAVOS && veces >= (conocido ? 2 : 3)) {
     notas.push(
       conocido
         ? `Ojo, es como ${veces} veces lo que sueles gastar en ${lugar}, que es como ${m(tipica)}.`
@@ -105,7 +108,7 @@ export function costumbreParaLaIA(ctx: Contexto, texto: string): string | undefi
   for (const g of previos.filter((g) => g.fecha >= sumarDias(ctx.hoy, -30))) porDia.set(g.fecha, (porDia.get(g.fecha) ?? 0) + g.montoCentavos);
   // El súper de la semana dispara el día, pero es lo de siempre en ese lugar: eso no se nota. Y si el gasto
   // ya es alto por sí solo, con decir eso basta.
-  const deSiempreAhi = conocido && monto <= 1.5 * tipica;
+  const deSiempreAhi = unaCompra && conocido && monto <= 1.5 * tipica;
   if (porDia.size >= MINIMO_DIAS && !deSiempreAhi && notas.length === 0) {
     const normal = [...porDia.values()].reduce((s, v) => s + v, 0) / porDia.size;
     const antes = hoy.reduce((s, g) => s + g.montoCentavos, 0);
@@ -121,7 +124,7 @@ export function costumbreParaLaIA(ctx: Contexto, texto: string): string | undefi
   const desde = previos.reduce((min, g) => (g.fecha < min ? g.fecha : min), haceUnaSemana);
   const semanas = Math.max(1, (Date.parse(haceUnaSemana) - Date.parse(desde)) / (7 * 86_400_000));
   const porSemana = antesDeLaSemana.length / semanas;
-  if (lugar && enLaSemana >= 4 && enLaSemana >= 1.5 * porSemana) notas.push(`Es tu vez número ${enLaSemana} en ${lugar} esta semana.`);
+  if (unaCompra && lugar && enLaSemana >= 4 && enLaSemana >= 1.5 * porSemana) notas.push(`Es tu vez número ${enLaSemana} en ${lugar} esta semana.`);
 
   if (!notas.length) return undefined;
   return `Para comentar al registrar este gasto (dilo tal cual si de verdad le sirve oírlo):\n${notas.map((n) => `- ${n}`).join("\n")}`;

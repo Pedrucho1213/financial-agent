@@ -152,6 +152,10 @@ describe("costumbre y comentario", () => {
   test("avisa cuando el día se dispara", () => {
     const { ctx } = preparar();
     conCostumbre(ctx);
+    // Varias compras en un dictado no son una compra grande; juntas sí cuentan para el día.
+    expect(costumbreParaLaIA(ctx, "café 60, gasolina 800 y súper 1,300")).toBe(
+      "Para comentar al registrar este gasto (dilo tal cual si de verdad le sirve oírlo):\n- Con esto llevas $2,160 hoy, y un día normal gastas como $100.",
+    );
     expect(costumbreParaLaIA(ctx, "gasté 60 en un café")).toBeUndefined();
     expect(costumbreParaLaIA(ctx, "gasté 160 en una comida")).toContain("Con esto llevas $160 hoy, y un día normal gastas como $100.");
   });
