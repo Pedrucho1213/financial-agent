@@ -1,5 +1,5 @@
 import { generateText, isStepCount, type LanguageModel, type ModelMessage } from "ai";
-import { and, asc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, ne, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { cuentas, entradas, mensajes } from "../db/schema";
 import { type Contexto, crearContexto } from "../finanzas/contexto";
@@ -157,6 +157,7 @@ export async function hablar(
     .where(and(eq(entradas.usuarioId, usuarioId), eq(entradas.clientId, peticion.clientId)))
     .get();
   if (previa?.estado === "listo" && previa.respuesta) {
+    marcarEntregada(db, previa.id);
     return { ...(previa.respuesta as Respuesta), duplicado: true };
   }
   // Si esperaba su próximo reintento, el reenvío lo adelanta y se une a ese trabajo.
@@ -184,10 +185,10 @@ export async function hablar(
       .get();
   if (previa && !existente) db.update(entradas).set({ estado: "procesando" }).where(eq(entradas.id, previa.id)).run();
   const trabajo = existente ?? encolar(deps, entrada);
-  if (opciones.esperaMs === undefined) return trabajo;
+  if (opciones.esperaMs === undefined) return entregar(db, entrada.id, await trabajo);
 
   const resultado = await conLimite(trabajo, opciones.esperaMs);
-  if (resultado !== "tiempo") return resultado;
+  if (resultado !== "tiempo") return entregar(db, entrada.id, resultado);
   // Tardó más de lo que el iPhone espera: la Mac se queda con el dictado y lo termina sola.
   enSegundoPlano.add(entrada.id);
   return opciones.esPregunta
@@ -196,6 +197,43 @@ export async function hablar(
 }
 
 type Entrada = typeof entradas.$inferSelect;
+
+function marcarEntregada(db: Db, entradaId: string) {
+  db.update(entradas).set({ entregadaEn: new Date().toISOString() }).where(eq(entradas.id, entradaId)).run();
+}
+
+function entregar(db: Db, entradaId: string, respuesta: Respuesta): Respuesta {
+  marcarEntregada(db, entradaId);
+  return respuesta;
+}
+
+// Una pregunta que terminó en segundo plano y nadie oyó ("Anotado" y el Atajo se cerró) se dice al
+// final de la siguiente respuesta, si no es muy vieja (QA-027).
+const VIGENCIA_PREGUNTA_SIN_OIR_MS = 2 * 60 * 60_000;
+
+function preguntaSinOir(db: Db, entrada: Entrada): { id: string; recordatorio: string } | undefined {
+  const desde = new Date(Date.now() - VIGENCIA_PREGUNTA_SIN_OIR_MS).toISOString();
+  const previas = db
+    .select()
+    .from(entradas)
+    .where(
+      and(
+        eq(entradas.usuarioId, entrada.usuarioId),
+        ne(entradas.id, entrada.id),
+        eq(entradas.estado, "listo"),
+        isNull(entradas.entregadaEn),
+        gte(entradas.creadoEn, desde),
+        lt(sql`rowid`, sql`(select rowid from ${entradas} where ${entradas.id} = ${entrada.id})`),
+      ),
+    )
+    .orderBy(desc(sql`rowid`))
+    .all();
+  for (const previa of previas) {
+    const texto = (previa.respuesta as Respuesta | null)?.respuesta;
+    if (texto?.includes("?")) return { id: previa.id, recordatorio: `Por cierto, sobre "${previa.texto}": ${texto}` };
+  }
+  return undefined;
+}
 
 /** Dictados que nadie está esperando: si fallan, la Mac los reintenta sola más tarde. */
 const enSegundoPlano = new Set<string>();
@@ -324,7 +362,9 @@ export async function consultarEntrada(
   const trabajo = enCurso.get(inicial.id);
   if (trabajo && esperaMs > 0) await conLimite(trabajo.catch(() => undefined), esperaMs);
   const e = buscar() ?? inicial;
-  return e.estado === "listo" ? { ...(e.respuesta as Respuesta), estado: e.estado } : { estado: e.estado };
+  if (e.estado !== "listo") return { estado: e.estado };
+  marcarEntregada(db, e.id);
+  return { ...(e.respuesta as Respuesta), estado: e.estado };
 }
 
 /** Corrige la cuenta de un gasto ya registrado sin el modelo (ver `correccionDeCuenta`). */
@@ -423,12 +463,16 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
     throw new ErrorIA(error instanceof Error ? error.message : String(error));
   }
 
-  const respuesta: Respuesta = {
-    respuesta: limpiarParaVoz(texto) || respuestaPorOmision(acciones),
-    conversacion_id: conversacionId,
-    acciones,
-  };
+  let dicho = limpiarParaVoz(texto) || respuestaPorOmision(acciones);
+  // Al final, para que la respuesta termine en la pregunta y el Atajo deje el micrófono abierto.
+  const pendiente = preguntaSinOir(db, entrada);
+  if (pendiente) {
+    dicho = `${dicho} ${pendiente.recordatorio}`;
+    mensajesRespuesta = [...mensajesRespuesta, { role: "assistant", content: pendiente.recordatorio }];
+  }
+  const respuesta: Respuesta = { respuesta: dicho, conversacion_id: conversacionId, acciones };
   db.transaction((tx) => {
+    if (pendiente) tx.update(entradas).set({ entregadaEn: new Date().toISOString() }).where(eq(entradas.id, pendiente.id)).run();
     for (const contenido of [mensajeUsuario, ...mensajesRespuesta]) {
       tx.insert(mensajes).values({ usuarioId, conversacionId, contenido }).run();
     }

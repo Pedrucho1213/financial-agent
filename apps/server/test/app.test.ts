@@ -109,6 +109,12 @@ describe("API", () => {
     expect(await (await get("/v1/entradas/dictado-seguir-02")).json()).not.toHaveProperty("seguir");
   });
 
+  test("también sigue escuchando si la pregunta va en medio (QA-027)", async () => {
+    const { hablar } = montar([texto("¿Cuál de los dos? El de $85 o el de $60.")]);
+    const r = (await (await hablar({ texto: "borra el café", client_id: "dictado-seguir-03" })).json()) as { seguir?: boolean };
+    expect(r.seguir).toBe(true);
+  });
+
   test("el mismo dictado reenviado por la cola no se registra dos veces", async () => {
     const { hablar, get, modelo } = montar([
       llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 85, categoria: "Café" }] }),

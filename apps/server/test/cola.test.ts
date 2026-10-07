@@ -234,6 +234,52 @@ describe("cola de dictados", () => {
     expect((await montos()).sort((a, b) => a - b)).toEqual([100, 300]);
   });
 
+  test("una pregunta que terminó en segundo plano y nadie oyó se dice en la siguiente respuesta (QA-027)", async () => {
+    const modelo = new MockLanguageModelV4({
+      doGenerate: async ({ prompt }) => {
+        const mensajes = prompt as Mensaje[];
+        if (mensajes.at(-1)?.role !== "user") return texto("Listo.");
+        const contenido = mensajes.at(-1)!.content;
+        const dictado = typeof contenido === "string" ? contenido : contenido.map((p) => p.text ?? "").join("");
+        if (dictado.includes("borra")) {
+          await dormir(40);
+          return texto("¿Cuál de los dos? El de $85 o el de $60.");
+        }
+        const monto = Number(dictado.match(/\d+/)?.[0]);
+        return llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto, descripcion: dictado }] });
+      },
+    });
+    const { hablar } = montar(modelo, { registroMs: 2000, preguntaMs: 2000 });
+    expect((await hablar({ texto: "borra el café", client_id: "dictado-7401", espera_ms: 5 })).status).toBe(202);
+    await dormir(80); // termina sin que nadie consulte la respuesta
+    const siguiente = await hablar({ texto: "gasté 50 en tacos", client_id: "dictado-7402" });
+    expect(siguiente.cuerpo.respuesta).toEndWith('Por cierto, sobre "borra el café": ¿Cuál de los dos? El de $85 o el de $60.');
+    // Ya se dijo: no se repite.
+    const otra = await hablar({ texto: "gasté 20 en agua", client_id: "dictado-7403" });
+    expect(otra.cuerpo.respuesta).not.toContain("Por cierto");
+  });
+
+  test("si el iPhone consultó la pregunta, no se repite (QA-027)", async () => {
+    const modelo = new MockLanguageModelV4({
+      doGenerate: async ({ prompt }) => {
+        const mensajes = prompt as Mensaje[];
+        if (mensajes.at(-1)?.role !== "user") return texto("Listo.");
+        const contenido = mensajes.at(-1)!.content;
+        const dictado = typeof contenido === "string" ? contenido : contenido.map((p) => p.text ?? "").join("");
+        if (dictado.includes("borra")) {
+          await dormir(40);
+          return texto("¿Cuál de los dos?");
+        }
+        return llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 50 }] });
+      },
+    });
+    const { hablar, esperarFin } = montar(modelo, { registroMs: 2000, preguntaMs: 2000 });
+    expect((await hablar({ texto: "borra el café", client_id: "dictado-7501", espera_ms: 5 })).status).toBe(202);
+    expect((await esperarFin("dictado-7501")).respuesta).toBe("¿Cuál de los dos?");
+    const siguiente = await hablar({ texto: "gasté 50 en tacos", client_id: "dictado-7502" });
+    expect(siguiente.cuerpo.respuesta).not.toContain("Por cierto");
+  });
+
   test("al arrancar retoma lo que quedó a medias en las últimas 24 horas", async () => {
     const { modelo, intentos } = modeloFalso({ retrasoMs: () => 10 });
     const { db, usuario, deps, hablar, montos, esperarFin } = montar(modelo);

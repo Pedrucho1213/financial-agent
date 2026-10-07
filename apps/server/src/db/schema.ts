@@ -277,6 +277,9 @@ export const entradas = sqliteTable(
       .notNull()
       .default("procesando"),
     respuesta: text("respuesta", { mode: "json" }).$type<unknown>(),
+    // Cuándo alguien recibió la respuesta (en el 200 o al consultarla). Si una pregunta nunca se
+    // entregó, se dice en la siguiente respuesta.
+    entregadaEn: text("entregada_en"),
     creadoEn: creadoEn(),
   },
   (t) => [uniqueIndex("entradas_usuario_client").on(t.usuarioId, t.clientId)],
