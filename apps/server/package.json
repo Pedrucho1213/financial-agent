@@ -11,6 +11,7 @@
     "eval": "bun eval/run.ts",
     "eval:arranque": "bun eval/arranque.ts",
     "eval:paralelo": "bun eval/paralelo.ts",
+    "eval:cache": "bun eval/cache.ts",
     "db:generate": "drizzle-kit generate",
     "invitar": "bun scripts/invitar.ts",
     "atajo": "bun scripts/atajo.ts"
