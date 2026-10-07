@@ -13,7 +13,7 @@ import { mensajeDeError } from "../lib/api";
 import { OpcionesCategorias } from "../lib/categorias";
 import { useEnLinea } from "../lib/conexion";
 import { useCategorias, useGuardarMovimiento } from "../lib/consultas";
-import { cerrarEditor, useEditor } from "../lib/editor";
+import { avisarCambiosSinGuardar, cerrarEditor, useEditor } from "../lib/editor";
 import { aFecha, fechaHora, hoyIso, leerMonto } from "../lib/formato";
 import type { DatosMovimiento, MovimientoApp, TipoMovimiento } from "../lib/tipos";
 import { cn } from "../lib/utils";
@@ -86,6 +86,10 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
     const id = window.setTimeout(() => campoMonto.current?.focus(), 420);
     return () => window.clearTimeout(id);
   }, [editando]);
+
+  const sinGuardar = JSON.stringify(f) !== JSON.stringify(original);
+  useEffect(() => avisarCambiosSinGuardar(sinGuardar), [sinGuardar]);
+  useEffect(() => () => avisarCambiosSinGuardar(false), []);
 
   const monto = leerMonto(f.monto);
   const valido = monto !== null && /^\d{4}-\d{2}-\d{2}$/.test(f.fecha);

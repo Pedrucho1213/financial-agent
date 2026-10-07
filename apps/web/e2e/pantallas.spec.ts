@@ -59,6 +59,31 @@ test.describe("Detalle de un registro", () => {
     await expect(hoja.locator("#monto")).toHaveValue("85");
   });
 
+  test("con cambios sin guardar, el aviso de otro pago pregunta antes de descartarlos (QA-074)", async ({ page }) => {
+    const api = await prepararSesion(page);
+    const pemex = api.movimientos.find((m) => m.comercio === "Pemex")!;
+    await page.goto(`/#movimientos?detalle=${pemex.id}&editar=1`);
+    const hoja = page.getByRole("dialog");
+    await hoja.getByLabel("Nota").fill("Tanque lleno");
+    const avisar = (url: string) =>
+      page.evaluate((u) => navigator.serviceWorker.dispatchEvent(new MessageEvent("message", { data: { tipo: "fa:abrir", url: u } })), url);
+    const preguntas: string[] = [];
+    // Primero dice que no: sigue lo escrito.
+    page.once("dialog", (d) => (preguntas.push(d.message()), d.dismiss()));
+    await avisar("/#movimientos?detalle=mov-001&editar=1");
+    await expect.poll(() => preguntas.length).toBe(1);
+    expect(preguntas[0]).toContain("cambios sin guardar");
+    await expect(hoja.getByLabel("Nota")).toHaveValue("Tanque lleno");
+    // Otro aviso del mismo pago no pregunta ni borra nada.
+    await avisar(`/#movimientos?detalle=${pemex.id}&editar=1`);
+    await expect(hoja.getByLabel("Nota")).toHaveValue("Tanque lleno");
+    // Luego dice que sí: abre el del otro pago.
+    page.once("dialog", (d) => (preguntas.push(d.message()), d.accept()));
+    await avisar("/#movimientos?detalle=mov-001&editar=1");
+    await expect(hoja.locator("#monto")).toHaveValue("85");
+    expect(preguntas).toHaveLength(2);
+  });
+
   test("varios registros con editar=1: tocar uno abre su editor", async ({ page }) => {
     await prepararSesion(page);
     await page.goto("/#movimientos?detalle=mov-002,mov-003&editar=1");
@@ -112,6 +137,31 @@ test.describe("Presupuestos y metas", () => {
     await page.getByRole("button", { name: "Inicio" }).first().click();
     await expect(page).toHaveURL(/\/(#inicio)?$/);
   });
+
+  for (const ancho of [390, 320]) {
+    test(`los montos con centavos no se cortan a ${ancho} px (QA-073, QA-076)`, async ({ page }) => {
+      await page.setViewportSize({ width: ancho, height: 844 });
+      const api = await prepararSesion(page);
+      api.plan.presupuestos = [
+        { id: "pre-1", categoriaId: null, limiteCentavos: 30_000_51 },
+        { id: "pre-2", categoriaId: "cat-comida", limiteCentavos: 3_000_51 },
+      ];
+      api.plan.metas[0]!.objetivoCentavos = 60_000_51;
+      api.plan.metas[1]!.objetivoCentavos = 40_000_51;
+      api.plan.metas[1]!.ahorradoCentavos = 40_000_51;
+      await page.goto("/#plan");
+      await expect(page.getByRole("region", { name: "Resumen del plan" })).toContainText("de $30,000.51");
+      await expect(page.getByRole("button", { name: /^Comida/ })).toContainText("de $3,000.51");
+      await expect(page.getByRole("button", { name: /^Fondo de emergencia/ })).toContainText("¡Lograda! $40,000.51");
+      // Ningún monto queda cortado: ni con puntos suspensivos ni perdiendo dígitos.
+      const cortados = await page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>("dd, .truncate, .whitespace-normal")]
+          .filter((e) => /\$/.test(e.textContent ?? "") && e.scrollWidth > e.clientWidth + 1)
+          .map((e) => e.textContent),
+      );
+      expect(cortados).toEqual([]);
+    });
+  }
 
   test("crear y cambiar un presupuesto manda el tope en pesos", async ({ page }) => {
     const api = await prepararSesion(page);
