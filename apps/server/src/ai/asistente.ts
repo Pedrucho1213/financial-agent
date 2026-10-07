@@ -11,7 +11,7 @@ import { formatearMonto } from "../lib/dinero";
 import { montosDelTexto } from "../lib/numeros";
 import { esOrdenSobreLoAnotado, esPregunta, normalizar, pideInformacion, tipoDelTexto } from "../lib/texto";
 import { confirmacionDirecta, confirmarRegistro, type Ejecutada } from "./confirmacion";
-import { construirInstrucciones } from "./instrucciones";
+import { construirInstrucciones, datosDelUsuario } from "./instrucciones";
 import { crearHerramientas, type Accion } from "./herramientas";
 import { CONSULTAS_PLANES } from "./herramientas-planes";
 import { correccionDeCuenta } from "./respaldo";
@@ -500,10 +500,14 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   let confirmacion: string | undefined;
   const generar = (aviso = "") => {
     confirmacion = undefined;
+    // Lo que cambia mientras se usa (y el aviso de un reintento) va justo antes del dictado, no en las
+    // instrucciones: así Ollama reutiliza lo ya procesado de instrucciones, herramientas e historial.
+    const datos = [datosDelUsuario(ctx), aviso.trim()].filter(Boolean).join("\n\n");
     return generateText({
       model: deps.modelo,
-      instructions: construirInstrucciones(ctx) + aviso,
-      messages: [...historial, mensajeUsuario],
+      instructions: construirInstrucciones(ctx),
+      messages: [...historial, ...(datos ? [{ role: "system" as const, content: datos }] : []), mensajeUsuario],
+      allowSystemInMessages: true,
       tools: crearHerramientas(ctx, acciones),
       stopWhen: [
         isStepCount(6),

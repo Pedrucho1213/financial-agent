@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { MockLanguageModelV4 } from "ai/test";
-import { construirInstrucciones } from "../src/ai/instrucciones";
+import { datosDelUsuario } from "../src/ai/instrucciones";
 import { crearHerramientas } from "../src/ai/herramientas";
 import { crearApp } from "../src/app";
 import { crearDispositivo } from "../src/auth";
@@ -167,6 +167,11 @@ describe("por voz", () => {
     expect(listarMemorias(ctx).map((m) => m.texto)).toEqual(["Paga el Oxxo en efectivo"]);
     await hablar("Hola");
     expect(JSON.stringify(modelo.doGenerateCalls[1]?.prompt)).toContain("Lo que sabes del usuario:\\n- Paga el Oxxo en efectivo");
+    // Lo aprendido va justo antes del dictado y las instrucciones no cambian: Ollama reutiliza lo ya procesado.
+    const [antes, despues] = [modelo.doGenerateCalls[0]!.prompt, modelo.doGenerateCalls[1]!.prompt];
+    expect(despues[0]).toEqual(antes[0]!);
+    expect(despues.at(-2)).toMatchObject({ role: "system", content: expect.stringContaining("Paga el Oxxo en efectivo") });
+    expect(despues.at(-1)).toMatchObject({ role: "user" });
     expect((await hablar("Olvida lo del Oxxo")).respuesta).toBe("Listo, ya lo olvidé.");
     expect(listarMemorias(ctx)).toHaveLength(0);
   });
@@ -192,7 +197,7 @@ describe("memorias", () => {
     expect(await llamar(ctx, "olvidar", { buscar: "Oxxo", todas: true })).toMatchObject({ olvidado: expect.any(Array) });
     expect(await llamar(ctx, "recordar", { texto: "x".repeat(201) })).toMatchObject({ error: expect.any(String) });
     expect(await llamar(ctx, "olvidar", { buscar: "gimnasio" })).toMatchObject({ error: expect.stringContaining("No recuerdo") });
-    expect(construirInstrucciones(ctx)).not.toContain("Lo que sabes del usuario:");
+    expect(datosDelUsuario(ctx) ?? "").not.toContain("Lo que sabes del usuario:");
   });
 });
 
