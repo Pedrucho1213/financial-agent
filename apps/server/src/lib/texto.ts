@@ -40,6 +40,16 @@ export function esPregunta(texto: string): boolean {
   return !conMonto && !PIDE_ACCION.test(plano);
 }
 
+// Órdenes sobre algo ya anotado: "borra el café de 85", "cámbialo a la BBVA". Aunque traigan monto, la
+// respuesta puede ser una pregunta ("¿cuál de los dos?") o decir qué cambió (QA-029).
+const ORDEN_SOBRE_LO_ANOTADO =
+  /\b(borra|borralo|borrala|elimina|eliminalo|eliminala|quita|quitalo|quitala|cambia|cambialo|cambiala|corrige|corrigelo|corrigela|edita|editalo|editala|deshaz|cancela|cancelalo|cancelala|muevelo|muevela|pasalo|pasala)\b/;
+
+/** Si el dictado pide borrar, cambiar o deshacer algo ya registrado. */
+export function esOrdenSobreLoAnotado(texto: string): boolean {
+  return ORDEN_SOBRE_LO_ANOTADO.test(normalizar(texto));
+}
+
 const MONEDAS: [RegExp, string][] = [
   [/\b(peso|pesos|mxn|varos|baros)\b/, "MXN"],
   [/\b(dolar|dolares|usd|dls)\b/, "USD"],
