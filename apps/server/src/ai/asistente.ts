@@ -201,16 +201,22 @@ const enSegundoPlano = new Set<string>();
 
 // Un dictado que ya recibió "Anotado" no se da por perdido: se reintenta (la última pausa se repite)
 // hasta 24 horas después de dictarlo, y en cuanto otro dictado sale bien, porque la IA ya volvió.
+// Si vuelve a fallar mientras otros sí salen, el problema es ese dictado: se deja en error para no
+// frenar la cola cada vez (el reenvío del iPhone todavía lo puede recuperar).
 const VIGENCIA_REINTENTOS_MS = 24 * 60 * 60_000;
 const esperandoReintento = new Map<string, () => void>();
+/** Dictados que salieron bien desde que arrancó el servidor, por base de datos. */
+const exitosPorBase = new WeakMap<Db, number>();
+const exitos = (db: Db) => exitosPorBase.get(db) ?? 0;
 
-function encolar(deps: Dependencias, entrada: Entrada, intento = 0): Promise<Respuesta> {
+function encolar(deps: Dependencias, entrada: Entrada, intento = 0, exitosAlFallar?: number): Promise<Respuesta> {
   const trabajo = enCola(() => procesar(deps, entrada));
   enCurso.set(entrada.id, trabajo);
   trabajo.then(
     () => {
       enCurso.delete(entrada.id);
       enSegundoPlano.delete(entrada.id);
+      exitosPorBase.set(deps.db, exitos(deps.db) + 1);
       for (const reintentar of [...esperandoReintento.values()]) reintentar();
     },
     () => {
@@ -218,18 +224,20 @@ function encolar(deps: Dependencias, entrada: Entrada, intento = 0): Promise<Res
       if (!enSegundoPlano.has(entrada.id)) return;
       const pausas = deps.reintentosMs ?? REINTENTOS_MS;
       const pausa = pausas[Math.min(intento, pausas.length - 1)];
-      if (pausa === undefined || Date.now() - Date.parse(entrada.creadoEn) > VIGENCIA_REINTENTOS_MS) {
+      const iaFunciona = exitosAlFallar !== undefined && exitos(deps.db) > exitosAlFallar;
+      if (pausa === undefined || iaFunciona || Date.now() - Date.parse(entrada.creadoEn) > VIGENCIA_REINTENTOS_MS) {
         console.error(`Dictado ${entrada.clientId} sin procesar después de ${intento + 1} intentos; queda en error.`);
         enSegundoPlano.delete(entrada.id);
         return;
       }
       // Sigue pendiente para quien lo consulte: no es un error mientras se vaya a reintentar.
       deps.db.update(entradas).set({ estado: "procesando" }).where(eq(entradas.id, entrada.id)).run();
+      const fallo = exitos(deps.db);
       const reintentar = () => {
         clearTimeout(espera);
         esperandoReintento.delete(entrada.id);
         const actual = deps.db.select().from(entradas).where(eq(entradas.id, entrada.id)).get();
-        if (actual && actual.estado !== "listo" && !enCurso.has(entrada.id)) encolar(deps, actual, intento + 1);
+        if (actual && actual.estado !== "listo" && !enCurso.has(entrada.id)) encolar(deps, actual, intento + 1, fallo);
       };
       const espera = setTimeout(reintentar, pausa);
       espera.unref?.();

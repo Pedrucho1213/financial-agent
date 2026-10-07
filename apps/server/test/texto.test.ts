@@ -13,13 +13,27 @@ describe("esPregunta", () => {
       "Necesito saber mis suscripciones",
       "Puedo gastar 500 hoy",
       "En qué gasto más",
+      "Ver mis gastos",
+      "Debo algo",
+      "A ver mis suscripciones",
+      "Lo de este mes",
+      "Estoy gastando mucho",
+      "Dame el resumen",
     ]) {
       expect(esPregunta(frase)).toBe(true);
     }
   });
 
   test("no confunde un registro con una pregunta", () => {
-    for (const frase of ["Gasté 85 en café", "Tengo que pagar la renta el 5", "Hay que pagar 300 de luz", "Qué onda, gasté 200 en tacos", "y 50 de propina"]) {
+    for (const frase of ["Gasté 85 en café", "Tengo que pagar la renta el 5", "Hay que pagar 300 de luz", "Qué onda, gasté 200 en tacos", "y 50 de propina",
+      "Y el Uber fue con la BBVA",
+      "Me cobraron no sé cuánto de comisión, como 35",
+      "Pagué 400 en que se llama, el Oxxo",
+      "Borra el último",
+      "Estoy pagando 200 de gym",
+      "Netflix me cobró",
+      "Me cobraron la anualidad",
+    ]) {
       expect(esPregunta(frase)).toBe(false);
     }
   });

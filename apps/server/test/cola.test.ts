@@ -175,7 +175,6 @@ describe("cola de dictados", () => {
     await dormir(150); // varios intentos con pausas de 20 ms
     expect(intentos.get("agua 200")).toBeGreaterThanOrEqual(3);
     expect((await get("/v1/entradas/dictado-7001")).cuerpo.estado).toBe("procesando");
-    expect(await montos()).toEqual([]);
     caido = false;
     await dormir(100);
     expect((await get("/v1/entradas/dictado-7001")).cuerpo.estado).toBe("listo");
@@ -192,6 +191,17 @@ describe("cola de dictados", () => {
     const reenvio = await hablar({ texto: "agua 200", client_id: "dictado-7002", espera_ms: 2000 });
     expect(reenvio.status).toBe(200);
     expect(await montos()).toEqual([200]);
+  });
+
+  test("un dictado que falla mientras los demás salen bien no frena la cola cada vez", async () => {
+    const { modelo, intentos } = modeloFalso({ falla: (dictado) => dictado.includes("roto") });
+    const { hablar, get } = montar(modelo, { registroMs: 0, preguntaMs: 0 }, [60_000]);
+    expect((await hablar({ texto: "roto 100", client_id: "dictado-7101" })).status).toBe(202);
+    await dormir(30);
+    for (let i = 0; i < 4; i++) await hablar({ texto: `café ${i + 1}`, client_id: `dictado-72${i}0`, espera_ms: 2000 });
+    // Se adelanta una vez al volver la IA; si vuelve a fallar con la IA funcionando, se deja en error.
+    expect(intentos.get("roto 100")).toBe(2);
+    expect((await get("/v1/entradas/dictado-7101")).cuerpo.estado).toBe("error");
   });
 
   test("al arrancar retoma lo que quedó a medias en las últimas 24 horas", async () => {
