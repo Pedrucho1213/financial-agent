@@ -1,5 +1,5 @@
-import { and, desc, eq, gte, inArray, isNotNull, isNull } from "drizzle-orm";
-import { comercios, cuentas, movimientos, recurrentes } from "../db/schema";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
+import { comercios, cuentas, memorias, movimientos, recurrentes } from "../db/schema";
 import { formatearMonto } from "../lib/dinero";
 import { sumarDias } from "../lib/fechas";
 import { normalizar } from "../lib/texto";
@@ -210,19 +210,11 @@ export function nombreDeCuenta(ctx: Contexto, cuentaId: string | null): string |
 }
 
 /**
- * Con qué paga siempre en ese comercio: si las últimas veces que dijo con qué pagó (al menos dos,
- * hasta tres) fue con la misma cuenta. Así "Uber 120" queda con la Nu si los Uber anteriores fueron con la Nu.
- * Solo cuentan las veces en que el usuario la eligió (en la app, al dictar o al corregir), no las que se
- * pusieron solas; y no las cuentas archivadas.
+ * La cuenta que el usuario eligió las últimas veces (al menos dos, hasta tres) en los movimientos que
+ * cumplen la condición, si fue siempre la misma. Solo cuentan las veces en que la eligió (en la app, al
+ * dictar o al corregir), no las que se pusieron solas; y no las cuentas archivadas.
  */
-export function cuentaHabitual(ctx: Contexto, comercio: string | undefined): string | undefined {
-  if (!comercio?.trim()) return undefined;
-  const fila = ctx.db
-    .select({ id: comercios.id })
-    .from(comercios)
-    .where(and(eq(comercios.usuarioId, ctx.usuarioId), eq(comercios.nombreNormalizado, normalizar(comercio))))
-    .get();
-  if (!fila) return undefined;
+function cuentaElegida(ctx: Contexto, condicion: SQL): string | undefined {
   const recientes = ctx.db
     .select({
       cuentaId: movimientos.cuentaId,
@@ -237,7 +229,7 @@ export function cuentaHabitual(ctx: Contexto, comercio: string | undefined): str
     .where(
       and(
         eq(movimientos.usuarioId, ctx.usuarioId),
-        eq(movimientos.comercioId, fila.id),
+        condicion,
         isNull(movimientos.eliminadoEn),
         isNotNull(movimientos.cuentaId),
         eq(cuentas.archivada, false),
@@ -255,4 +247,92 @@ export function cuentaHabitual(ctx: Contexto, comercio: string | undefined): str
     .slice(0, 3);
   if (elegidas.length < 2 || new Set(elegidas.map((u) => u.cuentaId)).size !== 1) return undefined;
   return elegidas[0]!.nombre;
+}
+
+/**
+ * Con qué paga siempre en ese comercio: así "Uber 120" queda con la Nu si los Uber anteriores fueron
+ * con la Nu (ver `cuentaElegida`).
+ */
+export function cuentaHabitual(ctx: Contexto, comercio: string | undefined): string | undefined {
+  if (!comercio?.trim()) return undefined;
+  const fila = ctx.db
+    .select({ id: comercios.id })
+    .from(comercios)
+    .where(and(eq(comercios.usuarioId, ctx.usuarioId), eq(comercios.nombreNormalizado, normalizar(comercio))))
+    .get();
+  return fila ? cuentaElegida(ctx, eq(movimientos.comercioId, fila.id)) : undefined;
+}
+
+/** Con qué paga siempre en una subcategoría sin comercio ("gasolina" con la Revolut). */
+export function cuentaHabitualDeCategoria(ctx: Contexto, categoriaId: string | null): string | undefined {
+  return categoriaId ? cuentaElegida(ctx, eq(movimientos.categoriaId, categoriaId)) : undefined;
+}
+
+// Formas de pago que no son una cuenta con nombre.
+const FORMAS_DE_PAGO = ["efectivo", "transferencia", "vales"];
+// "Siempre paga con la Nu", "Usa la BBVA para todo": vale para cualquier gasto.
+const PARA_TODO = /^(casi )?(siempre |normalmente |por lo general )?(paga|pago|usa|uso)( casi)?( todo)? (con|en)( la| el| mi| su)? \S+( \S+)?( para todo| siempre| casi siempre)?$|\b(para todo|todo lo pag\w*)\b/;
+
+/**
+ * La cuenta de algo que el usuario pidió recordar: "Paga el Oxxo en efectivo" vale para el Oxxo;
+ * "Siempre paga con la Nu", para lo demás. `pistas`: comercio, subcategoría y descripción del gasto.
+ */
+export function cuentaRecordada(ctx: Contexto, pistas: (string | null | undefined)[]): { cuenta: string; paraTodo: boolean } | undefined {
+  // Lo más reciente primero: "ahora pago con la Nu" manda sobre lo que dijo antes.
+  const recuerdos = ctx.db
+    .select({ texto: memorias.texto })
+    .from(memorias)
+    .where(eq(memorias.usuarioId, ctx.usuarioId))
+    .orderBy(desc(memorias.creadoEn), desc(sql`rowid`))
+    .all();
+  if (recuerdos.length === 0) return undefined;
+  const conocidas = ctx.db
+    .select({ nombre: cuentas.nombre, alias: cuentas.alias })
+    .from(cuentas)
+    .where(and(eq(cuentas.usuarioId, ctx.usuarioId), eq(cuentas.archivada, false)))
+    .all();
+  const opciones = [
+    ...conocidas.map((c) => ({ cuenta: c.nombre, nombres: [c.nombre, ...c.alias] })),
+    ...FORMAS_DE_PAGO.map((f) => ({ cuenta: f.replace(/^./, (l) => l.toUpperCase()), nombres: [f] })),
+  ];
+  const palabras = pistas
+    .filter((p): p is string => !!p?.trim())
+    .map((p) => normalizar(p))
+    .filter((p) => p.length > 2);
+  let general: string | undefined;
+  for (const { texto } of recuerdos) {
+    const plano = normalizar(texto);
+    const enTexto = (n: string) => !!n && ` ${plano} `.includes(` ${normalizar(n)} `);
+    if (!/\b(paga|pagas|pago|pagar|usa|usas|uso|usar)\b/.test(plano)) continue;
+    const cuenta = cuentaMencionada(plano, opciones);
+    if (!cuenta) continue;
+    if (palabras.some((p) => enTexto(p))) return { cuenta, paraTodo: false };
+    if (PARA_TODO.test(plano)) general ??= cuenta;
+  }
+  return general ? { cuenta: general, paraTodo: true } : undefined;
+}
+
+/**
+ * La cuenta que dice un recuerdo. Si nombra varias, la última que no esté negada:
+ * "El Uber ya no lo pago con la BBVA, ahora con la Nu" es la Nu.
+ */
+function cuentaMencionada(plano: string, opciones: { cuenta: string; nombres: string[] }[]) {
+  const menciones = opciones.flatMap(({ cuenta, nombres }) =>
+    nombres.flatMap((n) => {
+      const buscado = normalizar(n);
+      if (!buscado) return [];
+      const lugares: { cuenta: string; en: number; fin: number }[] = [];
+      const patron = new RegExp(`\\b${buscado.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g");
+      for (const m of plano.matchAll(patron)) lugares.push({ cuenta, en: m.index, fin: m.index + m[0].length });
+      return lugares;
+    }),
+  );
+  const negada = (en: number) => /\b(no|nunca|ya no)\b( \S+){0,4} $/.test(plano.slice(0, en)) && !/\b(sino|ahora|mejor)\b/.test(plano.slice(Math.max(0, en - 20), en));
+  // "BBVA Azul" no es también "BBVA": una mención dentro de otra más larga no cuenta.
+  const dentroDeOtra = (m: (typeof menciones)[number]) =>
+    menciones.some((o) => o !== m && o.en <= m.en && o.fin >= m.fin && o.fin - o.en > m.fin - m.en);
+  return menciones
+    .filter((m) => !negada(m.en) && !dentroDeOtra(m))
+    .sort((a, b) => a.en - b.en)
+    .at(-1)?.cuenta;
 }

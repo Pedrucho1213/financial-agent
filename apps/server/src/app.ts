@@ -6,17 +6,28 @@ import { consultarEntrada, type Dependencias, ErrorEnProceso, ErrorIA, hablar } 
 import { guardarDescarga, limpiarDescargas, tomarDescarga } from "./atajo/descargas";
 import { ErrorFirma, firmarAtajo, generarAtajo } from "./atajo/generar";
 import {
+  asignarUsuarios,
+  cambiarCuenta,
   canjearInvitacion,
+  cerrarOtrosDispositivos,
+  comprobarCodigoActual,
   consultarInvitacion,
   crearDispositivoPara,
   crearInvitacion,
   devolverInvitacion,
+  entrarConCodigo,
+  ErrorCuenta,
   ErrorInvitacion,
   listarDispositivos,
+  normalizarUsuario,
+  ponerCodigo,
+  quitarCodigo,
   requiereToken,
   revocarAtajosSinUsar,
   revocarDispositivo,
+  validarCodigoPersonal,
   type VariablesAuth,
+  verificarCodigo,
 } from "./auth";
 import { entradas, invitaciones, usuarios } from "./db/schema";
 import { listarCategorias, nombreCompleto } from "./finanzas/catalogos";
@@ -37,6 +48,7 @@ import { hostsDeLaPeticion, ipDelCliente, LimiteIntentos } from "./lib/limites";
 import { montosDelTexto } from "./lib/numeros";
 import { esOrdenSobreLoAnotado, esPregunta } from "./lib/texto";
 import { and, count, eq, gte } from "drizzle-orm";
+import { rutasPlanes } from "./rutas-planes";
 import { servirApp } from "./web";
 import type { EstadoIa } from "./ai/modelo";
 
@@ -56,6 +68,8 @@ export type OpcionesApp = Dependencias & {
   estadoIa?: () => Promise<EstadoIa>;
   /** Qué versión del código corre (commit y su fecha), para saber qué está desplegado. */
   version?: { commit: string | null; commitEn: string | null };
+  /** Límites del código personal; las pruebas los bajan para no verificar cien veces con argon2. */
+  limitesCodigo?: Partial<{ fallosPorUsuarioIp: number; fallosPorUsuario: number; verificandoALaVez: number }>;
 };
 
 const MAX_ESPERA_MS = 120_000;
@@ -126,6 +140,22 @@ const esquemaRegistro = z.object({
   dispositivo: z.string().trim().min(1).max(80),
 });
 
+const esquemaEntrar = z.object({
+  usuario: z.string().trim().min(1).max(64),
+  codigo: z.string().min(1).max(256),
+  dispositivo: z.string().trim().min(1).max(80),
+});
+
+// El código personal no vence, así que además del límite por IP hay dos por usuario: 10 fallos en 15
+// minutos desde una IP lo frenan para esa IP, y 100 desde cualquier lado lo frenan del todo. Así quien
+// adivina el usuario no deja fuera a su dueño, y adivinar un código de 8 caracteres sigue tomando años.
+// argon2 tarda y usa 64 MB: pocas verificaciones a la vez, y cambiar el código también tiene tope.
+const VENTANA_USUARIO_MS = 15 * 60_000;
+const MAX_FALLOS_USUARIO_IP = 10;
+const MAX_FALLOS_USUARIO = 100;
+const MAX_VERIFICANDO = 4;
+const MAX_CAMBIOS_CODIGO_HORA = 10;
+
 // Un código tiene 31^6 combinaciones; aun así, frena a quien intente adivinarlos. El límite es por IP
 // para que un extraño no bloquee a los demás, con un tope total por si llegan de muchas IPs.
 const VENTANA_INTENTOS_MS = 10 * 60_000;
@@ -179,12 +209,26 @@ function servidorPropio(c: Context, servidor: string): boolean {
 }
 const NOMBRE_ATAJO = "Atajo Finanzas";
 
+/** Lo que la app ve de la cuenta: nunca el hash del código, solo si tiene uno. */
+const datosDeCuenta = (u: typeof usuarios.$inferSelect) => ({
+  id: u.id,
+  nombre: u.nombre,
+  usuario: u.usuario,
+  tieneCodigo: !!u.codigoHash,
+});
+
 export function crearApp(opciones: OpcionesApp) {
   const { db } = opciones;
   const arrancadoEn = new Date().toISOString();
   limpiarDescargas(db);
   const app = new Hono<{ Variables: VariablesAuth }>();
   const intentos = new LimiteIntentos(VENTANA_INTENTOS_MS, MAX_INTENTOS_POR_IP, MAX_INTENTOS_TOTAL);
+  const limites = opciones.limitesCodigo ?? {};
+  const fallosPorUsuario = new LimiteIntentos(VENTANA_USUARIO_MS, limites.fallosPorUsuario ?? MAX_FALLOS_USUARIO, Number.POSITIVE_INFINITY);
+  const fallosPorUsuarioIp = new LimiteIntentos(VENTANA_USUARIO_MS, limites.fallosPorUsuarioIp ?? MAX_FALLOS_USUARIO_IP, Number.POSITIVE_INFINITY);
+  const verificandoALaVez = limites.verificandoALaVez ?? MAX_VERIFICANDO;
+  const cambiosDeCodigo = new LimiteIntentos(60 * 60_000, MAX_CAMBIOS_CODIGO_HORA, Number.POSITIVE_INFINITY);
+  asignarUsuarios(db);
   /** Lo que el Atajo lee en voz: los montos dichos ("50 pesos", no "$50") y si sigue escuchando. */
   const paraVoz = <T extends { respuesta?: string; pendiente?: boolean }>(r: T) =>
     conSeguir(r.respuesta ? { ...r, respuesta: montosParaVoz(r.respuesta, opciones.monedaBase) } : r);
@@ -268,6 +312,71 @@ export function crearApp(opciones: OpcionesApp) {
     } catch (error) {
       // Sin Atajo no se gasta el código: se puede volver a intentar con el mismo enlace.
       devolverInvitacion(db, codigo, canje.dispositivo.id);
+      if (error instanceof ErrorFirma) return c.json(sinFirma(error), 501);
+      throw error;
+    }
+  });
+
+  // Verifica un código personal dentro de los límites. Cada intento se anota antes de verificar, porque
+  // argon2 tarda: si se anotara después, muchas peticiones a la vez pasarían todas. Si sale bien, se retira.
+  let verificando = 0;
+  const conCodigo = async <T>(c: Context, usuario: string, verificar: () => Promise<T>) => {
+    const ip = ipDelCliente(c);
+    const clave = normalizarUsuario(usuario);
+    const deEstaIp = `${clave} ${ip}`;
+    const frenar = (error: string) => ({ respuesta: c.json({ error }, 429) });
+    if (intentos.bloqueado(ip)) return frenar("Demasiados intentos. Espera unos minutos.");
+    if (fallosPorUsuario.bloqueado(clave) || fallosPorUsuarioIp.bloqueado(deEstaIp)) {
+      return frenar("Demasiados intentos con ese usuario. Espera unos minutos.");
+    }
+    if (verificando >= verificandoALaVez) return frenar("Hay muchos intentos a la vez. Prueba de nuevo en unos segundos.");
+    const marcas = [intentos.fallo(ip), fallosPorUsuario.fallo(clave), fallosPorUsuarioIp.fallo(deEstaIp)] as const;
+    const retirar = () => {
+      intentos.perdonar(ip, marcas[0]);
+      fallosPorUsuario.perdonar(clave, marcas[1]);
+      fallosPorUsuarioIp.perdonar(deEstaIp, marcas[2]);
+    };
+    verificando++;
+    try {
+      const ok = await verificar();
+      retirar();
+      return { ok };
+    } catch (error) {
+      if (error instanceof ErrorCuenta && (error.estado === 401 || error.estado === 403)) {
+        return { respuesta: c.json({ error: error.message }, error.estado) };
+      }
+      retirar();
+      throw error;
+    } finally {
+      verificando--;
+    }
+  };
+
+  // Entrar con usuario y código personal, sin código de invitación. El mismo 401 si el usuario no existe.
+  publico.post("/entrar", async (c) => {
+    if (demasiadosIntentos(c)) return c.json({ error: "Demasiados intentos. Espera unos minutos." }, 429);
+    const cuerpo = esquemaEntrar.safeParse(sinVacios(await c.req.json().catch(() => null)));
+    if (!cuerpo.success) return c.json({ error: "Faltan el usuario, el código o el nombre del dispositivo." }, 400);
+    const r = await conCodigo(c, cuerpo.data.usuario, () => entrarConCodigo(db, cuerpo.data));
+    return r.respuesta ?? c.json(r.ok, 201);
+  });
+
+  publico.post("/atajo/entrar", async (c) => {
+    if (demasiadosIntentos(c)) return c.json({ error: "Demasiados intentos. Espera unos minutos." }, 429);
+    const cuerpo = esquemaEntrar
+      .omit({ dispositivo: true })
+      .extend({ servidor: esquemaServidor })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!cuerpo.success) return c.json({ error: "Faltan el usuario, el código o la dirección del servidor." }, 400);
+    const { usuario, codigo, servidor } = cuerpo.data;
+    if (!servidorPropio(c, servidor)) return c.json({ error: "La dirección del servidor no es esta." }, 400);
+    const r = await conCodigo(c, usuario, () => verificarCodigo(db, usuario, codigo));
+    if (r.respuesta) return r.respuesta;
+    const { token, dispositivo } = crearDispositivoPara(db, r.ok.id, NOMBRE_ATAJO);
+    try {
+      return c.json(await prepararAtajo(servidor, token, r.ok.id, dispositivo.id), 201);
+    } catch (error) {
+      revocarDispositivo(db, r.ok.id, dispositivo.id);
       if (error instanceof ErrorFirma) return c.json(sinFirma(error), 501);
       throw error;
     }
@@ -363,6 +472,7 @@ export function crearApp(opciones: OpcionesApp) {
   // Errores de validación de las operaciones de finanzas: 400 con el mensaje en español.
   v1.onError((error, c) => {
     if (error instanceof ErrorFinanzas) return c.json({ error: error.message }, 400);
+    if (error instanceof ErrorCuenta) return c.json({ error: error.message }, error.estado);
     throw error;
   });
 
@@ -373,7 +483,7 @@ export function crearApp(opciones: OpcionesApp) {
     const lista = listarDispositivos(db, usuarioId);
     const propio = lista.find((d) => d.id === actual)!;
     return c.json({
-      usuario: { id: usuario.id, nombre: usuario.nombre },
+      usuario: datosDeCuenta(usuario),
       dispositivo: { id: propio.id, nombre: propio.nombre },
       dispositivos: lista.map((d) => ({
         id: d.id,
@@ -386,6 +496,61 @@ export function crearApp(opciones: OpcionesApp) {
       zonaHoraria: opciones.zonaHoraria,
       hoy: contexto(usuarioId).hoy,
     });
+  });
+
+  // Cambiar el usuario, cambiar o quitar el código: si ya hay un código, piden el actual (ver comprobarCodigoActual).
+  const cuentaDe = (c: Context<{ Variables: VariablesAuth }>) =>
+    db.select().from(usuarios).where(eq(usuarios.id, c.get("usuarioId"))).get()!;
+  const faltaActual = (c: Context) => c.json({ error: "Escribe tu código actual." }, 400);
+
+  v1.patch("/yo", async (c) => {
+    const cuerpo = z
+      .object({ nombre: z.string().max(200).optional(), usuario: z.string().max(200).optional(), actual: z.string().max(256).optional() })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!cuerpo.success) return c.json({ error: "Manda nombre o usuario." }, 400);
+    const { actual, ...cambios } = cuerpo.data;
+    const cuenta = cuentaDe(c);
+    const otroUsuario = cambios.usuario !== undefined && normalizarUsuario(cambios.usuario) !== cuenta.usuario;
+    if (otroUsuario && cuenta.codigoHash) {
+      if (!actual) return faltaActual(c);
+      const r = await conCodigo(c, cuenta.usuario ?? cuenta.id, () => comprobarCodigoActual(cuenta, actual));
+      if (r.respuesta) return r.respuesta;
+    }
+    return c.json({ usuario: datosDeCuenta(cambiarCuenta(db, cuenta.id, cambios)) });
+  });
+
+  v1.put("/yo/codigo", async (c) => {
+    const cuerpo = z
+      .object({ codigo: z.string().max(1000), actual: z.string().max(256).optional(), cerrarOtros: z.boolean().optional() })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!cuerpo.success) return c.json({ error: "Manda el código." }, 400);
+    const { codigo, actual, cerrarOtros } = cuerpo.data;
+    const cuenta = cuentaDe(c);
+    const nuevo = validarCodigoPersonal(codigo, cuenta);
+    if (cuenta.codigoHash && !actual) return faltaActual(c);
+    if (cambiosDeCodigo.bloqueado(cuenta.id)) return c.json({ error: "Ya cambiaste el código muchas veces. Espera un rato." }, 429);
+    cambiosDeCodigo.fallo(cuenta.id);
+    const r = await conCodigo(c, cuenta.usuario ?? cuenta.id, async () => {
+      await comprobarCodigoActual(cuenta, actual ?? "");
+      await ponerCodigo(db, cuenta.id, nuevo);
+    });
+    if (r.respuesta) return r.respuesta;
+    // Si pudo haber un token en malas manos: el código nuevo y, con cerrarOtros, todos los demás dispositivos fuera.
+    const cerrados = cerrarOtros ? cerrarOtrosDispositivos(db, cuenta.id, c.get("dispositivoId")) : 0;
+    return c.json({ ok: true, cerrados });
+  });
+
+  v1.delete("/yo/codigo", async (c) => {
+    const cuerpo = z.object({ actual: z.string().max(256).optional() }).safeParse(await c.req.json().catch(() => ({})));
+    const actual = cuerpo.success ? cuerpo.data.actual : undefined;
+    const cuenta = cuentaDe(c);
+    if (cuenta.codigoHash) {
+      if (!actual) return faltaActual(c);
+      const r = await conCodigo(c, cuenta.usuario ?? cuenta.id, () => comprobarCodigoActual(cuenta, actual));
+      if (r.respuesta) return r.respuesta;
+    }
+    quitarCodigo(db, cuenta.id);
+    return c.json({ ok: true });
   });
 
   v1.post("/invitaciones", async (c) => {
@@ -528,6 +693,8 @@ export function crearApp(opciones: OpcionesApp) {
     const agruparPor = AGRUPACIONES.find((a) => a === c.req.query("agrupar")) ?? "categoria";
     return c.json(resumir(contexto(c.get("usuarioId")), { periodo: c.req.query("periodo") ?? "este_mes", tipo, agruparPor }));
   });
+
+  rutasPlanes(v1, contexto);
 
   // Prepara el Atajo con un token propio y deja el archivo firmado 10 minutos para descargarlo.
   v1.post("/atajo", async (c) => {

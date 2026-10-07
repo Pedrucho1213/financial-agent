@@ -1,5 +1,5 @@
 import { and, eq, isNull } from "drizzle-orm";
-import { FRECUENCIAS, recurrentes, TIPOS_RECURRENTE } from "../db/schema";
+import { avisos, FRECUENCIAS, recurrentes, TIPOS_RECURRENTE } from "../db/schema";
 import { aCentavos, formatearMonto } from "../lib/dinero";
 import { armarFecha, diaSemana, partes, sumarDias, sumarMeses } from "../lib/fechas";
 import { normalizar } from "../lib/texto";
@@ -239,6 +239,12 @@ export function cobrosPorAvisar(ctx: Contexto, pagados: string[] = []): { aviso?
   const marcar = () => {
     for (const { r, fecha } of [...recienPagados, ...proximos]) {
       ctx.db.update(recurrentes).set({ avisadoPara: fecha }).where(eq(recurrentes.id, r.id)).run();
+      // El aviso del revisor sobre ese mismo cobro ya no hace falta mandarlo por push.
+      ctx.db
+        .update(avisos)
+        .set({ dichoEn: new Date().toISOString() })
+        .where(and(eq(avisos.usuarioId, ctx.usuarioId), eq(avisos.clave, `cobro:${r.id}:${fecha}`), isNull(avisos.dichoEn)))
+        .run();
     }
   };
   if (proximos.length === 0) return { marcar };

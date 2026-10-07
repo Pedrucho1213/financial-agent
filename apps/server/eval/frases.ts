@@ -6,6 +6,15 @@ import type { Contexto } from "../src/finanzas/contexto";
 import { buscarMovimientos, crearMovimiento } from "../src/finanzas/movimientos";
 import { listarMemorias, recordar } from "../src/finanzas/memorias";
 import { crearRecurrente, listarRecurrentes } from "../src/finanzas/recurrentes";
+import {
+  crearMeta,
+  estadoPresupuestos,
+  fijarPresupuesto,
+  listarMetas,
+  listarMsi,
+  listarPrestamos,
+  registrarPrestamo,
+} from "../src/finanzas/planes";
 import { resolverFecha, resolverPeriodo, sumarDias } from "../src/lib/fechas";
 
 type Mov = ReturnType<typeof buscarMovimientos>["movimientos"][number];
@@ -13,7 +22,7 @@ type Mov = ReturnType<typeof buscarMovimientos>["movimientos"][number];
 export type Resultado = Respuesta & { movimientos: Mov[]; recurrentes: ReturnType<typeof listarRecurrentes>["recurrentes"]; ctx: Contexto };
 
 export type Caso = {
-  grupo: "registro" | "dificil" | "charla" | "consulta" | "edicion" | "conversacion" | "recurrentes" | "autonomia";
+  grupo: "registro" | "dificil" | "charla" | "consulta" | "edicion" | "conversacion" | "recurrentes" | "autonomia" | "planes";
   frase: string;
   preparar?: (ctx: Contexto) => void;
   /** Lo que el usuario dijo antes en la misma conversación. */
@@ -841,5 +850,124 @@ export const CASOS: Caso[] = [
     frase: "Fui al súper",
     // Sin un monto conocido sí pregunta, y no anota nada.
     verificar: (r) => motivo(r.movimientos.length === 0 && pregunta(r), { movimientos: r.movimientos, respuesta: r.respuesta }),
+  },
+
+  // Presupuestos, metas, préstamos y meses sin intereses
+  {
+    grupo: "planes",
+    frase: "Mi presupuesto de comida es de 3 mil al mes",
+    verificar: (r) => {
+      const p = estadoPresupuestos(r.ctx).presupuestos;
+      return motivo(p.length === 1 && p[0]!.categoria === "Comida" && p[0]!.limiteCentavos === 300_000 && r.movimientos.length === 0, { p, respuesta: r.respuesta });
+    },
+  },
+  {
+    grupo: "planes",
+    frase: "Quiero gastar máximo 15 mil pesos este mes",
+    verificar: (r) => {
+      const p = estadoPresupuestos(r.ctx).presupuestos;
+      return motivo(p.length === 1 && p[0]!.categoriaId === null && p[0]!.limiteCentavos === 1_500_000, { p, respuesta: r.respuesta });
+    },
+  },
+  {
+    grupo: "planes",
+    frase: "¿Cuánto puedo gastar hoy?",
+    preparar: (ctx) => {
+      crearRecurrente(previa(ctx), { nombre: "Quincena", tipo: "ingreso", monto: 12000, frecuencia: "quincenal", dia: 15 });
+    },
+    verificar: (r) => motivo(/^Hoy (puedes gastar|te quedan|ya gastaste)/.test(r.respuesta) && r.acciones.some((a) => a.herramienta === "consultar_planes"), r.respuesta),
+  },
+  {
+    grupo: "planes",
+    frase: "Quiero juntar 20 mil para un viaje en diciembre",
+    verificar: (r) => {
+      const m = listarMetas(r.ctx).metas;
+      return motivo(m.length === 1 && m[0]!.objetivoCentavos === 2_000_000 && !!m[0]!.fechaLimite?.endsWith("-12-31") && r.movimientos.length === 0, { m, respuesta: r.respuesta });
+    },
+  },
+  {
+    grupo: "planes",
+    frase: "Aparté 2 mil para el viaje",
+    preparar: (ctx) => {
+      crearMeta(previa(ctx), { nombre: "Viaje", objetivo: 20000 });
+    },
+    verificar: (r) => {
+      const m = listarMetas(r.ctx).metas;
+      return motivo(m[0]?.ahorradoCentavos === 200_000 && r.movimientos.length === 0, { m, movimientos: r.movimientos, respuesta: r.respuesta });
+    },
+  },
+  {
+    grupo: "planes",
+    frase: "Le presté 500 pesos a Juan",
+    verificar: (r) => {
+      const p = listarPrestamos(r.ctx).prestamos;
+      return motivo(p.length === 1 && p[0]!.direccion === "me_deben" && p[0]!.montoCentavos === 50_000 && r.movimientos.length === 0, { p, movimientos: r.movimientos });
+    },
+  },
+  {
+    grupo: "planes",
+    frase: "Mi hermana me prestó mil pesos",
+    verificar: (r) => {
+      const p = listarPrestamos(r.ctx).prestamos;
+      return motivo(p.length === 1 && p[0]!.direccion === "debo" && p[0]!.montoCentavos === 100_000 && r.movimientos.length === 0, { p, movimientos: r.movimientos });
+    },
+  },
+  {
+    grupo: "planes",
+    frase: "Juan ya me pagó 200",
+    preparar: (ctx) => {
+      registrarPrestamo(previa(ctx), { persona: "Juan", direccion: "me_deben", monto: 500 });
+    },
+    verificar: (r) => {
+      const l = listarPrestamos(r.ctx);
+      return motivo(l.meDebenCentavos === 30_000 && r.movimientos.length === 0, { l, movimientos: r.movimientos, respuesta: r.respuesta });
+    },
+  },
+  {
+    grupo: "planes",
+    frase: "¿Cuánto me debe Juan?",
+    preparar: (ctx) => {
+      registrarPrestamo(previa(ctx), { persona: "Juan", direccion: "me_deben", monto: 500 });
+    },
+    verificar: (r) => motivo(dice(r, "500"), r.respuesta),
+  },
+  {
+    grupo: "planes",
+    frase: "Compré una pantalla de 12 mil a 12 meses sin intereses con la BBVA",
+    verificar: (r) => {
+      const c = listarMsi(r.ctx).compras;
+      // Solo la primera mensualidad queda como gasto, no los 12 mil.
+      return motivo(c.length === 1 && c[0]!.meses === 12 && c[0]!.totalCentavos === 1_200_000 && montos(r).join() === "$1,000", { c, movimientos: r.movimientos });
+    },
+  },
+  {
+    grupo: "planes",
+    frase: "¿Cómo voy con mi presupuesto de comida?",
+    preparar: (ctx) => {
+      fijarPresupuesto(previa(ctx), { categoria: "Comida", monto: 3000 });
+      crearMovimiento(previa(ctx), { tipo: "gasto", monto: 1500, categoria: "Súper", comercio: "Walmart" });
+    },
+    verificar: (r) => motivo(dice(r, "1,500") || dice(r, "50%") || dice(r, "1500"), r.respuesta),
+  },
+  {
+    grupo: "planes",
+    frase: "Gasté 300 en el súper",
+    preparar: (ctx) => {
+      fijarPresupuesto(previa(ctx), { categoria: "Comida", monto: 1000 });
+      crearMovimiento(previa(ctx), { tipo: "gasto", monto: 600, categoria: "Súper" });
+    },
+    // Cruza el 80%: lo dice en la misma respuesta.
+    verificar: (r) => motivo(r.movimientos.length === 2 && dice(r, "90%"), r.respuesta),
+  },
+  {
+    grupo: "autonomia",
+    frase: "Recuerda que mi último gasto no fue de dólares, fue de pesos mexicanos",
+    preparar: (ctx) => {
+      crearMovimiento(previa(ctx), { tipo: "gasto", monto: 80, moneda: "USD", categoria: "Café", comercio: "Oxxo" });
+    },
+    verificar: (r) => {
+      const memorias = listarMemorias(r.ctx);
+      return motivo(unoSolo(r)?.monto === "$80" && memorias.length === 0, { movimientos: r.movimientos, memorias });
+    },
   },
 ];

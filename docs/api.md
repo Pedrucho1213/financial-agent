@@ -4,18 +4,27 @@ Todo va por la misma API: el Atajo, la app (PWA) y el chat. Las rutas bajo `/v1`
 
 ## Registro y dispositivos
 
-Cada iPhone o navegador es un dispositivo con su propio token. Se entra con un código de invitación de 6 caracteres que dura 24 horas y sirve una sola vez.
+Cada iPhone o navegador es un dispositivo con su propio token. Se entra de dos formas:
+
+- Con un **código de invitación** de 6 caracteres que dura 24 horas y sirve una sola vez. Es la única forma de crear una cuenta.
+- Con **usuario y código personal**, que no vencen. Cada cuenta tiene un usuario (por ejemplo `pedro`, sacado de su nombre al crearla) y, si lo pone en Ajustes, un código de 8 a 64 caracteres que no distingue mayúsculas ni espacios de más. El código se guarda con argon2id y no se puede volver a leer. Un usuario que no existe recibe el mismo 401 que un código equivocado. Además del límite por IP, hay dos por usuario en 15 minutos: 10 fallos desde una misma IP frenan esa IP para ese usuario (así un extraño no deja fuera a su dueño), y 100 desde cualquier lado lo frenan del todo. Cada intento cuenta en cuanto llega, aunque lleguen muchos a la vez, y el servidor verifica a lo más 4 códigos al mismo tiempo; los demás reciben 429.
+
+El nombre (`nombre`, con el que saludan la voz, la IA y la app) lleva de 1 a 40 caracteres: letras, espacios, punto, apóstrofo o guion, y empieza con letra.
 
 | Método y ruta | Cuerpo | Respuesta |
 |---|---|---|
 | `GET /v1/invitaciones/:codigo` (pública) | | `{ para: "usuario" \| "dispositivo", nombre? }` (nombre del usuario si es para otro dispositivo). 404 si no existe, 410 si ya se usó o venció |
 | `POST /v1/registro` (pública) | `{ codigo, nombre?, dispositivo }` (nombre obligatorio si la invitación es para un usuario nuevo) | 201 `{ token, usuario: { id, nombre }, dispositivo: { id, nombre } }`. 400, 404, 410 o 429 con `{ error }` |
-| `GET /v1/yo` | | `{ usuario: { id, nombre }, dispositivo: { id, nombre }, dispositivos: [{ id, nombre, creadoEn, ultimoUso, actual }], moneda, zonaHoraria, hoy }` |
+| `POST /v1/entrar` (pública) | `{ usuario, codigo, dispositivo }` | 201 `{ token, usuario: { id, nombre }, dispositivo: { id, nombre } }`, igual que `/v1/registro`. 400 si falta algo, 401 `{ error: "Usuario o código incorrectos." }`, 429 |
+| `GET /v1/yo` | | `{ usuario: { id, nombre, usuario, tieneCodigo }, dispositivo: { id, nombre }, dispositivos: [{ id, nombre, creadoEn, ultimoUso, actual }], moneda, zonaHoraria, hoy }` |
+| `PATCH /v1/yo` | `{ nombre?, usuario?, actual? }`. `usuario`: de 3 a 24 caracteres (letras, números, punto, guion o guion bajo; empieza con letra o número); se guarda sin acentos y en minúsculas. Para cambiar el usuario de una cuenta con código hace falta `actual`, el código actual; el nombre se cambia sin él | `{ usuario: { id, nombre, usuario, tieneCodigo } }`. 400 si no es válido o falta `actual`, 403 si `actual` no es el código, 409 si otra cuenta ya usa ese usuario, 429 |
+| `PUT /v1/yo/codigo` | `{ codigo, actual?, cerrarOtros? }`. `codigo`: de 8 a 64 caracteres. `actual`: el código actual, obligatorio si ya hay uno. Con `cerrarOtros: true` revoca todos los demás dispositivos de la cuenta (para cuando un token pudo quedar en malas manos) | `{ ok: true, cerrados }` (cuántos dispositivos revocó). 400 si es corto, muy fácil de adivinar (todos iguales, 12345678, 87654321, 12121212, "contraseña"...), lleva el usuario o el nombre, o falta `actual`; 403 si `actual` no es el código (no 401: la sesión sigue); 429 después de 10 cambios en una hora o por los límites de arriba |
+| `DELETE /v1/yo/codigo` | `{ actual }` | `{ ok: true }`; desde ahí solo se entra con un código de invitación. 400 si falta `actual`, 403 si no es el código, 429 |
 | `POST /v1/invitaciones` | `{ para: "usuario" \| "dispositivo" }` | 201 `{ codigo, para, expiraEn }`. 429 después de 5 códigos de cuenta nueva o 20 de dispositivo en 24 horas |
 | `DELETE /v1/dispositivos/:id` | | `{ ok: true }` |
 | `GET /v1/estado` | | `{ servidor: { commit, commitEn, arrancadoEn }, ia: { modelo, disponible, cargada }, cola: { pendientes, conError } }`. Para Ajustes > Sistema: `commit` y `commitEn` (fecha del commit, o `null`) dicen qué está desplegado; `cargada` = el modelo ya está en memoria; `cola` cuenta tus dictados de los últimos 7 días que siguen procesándose o fallaron |
 
-Para el primer usuario: `bun run invitar -- --nombre Pedro` crea la cuenta (si no existe) e imprime un código para entrar a ella.
+Para el primer usuario: `bun run invitar -- --nombre Pedro` crea la cuenta (si no hay ninguna) e imprime un código para entrar a ella. Después, `--usuario pedro` (o `--nombre Pedro`) entra a esa cuenta aunque el nombre haya cambiado; una cuenta más se crea solo con `--nueva`.
 
 ## Hablar (Atajo y chat)
 
@@ -85,5 +94,102 @@ Solo los movimientos en la moneda base entran en las sumas.
 | Método y ruta | Cuerpo | Respuesta |
 |---|---|---|
 | `POST /v1/atajo` | `{ servidor }` (la dirección con la que el iPhone llega a la Mac, por ejemplo `location.origin`; tiene que ser este mismo servidor) | 201 `{ url, expiraEn, nombre }`. Crea un dispositivo "Atajo Finanzas" con su propio token (y quita los anteriores que nunca se usaron) y prepara el Atajo firmado. 501 si la Mac no puede firmar |
+| `POST /v1/atajo/entrar` (pública) | `{ usuario, codigo, servidor }` | 201 `{ url, expiraEn, nombre }`, igual que `POST /v1/atajo/canjear` pero con usuario y código personal. 400 si falta algo o `servidor` no es este, 401, 429; 501 si la Mac no puede firmar (no queda ningún token) |
 | `POST /v1/atajo/canjear` (pública) | `{ codigo, servidor }` con un código de dispositivo de una cuenta | 201 `{ url, expiraEn, nombre }`, igual que `POST /v1/atajo` pero sin token: es el enlace `/instalar?codigo=...`. 400 si el código es de cuenta nueva o `servidor` no es este servidor, 404, 410, 429; 501 si la Mac no puede firmar (el código sigue sirviendo) |
 | `GET /atajo/:id.shortcut` (pública, vale 10 minutos y 5 descargas) | | El archivo `Finanzas.shortcut` firmado; el id es aleatorio y solo lo conoce quien pidió el Atajo. 410 después. El enlace sobrevive a un reinicio del servidor: se guarda en la base cifrado con una clave que sale del id, del que solo queda el hash. Un `HEAD` no gasta descargas |
+
+## Presupuestos, metas, préstamos y meses sin intereses
+
+Montos en centavos. Todo se puede hacer también por voz (`/v1/hablar`), y lo que se hace por voz se puede deshacer.
+
+| Método y ruta | Cuerpo o parámetros | Respuesta |
+|---|---|---|
+| `GET /v1/presupuestos?mes=YYYY-MM` | mes actual por omisión | `{ mes, hoy, diasDelMes, diaDelMes, presupuestos: Presupuesto[], total: { limiteCentavos, gastadoCentavos } }`; el general va primero y luego del más apretado al más holgado |
+| `PUT /v1/presupuestos` | `{ categoria_id, limite }` (`categoria_id` null u omitido = presupuesto general del mes) | `Presupuesto`; crea o cambia, uno por categoría |
+| `DELETE /v1/presupuestos/:id` | | `{ ok: true }` |
+| `GET /v1/metas` | | `{ metas: Meta[] }` |
+| `POST /v1/metas` | `{ nombre, objetivo, ahorrado?, fecha_limite? }` (AAAA-MM-DD, de hoy en adelante; una fecha pasada da 400) | 201 `Meta` |
+| `PATCH /v1/metas/:id` | `{ nombre?, objetivo?, fecha_limite? }` (`null` quita la fecha) | `Meta` |
+| `POST /v1/metas/:id/aportes` | `{ monto }` (negativo = retiro; no puede quedar debajo de cero) | `Meta` |
+| `DELETE /v1/metas/:id` | | `{ ok: true }` |
+| `GET /v1/prestamos?todos=1` | sin `todos`, solo los pendientes | `{ prestamos: Prestamo[], meDebenCentavos, deboCentavos }` |
+| `GET /v1/msi?todas=1` | sin `todas`, solo las que tienen cargos por venir | `{ compras: CompraMsi[], mensualCentavos }` |
+| `GET /v1/disponible` | | ver abajo ("¿cuánto puedo gastar hoy?") |
+
+Los presupuestos y "¿cuánto puedo gastar hoy?" cuentan solo lo que está en pesos (la moneda base); un gasto en dólares no suma.
+
+```ts
+type Presupuesto = {
+  id: string;
+  categoriaId: string | null; // null = general (todo lo que se gasta en el mes)
+  categoria: string; // "General", "Comida" o "Comida > Café"; una principal incluye sus subcategorías
+  limiteCentavos: number; gastadoCentavos: number; restanteCentavos: number; // restante puede ser negativo
+  porcentaje: number; // entero, puede pasar de 100
+  proyeccionCentavos: number; // al ritmo actual, cuánto habrá gastado al cerrar el mes
+  estado: "bien" | "cerca" | "excedido"; // cerca desde 80%, excedido arriba de 100%
+};
+type Meta = {
+  id: string; nombre: string; objetivoCentavos: number; ahorradoCentavos: number;
+  porcentaje: number; // 0 a 100
+  fechaLimite: string | null;
+  mensualSugeridoCentavos: number | null; // cuánto apartar al mes para llegar a tiempo
+  completada: boolean;
+};
+type Prestamo = {
+  id: string; persona: string; direccion: "me_deben" | "debo";
+  montoCentavos: number; pagadoCentavos: number; pendienteCentavos: number;
+  descripcion: string | null; creadoEn: string; saldadoEn: string | null;
+};
+type CompraMsi = {
+  id: string; descripcion: string; totalCentavos: number; meses: number; mensualidadCentavos: number;
+  primerCargo: string; pagadas: number; restanteCentavos: number; proximoCargo: string | null;
+  proximoMontoCentavos: number | null; // la última mensualidad absorbe el redondeo
+  cuenta: string | null;
+};
+```
+
+Cada mensualidad de una compra a meses queda como un gasto (`origen: "importacion"`, descripción "Pantalla (3 de 12 MSI)") el día que toca: la primera al registrar la compra y las demás con el revisor diario. Así el mes muestra lo que de verdad sale de la cartera y no el total de la compra.
+
+`GET /v1/disponible`:
+
+```ts
+{
+  hoy: string; diasRestantes: number; // del mes, hoy incluido
+  porDiaCentavos: number; // lo que toca por día, en pesos enteros
+  disponibleHoyCentavos: number; // porDia menos lo gastado hoy (puede ser negativo)
+  libreMesCentavos: number; // ingresos - gastado - comprometido
+  base: "ingresos" | "presupuestos" | null; // null: no hay ingresos ni presupuestos para calcularlo
+  ingresosCentavos: number; // lo registrado este mes o lo esperado de los ingresos fijos, lo que sea mayor
+  gastadoCentavos: number; gastadoHoyCentavos: number;
+  comprometidoCentavos: number; // pagos fijos y mensualidades que faltan este mes (0 si la base son presupuestos por categoría)
+}
+```
+
+## Avisos (revisor nocturno)
+
+Una vez al día, desde las 3:00 hora local y cuando nadie ha dictado en los últimos 10 minutos (o en cuanto la Mac despierta, si estaba dormida), el servidor revisa las finanzas de cada usuario y guarda avisos: gastos hormiga, suscripciones olvidadas o repetidas, cobros y mensualidades de hoy a pasado mañana, presupuestos rebasados o en riesgo, gastos fuera de lo normal, metas por vencer y préstamos viejos. Es solo SQL y reglas: no usa el modelo de IA. El mismo hallazgo no se guarda dos veces.
+
+| Método y ruta | Cuerpo | Respuesta |
+|---|---|---|
+| `GET /v1/avisos?todos=1` | sin `todos`, solo los no leídos | `{ avisos: Aviso[] }` de los últimos 7 días, vigentes y sin descartar |
+| `POST /v1/avisos/:id/leido` | | `Aviso` |
+| `POST /v1/avisos/:id/descartar` | | `{ ok: true }` |
+| `POST /v1/avisos/revisar` | | `{ nuevos, mensualidades }`; corre el revisor ya para este usuario |
+
+```ts
+type Aviso = {
+  id: string;
+  tipo: "hormiga" | "suscripcion_olvidada" | "suscripcion_duplicada" | "cobro_proximo" | "presupuesto" | "meta" | "msi" | "prestamo" | "gasto_inusual";
+  titulo: string; // corto, para el título de una notificación
+  texto: string; // una o dos frases con montos "$85"; para voz, pasarlo por montosParaVoz
+  // Los de cobros dicen el día exacto ("El viernes 9 se cobra Netflix…"); al leerlos ese día o la víspera ya llegan como "Hoy…" o "Mañana…".
+  fecha: string; vence: string | null; // después de vence ya no aplica
+  prioridad: 1 | 2 | 3; // 1 alta
+  enlace: string | null; // pantalla de la app: "#movimientos?texto=Starbucks", "#presupuestos", "#metas", "#inicio", "#ajustes"
+  creadoEn: string; enviadoEn: string | null; dichoEn: string | null; leidoEn: string | null;
+};
+```
+
+En el servidor (`src/finanzas/avisos.ts`): `avisosPorEnviar(db, zonaHoraria)` da los avisos de todos los usuarios de las últimas 24 horas que nadie ha visto, enviado, oído ni descartado, y `marcarEnviados(db, ids)` los da por enviados; `avisoDelDia(ctx)` da el aviso más importante de ayer u hoy que todavía no se dijo, con `marcar()` para darlo por dicho. Un cobro del que la voz ya avisó al registrar algo ("Ojo: mañana se cobra Netflix") queda como dicho y no se repite.
+
+Al registrar un gasto que cruza el 80% o el 100% de un presupuesto, `/v1/hablar` lo agrega a la respuesta ("Vas en 82% de tu presupuesto de Comida.") y lo repite aparte en `dato`.

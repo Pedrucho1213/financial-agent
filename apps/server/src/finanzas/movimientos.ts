@@ -1,5 +1,18 @@
-import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
-import { bitacora, comercios, cuentas, entradas, movimientos, recurrentes, TIPOS_MOVIMIENTO } from "../db/schema";
+import { and, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import {
+  bitacora,
+  comercios,
+  comprasMsi,
+  cuentas,
+  entradas,
+  metas,
+  movimientos,
+  prestamosPersonales,
+  presupuestos,
+  recurrentes,
+  TABLAS_BITACORA,
+  TIPOS_MOVIMIENTO,
+} from "../db/schema";
 import { aCentavos, formatearMonto } from "../lib/dinero";
 import { mediodiaUtc, resolverFecha, resolverPeriodo } from "../lib/fechas";
 import { normalizar } from "../lib/texto";
@@ -35,6 +48,8 @@ export type DatosMovimiento = {
   /** La app elige la categoría de una lista; la IA la nombra con texto (`categoria`). null la quita. */
   categoriaId?: string | null;
   origen?: Movimiento["origen"];
+  /** Sin cuenta dicha, la que se adivina ya sabiendo la categoría (con qué paga siempre la gasolina). */
+  cuentaSegunCategoria?: (categoriaId: string | null) => string | undefined;
 };
 
 /** La categoría elegida en la app, si es del usuario y del tipo correcto. */
@@ -106,9 +121,45 @@ function elegirCategoria(
   return { id: porDefecto?.id ?? null, revisar: true };
 }
 
+export type TablaBitacora = (typeof TABLAS_BITACORA)[number];
+
+// Presupuestos, metas, préstamos y MSI se deshacen columna por columna: solo lo que cambió esa entrada.
+const TABLAS_PLANES = {
+  presupuestos,
+  metas,
+  prestamos_personales: prestamosPersonales,
+  compras_msi: comprasMsi,
+} as const;
+
+// Saldos que se mueven por abonos: se deshace la diferencia, no el valor, para no borrar otro abono
+// que llegó después ("aparté 500" y luego "aparté 200"; deshacer el primero deja los 200).
+const SALDOS = new Set(["ahorradoCentavos", "pagadoCentavos"]);
+
+/** Lo que hay que escribir para llevar una fila de `desde` a `hacia`, sobre cómo está ahora. */
+function valoresDePlan(
+  tabla: (typeof TABLAS_PLANES)[keyof typeof TABLAS_PLANES],
+  registroId: string,
+  desde: Record<string, unknown>,
+  hacia: Record<string, unknown>,
+  tx: Pick<Contexto["db"], "select">,
+) {
+  const actual = (tx.select().from(tabla).where(eq(tabla.id, registroId)).get() ?? {}) as Record<string, unknown>;
+  const valores: Record<string, unknown> = {};
+  for (const k of Object.keys(hacia)) {
+    if (k === "id" || JSON.stringify(desde[k]) === JSON.stringify(hacia[k])) continue;
+    valores[k] = SALDOS.has(k) ? Math.max(0, Number(actual[k] ?? 0) + Number(hacia[k] ?? 0) - Number(desde[k] ?? 0)) : hacia[k];
+  }
+  // Un préstamo queda saldado según lo que de verdad lleva pagado.
+  if (tabla === prestamosPersonales && "pagadoCentavos" in valores) {
+    const saldado = (valores.pagadoCentavos as number) >= Number(actual.montoCentavos);
+    valores.saldadoEn = saldado ? (actual.saldadoEn ?? hacia.saldadoEn ?? new Date().toISOString()) : null;
+  }
+  return valores;
+}
+
 export function registrarEnBitacora(
   ctx: Contexto,
-  tabla: "movimientos" | "recurrentes",
+  tabla: TablaBitacora,
   registroId: string,
   accion: "crear" | "editar" | "eliminar",
   antes?: Record<string, unknown>,
@@ -141,7 +192,11 @@ export function crearMovimiento(ctx: Contexto, datos: DatosMovimiento) {
       ]);
   // El comercio solo aprende de tus correcciones (editarMovimiento): Oxxo, Walmart o Amazon venden
   // de todo y la primera compra no dice a qué categoría van las demás.
-  const cuenta = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, datos.cuenta);
+  const cuenta = encontrarOCrearCuenta(
+    ctx.db,
+    ctx.usuarioId,
+    datos.cuenta || (categoria.revisar ? undefined : datos.cuentaSegunCategoria?.(categoria.id)),
+  );
 
   const fila = ctx.db
     .insert(movimientos)
@@ -286,7 +341,17 @@ export function idDelMovimiento(ctx: Contexto, id?: string, buscar?: Busqueda, v
   if (filas.length === 0) {
     throw new ErrorFinanzas("No encontré ningún movimiento con esos datos. Prueba con menos filtros.");
   }
-  if (filas.length === 1 || buscar.mas_reciente) return filas[0]!.id;
+  if (filas.length === 1) return filas[0]!.id;
+  // "El último" es lo último que anotó, aunque sea de ayer: no un gasto con fecha de hoy anotado antes.
+  if (buscar.mas_reciente) {
+    return ctx.db
+      .select({ id: movimientos.id })
+      .from(movimientos)
+      .where(inArray(movimientos.id, filas.map((m) => m.id)))
+      .orderBy(desc(movimientos.creadoEn), desc(sql`rowid`))
+      .limit(1)
+      .get()!.id;
+  }
   const opciones = filas.slice(0, 5).map((m) => {
     const d = describir(ctx, m, cats);
     return `${d.comercio ?? d.categoria ?? d.tipo} de ${d.monto} del ${d.fecha} (id ${d.id})`;
@@ -448,11 +513,25 @@ function revertir(ctx: Contexto, grupo: CambioBitacora[], por?: string) {
           const { id: _, ...valores } = cambio.antes as Movimiento;
           tx.update(movimientos).set(valores).where(eq(movimientos.id, cambio.registroId)).run();
         }
-      } else {
+      } else if (cambio.tabla === "recurrentes") {
         tx.update(recurrentes)
           .set({ eliminadoEn: cambio.accion === "crear" ? ahora : null })
           .where(eq(recurrentes.id, cambio.registroId))
           .run();
+      } else {
+        const tabla = TABLAS_PLANES[cambio.tabla];
+        const valores =
+          cambio.accion === "crear"
+            ? { eliminadoEn: ahora }
+            : valoresDePlan(tabla, cambio.registroId, (cambio.despues ?? {}) as Record<string, unknown>, (cambio.antes ?? {}) as Record<string, unknown>, tx);
+        if (Object.keys(valores).length) tx.update(tabla).set(valores).where(eq(tabla.id, cambio.registroId)).run();
+        // Deshacer una compra a meses quita también las mensualidades que el revisor anotó solo.
+        if (cambio.tabla === "compras_msi" && cambio.accion === "crear") {
+          tx.update(movimientos)
+            .set({ eliminadoEn: ahora })
+            .where(and(eq(movimientos.msiId, cambio.registroId), isNull(movimientos.eliminadoEn)))
+            .run();
+        }
       }
       tx.update(bitacora).set({ deshechoEn: ahora, deshechoPor: por ?? null }).where(eq(bitacora.id, cambio.id)).run();
       revertidos.push(`${cambio.accion} en ${cambio.tabla}`);
@@ -473,11 +552,24 @@ function rehacer(ctx: Contexto, grupo: CambioBitacora[]) {
           const { id: _, ...valores } = cambio.despues as Movimiento;
           tx.update(movimientos).set(valores).where(eq(movimientos.id, cambio.registroId)).run();
         }
-      } else {
+      } else if (cambio.tabla === "recurrentes") {
         tx.update(recurrentes)
           .set({ eliminadoEn: cambio.accion === "crear" ? null : (despues.eliminadoEn ?? new Date().toISOString()) })
           .where(eq(recurrentes.id, cambio.registroId))
           .run();
+      } else {
+        const tabla = TABLAS_PLANES[cambio.tabla];
+        const valores =
+          cambio.accion === "crear"
+            ? { eliminadoEn: null }
+            : valoresDePlan(tabla, cambio.registroId, (cambio.antes ?? {}) as Record<string, unknown>, despues as Record<string, unknown>, tx);
+        if (Object.keys(valores).length) tx.update(tabla).set(valores).where(eq(tabla.id, cambio.registroId)).run();
+        if (cambio.tabla === "compras_msi" && cambio.accion === "crear" && cambio.deshechoEn) {
+          tx.update(movimientos)
+            .set({ eliminadoEn: null })
+            .where(and(eq(movimientos.msiId, cambio.registroId), eq(movimientos.eliminadoEn, cambio.deshechoEn)))
+            .run();
+        }
       }
       tx.update(bitacora).set({ deshechoEn: null, deshechoPor: null }).where(eq(bitacora.id, cambio.id)).run();
     }
