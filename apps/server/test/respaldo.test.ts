@@ -7,6 +7,8 @@ describe("corrección de cuenta sin el modelo (QA-020)", () => {
       buscar: { texto: "el super de", periodo: "hoy" },
       cuenta: "la tarjeta de crédito Nu",
     });
+    // Un "con" antes del verbo es parte del gasto.
+    expect(correccionDeCuenta("El café con leche de hoy fue con la Nu", [])?.cuenta).toBe("la Nu");
     expect(correccionDeCuenta("El Uber del viernes era con la BBVA.", [])?.buscar).toEqual({ texto: "el uber del", periodo: "viernes" });
     // Sin día, el más reciente de la última semana.
     expect(correccionDeCuenta("lo de Walmart lo pagué con efectivo", [])?.buscar).toEqual({
@@ -24,5 +26,10 @@ describe("corrección de cuenta sin el modelo (QA-020)", () => {
     expect(correccionDeCuenta("¿El súper fue con la Nu?", [])).toBeUndefined();
     expect(correccionDeCuenta("gasté en el súper con la Nu", [])).toBeUndefined();
     expect(correccionDeCuenta("hoy fue con la Nu", [])).toBeUndefined(); // no dice qué gasto
+    // Dice más de una cosa (QA-022): lo decide el modelo.
+    expect(correccionDeCuenta("El súper de hoy fue con Nu, no con BBVA", [])).toBeUndefined();
+    expect(correccionDeCuenta("El súper fue con la Nu y el Uber con BBVA", [])).toBeUndefined();
+    expect(correccionDeCuenta("Lo del súper fue con tarjeta de crédito, no de débito", [])).toBeUndefined();
+    expect(correccionDeCuenta("El súper fue con la Nu, gracias", [])).toBeUndefined();
   });
 });

@@ -7,6 +7,8 @@ const PAGO_CON = /^(?:y )?(.+?) (?:fue|era|lo pague|la pague|lo pagamos|se pago)
 // Lo que va después de "con" tiene que sonar a medio de pago, no a "la cena fue con mis amigos".
 const MEDIO_DE_PAGO =
   /\b(tarjeta|efectivo|cash|credito|debito|transferencia|spei|vales|monedero|mercado pago|paypal|bbva|nu|banorte|santander|hsbc|banamex|citibanamex|scotiabank|inbursa|azteca|banregio|amex|american express|liverpool|klar|stori|uala|openbank|bancoppel|coppel|hey banco|rappicard|didi card)\b/;
+// "con Nu, no con BBVA", "con la Nu y el Uber con BBVA": dice más de una cosa y eso lo decide el modelo.
+const VARIAS_COSAS = /\b(con|no|y|o|ni|pero|sino)\b/;
 const DIA = /\b(hoy|ayer|antier|anteayer|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/;
 
 /**
@@ -25,6 +27,7 @@ export function correccionDeCuenta(texto: string, cuentas: string[]): { buscar: 
     return nombre.length > 0 && ` ${medio} `.includes(` ${nombre} `);
   });
   if (!conocida && !MEDIO_DE_PAGO.test(medio)) return undefined;
+  if (VARIAS_COSAS.test(medio)) return undefined;
   if (sujeto.split(" ").length > 6) return undefined;
   const dia = sujeto.match(DIA)?.[1];
   const queBuscar = sujeto.replace(DIA, " ").replace(/\s+/g, " ").trim();
@@ -32,6 +35,7 @@ export function correccionDeCuenta(texto: string, cuentas: string[]): { buscar: 
   // La cuenta como la dijiste ("la tarjeta de crédito Nu"); encontrarOCrearCuenta le quita "la tarjeta de".
   const original = texto.trim().replace(/[.!¡,;]+$/, "");
   const cuenta = original.slice(original.toLowerCase().lastIndexOf(" con ") + 5).trim();
+  if (/[,;:]/.test(cuenta)) return undefined;
   // Sin día, "el súper" es el más reciente de la última semana.
   const buscar: Busqueda = dia ? { texto: queBuscar, periodo: dia } : { texto: queBuscar, periodo: "ultima_semana", mas_reciente: true };
   return { buscar, cuenta };
