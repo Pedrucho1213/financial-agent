@@ -15,11 +15,12 @@ const PASOS = [
   </>,
 ];
 
-// Al reinstalar, quitar el viejo antes evita quedarse con dos "Finanzas".
+// Al reinstalar: Safari renombra la descarga si queda la vieja ("Finanzas 2") y Atajos ofrece reemplazar
+// solo si el nombre coincide (comprobado en el simulador con iOS 27).
 const PIE = (
   <>
-    ¿Ya lo tenías? Antes bórralo en la app Atajos (mantenlo presionado ›{" "}
-    <strong className="font-semibold">Eliminar</strong>) para no quedarte con dos.
+    ¿Ya lo tenías? Antes borra el Finanzas.shortcut viejo de Archivos › Descargas y, al agregarlo, toca{" "}
+    <strong className="font-semibold">«Reemplazar»</strong>.
   </>
 );
 
