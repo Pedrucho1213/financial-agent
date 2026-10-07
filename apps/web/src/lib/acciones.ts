@@ -13,6 +13,7 @@ function refrescar() {
   return Promise.all([
     clienteConsultas.invalidateQueries({ queryKey: ["tablero"] }),
     clienteConsultas.invalidateQueries({ queryKey: ["movimientos"] }),
+    clienteConsultas.invalidateQueries({ queryKey: ["plan"] }),
   ]);
 }
 

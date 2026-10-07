@@ -4,6 +4,7 @@ import { datosDelUsuario } from "../src/ai/instrucciones";
 import { crearHerramientas } from "../src/ai/herramientas";
 import { crearApp } from "../src/app";
 import { crearDispositivo } from "../src/auth";
+import { movimientos, recurrentes } from "../src/db/schema";
 import type { Contexto } from "../src/finanzas/contexto";
 import { cuentaHabitual, habitoMencionado, habitos } from "../src/finanzas/habitos";
 import { listarMemorias } from "../src/finanzas/memorias";
@@ -69,11 +70,15 @@ describe("montos de siempre", () => {
   });
 
   test("si un pago fijo se cobró después por otro monto, ese se propone en vez de anotarse", () => {
-    const { ctx } = preparar();
+    const { db, ctx } = preparar();
     crearRecurrente(ctx, { nombre: "Spotify", tipo: "suscripcion", monto: 115, frecuencia: "mensual", dia: 20 });
     crearMovimiento(ctx, { tipo: "gasto", monto: 129, comercio: "Spotify", fecha: "2026-09-20" });
     const h = habitoMencionado(ctx, "pagué Spotify");
     expect([h?.montoCentavos, h?.seguro]).toEqual([12900, false]);
+    // En una Mac rápida los dos se guardan en el mismo milisegundo: también cuenta como después.
+    const { creadoEn } = db.select({ creadoEn: recurrentes.creadoEn }).from(recurrentes).get()!;
+    db.update(movimientos).set({ creadoEn }).run();
+    expect(habitoMencionado(ctx, "pagué Spotify")?.montoCentavos).toBe(12900);
   });
 
   test("sin monto en la frase, el de siempre manda sobre el que inventó el modelo", async () => {

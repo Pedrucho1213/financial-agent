@@ -50,7 +50,8 @@ export type Dispositivo = {
 };
 
 export type Yo = {
-  usuario: { id: string; nombre: string };
+  /** `usuario` y `tieneCodigo` llegan con el servidor que permite entrar con usuario y código. */
+  usuario: { id: string; nombre: string; usuario?: string; tieneCodigo?: boolean };
   dispositivo: { id: string; nombre: string };
   dispositivos: Dispositivo[];
   moneda: string;
@@ -123,4 +124,111 @@ export type DatosMovimiento = {
   descripcion?: string | null;
   cuenta?: string | null;
   fecha?: string;
+};
+
+/** GET /v1/presupuestos?mes= (contrato acordado con el hilo de la IA; ver docs/api.md). */
+export type Presupuesto = {
+  id: string;
+  /** null = tope para todo el gasto del mes. */
+  categoriaId: string | null;
+  /** "General" (sin categoría), "Comida" o "Comida > Café". Uno de una principal incluye sus subcategorías. */
+  categoria: string | null;
+  limiteCentavos: number;
+  gastadoCentavos: number;
+  restanteCentavos: number;
+  /** Entero; pasa de 100 si se excedió. */
+  porcentaje: number;
+  /** Lo que se gastaría al cierre del mes al ritmo actual. */
+  proyeccionCentavos: number;
+  estado: "bien" | "cerca" | "excedido";
+};
+export type Presupuestos = {
+  mes: string;
+  hoy: string;
+  diasDelMes: number;
+  diaDelMes: number;
+  presupuestos: Presupuesto[];
+  total: { limiteCentavos: number; gastadoCentavos: number };
+};
+
+/** GET /v1/metas */
+export type Meta = {
+  id: string;
+  nombre: string;
+  objetivoCentavos: number;
+  ahorradoCentavos: number;
+  porcentaje: number;
+  fechaLimite: string | null;
+  /** Cuánto apartar al mes para llegar a tiempo; null sin fecha. */
+  mensualSugeridoCentavos: number | null;
+  completada: boolean;
+};
+export type Metas = { metas: Meta[] };
+
+/** GET /v1/disponible: "¿cuánto puedo gastar hoy?". base null = no hay con qué calcularlo. */
+export type Disponible = {
+  hoy: string;
+  diasRestantes: number;
+  porDiaCentavos: number;
+  disponibleHoyCentavos: number;
+  libreMesCentavos: number;
+  base: "ingresos" | "presupuestos" | null;
+  ingresosCentavos: number;
+  gastadoCentavos: number;
+  comprometidoCentavos: number;
+};
+
+/** GET /v1/prestamos */
+export type Prestamo = {
+  id: string;
+  persona: string;
+  direccion: "me_deben" | "debo";
+  montoCentavos: number;
+  pagadoCentavos: number;
+  pendienteCentavos: number;
+  descripcion: string | null;
+  creadoEn: string;
+  saldadoEn: string | null;
+};
+export type Prestamos = { prestamos: Prestamo[]; meDebenCentavos: number; deboCentavos: number };
+
+/** GET /v1/msi: compras a meses sin intereses. */
+export type CompraMsi = {
+  id: string;
+  descripcion: string;
+  totalCentavos: number;
+  meses: number;
+  mensualidadCentavos: number;
+  /** El próximo cargo: la última mensualidad absorbe el redondeo. Viejos servidores no lo mandan. */
+  proximoMontoCentavos?: number | null;
+  primerCargo: string;
+  pagadas: number;
+  restanteCentavos: number;
+  proximoCargo: string | null;
+  cuenta: string | null;
+};
+export type ComprasMsi = { compras: CompraMsi[]; mensualCentavos: number };
+
+/** GET /v1/avisos: lo que encontró el revisor nocturno (fugas, cobros próximos, presupuestos). */
+export type Aviso = {
+  id: string;
+  tipo:
+    | "hormiga"
+    | "suscripcion_olvidada"
+    | "suscripcion_duplicada"
+    | "cobro_proximo"
+    | "presupuesto"
+    | "meta"
+    | "msi"
+    | "prestamo"
+    | "gasto_inusual";
+  titulo: string;
+  texto: string;
+  fecha: string;
+  vence: string | null;
+  /** 1 = alta. */
+  prioridad: 1 | 2 | 3;
+  /** Pantalla de la app: "#movimientos?texto=Starbucks", "#presupuestos", "#metas"… */
+  enlace: string | null;
+  leidoEn: string | null;
 };

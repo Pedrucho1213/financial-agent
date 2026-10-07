@@ -6,7 +6,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { crearApp, type OpcionesApp } from "../src/app";
 import { crearDispositivo, crearInvitacion } from "../src/auth";
 import { abrirBaseDatos } from "../src/db/client";
-import { descargasAtajo, recurrentes } from "../src/db/schema";
+import { descargasAtajo, entradas, recurrentes } from "../src/db/schema";
 
 type Json = Record<string, any>;
 
@@ -102,6 +102,11 @@ describe("registro con código de invitación", () => {
     expect((await pedir("/v1/movimientos", { token: ana.token })).cuerpo.total).toBe(0);
     const ajeno = await pedir(`/v1/movimientos/${creado.cuerpo.id}`, { metodo: "DELETE", token: ana.token });
     expect(ajeno.estado).toBe(400);
+    // El detalle de uno ajeno no existe para ella; el dueño sí lo ve.
+    expect((await pedir(`/v1/movimientos/${creado.cuerpo.id}`, { token: ana.token })).estado).toBe(404);
+    const propio = await pedir(`/v1/movimientos/${creado.cuerpo.id}`, { token: pedro.token });
+    expect(propio.estado).toBe(200);
+    expect(propio.cuerpo).toMatchObject({ id: creado.cuerpo.id, montoCentavos: 5000, tipo: "gasto" });
     // Tampoco puede usar las categorías de otro.
     const catsPedro = (await pedir("/v1/categorias", { token: pedro.token })).cuerpo.categorias;
     const r = await pedir("/v1/movimientos", { cuerpo: { tipo: "gasto", monto: 5, categoria_id: catsPedro[0].id }, token: ana.token });
@@ -296,6 +301,25 @@ describe("el Atajo", () => {
     expect((await otra.request("/atajo/00000000-0000-4000-8000-000000000000.shortcut")).status).toBe(410);
   });
 
+  test("el de Apple Pay baja con su nombre y su propio dispositivo", async () => {
+    let xmlRecibido = "";
+    const { db, pedir, app } = montar({
+      firmarAtajo: async (xml) => ((xmlRecibido = xml), new TextEncoder().encode("firmado")),
+    });
+    const { token } = await entrar(pedir, db);
+    const r = await pedir("/v1/atajo", { cuerpo: { servidor: "https://mac.tu-red.ts.net", tipo: "apple_pay" }, token });
+    expect(r.estado).toBe(201);
+    expect(r.cuerpo.url).toMatch(/^\/atajo\/[0-9a-f-]+\.applepay\.shortcut$/);
+    expect(xmlRecibido).toContain("apple_pay");
+    const descarga = await app.request(r.cuerpo.url);
+    expect(descarga.status).toBe(200);
+    expect(descarga.headers.get("content-disposition")).toContain("filename*=UTF-8''Finanzas%20Apple%20Pay.shortcut");
+    // Sin el sufijo es el mismo enlace, con el nombre del otro Atajo: el id es lo que cuenta.
+    expect((await app.request(r.cuerpo.url.replace(".applepay", ""))).status).toBe(200);
+    const nombres = ((await pedir("/v1/yo", { token })).cuerpo.dispositivos as Json[]).map((d) => d.nombre).sort();
+    expect(nombres).toEqual(["Atajo Apple Pay", "iPhone"]);
+  });
+
   test("si la Mac no puede firmar, avisa y no deja un token suelto", async () => {
     const { ErrorFirma } = await import("../src/atajo/generar");
     const { db, pedir } = montar({
@@ -395,5 +419,84 @@ describe("la app web", () => {
     const r = await app.request("/");
     expect(r.status).toBe(503);
     expect(await r.text()).toContain("web:build");
+  });
+});
+
+describe("estado del sistema", () => {
+  test("dice qué versión corre, cómo está la IA y cuántos dictados suyos siguen pendientes", async () => {
+    const { db, pedir } = montar({
+      estadoIa: async () => ({ modelo: "gemma4:12b-it-qat", disponible: true, cargada: false }),
+      version: { commit: "abc1234", commitEn: "2026-10-07T03:52:00Z" },
+    });
+    const { token, usuario } = await entrar(pedir, db);
+    const otro = await entrar(pedir, db);
+    const ahora = new Date().toISOString();
+    const viejo = new Date(Date.now() - 10 * 86_400_000).toISOString();
+    const fila = (usuarioId: string, clientId: string, estado: "procesando" | "listo" | "error", creadoEn = ahora) => ({
+      usuarioId,
+      clientId,
+      conversacionId: "c",
+      texto: "x",
+      capturadoEn: creadoEn,
+      estado,
+      creadoEn,
+    });
+    db.insert(entradas)
+      .values([
+        fila(usuario.id, "a", "procesando"),
+        fila(usuario.id, "b", "error"),
+        fila(usuario.id, "c", "listo"),
+        fila(usuario.id, "d", "error", viejo),
+        fila(otro.usuario.id, "e", "procesando"),
+      ])
+      .run();
+
+    expect((await pedir("/v1/estado")).estado).toBe(401);
+    const r = await pedir("/v1/estado", { token });
+    expect(r.estado).toBe(200);
+    expect(r.cuerpo.servidor).toMatchObject({ commit: "abc1234", commitEn: "2026-10-07T03:52:00Z" });
+    expect(Date.parse(r.cuerpo.servidor.arrancadoEn)).toBeGreaterThan(0);
+    expect(r.cuerpo.ia).toEqual({ modelo: "gemma4:12b-it-qat", disponible: true, cargada: false });
+    expect(r.cuerpo.cola).toEqual({ pendientes: 1, conError: 1 });
+  });
+
+  test("si no sabe cómo está la IA, la reporta como no disponible", async () => {
+    const { db, pedir } = montar({ estadoIa: async () => Promise.reject(new Error("sin Ollama")) });
+    const { token } = await entrar(pedir, db);
+    const r = await pedir("/v1/estado", { token });
+    expect(r.cuerpo.ia).toMatchObject({ disponible: false, cargada: false });
+    expect(r.cuerpo.servidor.commit).toBeNull();
+  });
+
+  test("versión, modelo y arranque solo los ve la primera cuenta (el dueño); la cola, cada quien la suya", async () => {
+    const { db, pedir } = montar({
+      estadoIa: async () => ({ modelo: "gemma4:12b-it-qat", disponible: true, cargada: true }),
+      version: { commit: "abc1234", commitEn: "2026-10-07T03:52:00Z" },
+    });
+    const dueno = await entrar(pedir, db);
+    const otro = await entrar(pedir, db);
+    const r = await pedir("/v1/estado", { token: otro.token });
+    expect(r.estado).toBe(200);
+    expect(r.cuerpo).toEqual({ servidor: null, ia: { disponible: true, cargada: true }, cola: { pendientes: 0, conError: 0 } });
+    expect((await pedir("/v1/estado", { token: dueno.token })).cuerpo.servidor.commit).toBe("abc1234");
+  });
+
+  test("a la IA le pregunta como mucho cada 10 segundos", async () => {
+    let preguntas = 0;
+    const { db, pedir } = montar({
+      estadoIa: async () => {
+        preguntas++;
+        return { modelo: "m", disponible: true, cargada: false };
+      },
+    });
+    const { token } = await entrar(pedir, db);
+    await Promise.all([pedir("/v1/estado", { token }), pedir("/v1/estado", { token }), pedir("/v1/estado", { token })]);
+    expect(preguntas).toBe(1);
+  });
+
+  test("la app puede pedir los mosaicos del mapa", async () => {
+    const { pedir } = montar();
+    const r = await pedir("/salud");
+    expect(r.r.headers.get("content-security-policy")).toContain("img-src 'self' data: blob: https://*.basemaps.cartocdn.com");
   });
 });

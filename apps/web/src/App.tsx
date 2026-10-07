@@ -5,7 +5,7 @@ import { TabBar } from "./components/TabBar";
 import { retomarPendientes } from "./lib/chat";
 import { useEnLinea } from "./lib/conexion";
 import { abrirEditor } from "./lib/editor";
-import { type Pestana, useRuta } from "./lib/ruta";
+import { navegar, useRuta } from "./lib/ruta";
 import { useToken } from "./lib/sesion";
 import { useTeclado } from "./lib/teclado";
 import { Inicio } from "./pantallas/Inicio";
@@ -19,12 +19,18 @@ const cargas = {
   editor: () => import("./pantallas/EditorMovimiento"),
   entrar: () => import("./pantallas/Entrar"),
   instalar: () => import("./pantallas/Instalar"),
+  detalle: () => import("./pantallas/DetalleMovimiento"),
+  mapa: () => import("./pantallas/Mapa"),
+  plan: () => import("./pantallas/Plan"),
 };
 const Chat = lazy(() => cargas.chat().then((m) => ({ default: m.Chat })));
 const Ajustes = lazy(() => cargas.ajustes().then((m) => ({ default: m.Ajustes })));
 const EditorMovimiento = lazy(() => cargas.editor().then((m) => ({ default: m.EditorMovimiento })));
 const Entrar = lazy(() => cargas.entrar().then((m) => ({ default: m.Entrar })));
 const Instalar = lazy(() => cargas.instalar().then((m) => ({ default: m.Instalar })));
+const DetalleMovimiento = lazy(() => cargas.detalle().then((m) => ({ default: m.DetalleMovimiento })));
+const Mapa = lazy(() => cargas.mapa().then((m) => ({ default: m.Mapa })));
+const Plan = lazy(() => cargas.plan().then((m) => ({ default: m.Plan })));
 
 // /instalar?codigo=X instala el Atajo sin sesión: va antes de pedir la entrada y no toca el token.
 const EN_INSTALAR = /^\/instalar\/?$/.test(window.location.pathname);
@@ -46,13 +52,14 @@ export function App() {
       )}
       <Toaster
         position="top-center"
-        offset={{ top: "calc(env(safe-area-inset-top) + 10px)" }}
-        mobileOffset={{ top: "calc(env(safe-area-inset-top) + 10px)", left: "12px", right: "12px" }}
+        // Debajo de la barra de arriba: así no tapan «Atrás» ni sus botones mientras se ven.
+        offset={{ top: "calc(env(safe-area-inset-top) + 50px)" }}
+        mobileOffset={{ top: "calc(env(safe-area-inset-top) + 50px)", left: "12px", right: "12px" }}
         gap={8}
         toastOptions={{
           duration: 4000,
           classNames: {
-            toast: "!rounded-2xl !shadow-[0_10px_40px_rgb(0_0_0/0.18)] !text-[15px] !backdrop-blur-xl",
+            toast: "!text-[15px]",
             description: "!text-muted-foreground !text-[15px]",
             actionButton: "!bg-transparent !text-tint !text-[15px] !font-semibold !h-8 !px-2",
           },
@@ -71,7 +78,8 @@ export function App() {
 }
 
 function Aplicacion() {
-  const { pestana, params } = useRuta();
+  const { pestana, pagina, params } = useRuta();
+  const vista = pagina ?? pestana;
   const enLinea = useEnLinea();
   const teclado = useTeclado();
 
@@ -85,6 +93,14 @@ function Aplicacion() {
     };
     document.addEventListener("visibilitychange", alVolver);
     window.addEventListener("online", alVolver);
+    // Tocar una notificación: el service worker pide abrir una dirección de la app (#movimientos?detalle=…).
+    const alMensaje = (e: MessageEvent) => {
+      const d = e.data as { tipo?: string; url?: string } | null;
+      if ((d?.tipo !== "fa:abrir" && d?.tipo !== "abrir") || typeof d?.url !== "string") return;
+      const hash = d.url.slice(d.url.indexOf("#"));
+      if (hash.startsWith("#")) navegar(hash);
+    };
+    navigator.serviceWorker?.addEventListener("message", alMensaje);
     // Precarga las otras pantallas cuando la app ya está quieta.
     const id = window.setTimeout(() => {
       void cargas.chat();
@@ -94,17 +110,19 @@ function Aplicacion() {
       window.clearTimeout(id);
       document.removeEventListener("visibilitychange", alVolver);
       window.removeEventListener("online", alVolver);
+      navigator.serviceWorker?.removeEventListener("message", alMensaje);
     };
   }, []);
 
   // Cada pestaña recuerda dónde se quedó, como en iOS.
-  const posiciones = useRef(new Map<Pestana, number>());
-  const anterior = useRef(pestana);
+  // Las páginas (detalle, mapa, plan) siempre abren arriba.
+  const posiciones = useRef(new Map<string, number>());
+  const anterior = useRef<string>(vista);
   useLayoutEffect(() => {
-    if (anterior.current === pestana) return;
-    window.scrollTo(0, posiciones.current.get(pestana) ?? 0);
-    anterior.current = pestana;
-  }, [pestana]);
+    if (anterior.current === vista) return;
+    window.scrollTo(0, pagina ? 0 : (posiciones.current.get(vista) ?? 0));
+    anterior.current = vista;
+  }, [vista, pagina]);
   useEffect(() => {
     const guardar = () => posiciones.current.set(anterior.current, window.scrollY);
     window.addEventListener("fa:ruta", guardar, { capture: true });
@@ -115,7 +133,7 @@ function Aplicacion() {
     };
   }, []);
 
-  const conBoton = pestana === "inicio" || pestana === "movimientos";
+  const conBoton = !pagina && (pestana === "inicio" || pestana === "movimientos");
 
   return (
     <div className="min-h-dvh pb-[calc(var(--barra-inferior)+28px)]">
@@ -131,13 +149,23 @@ function Aplicacion() {
         </div>
       ) : null}
 
-      <main key={pestana} className="animate-aparecer">
-        {pestana === "inicio" ? <Inicio params={params} /> : null}
-        {pestana === "movimientos" ? <Movimientos params={params} /> : null}
-        <Suspense fallback={null}>
-          {pestana === "chat" ? <Chat /> : null}
-          {pestana === "ajustes" ? <Ajustes /> : null}
-        </Suspense>
+      <main key={vista} className={pagina ? "animate-empujar" : "animate-aparecer"}>
+        {pagina ? (
+          <Suspense fallback={null}>
+            {pagina === "movimiento" ? <DetalleMovimiento params={params} /> : null}
+            {pagina === "mapa" ? <Mapa /> : null}
+            {pagina === "plan" ? <Plan params={params} /> : null}
+          </Suspense>
+        ) : (
+          <>
+            {pestana === "inicio" ? <Inicio params={params} /> : null}
+            {pestana === "movimientos" ? <Movimientos params={params} /> : null}
+            <Suspense fallback={null}>
+              {pestana === "chat" ? <Chat /> : null}
+              {pestana === "ajustes" ? <Ajustes /> : null}
+            </Suspense>
+          </>
+        )}
       </main>
 
       <TabBar

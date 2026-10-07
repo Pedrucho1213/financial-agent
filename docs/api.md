@@ -22,6 +22,7 @@ El nombre (`nombre`, con el que saludan la voz, la IA y la app) lleva de 1 a 40 
 | `DELETE /v1/yo/codigo` | `{ actual }` | `{ ok: true }`; desde ahí solo se entra con un código de invitación. 400 si falta `actual`, 403 si no es el código, 429 |
 | `POST /v1/invitaciones` | `{ para: "usuario" \| "dispositivo" }` | 201 `{ codigo, para, expiraEn }`. 429 después de 5 códigos de cuenta nueva o 20 de dispositivo en 24 horas |
 | `DELETE /v1/dispositivos/:id` | | `{ ok: true }` |
+| `GET /v1/estado` | | `{ servidor: { commit, commitEn, arrancadoEn }, ia: { modelo, disponible, cargada }, cola: { pendientes, conError } }`. Para Ajustes > Sistema: `commit` y `commitEn` (fecha del commit, o `null`) dicen qué está desplegado; `cargada` = el modelo ya está en memoria; `cola` cuenta tus dictados de los últimos 7 días que siguen procesándose o fallaron. `servidor` y `ia.modelo` solo los ve el dueño de la instalación (la primera cuenta); a las demás les llega `servidor: null` y la IA sin `modelo`. A Ollama se le pregunta como mucho cada 10 s |
 
 Para el primer usuario: `bun run invitar -- --nombre Pedro` crea la cuenta (si no hay ninguna) e imprime un código para entrar a ella. Después, `--usuario pedro` (o `--nombre Pedro`) entra a esa cuenta aunque el nombre haya cambiado; una cuenta más se crea solo con `--nueva`.
 
@@ -29,9 +30,35 @@ Para el primer usuario: `bun run invitar -- --nombre Pedro` crea la cuenta (si n
 
 | Método y ruta | Cuerpo | Respuesta |
 |---|---|---|
-| `POST /v1/hablar` | `{ texto, client_id, conversacion_id?, lat?, lon?, lugar?, capturado_en?, espera_ms? }` | 200 `{ respuesta, conversacion_id, acciones, duplicado? }`; 202 con `pendiente: true` (y `esperar: true` si era pregunta) cuando la IA tarda más que la espera |
+| `POST /v1/hablar` | `{ texto, client_id, conversacion_id?, lat?, lon?, lugar?, capturado_en?, equipo?, espera_ms? }` (`equipo`: el modelo del dispositivo, "iPhone" o "Apple Watch"; también se reconoce el reloj por el User-Agent) | 200 `{ respuesta, conversacion_id, acciones, duplicado? }`; 202 con `pendiente: true` (y `esperar: true` si era pregunta) cuando la IA tarda más que la espera |
 | `GET /v1/entradas/:client_id?esperar_ms=` | | `{ estado: "procesando" \| "listo" \| "error", respuesta?, ... }` |
 | `POST /v1/despertar` | | `{ ok: true }`; precarga el modelo |
+| `POST /v1/hablar` con `origen: "apple_pay"` | `{ origen, client_id, monto?, comercio?, nombre?, tarjeta?, lat?, lon?, capturado_en? }` (lo que da la Cartera; `monto` como texto, "$85.00"). La IA solo puede usar `registrar_movimientos` y el comercio va entre comillas: es un nombre que escribe un tercero, no una orden. Se anota un solo gasto con el monto y la moneda de la Cartera, aunque el modelo diga otra cosa. Un monto negativo ("-$85.00", "($85.00)") es una devolución: no se anota. El mismo pago (misma frase) con otro `client_id` y un `capturado_en` a menos de 90 s es 200 `{ duplicado: true }`: la automatización a veces corre dos veces. Dos compras iguales a otra hora sí se anotan | 202 `{ pendiente: true, ... }`: se registra en segundo plano como "Pagué 85 pesos en ... (Apple Pay)" con `origen: "apple_pay"`. Sin ningún dato es la prueba del Atajo corrido a mano: 200 `{ prueba: true, respuesta }` y una notificación de prueba. Va por `/v1/hablar` para que la cola del Atajo "Finanzas" también lo reenvíe |
+
+Quién no manda `espera_ms` es el Atajo. Para él:
+
+- **Respuesta rápida**: si la app de un iPhone de la cuenta tiene notificaciones activas (y la última llegó), un registro con monto (no una pregunta, una orden sin monto ni un borrado o cambio, y no desde el Apple Watch, donde la notificación no llega sin el iPhone cerca) no espera a la IA: contesta 202 `{ respuesta: "Anotado.", pendiente: true }` y lo anotado llega por notificación.
+- **Aviso del día**: la primera respuesta que oye lleva al final el aviso más importante pendiente ("Por cierto: ..."), una sola vez. No va detrás de una pregunta, de una espera ni de un `dato`.
+- **Pregunta por notificación**: si la IA terminó en segundo plano con una pregunta, la notificación la dice y el siguiente dictado sin `conversacion_id` en los 5 minutos siguientes sigue esa conversación.
+
+Todo dictado que se termina sin que nadie lo espere (el iPhone ya no esperó y nadie consulta `/v1/entradas` en ese momento) llega como notificación a quien las tenga activas: lo que se anotó (al tocarla abre `/#movimientos?detalle=<id>[,<id>...]`, con `&editar=1` si fue un pago con Apple Pay), la pregunta que quedó o que no se pudo procesar.
+
+## Notificaciones
+
+Web Push a la app instalada en la pantalla de inicio (iOS 16.4 o más reciente; también llegan al Apple Watch). El servidor cifra cada mensaje (RFC 8291) y lo firma con sus llaves VAPID, que crea la primera vez y guarda en la base (tabla `configuracion`). Solo manda a servicios de push de Apple, Google, Mozilla y Microsoft.
+
+| Método y ruta | Cuerpo | Respuesta |
+|---|---|---|
+| `GET /v1/push` | | `{ clave, activo, endpoint, otros, ultimoError }`: la llave pública VAPID (base64url) para `pushManager.subscribe`, si este dispositivo está suscrito y cuántos otros de la cuenta lo están |
+| `POST /v1/push/suscripcion` | `{ endpoint, keys: { p256dh, auth }, origen?, en_iphone? }` (`PushSubscription.toJSON()` y `location.origin`, que se le da a Apple como contacto si es este servidor por https; `PUSH_CONTACTO` lo reemplaza. `en_iphone`: la app corre en un iPhone; solo esas suscripciones activan la respuesta rápida del Atajo) | 201 con el estado. Una suscripción por dispositivo; 400 si el servicio no está permitido; 409 `{ ajena: true }` si ese endpoint ya es de otra cuenta (la app pide uno nuevo) |
+| `DELETE /v1/push/suscripcion` | | `{ ok: true }` |
+| `POST /v1/push/prueba` | | `{ enviadas }`; 502 si no llegó a ningún dispositivo; 429 si este dispositivo mandó otra hace menos de 15 s |
+
+El mensaje que recibe el service worker (`public/sw-push.js`) es `{ titulo, cuerpo, url, etiqueta? }`. Una suscripción que el servicio da por vencida (404 o 410) se borra; la de un dispositivo revocado ya no recibe. Un 429 o 5xx se reintenta una vez. Al cerrar sesión, la app quita la suscripción de ese dispositivo.
+
+## Avisos del día
+
+Los avisos del revisor nocturno (ver "Avisos (revisor nocturno)") se entregan de dos formas, cada uno una sola vez: el Atajo dice el más importante de ayer u hoy al final de su primera respuesta (`dicho_en`), y entre las 9:00 y las 21:00 locales sale por notificación el más importante de los no enviados con cuántos más hay (`enviado_en`); al tocarla abre su `enlace`. Lo que ya se dijo, se leyó o se descartó no sale por notificación.
 
 ## Movimientos y tablero
 
@@ -54,6 +81,7 @@ Para el primer usuario: `bun run invitar -- --nombre Pedro` crea la cuenta (si n
 |---|---|---|
 | `GET /v1/categorias` | | `{ categorias: [{ id, nombre, nombreCompleto, padreId, tipo, naturaleza }] }` |
 | `GET /v1/movimientos` | `?desde&hasta` o `?periodo=este_mes`, `tipo`, `categoria_id` (incluye hijas), `texto`, `revisar=1`, `limite` (hasta 500, 100 por omisión), `offset` | `{ total, movimientos: MovimientoApp[] }`, del más reciente al más antiguo |
+| `GET /v1/movimientos/:id` | | `MovimientoApp`; 404 si no existe o es de otra cuenta |
 | `POST /v1/movimientos` | `{ tipo, monto, moneda?, categoria_id?, comercio?, descripcion?, cuenta?, fecha? }` | 201 `MovimientoApp` (origen `app`) |
 | `PATCH /v1/movimientos/:id` | los mismos campos, todos opcionales; `null` (o `""`) en `comercio`, `descripcion`, `cuenta` o `categoria_id` borra ese dato | `MovimientoApp` |
 | `DELETE /v1/movimientos/:id` | | `{ ok: true }` |
@@ -61,6 +89,8 @@ Para el primer usuario: `bun run invitar -- --nombre Pedro` crea la cuenta (si n
 | `GET /v1/tablero?mes=YYYY-MM` | mes actual por omisión | ver abajo |
 | `GET /v1/recurrentes` | | `{ recurrentes: [...], total_mensual_gastos, total_mensual_otras_monedas? }`; el total solo suma la moneda base |
 | `GET /v1/resumen` | `?periodo=este_mes`, `tipo=gasto\|ingreso` (gasto por omisión), `agrupar=categoria\|subcategoria\|comercio\|dia\|ninguno` | `{ tipo, desde, hasta, total, cantidad, grupos?, otras_monedas? }` con montos en texto |
+
+En la app, el detalle de un registro está en `/#movimientos?detalle=<id>`; con `<id1>,<id2>` muestra primero la lista de esos registros y con `&editar=1` abre el editor. Ahí llevan las notificaciones.
 
 `GET /v1/tablero`:
 
@@ -89,10 +119,11 @@ Solo los movimientos en la moneda base entran en las sumas.
 
 | Método y ruta | Cuerpo | Respuesta |
 |---|---|---|
-| `POST /v1/atajo` | `{ servidor }` (la dirección con la que el iPhone llega a la Mac, por ejemplo `location.origin`; tiene que ser este mismo servidor) | 201 `{ url, expiraEn, nombre }`. Crea un dispositivo "Atajo Finanzas" con su propio token (y quita los anteriores que nunca se usaron) y prepara el Atajo firmado. 501 si la Mac no puede firmar |
+| `POST /v1/atajo` | `{ servidor, tipo? }` (la dirección con la que el iPhone llega a la Mac, por ejemplo `location.origin`; tiene que ser este mismo servidor. `tipo`: `"finanzas"` por omisión o `"apple_pay"`) | 201 `{ url, expiraEn, nombre, tipo }`. Crea un dispositivo "Atajo Finanzas" (o "Atajo Apple Pay") con su propio token (y quita los anteriores del mismo tipo que nunca se usaron) y prepara el Atajo firmado. 501 si la Mac no puede firmar |
+| `GET /v1/atajo/bienvenida` | | `{ saludo, explicacion, sinExplicacion, cierre }` con el nombre que tenga la cuenta: el Atajo lo pide la primera vez, así cambiar el nombre no obliga a reinstalarlo |
 | `POST /v1/atajo/entrar` (pública) | `{ usuario, codigo, servidor }` | 201 `{ url, expiraEn, nombre }`, igual que `POST /v1/atajo/canjear` pero con usuario y código personal. 400 si falta algo o `servidor` no es este, 401, 429; 501 si la Mac no puede firmar (no queda ningún token) |
 | `POST /v1/atajo/canjear` (pública) | `{ codigo, servidor }` con un código de dispositivo de una cuenta | 201 `{ url, expiraEn, nombre }`, igual que `POST /v1/atajo` pero sin token: es el enlace `/instalar?codigo=...`. 400 si el código es de cuenta nueva o `servidor` no es este servidor, 404, 410, 429; 501 si la Mac no puede firmar (el código sigue sirviendo) |
-| `GET /atajo/:id.shortcut` (pública, vale 10 minutos y 5 descargas) | | El archivo `Finanzas.shortcut` firmado; el id es aleatorio y solo lo conoce quien pidió el Atajo. 410 después. El enlace sobrevive a un reinicio del servidor: se guarda en la base cifrado con una clave que sale del id, del que solo queda el hash. Un `HEAD` no gasta descargas |
+| `GET /atajo/:id.shortcut` (pública, vale 10 minutos y 5 descargas) | | El archivo `Finanzas.shortcut` (o `Finanzas Apple Pay.shortcut`, con el enlace `/atajo/:id.applepay.shortcut`) firmado; el id es aleatorio y solo lo conoce quien pidió el Atajo. 410 después. El enlace sobrevive a un reinicio del servidor: se guarda en la base cifrado con una clave que sale del id, del que solo queda el hash. Un `HEAD` no gasta descargas |
 
 ## Presupuestos, metas, préstamos y meses sin intereses
 

@@ -10,8 +10,10 @@ document.addEventListener("touchstart", () => undefined, { passive: true });
 
 // Tras una actualización, el service worker nuevo borra los pedazos viejos y una pantalla
 // que se carga aparte (Entrar tras un 401, por ejemplo) ya no existe: se recarga la app.
-// Una sola vez por minuto, para no entrar en un ciclo si el problema es otro.
+// Una sola vez por minuto, para no entrar en un ciclo si el problema es otro. Sin red no se
+// recarga: solo dejaría la página de error del navegador en vez de lo último guardado.
 window.addEventListener("vite:preloadError", (evento) => {
+  if (!navigator.onLine) return;
   try {
     const ultima = Number(sessionStorage.getItem("fa_recarga") ?? 0);
     if (Date.now() - ultima < 60_000) return;

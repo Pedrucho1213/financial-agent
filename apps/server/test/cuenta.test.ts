@@ -181,7 +181,8 @@ describe("código personal", () => {
     for (let i = 0; i < 12; i++) {
       expect((await pedir("/v1/entrar", { cuerpo: { usuario: "pedro", codigo: CODIGO, dispositivo: "x" }, ip: "100.64.6.6" })).estado).toBe(201);
     }
-  });
+    // Hace unas 24 verificaciones de argon2 seguidas: rozaba el tope de 5 s por defecto (QA-072).
+  }, 30_000);
 
   test("cambiar el código o el usuario pide el código actual; con cerrarOtros saca a los demás dispositivos", async () => {
     const { db, pedir } = montar();

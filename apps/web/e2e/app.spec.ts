@@ -190,34 +190,44 @@ test.describe("Movimientos", () => {
       comercio: "Tacos El Güero",
     });
 
-    // Editar: solo se manda lo que cambió.
+    // Tocar un registro abre su detalle; desde ahí se edita y solo se manda lo que cambió.
     await page.getByRole("button", { name: /^Starbucks/ }).click();
+    await expect(page).toHaveURL(/#movimientos\?detalle=mov-001$/);
+    await expect(page.getByText("«gasté 85 en un café en el Starbucks de Reforma»")).toBeVisible();
+    await page.getByRole("button", { name: "Editar" }).click();
     await expect(hoja.getByText("gasté 85 en un café en el Starbucks de Reforma")).toBeVisible();
     await hoja.locator("#monto").fill("95");
     await hoja.getByLabel("Comercio").fill("Starbucks Reforma");
     await hoja.getByRole("button", { name: "Guardar" }).click();
     await expect(hoja).toBeHidden();
-    await expect(page.getByRole("button", { name: /^Starbucks Reforma/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Starbucks Reforma" })).toBeVisible();
+    await expect(page.getByText("−$95.00")).toBeVisible();
     const patch = api.de("PATCH", /\/v1\/movimientos\//)[0];
     expect(patch?.ruta).toBe("/v1/movimientos/mov-001");
     expect(patch?.cuerpo).toEqual({ monto: 95, comercio: "Starbucks Reforma" });
+    await page.getByRole("button", { name: "Atrás" }).click();
+    await expect(page).toHaveURL(/#movimientos$/);
+    await expect(page.getByRole("button", { name: /^Starbucks Reforma/ })).toBeVisible();
 
     // Las categorías del editor dependen del tipo.
     await page.getByRole("button", { name: /^Starbucks Reforma/ }).click();
+    await page.getByRole("button", { name: "Editar" }).click();
     await hoja.getByRole("radio", { name: "Ingreso" }).click();
     const opciones = await hoja.getByLabel("Categoría").locator("option").allTextContents();
     expect(opciones).toContain("Sueldo");
     expect(opciones).not.toContain("Café");
 
-    // Eliminar desde la hoja y deshacer.
+    // Eliminar desde la hoja y deshacer: el detalle se va y vuelve.
     await hoja.getByRole("button", { name: "Eliminar movimiento" }).click();
     await expect(hoja).toBeHidden();
-    await expect(page.getByRole("button", { name: /^Starbucks Reforma/ })).toHaveCount(0);
+    await expect(page.getByText("Este movimiento ya no existe")).toBeVisible();
     const aviso = page.locator("[data-sonner-toast]").filter({ hasText: "Eliminado" });
     await expect(aviso).toBeVisible();
     await aviso.getByRole("button", { name: "Deshacer" }).click();
     await expect.poll(() => api.de("POST", "/v1/deshacer").length).toBe(1);
     await expect(page.getByText("Listo, regresé")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Starbucks Reforma" })).toBeVisible();
+    await page.getByRole("button", { name: "Atrás" }).click();
     await expect(page.getByRole("button", { name: /^Starbucks Reforma/ })).toBeVisible();
     expect(api.de("DELETE", "/v1/movimientos/mov-001")).toHaveLength(1);
   });
@@ -226,11 +236,15 @@ test.describe("Movimientos", () => {
     const api = await prepararSesion(page);
     await page.goto("/#movimientos");
     const hoja = page.getByRole("dialog");
-    for (const nombre of ["Starbucks", "Walmart"]) {
-      await page.getByRole("button", { name: new RegExp(`^${nombre}`) }).first().click();
-      await hoja.getByRole("button", { name: "Eliminar movimiento" }).click();
-      await expect(hoja).toBeHidden();
-    }
+    // Uno desde la hoja de edición y otro desde el detalle.
+    await page.getByRole("button", { name: /^Starbucks/ }).first().click();
+    await page.getByRole("button", { name: "Editar" }).click();
+    await hoja.getByRole("button", { name: "Eliminar movimiento" }).click();
+    await expect(hoja).toBeHidden();
+    await page.getByRole("button", { name: "Atrás" }).click();
+    await page.getByRole("button", { name: /^Walmart/ }).first().click();
+    await page.getByRole("button", { name: "Eliminar" }).click();
+    await expect(page).toHaveURL(/#movimientos$/);
     const avisos = page.locator("[data-sonner-toast]").filter({ hasText: "Eliminado" });
     await expect(avisos).toHaveCount(1);
     await expect(avisos).toContainText("Walmart");

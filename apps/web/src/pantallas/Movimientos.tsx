@@ -1,4 +1,4 @@
-import { ChevronDown, CreditCard, FileDown, Mic, ReceiptText, Smartphone, X } from "lucide-react";
+import { ChevronDown, CreditCard, FileDown, Map as MapIcon, Mic, ReceiptText, Smartphone, X } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { FilaDeslizable } from "../components/FilaDeslizable";
 import { Pantalla } from "../components/Pantalla";
@@ -13,7 +13,7 @@ import { eliminarConDeshacer } from "../lib/acciones";
 import { mensajeDeError } from "../lib/api";
 import { IconoCategoria, OpcionesCategorias } from "../lib/categorias";
 import { useEnLinea } from "../lib/conexion";
-import { type FiltrosMovimientos, useCategorias, useMovimientos } from "../lib/consultas";
+import { abrirDetalle, type FiltrosMovimientos, useCategorias, useMovimientos } from "../lib/consultas";
 import { abrirEditor } from "../lib/editor";
 import { diaCorto, dinero, mesActual, nombreDia, nombreMes, sumarMeses, TIPOS } from "../lib/formato";
 import { useMedia } from "../lib/medios";
@@ -72,7 +72,15 @@ export function Movimientos({ params }: { params: URLSearchParams }) {
   const tipoCategorias = tipo === "gasto" || tipo === "ingreso" ? tipo : undefined;
 
   return (
-    <Pantalla titulo="Movimientos" alRefrescar={() => consulta.refetch()}>
+    <Pantalla
+      titulo="Movimientos"
+      alRefrescar={() => consulta.refetch()}
+      derecha={
+        <Button variant="gray" size="icon-sm" aria-label="Dónde gastas" onClick={() => navegar(hashDe("mapa"))}>
+          <MapIcon strokeWidth={2.25} />
+        </Button>
+      }
+    >
       <div className="space-y-3 pb-1">
         <Buscador valor={texto} onCambio={setTexto} placeholder="Buscar comercio o nota" aria-label="Buscar" />
         <Segmented<string>
@@ -272,7 +280,7 @@ function ListaPorDia({
                 <FilaDeslizable
                   key={m.id}
                   etiqueta={`${tituloDe(m)}, ${dinero(Math.abs(m.montoCentavos), m.moneda)}`}
-                  alTocar={() => abrirEditor(m)}
+                  alTocar={() => abrirDetalle(m)}
                   alEliminar={() => alEliminar(m)}
                   deshabilitada={deshabilitada}
                   className="[&:not(:first-child)]:before:absolute [&:not(:first-child)]:before:top-0 [&:not(:first-child)]:before:right-0 [&:not(:first-child)]:before:left-16 [&:not(:first-child)]:before:z-[1] [&:not(:first-child)]:before:h-[0.5px] [&:not(:first-child)]:before:bg-separator [&:not(:first-child)]:before:content-['']"
@@ -319,8 +327,8 @@ function Tabla({ movimientos }: { movimientos: MovimientoApp[] }) {
             <tr
               key={m.id}
               tabIndex={0}
-              onClick={() => abrirEditor(m)}
-              onKeyDown={(e) => e.key === "Enter" && abrirEditor(m)}
+              onClick={() => abrirDetalle(m)}
+              onKeyDown={(e) => e.key === "Enter" && abrirDetalle(m)}
               className="fila-presionable cursor-pointer hairline-b last:shadow-none hover:bg-fill/60"
             >
               <td className="px-4 py-2.5 text-muted-foreground tabular">{diaCorto(m.fecha)}</td>

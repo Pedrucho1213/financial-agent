@@ -24,7 +24,7 @@ export function Confirmar({
     <AlertPrimitive.Root open={abierto} onOpenChange={onAbiertoChange}>
       <AlertPrimitive.Portal>
         <AlertPrimitive.Overlay className="fixed inset-0 z-50 bg-black/35 data-[state=closed]:animate-desvanecer data-[state=open]:animate-aparecer" />
-        <AlertPrimitive.Content className="fixed top-1/2 left-1/2 z-50 w-[270px] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[14px] bg-elevated/95 text-center shadow-2xl backdrop-blur-xl outline-none data-[state=closed]:animate-desvanecer data-[state=open]:animate-escalar">
+        <AlertPrimitive.Content className="fixed top-1/2 left-1/2 z-50 w-[270px] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[22px] text-center vidrio outline-none data-[state=closed]:animate-desvanecer data-[state=open]:animate-escalar">
           <div className="px-4 pt-5 pb-4">
             <AlertPrimitive.Title className="text-[17px] leading-snug font-semibold">{titulo}</AlertPrimitive.Title>
             <AlertPrimitive.Description className="mt-1 text-[13px] leading-snug text-foreground/80">

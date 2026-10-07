@@ -14,7 +14,7 @@ import { OpcionesCategorias } from "../lib/categorias";
 import { useEnLinea } from "../lib/conexion";
 import { useCategorias, useGuardarMovimiento } from "../lib/consultas";
 import { cerrarEditor, useEditor } from "../lib/editor";
-import { aFecha, fechaHora, hoyIso } from "../lib/formato";
+import { aFecha, fechaHora, hoyIso, leerMonto } from "../lib/formato";
 import type { DatosMovimiento, MovimientoApp, TipoMovimiento } from "../lib/tipos";
 import { cn } from "../lib/utils";
 
@@ -39,17 +39,6 @@ function desde(m: MovimientoApp | null): Formulario {
     fecha: m.fecha,
     cuenta: m.cuenta ?? "",
   };
-}
-
-/** "1,234.5" o "85,50" -> 1234.5 / 85.5 */
-export function leerMonto(texto: string): number | null {
-  let t = texto.replace(/[^\d.,]/g, "");
-  if (!t) return null;
-  // Una coma seguida de 1 o 2 dígitos al final es decimal; si no, separa miles.
-  if (/,\d{1,2}$/.test(t) && !t.includes(".")) t = t.replace(",", ".");
-  t = t.replace(/,/g, "");
-  const n = Number(t);
-  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
 }
 
 const TIPOS_SEGMENTO: { valor: TipoMovimiento; etiqueta: string }[] = [
