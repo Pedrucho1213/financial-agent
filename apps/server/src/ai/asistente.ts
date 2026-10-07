@@ -7,6 +7,7 @@ import { habitoMencionado, hablaDeOtroMonto } from "../finanzas/habitos";
 import { revertirEntrada } from "../finanzas/movimientos";
 import { datoDePresupuesto } from "../finanzas/planes";
 import { cobrosPorAvisar } from "../finanzas/recurrentes";
+import { esEsperable, marcarComentario, notaDelGasto } from "../finanzas/comentario";
 import { formatearMonto } from "../lib/dinero";
 import { montosDelTexto } from "../lib/numeros";
 import { esOrdenSobreLoAnotado, esPregunta, normalizar, pideInformacion, tipoDelTexto } from "../lib/texto";
@@ -42,6 +43,8 @@ export type Respuesta = {
   esperar?: boolean;
   /** El dato útil que se agregó a la respuesta ("Vas en 82% de tu presupuesto de Comida."), por separado. */
   dato?: string;
+  /** Lo que tenía de raro el gasto, si se dijo ("Ojo, es como 37 veces tu compra típica..."). */
+  comentario?: string;
 };
 
 export type Dependencias = {
@@ -488,6 +491,15 @@ function tieneMovimientos(ctx: Contexto): boolean {
     .get();
 }
 
+/** Las categorías de los gastos que anotó registrar_movimientos ("Comida > Súper"). */
+function categoriasAnotadas(acciones: Accion[]): (string | undefined)[] {
+  return acciones.flatMap((a) => {
+    const r = a.resultado as { registrados?: { tipo?: string; categoria?: string }[] } | undefined;
+    if (a.herramienta !== "registrar_movimientos") return [];
+    return (r?.registrados ?? []).filter((m) => m.tipo !== "ingreso").map((m) => m.categoria);
+  });
+}
+
 /** Los gastos que creó este dictado y siguen ahí, para saber si cruzaron un presupuesto. */
 function gastosNuevos(ctx: Contexto, entradaId: string) {
   return ctx.db
@@ -642,6 +654,11 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   ctx.confiarEnMasReciente = anterior.includes("?") && PIDE_ELEGIR.test(normalizar(anterior));
   // Si un paso solo guardó, corrigió o borró, la confirmación se arma aquí y el modelo no da otra vuelta.
   let confirmacion: string | undefined;
+  // Lo que tiene de raro el gasto dictado, antes de que la IA lo anote (es lo que hace esperar al Atajo).
+  const nota =
+    montosDelTexto(entrada.texto).length > 0 && !esPregunta(entrada.texto) && !esOrdenSobreLoAnotado(entrada.texto)
+      ? notaDelGasto(ctx, entrada.texto)
+      : undefined;
   const generar = (aviso = "") => {
     confirmacion = undefined;
     // Lo que cambia mientras se usa (y el aviso de un reintento) va justo antes del dictado, no en las
@@ -737,22 +754,29 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   }
 
   // Si hizo algo y no espera respuesta, aprovecha para dar un dato que importa: que cruzó el 80% o el
-  // 100% de un presupuesto, o si no, un cobro que viene. Si el iPhone ya recibió "Anotado", nadie lo va
-  // a oír: el aviso del cobro se deja para el próximo dictado.
+  // 100% de un presupuesto; si no, lo que tiene de raro el gasto; si no, un cobro que
+  // viene. Si el iPhone ya recibió "Anotado", nadie lo va a oír: el aviso del cobro se deja para el
+  // próximo dictado.
   const puedeAgregar = acciones.length > 0 && !texto.includes("?");
   const dato = puedeAgregar ? datoDePresupuesto(ctx, gastosNuevos(ctx, entrada.id)) : undefined;
+  // Solo si de verdad anotó un gasto, y no de los que se esperan aunque salgan altos (la gasolina, el súper).
+  const anotados = categoriasAnotadas(acciones);
+  const comentario = puedeAgregar && !dato && nota && anotados.length && !anotados.some(esEsperable) ? nota : undefined;
+  if (comentario) marcarComentario(ctx);
   const hablaDeCobros = acciones.some((a) => a.herramienta.endsWith("_recurrente") || a.herramienta === "listar_recurrentes");
   // Con notificaciones, lo que no se oye llega en la notificación.
   const alguienLoVe = !enSegundoPlano.has(entrada.id) || !!deps.notificaSinEspera?.(usuarioId);
-  const cobros = puedeAgregar && !dato && !hablaDeCobros && alguienLoVe ? cobrosPorAvisar(ctx, loQuePago(acciones)) : undefined;
+  const cobros =
+    puedeAgregar && !dato && !comentario && !hablaDeCobros && alguienLoVe ? cobrosPorAvisar(ctx, loQuePago(acciones)) : undefined;
   const hablado = limpiarParaVoz(sinPreguntasDeMas(texto)) || respuestaPorOmision(acciones);
-  const extra = dato ?? cobros?.aviso;
+  const extra = dato ?? comentario ?? cobros?.aviso;
 
   const respuesta: Respuesta = {
     respuesta: extra ? `${hablado} ${extra}` : hablado,
     conversacion_id: conversacionId,
     acciones,
     ...(dato ? { dato } : {}),
+    ...(comentario ? { comentario } : {}),
   };
   db.transaction((tx) => {
     for (const contenido of [mensajeUsuario, ...mensajesRespuesta]) {

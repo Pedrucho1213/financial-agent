@@ -141,7 +141,7 @@ function crearDispositivoConId(db: ReturnType<typeof preparar>["db"], usuarioId:
 }
 
 /** La app con un modelo falso, un dispositivo y las notificaciones que "salen", ya descifradas. */
-function montar(doGenerate: NonNullable<ConstructorParameters<typeof MockLanguageModelV4>[0]>["doGenerate"]) {
+function montar(doGenerate: NonNullable<ConstructorParameters<typeof MockLanguageModelV4>[0]>["doGenerate"], registroMs = 5000) {
   const { db, usuario } = preparar();
   const token = crearDispositivo(db, usuario.id, "iPhone");
   const enviadas: { titulo: string; cuerpo: string; url: string; etiqueta?: string }[] = [];
@@ -151,7 +151,7 @@ function montar(doGenerate: NonNullable<ConstructorParameters<typeof MockLanguag
     modelo: new MockLanguageModelV4({ doGenerate }),
     zonaHoraria: "America/Mexico_City",
     monedaBase: "MXN",
-    espera: { registroMs: 5000, preguntaMs: 30000 },
+    espera: { registroMs, preguntaMs: 30000 },
     enviarPush: enviarPushFalso,
   });
   const pedir = (ruta: string, metodo = "GET", cuerpo?: unknown) =>
@@ -194,10 +194,10 @@ describe("API de notificaciones", () => {
 const REGISTRO_CAFE = llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 85, comercio: "Starbucks", categoria: "Café" }] });
 
 describe("Atajo rápido", () => {
-  test("con notificaciones, un registro contesta 'Anotado' sin esperar y lo anotado llega por push al detalle", async () => {
+  test("con notificaciones, si la IA tarda más de lo que se espera contesta 'Anotado' y lo anotado llega por push al detalle", async () => {
     let soltar = () => {};
     const listo = new Promise<void>((r) => (soltar = r));
-    const { pedir, activar, enviadas, db } = montar(async () => (await listo, REGISTRO_CAFE));
+    const { pedir, activar, enviadas, db } = montar(async () => (await listo, REGISTRO_CAFE), 20);
     await activar();
     const r = await pedir("/v1/hablar", "POST", { texto: "gasté 85 en Starbucks", client_id: "rapido-0001" });
     expect(r.status).toBe(202);
@@ -210,6 +210,17 @@ describe("Atajo rápido", () => {
     const id = db.select().from(movimientos).get()!.id;
     expect(enviadas[0]).toMatchObject({ titulo: "$85 · Starbucks", url: `/#movimientos?detalle=${id}` });
     expect(enviadas[0]!.cuerpo).toContain("85");
+  });
+
+  test("con notificaciones, si la IA no comenta nada contesta 'Anotado' y la confirmación llega por push", async () => {
+    const { pedir, activar, enviadas } = montar([REGISTRO_CAFE]);
+    await activar();
+    const r = await pedir("/v1/hablar", "POST", { texto: "gasté 85 en Starbucks", client_id: "rapido-0002" });
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as { respuesta: string }).respuesta).toBe(RESPUESTA_RAPIDA);
+    await hasta(() => enviadas.length > 0);
+    expect(enviadas[0]!.titulo).toBe("$85 · Starbucks");
+    expect(enviadas[0]!.cuerpo).toStartWith("Listo");
   });
 
   test("desde el Apple Watch contesta completo en voz: la notificación no le llega sin el iPhone", async () => {
@@ -264,7 +275,7 @@ describe("Atajo rápido", () => {
   test("si la IA pregunta algo, la push lo dice y el siguiente dictado sigue esa conversación", async () => {
     const respuestas = [texto("¿Fueron 85 en Starbucks o en Oxxo?"), texto("Va.")];
     // Como la IA de verdad: tarda, así que el Atajo ya no la espera.
-    const { pedir, activar, enviadas } = montar(async () => (await Bun.sleep(20), respuestas.shift()!));
+    const { pedir, activar, enviadas } = montar(async () => (await Bun.sleep(20), respuestas.shift()!), 5);
     await activar();
     const r = (await (await pedir("/v1/hablar", "POST", { texto: "gasté 85 en café", client_id: "pregunta-push-1" })).json()) as {
       conversacion_id: string;

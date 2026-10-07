@@ -2,7 +2,7 @@ import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
 import { z } from "zod";
-import { consultarEntrada, type Dependencias, ErrorEnProceso, ErrorIA, hablar } from "./ai/asistente";
+import { consultarEntrada, type Dependencias, type Respuesta, ErrorEnProceso, ErrorIA, hablar } from "./ai/asistente";
 import { guardarDescarga, limpiarDescargas, tomarDescarga } from "./atajo/descargas";
 import { ErrorFirma, firmarAtajo, generarAtajo, generarAtajoApplePay, guionBienvenida, NOMBRE_ATAJO_APPLE_PAY } from "./atajo/generar";
 import {
@@ -52,6 +52,7 @@ import { esOrdenSobreLoAnotado, esPregunta } from "./lib/texto";
 import { and, count, eq, gte, sql } from "drizzle-orm";
 import { avisoDeDictado, conversacionPorContestar } from "./push/dictados";
 import { desuscribir, type EnviarPush, ErrorSuscripcion, estadoPush, notificar, suscribir, tienePush } from "./push/notificaciones";
+import { notaDelGasto } from "./finanzas/comentario";
 import { rutasPlanes } from "./rutas-planes";
 import { servirApp } from "./web";
 import type { EstadoIa } from "./ai/modelo";
@@ -308,6 +309,22 @@ export function crearApp(opciones: OpcionesApp) {
     }
     return r;
   };
+  /**
+   * Con notificaciones: si al final no hubo comentario ni dato del presupuesto, el Atajo solo dice
+   * "Anotado" y lo anotado llega por notificación, igual que si no la hubiera esperado. Si tardó más de
+   * lo que se esperó, la notificación sale sola al terminar.
+   */
+  const sinComentarioEsRapida = (usuarioId: string, clientId: string, r: Respuesta): Respuesta => {
+    if (r.pendiente) return { ...r, respuesta: RESPUESTA_RAPIDA };
+    if (r.duplicado || r.comentario || r.dato || r.respuesta.includes("?")) return r;
+    const entrada = db
+      .select()
+      .from(entradas)
+      .where(and(eq(entradas.usuarioId, usuarioId), eq(entradas.clientId, clientId)))
+      .get();
+    if (entrada) deps.alTerminarSinEspera(entrada, r);
+    return { ...r, respuesta: RESPUESTA_RAPIDA };
+  };
   const contexto = (usuarioId: string) =>
     crearContexto({ db, usuarioId, zonaHoraria: opciones.zonaHoraria, monedaBase: opciones.monedaBase });
 
@@ -506,7 +523,8 @@ export function crearApp(opciones: OpcionesApp) {
     // Lo mismo al borrar o cambiar algo, aunque diga el monto: "borra el café de 85" (QA-029).
     const pregunta = esPregunta(p.texto) || montosDelTexto(p.texto).length === 0 || esOrdenSobreLoAnotado(p.texto);
     // Con notificaciones, un registro no espera a la IA: el Atajo dice "Anotado" y termina, y lo que
-    // anotó llega en una notificación. Las preguntas se siguen contestando en voz.
+    // anotó llega en una notificación. Solo si el gasto tiene algo que vale la pena decir
+    // (finanzas/comentario.ts), la espera para decirlo. Las preguntas se siguen contestando en voz.
     // En el reloj no: la notificación va a la app del iPhone y, si no está cerca, nunca le llega.
     // Se reconoce por `equipo` o por el User-Agent. Cada User-Agent nuevo del Atajo queda una vez en el
     // registro, para comprobar cómo se presenta el reloj.
@@ -517,7 +535,10 @@ export function crearApp(opciones: OpcionesApp) {
     }
     const enReloj = /watch/i.test(p.equipo ?? "") || /watch/i.test(agente);
     const rapida = delAtajo && !pregunta && !enReloj && tienePush(db, usuarioId);
-    const esperaMs = p.espera_ms ?? (rapida ? 0 : pregunta ? opciones.espera?.preguntaMs : opciones.espera?.registroMs);
+    // Sin nada que comentar (nada raro en el gasto, poco historial, ya comentó lo del día), no la espera.
+    const esperaMs =
+      p.espera_ms ??
+      (pregunta ? opciones.espera?.preguntaMs : rapida && !notaDelGasto(contexto(usuarioId), p.texto) ? 0 : opciones.espera?.registroMs);
     try {
       let respuesta = await hablar(
         deps,
@@ -534,7 +555,7 @@ export function crearApp(opciones: OpcionesApp) {
         },
         { esperaMs, esPregunta: pregunta },
       );
-      if (rapida && respuesta.pendiente) respuesta = { ...respuesta, respuesta: RESPUESTA_RAPIDA };
+      if (rapida) respuesta = sinComentarioEsRapida(usuarioId, p.client_id, respuesta);
       if (delAtajo) respuesta = conAvisoDelDia(usuarioId, respuesta, rapida);
       // 202: la Mac ya lo guardó y lo termina sola; el Atajo no debe reenviarlo.
       return c.json(paraVoz(respuesta), respuesta.pendiente ? 202 : 200);
