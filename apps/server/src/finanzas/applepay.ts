@@ -14,11 +14,14 @@ export type PagoWallet = {
 
 const MONEDAS: [RegExp, string][] = [
   [/US\$|\bUSD\b|\bdólares?\b/i, "USD"],
+  [/COP\$|\bCOP\b/i, "COP"],
+  [/(?<![A-Z])R\$|\bBRL\b/i, "BRL"],
+  [/AU\$|(?<![A-Z])A\$|\bAUD\b/i, "AUD"],
+  [/CN¥|RMB|\bCNY\b/i, "CNY"],
   [/€|\bEUR\b|\beuros?\b/i, "EUR"],
   [/MX\$|\bMXN\b|\bpesos?\b/i, "MXN"],
   [/£|\bGBP\b/i, "GBP"],
   [/CA\$|\bCAD\b/i, "CAD"],
-  [/(?<![A-Z])A\$|\bAUD\b/i, "AUD"],
   [/¥|\bJPY\b/i, "JPY"],
 ];
 
@@ -42,7 +45,7 @@ export const esDevolucion = (texto: string) => /^[^\d]*[-−–(]/.test(texto.tr
 const sinNumeros = (texto: string | undefined) =>
   texto
     ?.replace(/[•*·#]+\s*\d*/g, " ")
-    .replace(/["“”«»]/g, " ")
+    .replace(/["“”„‟«»″‶〝〞＂]/g, " ")
     .replace(/\d{3,}/g, " ")
     .replace(/\s+/g, " ")
     .trim()
@@ -56,18 +59,21 @@ const NOMBRES_MONEDA: Record<string, string> = {
   CAD: "dólares canadienses",
   AUD: "dólares australianos",
   JPY: "yenes",
+  COP: "pesos colombianos",
+  BRL: "reales",
+  CNY: "yuanes",
 };
 
 /**
  * El monto y la moneda de una frase armada por fraseDePago. Con eso el pago se anota con lo que dijo la
  * Cartera aunque el modelo copie mal el monto.
  */
-export function pagoDeFrase(texto: string | undefined): { monto: number; moneda: string } | undefined {
+export function pagoDeFrase(texto: string | undefined): { monto: number; moneda: string; comercio?: string } | undefined {
   const nombres = Object.entries(NOMBRES_MONEDA).sort(([, a], [, b]) => b.length - a.length);
-  const m = texto?.match(new RegExp(`^Pagué (\\d+(?:\\.\\d+)?) (${nombres.map(([, n]) => n).join("|")}|[A-Z]{3})\\b`));
+  const m = texto?.match(new RegExp(`^Pagué (\\d+(?:\\.\\d+)?) (${nombres.map(([, n]) => n).join("|")}|[A-Z]{3})\\b(?: en "([^"]+)")?`));
   if (!m) return undefined;
   const moneda = nombres.find(([, n]) => n === m[2])?.[0] ?? m[2]!;
-  return { monto: Number(m[1]), moneda };
+  return { monto: Number(m[1]), moneda, ...(m[3] ? { comercio: m[3] } : {}) };
 }
 
 /**

@@ -560,12 +560,13 @@ export function crearApp(opciones: OpcionesApp) {
     if (!texto) {
       const prueba = !p.monto && !p.comercio && !p.nombre && !p.tarjeta;
       if (prueba) {
-        await notificar(
+        // Sin esperarla: corrido a mano, el Atajo contesta enseguida aunque Apple tarde.
+        notificar(
           db,
           usuarioId,
           { titulo: "Apple Pay listo", cuerpo: "Cuando pagues con Apple Pay, lo anoto solo y te aviso aquí.", url: "/#inicio" },
           opciones.enviarPush,
-        );
+        ).catch((error) => console.error("No se pudo mandar la notificación de prueba:", error));
       }
       return c.json({
         respuesta: prueba

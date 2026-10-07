@@ -363,7 +363,12 @@ describe("Apple Pay", () => {
     expect(montoDeWallet("A$12.00")).toEqual({ monto: 12, moneda: "AUD" });
     expect(montoDeWallet("CA$12.00")).toEqual({ monto: 12, moneda: "CAD" });
     expect(montoDeWallet("¥1,200")).toEqual({ monto: 1200, moneda: "JPY" });
-    expect(pagoDeFrase(fraseDePago({ monto: "A$12.50", comercio: "X" }))).toEqual({ monto: 12.5, moneda: "AUD" });
+    expect(montoDeWallet("CN¥88.00")).toEqual({ monto: 88, moneda: "CNY" });
+    expect(montoDeWallet("AU$5.00")).toEqual({ monto: 5, moneda: "AUD" });
+    expect(montoDeWallet("R$10,00")).toEqual({ monto: 10, moneda: "BRL" });
+    expect(montoDeWallet("COP$20.000")).toEqual({ monto: 20000, moneda: "COP" });
+    expect(fraseDePago({ monto: "$1", comercio: "A„B″C" })).toBe('Pagué 1 pesos en "A B C" (Apple Pay)');
+    expect(pagoDeFrase(fraseDePago({ monto: "A$12.50", comercio: "X" }))).toEqual({ monto: 12.5, moneda: "AUD", comercio: "X" });
   });
 
   test("se anota con el monto de la Cartera aunque el modelo lo copie mal", async () => {
@@ -380,6 +385,49 @@ describe("Apple Pay", () => {
     const todos = db.select().from(movimientos).all();
     expect(todos).toHaveLength(1);
     expect(todos[0]).toMatchObject({ tipo: "gasto", montoCentavos: 8500 });
+  });
+
+  test("dos llamadas del modelo no anotan el pago dos veces", async () => {
+    const doble = {
+      ...REGISTRO_CAFE,
+      content: [...REGISTRO_CAFE.content, { ...REGISTRO_CAFE.content[0]!, toolCallId: "segunda" }],
+    };
+    const { pedir, activar, enviadas, db } = montar([doble, texto("Listo.")]);
+    await activar();
+    await pedir("/v1/hablar", "POST", { origen: "apple_pay", client_id: "applepay-doble-llamada", monto: "$85.00", comercio: "STARBUCKS" });
+    await hasta(() => enviadas.length > 0);
+    expect(db.select().from(movimientos).all()).toHaveLength(1);
+  });
+
+  test("un comercio que suena a MSI, préstamo o fecha se anota igual, con la fecha del pago", async () => {
+    const { pedir, activar, enviadas, db } = montar([
+      llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 85, comercio: "MSI STORE TACOS EL LUNES" }] }),
+      texto("Anoté $85 en MSI STORE."),
+    ]);
+    await activar();
+    const capturado = new Date().toISOString();
+    const r0 = await pedir("/v1/hablar", "POST", {
+      origen: "apple_pay",
+      client_id: "applepay-msi-0001",
+      monto: "$85.00",
+      comercio: "MSI STORE TACOS EL LUNES PRESTÉ",
+      capturado_en: capturado,
+    });
+    expect([200, 202]).toContain(r0.status);
+    await hasta(() => enviadas.length > 0);
+    const m = db.select().from(movimientos).get()!;
+    expect(m.montoCentavos).toBe(8500);
+    expect(m.fecha).toBe(new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City" }).format(new Date(capturado)));
+  });
+
+  test("si el modelo no anota nada, el pago se anota con lo que dio la Cartera", async () => {
+    const { pedir, activar, enviadas, db } = montar([texto("Ok."), texto("Ok.")]);
+    await activar();
+    await pedir("/v1/hablar", "POST", { origen: "apple_pay", client_id: "applepay-sin-tool-01", monto: "US$12.00", comercio: "UBER" });
+    await hasta(() => enviadas.length > 0);
+    const m = db.select().from(movimientos).get()!;
+    expect(m).toMatchObject({ tipo: "gasto", montoCentavos: 1200, moneda: "USD" });
+    expect(enviadas[0]!.url).toContain(`detalle=${m.id}`);
   });
 
   test("la devolución avisa y no anota nada", async () => {
@@ -462,6 +510,7 @@ describe("Apple Pay", () => {
     };
     expect(r.prueba).toBe(true);
     expect(r.respuesta).toStartWith("Listo.");
+    await hasta(() => enviadas.length > 0);
     expect(enviadas[0]!.titulo).toBe("Apple Pay listo");
     expect(db.select().from(movimientos).all()).toHaveLength(0);
   });

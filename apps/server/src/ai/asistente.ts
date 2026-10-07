@@ -12,6 +12,7 @@ import { montosDelTexto } from "../lib/numeros";
 import { esOrdenSobreLoAnotado, esPregunta, normalizar, pideInformacion, tipoDelTexto } from "../lib/texto";
 import { confirmacionDirecta, confirmarRegistro, type Ejecutada } from "./confirmacion";
 import { construirInstrucciones } from "./instrucciones";
+import { pagoDeFrase } from "../finanzas/applepay";
 import { crearHerramientas, type Accion } from "./herramientas";
 import { CONSULTAS_PLANES } from "./herramientas-planes";
 import { correccionDeCuenta } from "./respaldo";
@@ -513,6 +514,18 @@ async function registrarDeSiempre(ctx: Contexto, texto: string, respuesta: strin
   return confirmarRegistro(resultado.registrados, ctx.hoy);
 }
 
+async function anotarPagoDirecto(ctx: Contexto, texto: string, acciones: Accion[]): Promise<string | undefined> {
+  const pago = pagoDeFrase(texto);
+  if (!pago) return undefined;
+  const registrar = crearHerramientas(ctx, acciones).registrar_movimientos;
+  const resultado = await registrar.execute!(
+    { movimientos: [{ tipo: "gasto", monto: pago.monto, moneda: pago.moneda, comercio: pago.comercio }] },
+    { toolCallId: "respaldo-apple-pay", messages: [], context: {} },
+  );
+  if (!resultado || typeof resultado !== "object" || !("registrados" in resultado)) return undefined;
+  return confirmarRegistro(resultado.registrados, ctx.hoy);
+}
+
 async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta> {
   const { db } = deps;
   const usuarioId = entrada.usuarioId;
@@ -593,6 +606,14 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
       if (deSiempre) {
         texto = deSiempre;
         mensajesRespuesta = [{ role: "assistant", content: deSiempre }];
+      }
+    }
+    // Un pago de Apple Pay siempre se anota: si el modelo no lo hizo, se anota con lo que dio la Cartera.
+    if (entrada.origen === "apple_pay" && nadaCambio()) {
+      const directo = await anotarPagoDirecto(ctx, entrada.texto, acciones);
+      if (directo) {
+        texto = directo;
+        mensajesRespuesta = [{ role: "assistant", content: directo }];
       }
     }
     if (nadaCambio() && PIDE_ALGO.test(normalizar(entrada.texto)) && diceQueHizo(texto)) {
