@@ -3,6 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
 import { z } from "zod";
 import { consultarEntrada, type Dependencias, ErrorEnProceso, ErrorIA, hablar } from "./ai/asistente";
+import { guardarDescarga, limpiarDescargas, tomarDescarga } from "./atajo/descargas";
 import { ErrorFirma, firmarAtajo, generarAtajo, generarAtajoApplePay, guionBienvenida, NOMBRE_ATAJO_APPLE_PAY } from "./atajo/generar";
 import {
   canjearInvitacion,
@@ -206,16 +207,16 @@ function servidorPropio(c: Context, servidor: string): boolean {
 const NOMBRE_ATAJO = "Atajo Finanzas";
 /** Cada Atajo que la app puede instalar: el nombre de su dispositivo (su token) y el del archivo. */
 const ATAJOS = {
-  finanzas: { dispositivo: NOMBRE_ATAJO, archivo: "Finanzas.shortcut" },
-  apple_pay: { dispositivo: "Atajo Apple Pay", archivo: `${NOMBRE_ATAJO_APPLE_PAY}.shortcut` },
+  finanzas: { dispositivo: NOMBRE_ATAJO, archivo: "Finanzas.shortcut", sufijo: "" },
+  apple_pay: { dispositivo: "Atajo Apple Pay", archivo: `${NOMBRE_ATAJO_APPLE_PAY}.shortcut`, sufijo: ".applepay" },
 } as const;
 type TipoAtajo = keyof typeof ATAJOS;
 
 export function crearApp(opciones: OpcionesApp) {
   const { db } = opciones;
+  limpiarDescargas(db);
   const app = new Hono<{ Variables: VariablesAuth }>();
   const intentos = new LimiteIntentos(VENTANA_INTENTOS_MS, MAX_INTENTOS_POR_IP, MAX_INTENTOS_TOTAL);
-  const atajos = new Map<string, { archivo: Uint8Array; nombre: string; expira: number; descargas: number }>();
   /** Lo que el Atajo lee en voz: los montos dichos ("50 pesos", no "$50") y si sigue escuchando. */
   const paraVoz = <T extends { respuesta?: string; pendiente?: boolean }>(r: T) =>
     conSeguir(r.respuesta ? { ...r, respuesta: montosParaVoz(r.respuesta, opciones.monedaBase) } : r);
@@ -257,11 +258,9 @@ export function crearApp(opciones: OpcionesApp) {
     const datos = { servidor: servidor.replace(/\/+$/, ""), token };
     const archivo = await firmar(tipo === "apple_pay" ? generarAtajoApplePay(datos) : generarAtajo({ ...datos, nombre }));
     revocarAtajosSinUsar(db, usuarioId, ATAJOS[tipo].dispositivo, dispositivoId);
-    const id = crypto.randomUUID();
-    const expira = Date.now() + ATAJO_VIGENCIA_MS;
-    for (const [clave, a] of atajos) if (a.expira < Date.now()) atajos.delete(clave);
-    atajos.set(id, { archivo, nombre: ATAJOS[tipo].archivo, expira, descargas: 0 });
-    return { url: `/atajo/${id}.shortcut`, expiraEn: new Date(expira).toISOString(), nombre: nombre ?? null, tipo };
+    const { id, expiraEn } = await guardarDescarga(db, usuarioId, archivo, ATAJO_VIGENCIA_MS);
+    // El tipo va en el enlace (no es secreto) para que el archivo baje con su nombre.
+    return { url: `/atajo/${id}${ATAJOS[tipo].sufijo}.shortcut`, expiraEn, nombre: nombre ?? null, tipo };
   };
   const sinFirma = (error: ErrorFirma) => {
     console.error("No se pudo firmar el Atajo:", error.message);
@@ -337,19 +336,16 @@ export function crearApp(opciones: OpcionesApp) {
   });
   app.route("/v1", publico);
 
-  app.get("/atajo/:archivo", (c) => {
-    const id = c.req.param("archivo").replace(/\.shortcut$/, "");
-    const atajo = atajos.get(id);
-    if (!atajo || atajo.expira < Date.now() || atajo.descargas >= ATAJO_MAX_DESCARGAS) {
-      atajos.delete(id);
-      return c.text("Este enlace ya venció. Vuelve a pedir el Atajo desde la app.", 410);
-    }
+  app.get("/atajo/:archivo", async (c) => {
+    const [, id = "", applePay] = /^(.*?)(\.applepay)?\.shortcut$/.exec(c.req.param("archivo")) ?? [];
+    const nombre = ATAJOS[applePay ? "apple_pay" : "finanzas"].archivo;
     // El archivo lleva un token: solo se puede bajar unas pocas veces.
-    if (c.req.method === "GET") atajo.descargas++;
-    return c.body(atajo.archivo as Uint8Array<ArrayBuffer>, 200, {
+    const archivo = await tomarDescarga(db, id, ATAJO_MAX_DESCARGAS, c.req.method === "GET");
+    if (!archivo) return c.text("Este enlace ya venció. Vuelve a pedir el Atajo desde la app.", 410);
+    return c.body(archivo as Uint8Array<ArrayBuffer>, 200, {
       "Content-Type": "application/octet-stream",
       // iOS le pone al Atajo el nombre del archivo.
-      "Content-Disposition": `attachment; filename="${atajo.nombre}"; filename*=UTF-8''${encodeURIComponent(atajo.nombre)}`,
+      "Content-Disposition": `attachment; filename="${nombre}"; filename*=UTF-8''${encodeURIComponent(nombre)}`,
       "Cache-Control": "no-store",
     });
   });

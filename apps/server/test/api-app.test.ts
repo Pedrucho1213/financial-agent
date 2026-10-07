@@ -6,7 +6,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { crearApp, type OpcionesApp } from "../src/app";
 import { crearDispositivo, crearInvitacion } from "../src/auth";
 import { abrirBaseDatos } from "../src/db/client";
-import { recurrentes } from "../src/db/schema";
+import { descargasAtajo, recurrentes } from "../src/db/schema";
 
 type Json = Record<string, any>;
 
@@ -269,6 +269,50 @@ describe("el Atajo", () => {
     const nombres = ((await pedir("/v1/yo", { token })).cuerpo.dispositivos as Json[]).map((d) => d.nombre).sort();
     expect(nombres).toEqual(["Atajo Finanzas", "Atajo Finanzas", "iPhone"]);
     expect((await pedir("/v1/yo", { token: tokenAtajo })).estado).toBe(200);
+  });
+
+  test("el enlace sobrevive a un reinicio, la base no guarda el token y se gasta tras 5 descargas", async () => {
+    const { db, pedir } = montar({ firmarAtajo: async (xml) => new TextEncoder().encode(xml) });
+    const { token } = await entrar(pedir, db);
+    const r = await pedir("/v1/atajo", { cuerpo: { servidor: "https://mac.tu-red.ts.net" }, token });
+    // Otra app sobre la misma base, como al reiniciar el servidor.
+    const otra = crearApp({ db, modelo: new MockLanguageModelV4({ doGenerate: [] as never }), zonaHoraria: "America/Mexico_City", monedaBase: "MXN" });
+    // Un HEAD (iOS a veces lo manda antes) no gasta descargas.
+    expect((await otra.request(r.cuerpo.url, { method: "HEAD" })).status).toBe(200);
+    const xml = await (await otra.request(r.cuerpo.url)).text();
+    const tokenAtajo = xml.match(/fa_[A-Za-z0-9_-]+/)![0];
+    // En la base solo queda el archivo cifrado y el hash del id del enlace.
+    const filas = db.select().from(descargasAtajo).all();
+    expect(filas).toHaveLength(1);
+    const guardado = Buffer.from(filas[0]!.archivo).toString("latin1");
+    expect(guardado).not.toContain(tokenAtajo);
+    expect(guardado).not.toContain("mac.tu-red.ts.net");
+    const id = r.cuerpo.url.replace(/^\/atajo\/|\.shortcut$/g, "");
+    expect(JSON.stringify(filas)).not.toContain(id);
+    for (let i = 2; i <= 5; i++) expect((await otra.request(r.cuerpo.url)).status).toBe(200);
+    expect((await otra.request(r.cuerpo.url)).status).toBe(410);
+    expect(db.select().from(descargasAtajo).all()).toHaveLength(0);
+    // Un id que no es el del enlace no descifra nada.
+    expect((await otra.request("/atajo/00000000-0000-4000-8000-000000000000.shortcut")).status).toBe(410);
+  });
+
+  test("el de Apple Pay baja con su nombre y su propio dispositivo", async () => {
+    let xmlRecibido = "";
+    const { db, pedir, app } = montar({
+      firmarAtajo: async (xml) => ((xmlRecibido = xml), new TextEncoder().encode("firmado")),
+    });
+    const { token } = await entrar(pedir, db);
+    const r = await pedir("/v1/atajo", { cuerpo: { servidor: "https://mac.tu-red.ts.net", tipo: "apple_pay" }, token });
+    expect(r.estado).toBe(201);
+    expect(r.cuerpo.url).toMatch(/^\/atajo\/[0-9a-f-]+\.applepay\.shortcut$/);
+    expect(xmlRecibido).toContain("apple_pay");
+    const descarga = await app.request(r.cuerpo.url);
+    expect(descarga.status).toBe(200);
+    expect(descarga.headers.get("content-disposition")).toContain("filename*=UTF-8''Finanzas%20Apple%20Pay.shortcut");
+    // Sin el sufijo es el mismo enlace, con el nombre del otro Atajo: el id es lo que cuenta.
+    expect((await app.request(r.cuerpo.url.replace(".applepay", ""))).status).toBe(200);
+    const nombres = ((await pedir("/v1/yo", { token })).cuerpo.dispositivos as Json[]).map((d) => d.nombre).sort();
+    expect(nombres).toEqual(["Atajo Apple Pay", "iPhone"]);
   });
 
   test("si la Mac no puede firmar, avisa y no deja un token suelto", async () => {

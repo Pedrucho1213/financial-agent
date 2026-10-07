@@ -33,15 +33,22 @@
     {
       "idx": 4,
       "version": "6",
-      "when": 1791345438550,
-      "tag": "0004_planes_y_avisos",
+      "when": 1791345533421,
+      "tag": "0004_descargas_atajo",
       "breakpoints": true
     },
     {
       "idx": 5,
       "version": "6",
-      "when": 1791346752928,
-      "tag": "0005_notificaciones",
+      "when": 1791354674431,
+      "tag": "0005_planes_y_avisos",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1791354675651,
+      "tag": "0006_notificaciones",
       "breakpoints": true
     }
   ]
