@@ -21,11 +21,20 @@ const creadoEn = () =>
     .notNull()
     .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`);
 
-export const usuarios = sqliteTable("usuarios", {
-  id: id(),
-  nombre: text("nombre").notNull(),
-  creadoEn: creadoEn(),
-});
+export const usuarios = sqliteTable(
+  "usuarios",
+  {
+    id: id(),
+    // Con el que lo saludan la voz y la app.
+    nombre: text("nombre").notNull(),
+    // Para entrar desde otro dispositivo con su código personal: "pedro", en minúsculas y sin acentos.
+    usuario: text("usuario"),
+    // El código personal (argon2id); sin él, solo se entra con un código de invitación.
+    codigoHash: text("codigo_hash"),
+    creadoEn: creadoEn(),
+  },
+  (t) => [uniqueIndex("usuarios_usuario").on(t.usuario)],
+);
 
 export const dispositivos = sqliteTable(
   "dispositivos",
