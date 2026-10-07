@@ -48,9 +48,9 @@ function modeloFalso(
   return { modelo, vistos, intentos, maxActivos: () => maxActivos };
 }
 
-function montar(modelo: MockLanguageModelV4, espera?: OpcionesApp["espera"], reintentosMs = [20, 20]) {
+function montar(modelo: MockLanguageModelV4, espera?: OpcionesApp["espera"], reintentosMs = [20, 20], paralelo?: number) {
   const { db, usuario } = preparar();
-  const deps = { db, modelo, zonaHoraria: "America/Mexico_City", monedaBase: "MXN", reintentosMs };
+  const deps = { db, modelo, zonaHoraria: "America/Mexico_City", monedaBase: "MXN", reintentosMs, paralelo };
   const app = crearApp({ ...deps, espera });
   const cliente = (token: string) => {
     const get = async <T = Record<string, unknown>>(ruta: string) => {
@@ -83,8 +83,8 @@ function montar(modelo: MockLanguageModelV4, espera?: OpcionesApp["espera"], rei
       },
     };
   };
-  const otroUsuario = () => {
-    const otro = crearUsuario(db, "Amigo");
+  const otroUsuario = (nombre = "Amigo") => {
+    const otro = crearUsuario(db, nombre);
     sembrarCategorias(db, otro.id);
     return cliente(crearDispositivo(db, otro.id, "iPhone"));
   };
@@ -289,5 +289,34 @@ describe("cola de dictados", () => {
     expect(await amigo.montos()).toEqual([300]);
     expect((await amigo.get("/v1/entradas/dictado-9001")).cuerpo).toMatchObject({ estado: "listo" });
     expect((await amigo.get("/v1/entradas/dictado-9999")).status).toBe(404);
+  });
+  test("con varios lugares, usuarios distintos van a la vez y cada uno en su orden", async () => {
+    const { modelo, vistos, maxActivos } = modeloFalso({ retrasoMs: (d) => (d.startsWith("pedro") ? 40 : 5) });
+    const pedro = montar(modelo, undefined, undefined, 2);
+    const amigo = pedro.otroUsuario();
+    const inicio = Date.now();
+    await Promise.all([
+      pedro.hablar({ texto: "pedro uno 10", client_id: "dictado-9101" }),
+      pedro.hablar({ texto: "pedro dos 20", client_id: "dictado-9102" }),
+      amigo.hablar({ texto: "amigo 30", client_id: "dictado-9103" }),
+    ]);
+    // El amigo no esperó a Pedro, pero los dos de Pedro sí fueron de uno en uno y en orden.
+    expect(maxActivos()).toBe(2);
+    expect(vistos.filter((v) => v.startsWith("pedro"))).toEqual(["pedro uno 10", "pedro dos 20"]);
+    expect(vistos.indexOf("amigo 30")).toBe(1);
+    expect(Date.now() - inicio).toBeGreaterThanOrEqual(80);
+    expect((await pedro.montos()).sort((a, b) => a - b)).toEqual([10, 20]);
+    expect(await amigo.montos()).toEqual([30]);
+  });
+
+  test("nunca atiende a más usuarios a la vez que los lugares que tiene", async () => {
+    const { modelo, maxActivos } = modeloFalso({ retrasoMs: () => 20 });
+    const pedro = montar(modelo, undefined, undefined, 2);
+    const otros = ["Ana", "Luis", "Sofía"].map((n) => pedro.otroUsuario(n));
+    const respuestas = await Promise.all(
+      [pedro, ...otros].map((c, i) => c.hablar({ texto: `comida ${100 + i}`, client_id: `dictado-920${i}` })),
+    );
+    expect(respuestas.map((r) => r.status)).toEqual([200, 200, 200, 200]);
+    expect(maxActivos()).toBe(2);
   });
 });

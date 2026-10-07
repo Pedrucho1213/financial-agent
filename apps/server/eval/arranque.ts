@@ -81,6 +81,7 @@ async function nativo(peticion: Peticion) {
     method: "POST",
     body: JSON.stringify({ model: nombre, ...peticion, stream: false, think: false, options: { num_predict: 1 } }),
   });
+  if (!r.ok) throw new Error(`Ollama respondió ${r.status}: ${await r.text()}`);
   const j = (await r.json()) as { load_duration: number; prompt_eval_count: number; prompt_eval_duration: number };
   return { carga: j.load_duration / 1e6, tokens: j.prompt_eval_count, procesar: j.prompt_eval_duration / 1e6 };
 }

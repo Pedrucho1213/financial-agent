@@ -17,6 +17,7 @@ const deps = {
   // Lo que se termina sin que nadie lo espere (también lo retomado al arrancar) llega por notificación.
   alTerminarSinEspera: avisoDeDictado(db),
   notificaSinEspera: (usuarioId: string) => tienePush(db, usuarioId),
+  paralelo: config.ia.paralelo,
 };
 const app = crearApp({
   ...deps,
