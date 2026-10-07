@@ -50,12 +50,12 @@ test("límite por usuario desde muchas IPs: ¿un extraño deja fuera al dueño?"
   expect(r.status).toBe(201);
 });
 
-test("con 11 IPs se sigue adivinando? (por usuario frena)", async () => {
+test("desde 30 IPs: el tope por usuario (100 en 15 min desde 9a84229) frena", async () => {
   const { app } = await montar();
   const estados: number[] = [];
   for (let i = 0; i < 30; i++) estados.push((await entrar(app, "pedro", `adivina ${i} zz`, `203.0.113.${i}`)).status);
   console.log("estados:", estados.join(","));
-  expect(estados.filter((s) => s === 401).length).toBeLessThanOrEqual(10);
+  expect(estados.filter((s) => s === 401).length).toBeLessThanOrEqual(100);
 });
 
 test("un token robado cambia el código sin saber el anterior y entra desde otro lado", async () => {
