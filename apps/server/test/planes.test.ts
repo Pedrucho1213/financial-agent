@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { MockLanguageModelV4 } from "ai/test";
 import { crearHerramientas } from "../src/ai/herramientas";
-import { construirInstrucciones } from "../src/ai/instrucciones";
+import { datosDelUsuario } from "../src/ai/instrucciones";
 import { crearApp } from "../src/app";
 import { crearDispositivo } from "../src/auth";
 import { eq } from "drizzle-orm";
@@ -231,8 +231,8 @@ describe("herramientas de la IA", () => {
     expect(r.personas).toEqual([{ persona: "Juan", le_debe_al_usuario: "$300" }]);
     expect(deshacer(ctx).deshecho).toBe(true);
     expect(listarMsi(ctx).compras).toHaveLength(0);
-    // Las metas y personas aparecen en las instrucciones para que la IA las reconozca.
-    const instrucciones = construirInstrucciones(ctx);
+    // Las metas y personas van en los datos del usuario para que la IA las reconozca.
+    const instrucciones = datosDelUsuario(ctx);
     expect(instrucciones).toContain("Sus metas: Viaje.");
     expect(instrucciones).toContain("Préstamos pendientes con: Juan.");
   });
