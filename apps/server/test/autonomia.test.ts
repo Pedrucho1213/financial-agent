@@ -248,6 +248,21 @@ describe("preguntas de más", () => {
     expect(todos(ctx).map((m) => m.monto)).toEqual(["$85"]);
   });
 
+  test("en el chat de la app, una conversación sin pregunta previa no basta para elegir el más reciente (QA-036)", async () => {
+    const borrar = llamada("eliminar_movimiento", { buscar: { texto: "café", mas_reciente: true } });
+    const { ctx, hablar } = montar([
+      llamada("consultar_gastos", { periodo: "este_mes", texto: "café" }),
+      texto("Llevas $145 en café este mes."),
+      borrar,
+      texto("¿Cuál café, el de $60 o el de $85?"),
+    ]);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café", fecha: "ayer" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 60, categoria: "Café" });
+    const consulta = await hablar("¿Cuánto llevo en café?");
+    expect((await hablar("Borra el café", consulta.conversacion_id)).respuesta).toBe("¿Cuál café, el de 60 pesos o el de 85 pesos?");
+    expect(todos(ctx)).toHaveLength(2);
+  });
+
   test("al editar, \"el café\" con varios pregunta cuál; \"fueron 70\" a secas es lo último (QA-035)", async () => {
     const editar = (buscar: unknown, monto: number) => llamada("editar_movimiento", { buscar, cambios: { monto } });
     const { ctx, hablar } = montar([

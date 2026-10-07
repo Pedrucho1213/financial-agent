@@ -370,6 +370,13 @@ async function corregirCuenta(ctx: Contexto, texto: string, acciones: Accion[]):
   return confirmacionDirecta(texto, ctx.hoy, [{ herramienta: "editar_movimiento", resultado }]) ?? "Listo, lo corregí.";
 }
 
+/** El texto de un mensaje guardado, sin las llamadas a herramientas. */
+function textoDe(mensaje: ModelMessage | undefined): string {
+  if (!mensaje) return "";
+  if (typeof mensaje.content === "string") return mensaje.content;
+  return mensaje.content.map((parte) => (parte.type === "text" ? parte.text : "")).join(" ").trim();
+}
+
 /** Comercios y conceptos que se registraron en este dictado ("Netflix", "Renta"), para no avisar de su cobro. */
 function loQuePago(acciones: Accion[]): string[] {
   return acciones.flatMap((a) => {
@@ -428,9 +435,10 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   const acciones: Accion[] = [];
   const mensajeUsuario: ModelMessage = { role: "user", content: entrada.texto };
   const historial = cargarHistorial(db, usuarioId, conversacionId);
-  // El Atajo solo sigue la conversación si la respuesta anterior preguntaba algo ("¿cuál café?"): lo que
-  // se dice ahora la contesta, y el modelo ya sabe de cuál se habla.
-  ctx.enConversacion = ctx.confiarEnMasReciente = historial.length > 0;
+  ctx.enConversacion = historial.length > 0;
+  // Si la respuesta anterior preguntaba algo ("¿cuál café?"), lo que se dice ahora la contesta y el modelo
+  // ya sabe de cuál se habla. Una conversación sin pregunta (el chat de la app) no basta.
+  ctx.confiarEnMasReciente = textoDe(historial.findLast((m) => m.role === "assistant" && textoDe(m) !== "")).includes("?");
   // Si un paso solo guardó, corrigió o borró, la confirmación se arma aquí y el modelo no da otra vuelta.
   let confirmacion: string | undefined;
   const generar = (aviso = "") => {
