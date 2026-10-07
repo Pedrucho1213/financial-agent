@@ -273,16 +273,23 @@ export function listarMetas(ctx: Contexto) {
 /** "Para diciembre", "en marzo", "2027-06-30", "el 15 de diciembre": el último día de ese plazo. */
 export function fechaLimiteDe(ctx: Contexto, texto: string | null | undefined): string | null {
   if (!texto?.trim()) return null;
-  let fecha: string;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(texto.trim())) {
-    if (!esFechaValida(texto.trim())) throw new ErrorFinanzas(`La fecha "${texto}" no existe.`);
-    fecha = texto.trim();
-  } else {
-    fecha = fechaLimiteDicha(ctx, texto);
-  }
-  // Una meta siempre es a futuro: "para marzo" dicho en octubre es el marzo que viene.
-  while (fecha < ctx.hoy) fecha = sumarMeses(fecha, 12);
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(texto.trim());
+  if (iso && !esFechaValida(texto.trim())) throw new ErrorFinanzas(`La fecha "${texto}" no existe.`);
+  let fecha = iso ? texto.trim() : fechaLimiteDicha(ctx, texto);
+  if (fecha >= ctx.hoy) return fecha;
+  // Una meta siempre es a futuro: "para marzo" dicho en octubre es el marzo que viene. Un AAAA-MM-DD de
+  // hace menos de un año es el mismo día del año que viene (la IA a veces calcula mal el año); con un año
+  // dicho, o más viejo, ya pasó.
+  const conAnio = !iso && /\b20\d\d\b/.test(texto);
+  if (conAnio || (iso && sumarMeses(fecha, 12) < ctx.hoy)) throw new ErrorFinanzas("La fecha límite ya pasó.");
+  while (fecha < ctx.hoy) fecha = unAnioDespues(fecha);
   return fecha;
+}
+
+/** El mismo día un año después; un fin de mes sigue siendo fin de mes (28 de febrero → 29 si toca). */
+function unAnioDespues(fecha: string) {
+  const { anio, mes, dia } = partes(fecha);
+  return armarFecha(anio + 1, mes, dia === ultimoDiaDelMes(anio, mes) ? ultimoDiaDelMes(anio + 1, mes) : dia);
 }
 
 /** Un AAAA-MM-DD que de verdad existe (sin 2026-02-30 ni 2026-13-01). */
@@ -689,30 +696,27 @@ function pagosRecientes(ctx: Contexto, desde: string) {
   }));
 }
 
-/** El cobro anterior a `fecha` de un pago fijo. */
-function cobroAnterior(r: Pick<typeof recurrentes.$inferSelect, "frecuencia">, fecha: string) {
-  switch (r.frecuencia) {
-    case "semanal":
-      return sumarDias(fecha, -7);
-    case "quincenal":
-      return sumarDias(fecha, -15);
-    case "mensual":
-      return sumarMeses(fecha, -1);
-    case "anual":
-      return sumarMeses(fecha, -12);
-  }
+/**
+ * Desde cuándo un gasto cuenta como pago del cobro de `fecha`: a la mitad entre el cobro anterior y
+ * este. Así la renta del 10 pagada el 5 cuenta, y el Netflix de septiembre anotado un día tarde no.
+ */
+function inicioDelCiclo(r: Pick<typeof recurrentes.$inferSelect, "frecuencia" | "dia" | "mes">, fecha: string) {
+  const anterior = cobrosEntre(r, sumarDias(fecha, r.frecuencia === "anual" ? -370 : -40), sumarDias(fecha, -1)).at(-1);
+  if (!anterior) return sumarDias(fecha, -15);
+  const dias = Math.round((Date.parse(fecha) - Date.parse(anterior)) / 86_400_000);
+  return sumarDias(anterior, Math.floor(dias / 2));
 }
 
 const PALABRAS_VACIAS = new Set(["pago", "pagos", "cobro", "del", "las", "los", "para", "mensual", "mensualidad", "plan", "cuota"]);
 
 /**
- * Si ya hay un gasto de este pago fijo después del cobro anterior y hasta hoy. Coincide por el nombre
- * en cualquier sentido ("renta" y "Renta del departamento"), por el comercio, o por la primera palabra
- * que distingue al pago si el monto se parece.
+ * Si ya hay un gasto de este pago fijo en este ciclo, hasta hoy, de un monto parecido. Coincide por el
+ * nombre en cualquier sentido ("renta" y "Renta del departamento"), por el comercio, o por la primera
+ * palabra que distingue al pago.
  */
 function yaSePago(
   r: Pick<typeof recurrentes.$inferSelect, "id" | "nombre" | "montoCentavos">,
-  despuesDe: string,
+  desde: string,
   hasta: string,
   pagos: ReturnType<typeof pagosRecientes>,
 ) {
@@ -720,11 +724,12 @@ function yaSePago(
   const clave = nombre.split(" ").find((p) => p.length > 3 && !PALABRAS_VACIAS.has(p));
   const contiene = (texto: string, parte: string) => !!parte && new RegExp(`\\b${parte.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(texto);
   return pagos.some((m) => {
-    if (m.fecha <= despuesDe || m.fecha > hasta) return false;
+    if (m.fecha < desde || m.fecha > hasta) return false;
     if (m.recurrenteId === r.id) return true;
+    // Por el nombre solo si el monto se parece: "tenis para el gym" de 1,500 no es la mensualidad del Gym.
+    if (m.montoCentavos < r.montoCentavos * 0.5 || m.montoCentavos > r.montoCentavos * 1.5) return false;
     if (contiene(m.texto, nombre) || (m.comercio.length > 3 && (contiene(nombre, m.comercio) || contiene(m.comercio, nombre)))) return true;
-    const montoParecido = m.montoCentavos >= r.montoCentavos * 0.5 && m.montoCentavos <= r.montoCentavos * 1.5;
-    return !!clave && montoParecido && (contiene(m.texto, clave) || contiene(m.comercio, clave));
+    return !!clave && (contiene(m.texto, clave) || contiene(m.comercio, clave));
   });
 }
 
@@ -778,7 +783,7 @@ export function disponible(ctx: Contexto) {
   const porPagarFijos = fijos
     .filter((r) => r.tipo !== "ingreso")
     .flatMap((r) => cobrosEntre(r, ctx.hoy, hasta).map((f, i) => ({ r, f, i })))
-    .filter(({ r, f, i }) => i > 0 || !yaSePago(r, cobroAnterior(r, f), ctx.hoy, pagados))
+    .filter(({ r, f, i }) => i > 0 || !yaSePago(r, inicioDelCiclo(r, f), ctx.hoy, pagados))
     .reduce((s, { r }) => s + r.montoCentavos, 0);
   const mensualidades = ctx.db
     .select({ fecha: movimientos.fecha, msiId: movimientos.msiId })

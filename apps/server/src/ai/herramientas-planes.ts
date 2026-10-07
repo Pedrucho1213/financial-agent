@@ -248,7 +248,7 @@ export function pagaPrestamo(texto: string, personas: string[]) {
   if (!nombres.length) return false;
   const p = `(${nombres.join("|")})`;
   const verbo = "(pago|pagaron|devolvio|regreso|abono)";
-  return new RegExp(`\\b(${p} (ya )?(me|nos) ${verbo}|(me|nos) ${verbo} ${p}|le (pague|devolvi|regrese|abone) a ${p})\\b`).test(normalizar(texto));
+  return new RegExp(`\\b(${p} (ya )?(me|nos) ${verbo}|(me|nos) ${verbo} ${p}|le (pague|abone) a ${p}|le (devolvi|regrese)( \\S+){0,2} a ${p})\\b`).test(normalizar(texto));
 }
 
 /** "Aparté 500 para el viaje", "ahorré mil para la meta": apartar dinero, no gastarlo. */
@@ -257,5 +257,5 @@ export function apartaParaMeta(texto: string, metas: string[]) {
   if (!/\b(aparte|ahorre|guarde)\b/.test(plano)) return false;
   const nombres = primeras(metas);
   const destino = nombres.length ? `|${nombres.join("|")}` : "";
-  return new RegExp(`\\b(para|a|en) (el |la |mi |mis )?(meta${destino})\\b`).test(plano);
+  return new RegExp(`\\b(para|pa|pal|al|a|en) (el |la |mi |mis )?(meta${destino})\\b`).test(plano);
 }

@@ -5,7 +5,7 @@ import { construirInstrucciones } from "../src/ai/instrucciones";
 import { crearApp } from "../src/app";
 import { crearDispositivo } from "../src/auth";
 import { eq } from "drizzle-orm";
-import { entradas, movimientos } from "../src/db/schema";
+import { cuentas, entradas, movimientos } from "../src/db/schema";
 import { avisoDelDia, avisosPorEnviar, guardarAviso, listarAvisos, marcarEnviados } from "../src/finanzas/avisos";
 import { listarCategorias } from "../src/finanzas/catalogos";
 import { type Contexto, crearContexto } from "../src/finanzas/contexto";
@@ -467,6 +467,9 @@ describe("casos de la revisión de código", () => {
     // Y los que sí son lo siguen siendo.
     expect((await llamar(dictado(ctx, "Luz ya me pagó 300"), "registrar_movimientos", { movimientos: [{ tipo: "ingreso", monto: 300 }] })).error).toMatch(/prestamo/);
     expect((await llamar(dictado(ctx, "aparté 2 mil para el carro"), "registrar_movimientos", gastoDe(2000))).error).toMatch(/meta/);
+    expect((await llamar(dictado(ctx, "guardé 500 al carro nuevo"), "registrar_movimientos", gastoDe(500))).error).toMatch(/meta/);
+    expect((await llamar(dictado(ctx, "le devolví los 300 a Luz"), "registrar_movimientos", gastoDe(300))).error).toMatch(/prestamo/);
+    expect((await llamar(dictado(ctx, "saqué una tele de 9 mil a 12 meses"), "registrar_movimientos", gastoDe(9000))).error).toMatch(/compra_msi/);
   });
 
   test("una mensualidad borrada o movida no vuelve en la noche", () => {
@@ -505,6 +508,22 @@ describe("casos de la revisión de código", () => {
     crearRecurrente(otro, { nombre: "Renta del departamento", tipo: "renta", monto: 6000, frecuencia: "mensual", dia: 20 });
     crearMovimiento(otro, { tipo: "gasto", monto: 6000, descripcion: "Renta", fecha: "2026-09-20" });
     expect(disponible(otro).comprometidoCentavos).toBe(600000);
+    // Ni la de fin de mes, ni un cobro del mes pasado anotado un día tarde, ni algo del gym que no es la mensualidad.
+    const { ctx: c3 } = preparar();
+    const nov7 = otroDia(c3, "2026-11-07");
+    crearRecurrente(nov7, { nombre: "Renta", tipo: "renta", monto: 6000, frecuencia: "mensual", dia: 31 });
+    crearRecurrente(nov7, { nombre: "Netflix", tipo: "suscripcion", monto: 219, frecuencia: "mensual", dia: 15 });
+    crearRecurrente(nov7, { nombre: "Gym", tipo: "suscripcion", monto: 600, frecuencia: "mensual", dia: 20 });
+    crearMovimiento(nov7, { tipo: "gasto", monto: 6000, descripcion: "Renta", fecha: "2026-10-31" });
+    crearMovimiento(nov7, { tipo: "gasto", monto: 219, descripcion: "Netflix", fecha: "2026-10-16" });
+    crearMovimiento(nov7, { tipo: "gasto", monto: 1500, descripcion: "Tenis para el gym", fecha: "2026-11-02" });
+    expect(disponible(nov7).comprometidoCentavos).toBe(681900);
+    // Quincenal del 10 y el 25: lo del 25 de febrero no paga el 10 de marzo.
+    const { ctx: c4 } = preparar();
+    const mar3 = otroDia(c4, "2027-03-03");
+    crearRecurrente(mar3, { nombre: "Colegiatura", tipo: "otro", monto: 3000, frecuencia: "quincenal", dia: 10 });
+    crearMovimiento(mar3, { tipo: "gasto", monto: 3000, descripcion: "Colegiatura", fecha: "2027-02-25" });
+    expect(disponible(mar3).comprometidoCentavos).toBe(600000);
   });
 
   test("con presupuestos por categoría no dice que apartó pagos, y uno dentro de otro no cuenta doble", () => {
@@ -559,6 +578,11 @@ describe("casos de la revisión de código", () => {
     recordar(ctx, "El Uber ya no lo pago con la BBVA, ahora con la Nu");
     const r = await llamar(dictado(ctx, "120 de Uber"), "registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 120, comercio: "Uber", categoria: "Taxi y apps" }] });
     expect(r.registrados[0].cuenta).toBe("Nu");
+    // Y una cuenta cuyo nombre contiene a otra no se confunde con la corta.
+    ctx.db.insert(cuentas).values({ usuarioId: ctx.usuarioId, nombre: "BBVA Azul", tipo: "credito" }).run();
+    recordar(ctx, "La gasolina la pago con la BBVA Azul");
+    const g = await llamar(dictado(ctx, "mil de gasolina"), "registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 1000, categoria: "Gasolina" }] });
+    expect(g.registrados[0].cuenta).toBe("BBVA Azul");
   });
 
   test("la fecha límite se valida de verdad y una pasada se mueve al año que viene", () => {
@@ -566,5 +590,10 @@ describe("casos de la revisión de código", () => {
     expect(() => fechaLimiteDe(ctx, "2026-13-45")).toThrow(/no existe/);
     expect(() => fechaLimiteDe(ctx, "2027-02-30")).toThrow(/no existe/);
     expect(fechaLimiteDe(ctx, "2025-12-31")).toBe("2026-12-31");
+    // Con el año dicho, o un AAAA-MM-DD de hace más de un año, ya pasó.
+    expect(() => fechaLimiteDe(ctx, "2025-03-01")).toThrow(/ya pasó/);
+    expect(() => fechaLimiteDe(ctx, "marzo de 2026")).toThrow(/ya pasó/);
+    // Fin de febrero que cae en bisiesto.
+    expect(fechaLimiteDe(otroDia(ctx, "2027-03-07"), "para febrero")).toBe("2028-02-29");
   });
 });

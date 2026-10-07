@@ -321,15 +321,18 @@ function cuentaMencionada(plano: string, opciones: { cuenta: string; nombres: st
     nombres.flatMap((n) => {
       const buscado = normalizar(n);
       if (!buscado) return [];
-      const lugares: { cuenta: string; en: number }[] = [];
+      const lugares: { cuenta: string; en: number; fin: number }[] = [];
       const patron = new RegExp(`\\b${buscado.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g");
-      for (const m of plano.matchAll(patron)) lugares.push({ cuenta, en: m.index });
+      for (const m of plano.matchAll(patron)) lugares.push({ cuenta, en: m.index, fin: m.index + m[0].length });
       return lugares;
     }),
   );
   const negada = (en: number) => /\b(no|nunca|ya no)\b( \S+){0,4} $/.test(plano.slice(0, en)) && !/\b(sino|ahora|mejor)\b/.test(plano.slice(Math.max(0, en - 20), en));
+  // "BBVA Azul" no es también "BBVA": una mención dentro de otra más larga no cuenta.
+  const dentroDeOtra = (m: (typeof menciones)[number]) =>
+    menciones.some((o) => o !== m && o.en <= m.en && o.fin >= m.fin && o.fin - o.en > m.fin - m.en);
   return menciones
-    .filter((m) => !negada(m.en))
+    .filter((m) => !negada(m.en) && !dentroDeOtra(m))
     .sort((a, b) => a.en - b.en)
     .at(-1)?.cuenta;
 }

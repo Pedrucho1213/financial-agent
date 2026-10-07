@@ -93,7 +93,7 @@ const PIDE_VARIOS = new RegExp(
 
 // "A 12 meses sin intereses", "compré unos tenis a 6 meses": no es un gasto de una vez. Pagar una
 // mensualidad ("la mensualidad de la pantalla") sí es un gasto.
-const ES_MSI = /\b(meses sin intereses|msi)\b|\bcompre\b.*\ba (\d+|tres|seis|nueve|doce|dieciocho|veinticuatro) meses\b/;
+const ES_MSI = /\b(meses sin intereses|msi)\b|\b(compre|saque|me lleve)\b.*\ba (\d+|tres|seis|nueve|doce|dieciocho|veinticuatro) meses\b/;
 const PAGA_MENSUALIDAD = /\b(mensualidad|mensualidades|pago de|abono de)\b/;
 // Prestar o pedir prestado entre personas no es gasto ni ingreso.
 const ES_PRESTAMO = /\b(le preste|les preste|te preste|preste|me presto|me prestaron|me prestaste|nos presto)\b/;
