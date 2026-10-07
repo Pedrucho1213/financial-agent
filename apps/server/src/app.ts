@@ -52,7 +52,7 @@ import { esOrdenSobreLoAnotado, esPregunta } from "./lib/texto";
 import { and, count, eq, gte, sql } from "drizzle-orm";
 import { avisoDeDictado, conversacionPorContestar } from "./push/dictados";
 import { desuscribir, type EnviarPush, ErrorSuscripcion, estadoPush, notificar, suscribir, tienePush } from "./push/notificaciones";
-import { costumbreParaLaIA } from "./finanzas/comentario";
+import { notaDelGasto } from "./finanzas/comentario";
 import { rutasPlanes } from "./rutas-planes";
 import { servirApp } from "./web";
 import type { EstadoIa } from "./ai/modelo";
@@ -310,7 +310,7 @@ export function crearApp(opciones: OpcionesApp) {
     return r;
   };
   /**
-   * Con notificaciones: si la IA no comentó nada ni hay un dato del presupuesto, el Atajo solo dice
+   * Con notificaciones: si al final no hubo comentario ni dato del presupuesto, el Atajo solo dice
    * "Anotado" y lo anotado llega por notificación, igual que si no la hubiera esperado. Si tardó más de
    * lo que se esperó, la notificación sale sola al terminar.
    */
@@ -522,9 +522,9 @@ export function crearApp(opciones: OpcionesApp) {
     // o decir qué borró o cambió. Si contestara "Anotado" y lo terminara sola, nadie oiría esa respuesta.
     // Lo mismo al borrar o cambiar algo, aunque diga el monto: "borra el café de 85" (QA-029).
     const pregunta = esPregunta(p.texto) || montosDelTexto(p.texto).length === 0 || esOrdenSobreLoAnotado(p.texto);
-    // Con notificaciones, un registro espera a la IA cuando ella puede comentar algo del gasto
-    // (finanzas/comentario.ts). Si no comenta, o no puede, el Atajo dice "Anotado" y termina, y lo que
-    // anotó llega en una notificación. Las preguntas se siguen contestando en voz.
+    // Con notificaciones, un registro no espera a la IA: el Atajo dice "Anotado" y termina, y lo que
+    // anotó llega en una notificación. Solo si el gasto tiene algo que vale la pena decir
+    // (finanzas/comentario.ts), la espera para decirlo. Las preguntas se siguen contestando en voz.
     // En el reloj no: la notificación va a la app del iPhone y, si no está cerca, nunca le llega.
     // Se reconoce por `equipo` o por el User-Agent. Cada User-Agent nuevo del Atajo queda una vez en el
     // registro, para comprobar cómo se presenta el reloj.
@@ -535,11 +535,10 @@ export function crearApp(opciones: OpcionesApp) {
     }
     const enReloj = /watch/i.test(p.equipo ?? "") || /watch/i.test(agente);
     const rapida = delAtajo && !pregunta && !enReloj && tienePush(db, usuarioId);
-    // Si no hay nada que comentar (nada raro en el gasto, poco historial, ya comentó lo del día), no tiene
-    // caso esperar a la IA.
+    // Sin nada que comentar (nada raro en el gasto, poco historial, ya comentó lo del día), no la espera.
     const esperaMs =
       p.espera_ms ??
-      (pregunta ? opciones.espera?.preguntaMs : rapida && !costumbreParaLaIA(contexto(usuarioId), p.texto) ? 0 : opciones.espera?.registroMs);
+      (pregunta ? opciones.espera?.preguntaMs : rapida && !notaDelGasto(contexto(usuarioId), p.texto) ? 0 : opciones.espera?.registroMs);
     try {
       let respuesta = await hablar(
         deps,

@@ -164,15 +164,8 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
       description:
         "Registra uno o varios gastos o ingresos. Si el usuario menciona varios, mándalos todos en una sola llamada. " +
         "Llámala solo con un monto que el usuario dijo o uno de sus montos de siempre: si no sabes cuánto fue, pregunta sin llamarla.",
-      inputSchema: z.object({
-        movimientos: z.array(datosMovimiento).min(1),
-        comentario: z
-          .string()
-          .optional()
-          .describe('La frase de "Para comentar", si los datos la traen y no es un gasto que se espera. Si no, vacío.'),
-      }),
-      execute: ejecutar("registrar_movimientos", ({ movimientos, comentario }) => {
-        if (comentario) ctx.comentario = comentario;
+      inputSchema: z.object({ movimientos: z.array(datosMovimiento).min(1) }),
+      execute: ejecutar("registrar_movimientos", ({ movimientos }) => {
         const texto = ctx.textoOriginal;
         // Un pago de Apple Pay es un gasto, uno solo, con el monto y la moneda que dio la Cartera.
         const pago = ctx.origen === "apple_pay" ? pagoDeFrase(texto) : undefined;

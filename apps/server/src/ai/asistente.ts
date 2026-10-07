@@ -7,7 +7,7 @@ import { habitoMencionado, hablaDeOtroMonto } from "../finanzas/habitos";
 import { revertirEntrada } from "../finanzas/movimientos";
 import { datoDePresupuesto } from "../finanzas/planes";
 import { cobrosPorAvisar } from "../finanzas/recurrentes";
-import { comentarioValido, costumbreParaLaIA, marcarComentario } from "../finanzas/comentario";
+import { esEsperable, marcarComentario, notaDelGasto } from "../finanzas/comentario";
 import { formatearMonto } from "../lib/dinero";
 import { montosDelTexto } from "../lib/numeros";
 import { esOrdenSobreLoAnotado, esPregunta, normalizar, pideInformacion, tipoDelTexto } from "../lib/texto";
@@ -43,7 +43,7 @@ export type Respuesta = {
   esperar?: boolean;
   /** El dato útil que se agregó a la respuesta ("Vas en 82% de tu presupuesto de Comida."), por separado. */
   dato?: string;
-  /** El comentario que la IA decidió decir al registrar, si se dijo. */
+  /** Lo que tenía de raro el gasto, si se dijo ("Ojo, es como 37 veces tu compra típica..."). */
   comentario?: string;
 };
 
@@ -491,10 +491,13 @@ function tieneMovimientos(ctx: Contexto): boolean {
     .get();
 }
 
-/** Los montos que anotó registrar_movimientos ("$85"), para saber qué cifras puede decir un comentario. */
-function montosAnotados(accion: Accion): string[] {
-  const r = accion.resultado as { registrados?: { monto?: string }[] } | undefined;
-  return (r?.registrados ?? []).flatMap((m) => (m.monto ? [m.monto] : []));
+/** Las categorías de los gastos que anotó registrar_movimientos ("Comida > Súper"). */
+function categoriasAnotadas(acciones: Accion[]): (string | undefined)[] {
+  return acciones.flatMap((a) => {
+    const r = a.resultado as { registrados?: { tipo?: string; categoria?: string }[] } | undefined;
+    if (a.herramienta !== "registrar_movimientos") return [];
+    return (r?.registrados ?? []).filter((m) => m.tipo !== "ingreso").map((m) => m.categoria);
+  });
 }
 
 /** Los gastos que creó este dictado y siguen ahí, para saber si cruzaron un presupuesto. */
@@ -651,17 +654,16 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   ctx.confiarEnMasReciente = anterior.includes("?") && PIDE_ELEGIR.test(normalizar(anterior));
   // Si un paso solo guardó, corrigió o borró, la confirmación se arma aquí y el modelo no da otra vuelta.
   let confirmacion: string | undefined;
-  // Al dictar un gasto, la IA ve qué tiene de raro para decidir si comenta algo.
-  const costumbre =
+  // Lo que tiene de raro el gasto dictado, antes de que la IA lo anote (es lo que hace esperar al Atajo).
+  const nota =
     montosDelTexto(entrada.texto).length > 0 && !esPregunta(entrada.texto) && !esOrdenSobreLoAnotado(entrada.texto)
-      ? costumbreParaLaIA(ctx, entrada.texto)
+      ? notaDelGasto(ctx, entrada.texto)
       : undefined;
   const generar = (aviso = "") => {
     confirmacion = undefined;
-    ctx.comentario = undefined;
     // Lo que cambia mientras se usa (y el aviso de un reintento) va justo antes del dictado, no en las
     // instrucciones: así Ollama reutiliza lo ya procesado de instrucciones, herramientas e historial.
-    const datos = [datosDelUsuario(ctx), costumbre, aviso.trim()].filter(Boolean).join("\n\n");
+    const datos = [datosDelUsuario(ctx), aviso.trim()].filter(Boolean).join("\n\n");
     return generateText({
       model: deps.modelo,
       instructions: construirInstrucciones(ctx),
@@ -752,14 +754,14 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   }
 
   // Si hizo algo y no espera respuesta, aprovecha para dar un dato que importa: que cruzó el 80% o el
-  // 100% de un presupuesto; si no, el comentario que la IA decidió hacer del gasto; si no, un cobro que
+  // 100% de un presupuesto; si no, lo que tiene de raro el gasto; si no, un cobro que
   // viene. Si el iPhone ya recibió "Anotado", nadie lo va a oír: el aviso del cobro se deja para el
   // próximo dictado.
   const puedeAgregar = acciones.length > 0 && !texto.includes("?");
   const dato = puedeAgregar ? datoDePresupuesto(ctx, gastosNuevos(ctx, entrada.id)) : undefined;
-  const anotado = acciones.flatMap((a) => (a.herramienta === "registrar_movimientos" ? montosAnotados(a) : []));
-  const comentario =
-    puedeAgregar && !dato && costumbre && anotado.length ? comentarioValido(ctx, ctx.comentario, [costumbre, entrada.texto, ...anotado]) : undefined;
+  // Solo si de verdad anotó un gasto, y no de los que se esperan aunque salgan altos (la gasolina, el súper).
+  const anotados = categoriasAnotadas(acciones);
+  const comentario = puedeAgregar && !dato && nota && anotados.length && !anotados.some(esEsperable) ? nota : undefined;
   if (comentario) marcarComentario(ctx);
   const hablaDeCobros = acciones.some((a) => a.herramienta.endsWith("_recurrente") || a.herramienta === "listar_recurrentes");
   // Con notificaciones, lo que no se oye llega en la notificación.

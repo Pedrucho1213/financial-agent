@@ -23,8 +23,6 @@ export type Contexto = {
   enConversacion?: boolean;
   /** De dónde salen los movimientos que se registren (un dictado o un pago con Apple Pay). */
   origen?: "voz" | "apple_pay";
-  /** Lo que la IA propuso comentar al registrar (ver finanzas/comentario.ts). */
-  comentario?: string;
 };
 
 export function crearContexto(

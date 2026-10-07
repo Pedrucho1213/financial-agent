@@ -7,15 +7,17 @@ import { sumarDias } from "../lib/fechas";
 import type { Contexto } from "./contexto";
 
 /**
- * Comentario al registrar. Al anotar un gasto, la IA decide si vale la pena decir algo más ("Ojo, es mucho
- * más de lo que sueles gastar por compra") y lo manda en `comentario` de registrar_movimientos. El servidor
- * le dice qué tiene de raro el gasto, con cifras ya hechas, y descarta un comentario con cifras que no
- * estén ahí. Se dice a lo más dos veces al día: "de vez en cuando".
+ * Comentario al registrar. Con notificaciones, un registro termina con "Anotado" sin esperar a la IA. De
+ * vez en cuando el gasto tiene algo que vale la pena decir ("Ojo, es como 37 veces tu compra típica"): el
+ * servidor lo nota antes de llamar a la IA, con cifras exactas, y esa vez el Atajo la espera para decir la
+ * confirmación y el comentario. Se dice a lo más dos veces al día.
+ *
+ * La IA (gemma4 12b) no lo decidía bien: en la Mac, con la costumbre o con la nota ya hecha, comentó 0 de 10,
+ * 4 de 10, 0 de 8 y 0 de 12 gastos fuera de lo normal según cómo se le pidiera.
  */
 export const MAXIMO_AL_DIA = 2;
 const MINIMO_GASTOS = 10;
 const MINIMO_DIAS = 7;
-const LARGO_MAXIMO = 160;
 const GASTO_ALTO_MINIMO_CENTAVOS = 300_00;
 const VECES_DIA_ALTO = 1.5;
 
@@ -68,12 +70,11 @@ const redondo = (centavos: number) => {
 };
 
 /**
- * Lo que la IA necesita para decidir si este gasto merece comentario: lo que tiene de raro, con las cifras
- * ya hechas (el modelo, solo con la costumbre, no lo notaba). Ella decide si vale la pena decirlo; un
- * gasto esperable, como la gasolina, puede salir alto y no necesitar comentario. Sin nada que notar, sin
- * historial suficiente o con el tope del día alcanzado, no hay nada: el Atajo ni siquiera la espera.
+ * Lo que tiene de raro el gasto que se dicta, como frase lista para decirse: un monto mucho más alto que
+ * lo normal, el día que se dispara o un lugar al que va más que de costumbre. Sin nada que notar, sin
+ * historial suficiente o con el tope del día alcanzado, no hay nada y el Atajo no espera a la IA.
  */
-export function costumbreParaLaIA(ctx: Contexto, texto: string): string | undefined {
+export function notaDelGasto(ctx: Contexto, texto: string): string | undefined {
   if (!puedeComentar(ctx)) return undefined;
   const moneda = monedaDelTexto(texto);
   if (moneda && moneda !== ctx.monedaBase) return undefined;
@@ -126,25 +127,13 @@ export function costumbreParaLaIA(ctx: Contexto, texto: string): string | undefi
   const porSemana = antesDeLaSemana.length / semanas;
   if (unaCompra && lugar && enLaSemana >= 4 && enLaSemana >= 1.5 * porSemana) notas.push(`Es tu vez número ${enLaSemana} en ${lugar} esta semana.`);
 
-  if (!notas.length) return undefined;
-  return `Para comentar al registrar este gasto:\n${notas.map((n) => `- ${n}`).join("\n")}`;
+  return notas[0];
 }
 
-// Una cifra en palabras ("diez veces", "el triple", "tu quinta vez") no se puede comparar con las fuentes.
-const CIFRA_EN_PALABRAS =
-  /\b(dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|veinte|treinta|cuarenta|cincuenta|cien|ciento|cientos|mil|doble|triple|cuadruple|mitad|tercera|cuarta|quinta|sexta|septima|octava|novena|decima|tercer|cuarto|quinto|sexto|septimo|octavo|noveno|decimo)\b/;
+// Gastos que se esperan aunque salgan altos: no se comentan.
+const ESPERABLES = new Set(["vivienda", "salud", "educacion", "suscripciones", "comisiones e intereses", "super", "gasolina", "casetas", "estacionamiento"]);
 
-const cifras = (texto: string) => (texto.match(/\d[\d,]*(\.\d+)?/g) ?? []).map((n) => Number(n.replace(/,/g, "")));
-
-/**
- * El comentario que propuso la IA, si se puede decir: una frase corta, sin preguntas (dejaría el micrófono
- * abierto) y sin cifras que no vengan de su costumbre, del dictado o de lo que se anotó.
- */
-export function comentarioValido(ctx: Contexto, propuesto: string | undefined, fuentes: string[]): string | undefined {
-  const texto = propuesto?.replace(/\s+/g, " ").trim();
-  if (!texto || !puedeComentar(ctx) || texto.includes("?") || texto.length > LARGO_MAXIMO) return undefined;
-  if (CIFRA_EN_PALABRAS.test(normalizar(texto))) return undefined;
-  const conocidas = new Set(fuentes.flatMap(cifras));
-  if (!cifras(texto).every((n) => conocidas.has(n))) return undefined;
-  return /[.!]$/.test(texto) ? texto : `${texto}.`;
+/** Si el gasto anotado ("Comida > Súper", "Salud > Médico") es de los que se esperan. */
+export function esEsperable(categoria: string | undefined): boolean {
+  return !!categoria && categoria.split(">").some((parte) => ESPERABLES.has(normalizar(parte)));
 }
