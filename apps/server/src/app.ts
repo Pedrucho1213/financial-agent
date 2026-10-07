@@ -150,6 +150,14 @@ const POLITICA_CONTENIDO = {
 
 const cuerpoMuyGrande = (c: Context) => c.json({ error: "La petición es demasiado grande." }, 413);
 
+/**
+ * El Atajo sigue escuchando solo si la respuesta le pregunta algo a la persona; si no, contesta y se cierra.
+ * La clave va solo cuando es true, así el Atajo solo revisa si existe.
+ */
+function conSeguir<T extends { respuesta?: string; pendiente?: boolean }>(r: T): T & { seguir?: true } {
+  return !r.pendiente && r.respuesta && /\?\s*$/.test(r.respuesta) ? { ...r, seguir: true } : r;
+}
+
 /** La dirección del Atajo tiene que ser este mismo servidor, como lo ve quien la pide. */
 function servidorPropio(c: Context, servidor: string): boolean {
   const hosts = hostsDeLaPeticion(c);
@@ -280,7 +288,7 @@ export function crearApp(opciones: OpcionesApp) {
     // el archivo en la cola para siempre y no diría nada.
     if (crudo && typeof crudo === "object" && typeof crudo.texto === "string" && !crudo.texto.trim()) {
       const conversacion = typeof crudo.conversacion_id === "string" ? crudo.conversacion_id : "";
-      return c.json({ respuesta: "No te escuché. ¿Me lo repites?", conversacion_id: conversacion, acciones: [] });
+      return c.json(conSeguir({ respuesta: "No te escuché. ¿Me lo repites?", conversacion_id: conversacion, acciones: [] }));
     }
     const cuerpo = esquemaHablar.safeParse(sinVacios(crudo));
     if (!cuerpo.success) {
@@ -305,7 +313,7 @@ export function crearApp(opciones: OpcionesApp) {
         { esperaMs, esPregunta: pregunta },
       );
       // 202: la Mac ya lo guardó y lo termina sola; el Atajo no debe reenviarlo.
-      return c.json(respuesta, respuesta.pendiente ? 202 : 200);
+      return c.json(conSeguir(respuesta), respuesta.pendiente ? 202 : 200);
     } catch (error) {
       if (error instanceof ErrorEnProceso) {
         return c.json({ error: error.message, respuesta: "Ese mensaje todavía se está procesando.", reintentar: true }, 409);
@@ -332,7 +340,7 @@ export function crearApp(opciones: OpcionesApp) {
     const esperaMs = Math.min(Math.max(Number(c.req.query("esperar_ms") ?? 0) || 0, 0), MAX_ESPERA_MS);
     const estado = await consultarEntrada(db, c.get("usuarioId"), c.req.param("client_id"), esperaMs);
     if (!estado) return c.json({ error: "No conozco ese dictado." }, 404);
-    return c.json(estado);
+    return c.json(conSeguir(estado));
   });
 
   // El Atajo lo llama al abrirse para que el modelo ya esté cargado cuando termines de hablar.

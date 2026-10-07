@@ -15,12 +15,11 @@ const PASOS = [
   </>,
 ];
 
-// Desde iOS 17 el sistema pregunta cada vez que un Atajo borra un archivo (el Atajo borra cada dictado
-// ya enviado), aunque la acción diga que no confirme. Solo este ajuste lo quita.
+// Al reinstalar, quitar el viejo antes evita quedarse con dos "Finanzas".
 const PIE = (
   <>
-    Para que no te pida confirmar cada vez que borra un dictado ya enviado: Ajustes › Apps › Atajos › Avanzado ›{" "}
-    <strong className="font-semibold">«Permitir eliminar sin confirmación»</strong>.
+    ¿Ya lo tenías? Antes bórralo en la app Atajos (mantenlo presionado ›{" "}
+    <strong className="font-semibold">Eliminar</strong>) para no quedarte con dos.
   </>
 );
 

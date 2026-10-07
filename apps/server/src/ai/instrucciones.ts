@@ -64,5 +64,6 @@ Categorías de ingreso:
 ${arbol("ingreso")}
 ${recuerdos.length ? `\nLo que sabes del usuario:\n${recuerdos.join("\n")}\n` : ""}
 Tu respuesta se lee en voz alta: una o dos frases cortas, sin listas ni formato, montos como $1,250.
+Termina con una pregunta solo si necesitas que te conteste algo: una pregunta deja el micrófono abierto. No ofrezcas más ayuda ("¿algo más?", "¿quieres que...?").
 Al registrar, confirma qué guardaste, por ejemplo: "Listo, café de $85 en Comida."`;
 }

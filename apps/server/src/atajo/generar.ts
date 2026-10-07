@@ -20,10 +20,20 @@ export class ErrorFirma extends Error {
   override name = "ErrorFirma";
 }
 
-/** Carpeta de la cola dentro de iCloud Drive/Shortcuts. Guardar un archivo la crea. */
-export const CARPETA_PENDIENTES = "/Finanzas/pendientes";
-/** Lo que termina la conversación: "listo", "es todo.", "¡Gracias!"... sin distinguir mayúsculas. */
-export const PALABRAS_PARA_TERMINAR = "^\\s*¡?\\s*(no|nada|listo|ya|es todo|gracias)\\s*[.!]?\\s*$";
+/**
+ * La cola sin conexión: un solo archivo de texto en iCloud Drive/Shortcuts con un dictado (JSON) por línea.
+ * Se sobrescribe en vez de borrar archivos: desde iOS 17, cada borrado de un Atajo pide confirmación.
+ * Va en la raíz, como la bienvenida, porque se lee antes de guardar nada y una subcarpeta podría no existir.
+ */
+export const ARCHIVO_COLA = "/Finanzas-cola.txt";
+/**
+ * Lo que termina la conversación: una frase hecha solo de despedidas ("listo", "no, gracias", "ya es todo",
+ * "adiós"), sin distinguir mayúsculas. "Ok" o "está bien" no: si el asistente preguntó algo, son un sí.
+ */
+export const PALABRAS_PARA_TERMINAR =
+  "^[\\s¡!¿?.,]*((no|nada|nada más|listo|ya|ya está|es todo|eso es todo|eso fue todo|gracias|muchas gracias|" +
+  "adi[oó]s|bye|salir|termina|terminar|termin[eé]|cancela|cancelar)[\\s¡!¿?.,]*)+$";
+/** Tope de vueltas por si el asistente pregunta una y otra vez. */
 export const TURNOS = 10;
 export const IDIOMA = "es-MX";
 /**
@@ -44,11 +54,11 @@ export function guionBienvenida(nombre?: string) {
       "tú me cuentas lo que gastas y yo llevo las cuentas por ti. ¿Quieres que te cuente cómo funciono?",
     explicacion: [
       "Es muy fácil. Cuando gastes algo, dímelo como se lo contarías a un amigo. " +
-        "Por ejemplo: gasté 85 pesos en un café, o pagué la renta por transferencia.",
+        "Por ejemplo: gasté 85 pesos en un café, o pagué la renta por transferencia. " +
+        "Te contesto y listo; solo si te pregunto algo, te sigo escuchando.",
       "También puedes preguntarme cosas como: ¿cuánto llevo gastado este mes?, o ¿cuánto gasté en Uber la semana pasada? " +
         "Yo hago las cuentas.",
-      "Si me equivoco, corrígeme: no eran 85, eran 95. Si no tienes internet, guardo lo que me digas y lo mando después. " +
-        "Y cuando termines, solo di: listo.",
+      "Si me equivoco, corrígeme: no eran 85, eran 95. Si no tienes internet, guardo lo que me digas y lo mando después.",
       "Tus gráficas y tus movimientos están en la app Finanzas de tu pantalla de inicio.",
     ],
     sinExplicacion: "Va.",
@@ -244,15 +254,16 @@ export function construirAtajo(opciones: OpcionesAtajo): Record<string, ValorPli
   const ubicacion = variable("Ubicación");
   const clientId = variable("ClientID");
   const respuesta = variable("Respuesta");
-  const enLinea = variable("En línea");
-  const reenviados = variable("Reenviados");
-  const silencio = variable("Silencio");
+  const quedan = variable("Quedan");
 
   const encabezados = (conCuerpo: boolean) =>
     diccionario([
       ["Authorization", `Bearer ${token}`],
       ...(conCuerpo ? ([["Content-Type", "application/json"]] as [string, Parte][]) : []),
     ]);
+  /** El cuerpo de una petición: el JSON como archivo, igual que si se hubiera leído de la cola. */
+  const comoArchivo = (nombre: string, json: Ref) =>
+    a.conSalida("setitemname", nombre, { WFInput: adjunto(json), WFName: "dictado.json" });
   const enviar = (nombre: string, archivo: Ref) =>
     a.conSalida("downloadurl", nombre, {
       WFURL: `${base}/v1/hablar`,
@@ -263,21 +274,38 @@ export function construirAtajo(opciones: OpcionesAtajo): Record<string, ValorPli
       WFHTTPBodyType: "File",
       WFRequestVariable: adjunto(archivo),
     });
-  const borrar = (archivo: Ref) => a.accion("file.delete", { WFInput: adjunto(archivo), WFDeleteFileConfirmDeletion: false });
+  /** Sobrescribe la cola con este texto (si no existe, la crea). */
+  const guardarCola = (contenido: Ref, sufijo: string) => {
+    const archivo = a.conSalida("setitemname", `Archivo de la cola${sufijo}`, {
+      WFInput: adjunto(contenido),
+      WFName: ARCHIVO_COLA.split("/").at(-1)!,
+    });
+    a.accion("documentpicker.save", {
+      WFInput: adjunto(archivo),
+      WFAskWhereToSave: false,
+      WFFileDestinationPath: ARCHIVO_COLA,
+      WFSaveFileOverwrite: true,
+    });
+  };
   const decir = (...partes: Parte[]) =>
     a.accion("speaktext", { WFText: texto(...partes), WFSpeakTextLanguage: IDIOMA, WFSpeakTextWait: true });
   /**
    * El servidor contestó con JSON y no pidió reintentar (409 en proceso, 503 sin IA): ese dictado ya quedó.
-   * Una página de error que no es JSON (un 502 del proxy con la Mac sin servidor) no tiene claves y no borra nada.
+   * Una página de error que no es JSON (un 502 del proxy con la Mac sin servidor) no tiene claves: sigue en la cola.
    */
-  const siYaQuedo = (contestacion: Salida, sufijo: string, entonces: () => void) =>
-    a.si(a.valor(`reintentar${sufijo}`, contestacion, "reintentar"), SIN_VALOR, () => {
-      const claves = a.conSalida("getvalueforkey", `Claves${sufijo}`, {
-        WFInput: adjunto(contestacion),
-        WFGetDictionaryValueType: "All Keys",
-      });
-      a.si(claves, TIENE_VALOR, entonces);
-    });
+  const siYaQuedo = (contestacion: Salida, sufijo: string, entonces: () => void, siNo?: () => void) =>
+    a.si(
+      a.valor(`reintentar${sufijo}`, contestacion, "reintentar"),
+      SIN_VALOR,
+      () => {
+        const claves = a.conSalida("getvalueforkey", `Claves${sufijo}`, {
+          WFInput: adjunto(contestacion),
+          WFGetDictionaryValueType: "All Keys",
+        });
+        a.si(claves, TIENE_VALOR, entonces, siNo);
+      },
+      siNo,
+    );
 
   // Un turno con algo dicho: terminar, o guardar, enviar y contestar.
   const turno = (dictado: Salida) => {
@@ -307,20 +335,26 @@ export function construirAtajo(opciones: OpcionesAtajo): Record<string, ValorPli
     });
     a.establecer("ClientID", a.texto("Folio", sello, "-", azar));
 
-    // La petición se guarda como <client_id>.json en la cola (reemplazando si existe) y ese archivo es el cuerpo.
+    // Lo que quedó en la cola de antes (vacío si no existe).
+    const archivoCola = a.conSalida("documentpicker.open", "Cola guardada", {
+      WFShowFilePicker: false,
+      WFGetFilePath: ARCHIVO_COLA,
+      WFFileErrorIfNotFound: false,
+    });
+    const colaPrevia = a.conSalida("detect.text", "Pendientes anteriores", { WFInput: adjunto(archivoCola) });
+
+    // La petición se agrega como una línea más de la cola, y esa línea es lo que se envía.
     const guardar = (campos: [string, Parte][], sufijo: string) => {
       const peticion = a.conSalida("dictionary", `Petición${sufijo}`, { WFItems: diccionario(campos) });
-      const json = a.texto(`JSON${sufijo}`, peticion);
-      const archivo = a.conSalida("setitemname", `Archivo JSON${sufijo}`, {
-        WFInput: adjunto(json),
-        WFName: texto(clientId, ".json"),
+      // Un dictado por línea: si Atajos escribiera el JSON en varias, fuera de las comillas un salto es solo espacio.
+      const json = a.conSalida("text.replace", `JSON${sufijo}`, {
+        WFInput: texto(peticion),
+        WFReplaceTextFind: "[\\r\\n]+",
+        WFReplaceTextReplace: " ",
+        WFReplaceTextRegularExpression: true,
       });
-      return a.conSalida("documentpicker.save", `Pendiente${sufijo}`, {
-        WFInput: adjunto(archivo),
-        WFAskWhereToSave: false,
-        WFFileDestinationPath: texto(`${CARPETA_PENDIENTES}/`, clientId, ".json"),
-        WFSaveFileOverwrite: true,
-      });
+      guardarCola(a.texto(`Cola con el dictado${sufijo}`, colaPrevia, "\n", json), ` con el dictado${sufijo}`);
+      return json;
     };
     const basicos: [string, Parte][] = [
       ["texto", dictado],
@@ -340,24 +374,22 @@ export function construirAtajo(opciones: OpcionesAtajo): Record<string, ValorPli
       a.establecer("Lugar", detalle("Nombre del lugar", "Name"));
     });
 
-    const pendiente = guardar(
+    const json = guardar(
       [...basicos, ["lat", variable("Latitud")], ["lon", variable("Longitud")], ["lugar", variable("Lugar")]],
       "",
     );
     // Sin conexión, esta acción detiene el Atajo con un error; el dictado ya quedó en la cola.
-    const contestacion = enviar("Contestación", pendiente);
+    const contestacion = enviar("Contestación", comoArchivo("Dictado para enviar", json));
 
     const nuevaConversacion = a.valor("conversacion_id", contestacion, "conversacion_id");
     a.si(nuevaConversacion, TIENE_VALOR, () => a.establecer("Conversación", nuevaConversacion));
-    siYaQuedo(contestacion, "", () => {
-      borrar(pendiente);
-      a.establecer("En línea", a.texto("Sí, en línea", "sí"));
-    });
 
     a.establecer("Respuesta", a.texto("Sin respuesta", "No entendí lo que contestó el servidor."));
     const dicha = a.valor("respuesta", contestacion, "respuesta");
     a.si(dicha, TIENE_VALOR, () => a.establecer("Respuesta", dicha));
     // Una pregunta que la Mac sigue pensando: se espera su respuesta un poco más.
+    // El servidor pide seguir escuchando solo cuando la respuesta le pregunta algo a la persona.
+    a.establecer("Seguir", a.valor("seguir", contestacion, "seguir"));
     const esperar = a.valor("esperar", contestacion, "esperar");
     a.si(esperar, TIENE_VALOR, () => {
       const entrada = a.conSalida("downloadurl", "Estado del dictado", {
@@ -369,37 +401,39 @@ export function construirAtajo(opciones: OpcionesAtajo): Record<string, ValorPli
       });
       const final = a.valor("respuesta final", entrada, "respuesta");
       a.si(final, TIENE_VALOR, () => a.establecer("Respuesta", final));
+      a.establecer("Seguir", a.valor("seguir final", entrada, "seguir"));
     });
     decir(respuesta);
 
-    // El servidor ya recibió algo en esta corrida: una sola vez, se mandan los dictados que quedaron en la cola.
-    // La carpeta existe porque este turno guardó en ella.
-    a.si(enLinea, TIENE_VALOR, () =>
-      a.si(reenviados, SIN_VALOR, () => {
-        a.establecer("Reenviados", a.texto("Sí, reenviados", "sí"));
-        const carpeta = a.conSalida("documentpicker.open", "Carpeta de pendientes", {
-          WFShowFilePicker: false,
-          WFGetFilePath: CARPETA_PENDIENTES,
-          WFFileErrorIfNotFound: false,
+    // Si el servidor ya tiene este dictado, se reenvían los que quedaron de antes y la cola se reescribe
+    // solo con los que el servidor todavía no recibió. Si no, la cola se queda como está, con este incluido.
+    siYaQuedo(contestacion, " al reenviar", () => {
+      a.establecer("Quedan", a.texto("Ninguno pendiente", ""));
+      const lineas = a.conSalida("text.split", "Líneas de la cola", { text: texto(colaPrevia), WFTextSeparator: "New Lines" });
+      a.repetirConCada(lineas, (elemento) => {
+        const linea = a.establecer("Línea", elemento);
+        const conDatos = a.conSalida("text.match", "Línea con datos", { WFMatchTextPattern: "\\S", text: texto(linea) });
+        a.si(conDatos, TIENE_VALOR, () => {
+          const contestacionPendiente = enviar("Contestación del pendiente", comoArchivo("Pendiente para enviar", linea));
+          const quedarse = () => a.accion("appendvariable", { WFVariableName: "Quedan", WFInput: adjunto(linea) });
+          siYaQuedo(contestacionPendiente, " del pendiente", () => {}, quedarse);
         });
-        const archivos = a.conSalida("file.getfoldercontents", "Pendientes anteriores", {
-          WFFolder: adjunto(carpeta),
-          Recursive: false,
-        });
-        a.repetirConCada(archivos, (elemento) => {
-          const archivo = a.establecer("Archivo", elemento);
-          const contestacionPendiente = enviar("Contestación del pendiente", archivo);
-          siYaQuedo(contestacionPendiente, " del pendiente", () => borrar(archivo));
-        });
-      }),
-    );
+      });
+      const restantes = a.conSalida("text.combine", "Pendientes que quedan", {
+        text: adjunto(quedan),
+        WFTextSeparator: "New Lines",
+      });
+      guardarCola(a.texto("Cola sin lo enviado", restantes, "\n"), " sin lo enviado");
+    });
+
+    a.si(variable("Seguir"), SIN_VALOR, () => a.accion("exit"));
   };
 
   a.accion("comment", {
     WFCommentActionText:
       "Finanzas: dictas un gasto o una pregunta y la Mac contesta en voz. Lo preparó la app con tu servidor y tu token; " +
-      "para cambiarlos, vuelve a instalarlo desde Ajustes en la app. Cada dictado se guarda en iCloud Drive/Shortcuts/Finanzas/pendientes " +
-      "antes de enviarse y se borra cuando el servidor lo recibe.",
+      "para cambiarlos, vuelve a instalarlo desde Ajustes en la app. Cada dictado se guarda en iCloud Drive/Shortcuts/Finanzas-cola.txt " +
+      "antes de enviarse y sale de ahí cuando el servidor lo recibe. Contesta y termina; solo sigue escuchando si te pregunta algo.",
   });
   a.establecer("Conversación", a.texto("Sin conversación", ""));
 
@@ -448,15 +482,14 @@ export function construirAtajo(opciones: OpcionesAtajo): Record<string, ValorPli
       WFSpeechLanguage: IDIOMA,
       WFDictateTextStopListening: "After Pause",
     });
-    // Un dictado vacío no se guarda ni se envía. A la segunda vez en la misma corrida, se termina.
+    // Un dictado vacío (silencio o tocar el botón de parar) termina. Si ni siquiera hubo un primer turno, lo dice.
     const palabras = a.conSalida("text.match", "Palabras dichas", { WFMatchTextPattern: "\\S", text: texto(dictado) });
     a.si(
       palabras,
       SIN_VALOR,
       () => {
-        a.si(silencio, TIENE_VALOR, () => a.accion("exit"));
-        a.establecer("Silencio", a.texto("Sí, silencio", "sí"));
-        decir("No te escuché. ¿Me lo repites?");
+        a.si(ubicacion, SIN_VALOR, () => decir("No te escuché."));
+        a.accion("exit");
       },
       () => turno(dictado),
     );

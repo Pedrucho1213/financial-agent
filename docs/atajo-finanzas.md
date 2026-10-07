@@ -1,6 +1,6 @@
 # El Atajo "Finanzas"
 
-Un solo Atajo para registrar y preguntar. Le dices lo que sea ("gasté 85 en el Oxxo", "¿cuánto llevo en comida?"), te contesta en voz y sigue escuchando hasta que digas "listo". Ya trae adentro la dirección de tu Mac y su propio token: no hay que escribir nada.
+Un solo Atajo para registrar y preguntar. Le dices lo que sea ("gasté 85 en el Oxxo", "¿cuánto llevo en comida?"), te contesta en voz y se cierra. Solo si te pregunta algo (por ejemplo, el monto que faltó) te sigue escuchando. Ya trae adentro la dirección de tu Mac y su propio token: no hay que escribir nada.
 
 ## Instalarlo
 
@@ -10,7 +10,7 @@ Con el enlace que imprime `bun run invitar -- --nombre Pedro --url https://TU-MA
 2. Abre la descarga desde el botón de descargas de Safari o desde **Archivos > Descargas**.
 3. Se abre Atajos con "Finanzas": toca **Agregar atajo**.
 
-Safari no le pasa el archivo a Atajos por su cuenta; por eso el paso 2. El Atajo toma el nombre del archivo: si en Descargas ya quedaba un `Finanzas.shortcut` de otra instalación, Safari guarda el nuevo como `Finanzas 2.shortcut`, el Atajo se llama "Finanzas 2" y Siri no lo encuentra con "Finanzas". Borra antes la descarga vieja o renombra el Atajo. El archivo descargado dura 10 minutos en la Mac; si se vence, vuelve a tocar el botón. El código del enlace sirve una vez y, si la Mac no pudo firmar, sigue sirviendo. Cada instalación crea un dispositivo "Atajo Finanzas" con su token, que puedes quitar desde Ajustes; los que se prepararon en la última media hora y nunca se usaron se quitan solos al preparar uno nuevo.
+Si ya tenías el Atajo, bórralo antes en la app Atajos (mantenlo presionado > Eliminar) para no quedarte con dos. Safari no le pasa el archivo a Atajos por su cuenta; por eso el paso 2. El Atajo toma el nombre del archivo: si en Descargas ya quedaba un `Finanzas.shortcut` de otra instalación, Safari guarda el nuevo como `Finanzas 2.shortcut`, el Atajo se llama "Finanzas 2" y Siri no lo encuentra con "Finanzas". Borra antes la descarga vieja o renombra el Atajo. El archivo descargado dura 10 minutos en la Mac; si se vence, vuelve a tocar el botón. El código del enlace sirve una vez y, si la Mac no pudo firmar, sigue sirviendo. Cada instalación crea un dispositivo "Atajo Finanzas" con su token, que puedes quitar desde Ajustes; los que se prepararon en la última media hora y nunca se usaron se quitan solos al preparar uno nuevo.
 
 Necesita iCloud Drive encendido para Atajos (Ajustes > tu nombre > iCloud > iCloud Drive), porque ahí guarda los dictados antes de enviarlos. Sin iCloud Drive se detiene en la primera acción con "La ubicación no existe", antes de escuchar nada.
 
@@ -25,13 +25,12 @@ Córrelo una vez a mano desde la app Atajos para contestar los permisos. Aparece
 | Te pregunta | Contesta |
 |---|---|
 | Atajos quiere usar el reconocimiento de voz y el micrófono | **Permitir** |
-| "Finanzas" quiere guardar en la carpeta "pendientes" (o acceder a archivos de iCloud Drive) | **Permitir siempre** |
+| "Finanzas" quiere acceder a "Finanzas-cola.txt" o guardarlo (o acceder a archivos de iCloud Drive) | **Permitir siempre** |
 | Atajos quiere usar tu ubicación | **Permitir al usar la app** |
 | "Finanzas" quiere acceder a tu ubicación | **Permitir siempre** |
 | "Finanzas" quiere conectarse a "tu-mac....ts.net" | **Permitir siempre** |
-| ¿Permitir que "Finanzas" elimine 1 archivo? | **Eliminar** (ver abajo para que no vuelva a salir) |
 
-El de eliminar no trae "Permitir siempre": desde iOS 17 el sistema pregunta cada vez que un Atajo borra un archivo, aunque la acción tenga "Confirmar antes de eliminar" apagado. El Atajo borra cada dictado en cuanto el servidor lo recibe, así que saldría en cada uso. Para quitarlo de una vez: **Ajustes > Apps > Atajos > Avanzado > Permitir eliminar sin confirmación**. La pantalla de instalación lo recuerda debajo de los pasos.
+El Atajo nunca borra archivos. Desde iOS 17 el sistema pide confirmar cada borrado de un Atajo, aunque la acción diga que no, y no ofrece "Permitir siempre"; por eso la cola es un solo archivo que se reescribe.
 
 Si contestas "Permitir una vez", te lo vuelve a preguntar la próxima vez. Si contestas "No permitir" a la ubicación o a la conexión, el Atajo se detiene con un error en cada uso. Para arreglarlo: en Atajos, mantén presionado Finanzas > Detalles > Privacidad, y en Ajustes > Privacidad y seguridad > Localización > Atajos.
 
@@ -41,15 +40,19 @@ Si contestas "Permitir una vez", te lo vuelve a preguntar la próxima vez. Si co
 - **Botón de acción** (iPhone 15 Pro en adelante, incluido el 17 Pro Max): Ajustes > Botón de acción > Atajo > Finanzas.
 - **Toque atrás** (cualquier iPhone, incluido el 13): Ajustes > Accesibilidad > Tocar > Toque atrás > Doble toque > Finanzas.
 
-Hablas después del sonido y se detiene solo tras una pausa. Para terminar di "listo", "es todo", "gracias", "ya", "no" o "nada". Si no oye nada te dice "No te escuché" y escucha otra vez; a la segunda se cierra. Son hasta 10 turnos por vez.
+Hablas después del sonido y se detiene solo tras una pausa. Te contesta y el Atajo se cierra. Si su respuesta termina en pregunta, te sigue escuchando: contéstale, o di "no", "listo", "gracias", "es todo" o "adiós" para terminar. Si no dices nada, se cierra (y si fue lo primero, te dice "No te escuché"). Son hasta 10 turnos por vez.
+
+Quien decide si sigue escuchando es el servidor: manda `seguir: true` solo cuando la respuesta termina en "?". Las instrucciones de la IA le piden no cerrar con ofrecimientos como "¿algo más?".
 
 ## Sin conexión
 
-Cada dictado se guarda primero como archivo en `iCloud Drive/Shortcuts/Finanzas/pendientes/` y solo después se envía. Si el iPhone o la Mac no tienen conexión, el envío falla y el Atajo se detiene con un aviso de error, pero el dictado ya quedó guardado. En el primer turno se guarda incluso antes de pedir la ubicación.
+Cada dictado se agrega primero como una línea de `iCloud Drive/Shortcuts/Finanzas-cola.txt` y solo después se envía. Si el iPhone o la Mac no tienen conexión, el envío falla y el Atajo se detiene con un aviso de error, pero el dictado ya quedó guardado. En el primer turno se guarda incluso antes de pedir la ubicación.
 
-La próxima vez que uses el Atajo con conexión, después de contestarte manda los que quedaron pendientes. El `client_id` de cada archivo evita que se registre dos veces.
+La próxima vez que uses el Atajo con conexión, después de contestarte manda los que quedaron en la cola y la reescribe solo con los que el servidor no recibió. El `client_id` de cada línea evita que se registre dos veces.
 
-Un archivo se borra cuando el servidor lo recibió, aunque no lo haya podido leer. Se queda en la cola si el servidor pide reintentar (la IA no respondió o el mensaje se sigue procesando) o si lo que contestó no es del servidor (por ejemplo, la Mac encendida pero sin el servidor corriendo).
+Un dictado sale de la cola cuando el servidor lo recibió, aunque no lo haya podido leer. Se queda si el servidor pide reintentar (la IA no respondió o el mensaje se sigue procesando) o si lo que contestó no es del servidor (por ejemplo, la Mac encendida pero sin el servidor corriendo).
+
+Las versiones anteriores del Atajo guardaban en `Finanzas/pendientes/`; si quedó algo ahí, ya no se usa y se puede borrar desde Archivos.
 
 El iPhone espera a la IA como máximo 5 segundos al registrar y 30 al preguntar. Si la Mac tarda más, contesta "Anotado" y lo termina sola; en las preguntas el Atajo espera la respuesta hasta 45 segundos más.
 
@@ -57,7 +60,7 @@ Para dictar sin internet el iPhone necesita el dictado en el dispositivo para Es
 
 ## Armarlo a mano
 
-Solo si no puedes instalarlo desde la app. Son las mismas acciones que trae el Atajo instalado, en este orden. Los nombres están como aparecen en iOS en español, con el nombre en inglés entre paréntesis. `TU-MAC` es la dirección de Tailscale de tu Mac (paso 7 de [instalacion.md](instalacion.md)) y `TOKEN` es tu token `fa_...`.
+Solo si no puedes instalarlo desde la app. Son las mismas acciones que trae el Atajo instalado, en este orden, menos la bienvenida. Los nombres están como aparecen en iOS en español, con el nombre en inglés entre paréntesis. `TU-MAC` es la dirección de tu Mac (paso 7 de [instalacion.md](instalacion.md)) y `TOKEN` es tu token `fa_...`.
 
 1. **Comentario** (Comment), opcional.
 2. **Texto** (Text) vacío. **Establecer variable** (Set Variable) `Conversación`.
@@ -65,50 +68,46 @@ Solo si no puedes instalarlo desde la app. Son las mismas acciones que trae el A
     1. **Dictar texto** (Dictate Text): idioma Español (México), dejar de escuchar "Después de una pausa".
     2. **Coincidir texto** (Match Text) `\S` en el texto dictado.
     3. **Si** (If) las coincidencias no tienen ningún valor:
-        1. **Si** `Silencio` tiene algún valor: **Detener este atajo** (Stop This Shortcut). Fin del Si.
-        2. **Texto** `sí`. **Establecer variable** `Silencio`.
-        3. **Leer texto** (Speak Text) "No te escuché. ¿Me lo repites?", idioma Español (México).
+        1. **Si** `Ubicación` no tiene ningún valor: **Leer texto** (Speak Text) "No te escuché.", idioma Español (México). Fin del Si.
+        2. **Detener este atajo** (Stop This Shortcut).
     4. **De lo contrario** (Otherwise):
-        1. **Coincidir texto** `^\s*¡?\s*(no|nada|listo|ya|es todo|gracias)\s*[.!]?\s*$` en el texto dictado, sin distinguir mayúsculas.
-        2. **Si** las coincidencias tienen algún valor: **Detener este atajo**. Fin del Si.
-        3. **Fecha** (Date): fecha actual. **Formatear fecha** (Format Date): ISO 8601, con hora. Llámalo `Capturado`.
-        4. **Reemplazar texto** (Replace Text): `[^0-9A-Za-z]` por nada en `Capturado`, con expresión regular.
-        5. **Número aleatorio** (Random Number) entre 100000 y 999999.
-        6. **Texto**: `texto reemplazado`-`Número aleatorio`. **Establecer variable** `ClientID`.
+        1. **Coincidir texto** con el patrón `PALABRAS_PARA_TERMINAR` de `apps/server/src/atajo/generar.ts` en el texto dictado, sin distinguir mayúsculas. **Si** las coincidencias tienen algún valor: **Detener este atajo**. Fin del Si.
+        2. **Fecha** (Date): fecha actual. **Formatear fecha** (Format Date): ISO 8601, con hora. Llámalo `Capturado`.
+        3. **Reemplazar texto** (Replace Text): `[^0-9A-Za-z]` por nada en `Capturado`, con expresión regular.
+        4. **Número aleatorio** (Random Number) entre 100000 y 999999.
+        5. **Texto**: `texto reemplazado`-`Número aleatorio`. **Establecer variable** `ClientID`.
+        6. **Obtener archivo** (Get File) `/Finanzas-cola.txt`, sin mostrar el selector y con "Error si no se encuentra" apagado. **Obtener texto de la entrada** (Get Text from Input). Llámalo `Pendientes anteriores`.
         7. **Si** `Ubicación` no tiene ningún valor (solo pasa en el primer turno):
             1. **Diccionario** (Dictionary) con claves de texto `texto` (el texto dictado), `client_id` (`ClientID`), `conversacion_id` (`Conversación`) y `capturado_en` (`Capturado`).
-            2. **Texto** con el Diccionario adentro (así queda en JSON). **Establecer nombre** (Set Name): `ClientID`.json.
-            3. **Guardar archivo** (Save File): sin preguntar dónde, ruta `/Finanzas/pendientes/ClientID.json`, reemplazar si existe.
+            2. **Reemplazar texto** `[\r\n]+` por un espacio en el Diccionario, con expresión regular: queda el JSON en una línea.
+            3. **Texto**: `Pendientes anteriores`, un salto de línea y ese JSON. **Establecer nombre** (Set Name): `Finanzas-cola.txt`. **Guardar archivo** (Save File): sin preguntar dónde, ruta `/Finanzas-cola.txt`, reemplazar si existe.
             4. **Obtener ubicación actual** (Get Current Location). **Establecer variable** `Ubicación`.
             5. **Obtener detalles de ubicaciones** (Get Details of Locations) Latitud de `Ubicación`, **Establecer variable** `Latitud`; lo mismo con Longitud (`Longitud`) y Nombre (`Lugar`).
         8. Fin del Si.
-        9. **Diccionario** con las claves del paso 7.1 más `lat` (`Latitud`), `lon` (`Longitud`) y `lugar` (`Lugar`).
-        10. **Texto** con ese Diccionario, **Establecer nombre** y **Guardar archivo** igual que en 7.2 y 7.3. Llámalo `Pendiente`.
-        11. **Obtener contenido de URL** (Get Contents of URL): `https://TU-MAC/v1/hablar`, método POST, encabezados `Authorization` = `Bearer TOKEN` y `Content-Type` = `application/json`, cuerpo **Archivo** = `Pendiente`. Llámalo `Contestación`.
-        12. **Obtener valor del diccionario** (Get Dictionary Value) `conversacion_id` de `Contestación`. **Si** tiene algún valor: **Establecer variable** `Conversación`. Fin del Si.
-        13. **Obtener valor del diccionario** `reintentar` de `Contestación`. **Si** no tiene ningún valor:
-            1. **Obtener valor del diccionario**: todas las claves de `Contestación`. **Si** tiene algún valor:
-                1. **Eliminar archivos** (Delete Files) `Pendiente`, con "Confirmar antes de eliminar" apagado.
-                2. **Texto** `sí`. **Establecer variable** `En línea`.
-            2. Fin del Si.
-        14. Fin del Si.
-        15. **Texto** "No entendí lo que contestó el servidor." **Establecer variable** `Respuesta`.
-        16. **Obtener valor del diccionario** `respuesta` de `Contestación`. **Si** tiene algún valor: **Establecer variable** `Respuesta`. Fin del Si.
-        17. **Obtener valor del diccionario** `esperar` de `Contestación`. **Si** tiene algún valor:
+        9. **Diccionario** con las claves del paso 7.1 más `lat` (`Latitud`), `lon` (`Longitud`) y `lugar` (`Lugar`). **Reemplazar texto** como en 7.2; llámalo `JSON`. Guárdalo en la cola como en 7.3.
+        10. **Establecer nombre** `dictado.json` a `JSON`. **Obtener contenido de URL** (Get Contents of URL): `https://TU-MAC/v1/hablar`, método POST, encabezados `Authorization` = `Bearer TOKEN` y `Content-Type` = `application/json`, cuerpo **Archivo** = ese archivo. Llámalo `Contestación`.
+        11. **Obtener valor del diccionario** (Get Dictionary Value) `conversacion_id` de `Contestación`. **Si** tiene algún valor: **Establecer variable** `Conversación`. Fin del Si.
+        12. **Texto** "No entendí lo que contestó el servidor." **Establecer variable** `Respuesta`. **Obtener valor del diccionario** `respuesta` de `Contestación`. **Si** tiene algún valor: **Establecer variable** `Respuesta`. Fin del Si.
+        13. **Obtener valor del diccionario** `seguir` de `Contestación`. **Establecer variable** `Seguir`.
+        14. **Obtener valor del diccionario** `esperar` de `Contestación`. **Si** tiene algún valor:
             1. **Obtener contenido de URL**: `https://TU-MAC/v1/entradas/ClientID?esperar_ms=45000`, método GET, encabezado `Authorization` = `Bearer TOKEN`.
             2. **Obtener valor del diccionario** `respuesta`. **Si** tiene algún valor: **Establecer variable** `Respuesta`. Fin del Si.
-        18. Fin del Si.
-        19. **Leer texto** `Respuesta`, idioma Español (México).
-        20. **Si** `En línea` tiene algún valor, y dentro **Si** `Reenviados` no tiene ningún valor:
-            1. **Texto** `sí`. **Establecer variable** `Reenviados`.
-            2. **Obtener archivo** (Get File) `/Finanzas/pendientes`, sin mostrar el selector y con "Error si no se encuentra" apagado.
-            3. **Obtener contenido de la carpeta** (Get Contents of Folder) de ese archivo.
-            4. **Repetir con cada** (Repeat with Each) elemento:
-                1. **Establecer variable** `Archivo` con el elemento repetido.
-                2. **Obtener contenido de URL**: POST a `https://TU-MAC/v1/hablar`, mismos encabezados, cuerpo **Archivo** = `Archivo`.
-                3. Lo mismo que el paso 13, pero eliminando `Archivo`, sin `En línea`.
-            5. Fin del Repetir.
-        21. Fin de los dos Si.
+            3. **Obtener valor del diccionario** `seguir`. **Establecer variable** `Seguir`.
+        15. Fin del Si.
+        16. **Leer texto** `Respuesta`, idioma Español (México).
+        17. **Obtener valor del diccionario** `reintentar` de `Contestación`. **Si** no tiene ningún valor, y dentro **Obtener valor del diccionario**: todas las claves de `Contestación`. **Si** tiene algún valor:
+            1. **Texto** vacío. **Establecer variable** `Quedan`.
+            2. **Dividir texto** (Split Text) `Pendientes anteriores` por saltos de línea.
+            3. **Repetir con cada** (Repeat with Each) elemento:
+                1. **Establecer variable** `Línea` con el elemento repetido.
+                2. **Coincidir texto** `\S` en `Línea`. **Si** tiene algún valor:
+                    1. **Establecer nombre** `dictado.json` a `Línea`. **Obtener contenido de URL**: POST a `https://TU-MAC/v1/hablar`, mismos encabezados, cuerpo **Archivo** = ese archivo.
+                    2. Los mismos dos **Si** de este paso sobre esa contestación, vacíos, y en los dos **De lo contrario**: **Agregar a variable** (Add to Variable) `Quedan` con `Línea`.
+                3. Fin del Si.
+            4. Fin del Repetir.
+            5. **Combinar texto** (Combine Text) `Quedan` con saltos de línea. **Texto**: ese resultado y un salto de línea. **Establecer nombre** y **Guardar archivo** como en 7.3.
+        18. Fin de los dos Si.
+        19. **Si** `Seguir` no tiene ningún valor: **Detener este atajo**. Fin del Si.
     5. Fin del Si.
 4. Fin del Repetir.
 

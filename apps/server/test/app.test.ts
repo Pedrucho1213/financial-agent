@@ -89,7 +89,24 @@ describe("API", () => {
     const { hablar } = montar([]);
     const r = await hablar({ texto: "  ", client_id: "dictado-vacio-01", conversacion_id: "c1" });
     expect(r.status).toBe(200);
-    expect(await r.json()).toEqual({ respuesta: "No te escuché. ¿Me lo repites?", conversacion_id: "c1", acciones: [] });
+    expect(await r.json()).toEqual({ respuesta: "No te escuché. ¿Me lo repites?", conversacion_id: "c1", acciones: [], seguir: true });
+  });
+
+  test("el Atajo sigue escuchando solo cuando la respuesta pregunta algo", async () => {
+    const { hablar, get } = montar([
+      texto("¿De cuánto fue el café?"),
+      llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 85, categoria: "Café" }] }),
+    ]);
+    const pregunta = (await (await hablar({ texto: "compré un café", client_id: "dictado-seguir-01" })).json()) as {
+      seguir?: boolean;
+    };
+    expect(pregunta.seguir).toBe(true);
+    const registro = (await (await hablar({ texto: "85 pesos", client_id: "dictado-seguir-02" })).json()) as Record<string, unknown>;
+    expect(registro.respuesta).toBe("Listo, café de $85.");
+    expect(registro).not.toHaveProperty("seguir");
+    // La consulta de un dictado ya contestado también lo dice.
+    expect(((await (await get("/v1/entradas/dictado-seguir-01")).json()) as { seguir?: boolean }).seguir).toBe(true);
+    expect(await (await get("/v1/entradas/dictado-seguir-02")).json()).not.toHaveProperty("seguir");
   });
 
   test("el mismo dictado reenviado por la cola no se registra dos veces", async () => {
