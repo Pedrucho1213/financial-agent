@@ -32,6 +32,7 @@ import {
 import { listarRecurrentes } from "./finanzas/recurrentes";
 import { listarMovimientosApp, movimientoApp, tablero } from "./finanzas/vista";
 import { hostsDeLaPeticion, ipDelCliente, LimiteIntentos } from "./lib/limites";
+import { montosDelTexto } from "./lib/numeros";
 import { esPregunta } from "./lib/texto";
 import { and, eq, gte } from "drizzle-orm";
 import { servirApp } from "./web";
@@ -295,7 +296,9 @@ export function crearApp(opciones: OpcionesApp) {
       return c.json({ error: "Petición inválida.", detalles: z.flattenError(cuerpo.error).fieldErrors }, 400);
     }
     const p = cuerpo.data;
-    const pregunta = esPregunta(p.texto);
+    // Sin monto, lo que conteste importa tanto como en una pregunta: puede pedir un dato ("¿de cuánto fue?")
+    // o decir qué borró o cambió. Si contestara "Anotado" y lo terminara sola, nadie oiría esa respuesta.
+    const pregunta = esPregunta(p.texto) || montosDelTexto(p.texto).length === 0;
     const esperaMs = p.espera_ms ?? (pregunta ? opciones.espera?.preguntaMs : opciones.espera?.registroMs);
     try {
       const respuesta = await hablar(
