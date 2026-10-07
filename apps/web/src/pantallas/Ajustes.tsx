@@ -2,7 +2,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Copy, Globe, Laptop, LogOut, Share, Smartphone, Tablet, UserPlus, Workflow } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { CodigoGrande } from "../components/CasillasCodigo";
 import { Pantalla } from "../components/Pantalla";
+import { PasosDescarga, ReintentarDescarga } from "../components/PasosAtajo";
 import { Spinner } from "../components/Spinner";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -11,11 +13,12 @@ import { Fila, FilaBoton, Grupo, IconoAjuste } from "../components/ui/lista";
 import { Sheet, SheetContent } from "../components/ui/sheet";
 import { Skeleton } from "../components/ui/skeleton";
 import { api, ErrorApi, mensajeDeError } from "../lib/api";
+import { abrirAtajo } from "../lib/atajo";
 import { useEnLinea } from "../lib/conexion";
 import { claves, useYo } from "../lib/consultas";
 import { fechaHora, haceCuanto } from "../lib/formato";
 import { cerrarSesion } from "../lib/sesion";
-import type { Dispositivo, InvitacionCreada } from "../lib/tipos";
+import type { AtajoPreparado, Dispositivo, InvitacionCreada } from "../lib/tipos";
 
 function iconoDispositivo(nombre: string) {
   const n = nombre.toLowerCase();
@@ -44,11 +47,13 @@ export function Ajustes() {
   const [invitacion, setInvitacion] = useState<InvitacionCreada | null>(null);
   const [quitar, setQuitar] = useState<Dispositivo | null>(null);
   const [salir, setSalir] = useState(false);
+  const [atajoListo, setAtajoListo] = useState<AtajoPreparado | null>(null);
 
   const atajo = useMutation({
-    mutationFn: () => api<{ url: string; expiraEn: string }>("/v1/atajo", { method: "POST", body: { servidor: window.location.origin } }),
+    mutationFn: () => api<AtajoPreparado>("/v1/atajo", { method: "POST", body: { servidor: window.location.origin } }),
     onSuccess: (r) => {
-      window.location.href = r.url;
+      abrirAtajo(r.url);
+      setAtajoListo(r);
     },
     onError: (e) =>
       toast.error(
@@ -104,7 +109,7 @@ export function Ajustes() {
           titulo="Atajo de iPhone"
           pie={
             <>
-              Se abre la app Atajos; toca «Añadir atajo».
+              Safari lo descarga; ábrelo desde Descargas y toca «Agregar atajo».
               <br />
               Luego asígnalo al botón de acción o a Toque atrás (Accesibilidad › Tocar).
               {!esIOS ? (
@@ -214,6 +219,7 @@ export function Ajustes() {
       </div>
 
       <HojaInvitacion invitacion={invitacion} alCerrar={() => setInvitacion(null)} />
+      <HojaAtajo atajo={atajoListo} alCerrar={() => setAtajoListo(null)} />
 
       <Confirmar
         abierto={!!quitar}
@@ -232,6 +238,33 @@ export function Ajustes() {
         onConfirmar={cerrarSesion}
       />
     </Pantalla>
+  );
+}
+
+/** Lo que falta después de tocar "Instalar el Atajo": descargar, abrir y agregar. */
+function HojaAtajo({ atajo, alCerrar }: { atajo: AtajoPreparado | null; alCerrar: () => void }) {
+  return (
+    <Sheet open={!!atajo} onOpenChange={(v) => !v && alCerrar()}>
+      {atajo ? (
+        <SheetContent
+          titulo="Instalar el Atajo"
+          descripcion="Pasos para terminar de instalar el Atajo"
+          derecha={
+            <Button variant="plain" size="text" className="font-semibold" onClick={alCerrar}>
+              Listo
+            </Button>
+          }
+        >
+          <p className="px-4 pt-2 text-center text-[15px] leading-snug text-balance text-muted-foreground">
+            Ya casi está. Sigue estos 3 pasos:
+          </p>
+          <PasosDescarga className="mt-5" />
+          <div className="mt-5 flex justify-center">
+            <ReintentarDescarga atajo={atajo} mensajeVencido="El enlace ya venció. Vuelve a tocar «Instalar el Atajo»." />
+          </div>
+        </SheetContent>
+      ) : null}
+    </Sheet>
   );
 }
 
@@ -283,20 +316,7 @@ function HojaInvitacion({ invitacion, alCerrar }: { invitacion: InvitacionCreada
                 ? "En el otro dispositivo abre el enlace o escribe este código."
                 : "Comparte el enlace. La otra persona tendrá su propia cuenta."}
             </p>
-            <div className="mt-6 grid grid-cols-6 gap-1.5" aria-label={`Código ${invitacion.codigo.split("").join(" ")}`}>
-              {invitacion.codigo.split("").map((c, i) => (
-                <span
-                  key={i}
-                  aria-hidden
-                  className="flex h-[58px] w-[46px] items-center justify-center rounded-xl bg-card text-[30px] font-bold tabular"
-                >
-                  {c}
-                </span>
-              ))}
-            </div>
-            <p data-codigo={invitacion.codigo} className="sr-only">
-              {invitacion.codigo}
-            </p>
+            <CodigoGrande codigo={invitacion.codigo} className="mt-6" />
             <p className="mt-4 text-[13px] text-muted-foreground">Vence {fechaHora(invitacion.expiraEn)}</p>
           </div>
           <Grupo className="mt-4">

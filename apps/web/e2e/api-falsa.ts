@@ -155,7 +155,10 @@ export function movimientosIniciales(): MovimientoApp[] {
   ];
 }
 
-type Peticion = { metodo: string; ruta: string; cuerpo: unknown; consulta: URLSearchParams };
+type Peticion = { metodo: string; ruta: string; cuerpo: unknown; consulta: URLSearchParams; autorizacion?: string };
+
+/** Vigencia del archivo del Atajo: 10 minutos después de la hora fija de las pruebas. */
+export const ATAJO_EXPIRA = "2026-10-06T18:40:00.000Z";
 
 export class ApiFalsa {
   movimientos = movimientosIniciales();
@@ -170,9 +173,35 @@ export class ApiFalsa {
   entradas: object[] = [];
   /** Respuesta para POST /v1/hablar: [estado, cuerpo]. */
   hablar: [number, object] = [200, { respuesta: "Listo.", conversacion_id: "conv-1", acciones: [] }];
+  /**
+   * Cómo fallan los próximos POST /v1/hablar, en orden (después responden normal), como el servidor real:
+   * - "corte": la Mac lo recibe y lo termina, pero la conexión se cae antes de responder.
+   * - "perdido": la petición nunca llega a la Mac.
+   * - "procesando": 409, ese client_id ya se está procesando (y termina enseguida).
+   * - "ia": 503, la IA no respondió; reenviarlo con el mismo client_id lo procesa de nuevo.
+   */
+  fallasHablar: ("corte" | "perdido" | "procesando" | "ia")[] = [];
+  /** Lo que la Mac sabe de cada dictado, por client_id (lo que responde /v1/entradas/:client_id). */
+  dictados = new Map<string, { estado: "procesando" | "listo" | "error"; respuesta?: object }>();
+  /** Códigos de invitación ya canjeados (responden 410). */
+  usados = new Set<string>();
+  /** Cuántas de las próximas firmas del Atajo fallan con 501 (el código sigue sirviendo). */
+  fallasFirma = 0;
+  private atajos = 0;
 
   async instalar(page: Page) {
     await page.route(/\/v1\//, (route) => this.atender(route));
+    // El archivo del Atajo llega como descarga, igual que en el servidor: la página no se va.
+    await page.route(/\/atajo\/[\w-]+\.shortcut$/, (route) => {
+      const url = new URL(route.request().url());
+      this.peticiones.push({ metodo: route.request().method(), ruta: url.pathname, cuerpo: null, consulta: url.searchParams });
+      return route.fulfill({
+        status: 200,
+        contentType: "application/octet-stream",
+        headers: { "Content-Disposition": 'attachment; filename="Finanzas.shortcut"', "Cache-Control": "no-store" },
+        body: "atajo",
+      });
+    });
   }
 
   de(metodo: string, ruta: string | RegExp) {
@@ -190,7 +219,7 @@ export class ApiFalsa {
     } catch {
       cuerpo = null;
     }
-    this.peticiones.push({ metodo, ruta, cuerpo, consulta: url.searchParams });
+    this.peticiones.push({ metodo, ruta, cuerpo, consulta: url.searchParams, autorizacion: req.headers().authorization });
     const json = (estado: number, datos: unknown) =>
       route.fulfill({ status: estado, contentType: "application/json", body: JSON.stringify(datos) });
 
@@ -200,7 +229,7 @@ export class ApiFalsa {
       const codigo = m[1];
       if (codigo === "ABC123") return json(200, { para: "usuario" });
       if (codigo === "DEV456") return json(200, { para: "dispositivo", nombre: "Pedro" });
-      if (codigo === "VIEJO1") return json(410, { error: "La invitación ya se usó o venció." });
+      if (codigo === "VIEJO1" || this.usados.has(codigo ?? "")) return json(410, { error: "La invitación ya se usó o venció." });
       if (codigo === "MUCHOS") return json(429, { error: "Demasiados intentos." });
       return json(404, { error: "No existe esa invitación." });
     }
@@ -213,7 +242,27 @@ export class ApiFalsa {
       });
     }
 
+    if (metodo === "POST" && ruta === "/v1/atajo/canjear") {
+      const b = (cuerpo ?? {}) as { codigo?: string; servidor?: string };
+      const codigo = String(b.codigo ?? "").toUpperCase();
+      if (!codigo || !b.servidor) return json(400, { error: "Faltan el código o la dirección del servidor." });
+      if (codigo === "VIEJO1" || this.usados.has(codigo)) return json(410, { error: "La invitación ya se usó o venció." });
+      if (codigo === "MUCHOS") return json(429, { error: "Demasiados intentos." });
+      if (codigo === "ABC123") return json(400, { error: "Ese código es para crear una cuenta." });
+      if (codigo !== "DEV456") return json(404, { error: "No existe esa invitación." });
+      if (this.fallasFirma > 0) {
+        this.fallasFirma -= 1;
+        return json(501, { error: "Esta computadora no puede firmar Atajos.", detalle: "shortcuts sign terminó con error" });
+      }
+      this.usados.add(codigo);
+      return json(201, { url: `/atajo/${this.nuevoAtajo()}.shortcut`, expiraEn: ATAJO_EXPIRA, nombre: "Pedro" });
+    }
+
     if (req.headers().authorization !== `Bearer ${TOKEN}`) return json(401, { error: "Token inválido." });
+
+    if (metodo === "POST" && ruta === "/v1/atajo") {
+      return json(201, { url: `/atajo/${this.nuevoAtajo()}.shortcut`, expiraEn: ATAJO_EXPIRA });
+    }
 
     if (metodo === "GET" && ruta === "/v1/yo") {
       return json(200, {
@@ -285,13 +334,45 @@ export class ApiFalsa {
       return json(200, { deshecho: true, mensaje: `Listo, regresé ${ultimo.comercio ?? "el movimiento"}.` });
     }
     if (metodo === "GET" && ruta === "/v1/tablero") return json(200, this.tablero(url.searchParams.get("mes") ?? HOY.slice(0, 7)));
-    if (metodo === "POST" && ruta === "/v1/hablar") return json(this.hablar[0], this.hablar[1]);
+    if (metodo === "POST" && ruta === "/v1/hablar") {
+      const id = String((cuerpo as { client_id?: string } | null)?.client_id ?? "");
+      const previo = this.dictados.get(id);
+      // Mismo client_id ya terminado: la misma respuesta, sin registrar nada otra vez.
+      if (previo?.estado === "listo") return json(200, { ...previo.respuesta, duplicado: true });
+      const falla = this.fallasHablar.shift();
+      const [estado, datos] = this.hablar;
+      if (falla === "perdido") return route.abort("internetdisconnected");
+      if (falla === "ia") {
+        this.dictados.set(id, { estado: "error" });
+        return json(503, {
+          error: "La IA no respondió.",
+          respuesta: "No pude procesarlo ahora; queda guardado en tu iPhone para enviarlo después.",
+          reintentar: true,
+        });
+      }
+      if (falla === "procesando") {
+        this.dictados.set(id, { estado: "listo", respuesta: datos });
+        return json(409, { error: "Ese dictado todavía se está procesando.", respuesta: "Ese mensaje todavía se está procesando.", reintentar: true });
+      }
+      this.dictados.set(id, estado === 202 ? { estado: "procesando" } : { estado: "listo", respuesta: datos });
+      if (falla === "corte") return route.abort("connectionreset");
+      return json(estado, datos);
+    }
     m = ruta.match(/^\/v1\/entradas\/(.+)$/);
     if (metodo === "GET" && m) {
-      const siguiente = this.entradas.shift() ?? { estado: "procesando" };
-      return json(200, siguiente);
+      // Una secuencia fija (this.entradas) manda; si no, lo que la Mac sabe de ese dictado.
+      const siguiente = this.entradas.shift();
+      if (siguiente) return json(200, siguiente);
+      const dictado = this.dictados.get(decodeURIComponent(m[1] ?? ""));
+      if (!dictado) return json(404, { error: "No conozco ese dictado." });
+      return json(200, dictado.estado === "listo" ? { ...dictado.respuesta, estado: "listo" } : { estado: dictado.estado });
     }
     return json(404, { error: `Ruta falsa no definida: ${metodo} ${ruta}` });
+  }
+
+  private nuevoAtajo() {
+    this.atajos += 1;
+    return `0f8b6c1e-2d4a-4c5e-9a7b-${String(this.atajos).padStart(12, "0")}`;
   }
 
   private ordenados() {
@@ -397,4 +478,25 @@ export async function prepararSesion(page: Page, api = new ApiFalsa()) {
     }
   }, TOKEN);
   return api;
+}
+
+/** Portapapeles falso (lo que se copia se puede leer de vuelta), para probar Copiar y Pegar código. */
+export async function portapapelesFalso(page: Page, inicial = "") {
+  await page.addInitScript((texto) => {
+    let contenido = texto;
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (t: string) => {
+          contenido = t;
+        },
+        readText: async () => contenido,
+      },
+    });
+  }, inicial);
+}
+
+/** Como si se abriera desde la pantalla de inicio (app web instalada en iOS). */
+export async function comoAppDeInicio(page: Page) {
+  await page.addInitScript(() => Object.defineProperty(navigator, "standalone", { configurable: true, value: true }));
 }

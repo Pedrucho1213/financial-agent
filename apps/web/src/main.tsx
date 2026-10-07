@@ -8,6 +8,21 @@ import "./index.css";
 // Sin esto, Safari de iOS no aplica los estilos :active al tocar.
 document.addEventListener("touchstart", () => undefined, { passive: true });
 
+// Tras una actualización, el service worker nuevo borra los pedazos viejos y una pantalla
+// que se carga aparte (Entrar tras un 401, por ejemplo) ya no existe: se recarga la app.
+// Una sola vez por minuto, para no entrar en un ciclo si el problema es otro.
+window.addEventListener("vite:preloadError", (evento) => {
+  try {
+    const ultima = Number(sessionStorage.getItem("fa_recarga") ?? 0);
+    if (Date.now() - ultima < 60_000) return;
+    sessionStorage.setItem("fa_recarga", String(Date.now()));
+  } catch {
+    // sin sessionStorage, se recarga igual
+  }
+  evento.preventDefault();
+  window.location.reload();
+});
+
 const raiz = document.getElementById("root");
 if (!raiz) throw new Error("Falta #root");
 

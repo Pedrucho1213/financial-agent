@@ -8,7 +8,7 @@ import { Fila, FilaBoton, Grupo } from "../components/ui/lista";
 import { Segmented } from "../components/ui/segmented";
 import { SelectNativo } from "../components/ui/select";
 import { Sheet, SheetContent } from "../components/ui/sheet";
-import { eliminarConDeshacer } from "../lib/acciones";
+import { eliminarConDeshacer, olvidarDeshacer } from "../lib/acciones";
 import { mensajeDeError } from "../lib/api";
 import { OpcionesCategorias } from "../lib/categorias";
 import { useEnLinea } from "../lib/conexion";
@@ -140,6 +140,7 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
       { id: movimiento?.id, datos: cuerpo },
       {
         onSuccess: () => {
+          olvidarDeshacer(); // este cambio es ahora el último: un Deshacer viejo lo desharía a él
           toast.success(editando ? "Cambios guardados" : "Movimiento agregado");
           cerrarEditor();
         },

@@ -360,10 +360,10 @@ function PorCategoria({ t }: { t: Tablero }) {
   const [sel, setSel] = useState<number | null>(null);
   const elegido = sel !== null ? items[sel] : undefined;
 
+  // "Sin categoría" y "Otras" no tienen categoría que filtrar: sin id, no llevan a ningún lado.
   const verCategoria = (i: number) => {
-    const it = items[i];
-    if (!it) return;
-    navegar(hashDe("movimientos", { mes: t.mes, tipo: "gasto", categoria: it.categoriaId ?? undefined }));
+    const id = items[i]?.categoriaId;
+    if (id) navegar(hashDe("movimientos", { mes: t.mes, tipo: "gasto", categoria: id }));
   };
 
   return (
@@ -402,7 +402,7 @@ function PorCategoria({ t }: { t: Tablero }) {
               <span className="text-[20px] leading-tight font-bold tracking-[-0.01em] tabular">
                 {dinero(elegido ? elegido.centavos : total, t.moneda)}
               </span>
-              {elegido ? (
+              {elegido?.categoriaId ? (
                 <button
                   type="button"
                   className="pointer-events-auto mt-0.5 flex h-7 items-center text-[13px] font-semibold text-tint active:opacity-50"
@@ -412,35 +412,38 @@ function PorCategoria({ t }: { t: Tablero }) {
                   <ChevronRight className="size-3.5" strokeWidth={3} />
                 </button>
               ) : (
-                <span className="text-[13px] text-muted-foreground">{mesCorto(t.mes)}</span>
+                <span className="text-[13px] text-muted-foreground">
+                  {elegido ? pct(elegido.centavos / Math.max(1, total)) : mesCorto(t.mes)}
+                </span>
               )}
             </div>
           </div>
           <ul className="pb-1">
-            {items.map((it, i) => (
-              <li key={`${it.nombre}-${i}`}>
-                <FilaBoton
-                  sangria="2.6rem"
-                  className={cn(sel !== null && sel !== i && "opacity-55", "transition-opacity duration-200")}
-                  icono={
-                    <span
-                      aria-hidden
-                      className="size-3 shrink-0 rounded-full"
-                      style={{ backgroundColor: it.slot === "otros" ? "var(--serie-otros)" : `var(--serie-${it.slot + 1})` }}
-                    />
-                  }
-                  titulo={
-                    <span className="flex items-baseline gap-2">
-                      <span className="truncate">{it.nombre}</span>
-                      <span className="shrink-0 text-[15px] text-muted-foreground tabular">{pct(it.centavos / Math.max(1, total))}</span>
-                    </span>
-                  }
-                  valor={<span className="text-foreground tabular">{dinero(it.centavos, t.moneda)}</span>}
-                  chevron={!!it.categoriaId}
-                  onClick={() => verCategoria(i)}
-                />
-              </li>
-            ))}
+            {items.map((it, i) => {
+              const fila = {
+                sangria: "2.6rem",
+                className: cn(sel !== null && sel !== i && "opacity-55", "transition-opacity duration-200"),
+                icono: (
+                  <span
+                    aria-hidden
+                    className="size-3 shrink-0 rounded-full"
+                    style={{ backgroundColor: it.slot === "otros" ? "var(--serie-otros)" : `var(--serie-${it.slot + 1})` }}
+                  />
+                ),
+                titulo: (
+                  <span className="flex items-baseline gap-2">
+                    <span className="truncate">{it.nombre}</span>
+                    <span className="shrink-0 text-[15px] text-muted-foreground tabular">{pct(it.centavos / Math.max(1, total))}</span>
+                  </span>
+                ),
+                valor: <span className="text-foreground tabular">{dinero(it.centavos, t.moneda)}</span>,
+              };
+              return (
+                <li key={`${it.nombre}-${i}`}>
+                  {it.categoriaId ? <FilaBoton {...fila} chevron onClick={() => verCategoria(i)} /> : <Fila {...fila} className={cn(fila.className, "pr-11")} />}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}

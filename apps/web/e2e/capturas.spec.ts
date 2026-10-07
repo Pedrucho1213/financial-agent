@@ -76,6 +76,11 @@ for (const esquema of ["light", "dark"] as const) {
       await page.getByRole("button", { name: "Enviar" }).click();
       await expect(page.getByText("Anoté $85.00")).toBeVisible();
       await capturar(page, `chat-${sufijo}`);
+      api.fallasHablar = ["ia"];
+      await page.getByLabel("Mensaje").fill("¿Cuánto llevo en súper?");
+      await page.getByRole("button", { name: "Enviar" }).click();
+      await expect(page.getByRole("button", { name: "Reintentar" })).toBeVisible();
+      await capturar(page, `chat-reintentar-${sufijo}`);
 
       await page.goto("/#ajustes");
       await expect(page.getByText("Pedro Ramírez")).toBeVisible();
@@ -85,10 +90,36 @@ for (const esquema of ["light", "dark"] as const) {
       await capturar(page, `invitacion-${sufijo}`);
     });
 
+    test(`instalar (${sufijo})`, async ({ page }) => {
+      await page.clock.setFixedTime(new Date("2026-10-06T12:30:00-06:00"));
+      await new ApiFalsa().instalar(page);
+      await page.goto("/instalar?codigo=DEV456");
+      await expect(page.getByText("Hola, Pedro.")).toBeVisible();
+      await capturar(page, `instalar-${sufijo}`);
+      const descarga = page.waitForEvent("download");
+      await page.getByRole("button", { name: "Instalar el Atajo" }).click();
+      await descarga;
+      await expect(page.getByText("Ya casi está")).toBeVisible();
+      await capturar(page, `instalar-listo-${sufijo}`);
+    });
+
+    test(`atajo en ajustes (${sufijo})`, async ({ page }) => {
+      await prepararSesion(page);
+      await page.goto("/#ajustes");
+      const descarga = page.waitForEvent("download");
+      await page.getByRole("button", { name: /Instalar el Atajo/ }).click();
+      await descarga;
+      await expect(page.getByRole("dialog", { name: "Instalar el Atajo" })).toBeVisible();
+      await capturar(page, `atajo-ajustes-${sufijo}`);
+    });
+
     test(`entrar (${sufijo})`, async ({ page }) => {
       await page.clock.setFixedTime(new Date("2026-10-06T12:30:00-06:00"));
       await new ApiFalsa().instalar(page);
       await page.goto("/?codigo=ABC123");
+      await expect(page.getByRole("heading", { name: /Instala Finanzas/ })).toBeVisible();
+      await capturar(page, `entrar-instalar-${sufijo}`);
+      await page.getByRole("button", { name: "Usar en Safari" }).click();
       await expect(page.getByLabel("Tu nombre")).toBeVisible();
       await page.getByLabel("Tu nombre").fill("Pedro");
       await capturar(page, `entrar-${sufijo}`);

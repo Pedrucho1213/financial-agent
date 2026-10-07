@@ -60,6 +60,12 @@ export type Yo = {
 
 export type InvitacionCreada = { codigo: string; para: "usuario" | "dispositivo"; expiraEn: string };
 
+/** POST /v1/atajo: el archivo firmado queda unos minutos en `url` (relativa). */
+export type AtajoPreparado = { url: string; expiraEn: string };
+
+/** POST /v1/atajo/canjear: igual, con el nombre de la cuenta dueña del código. */
+export type AtajoCanjeado = AtajoPreparado & { nombre: string };
+
 export type Tablero = {
   mes: string;
   hoy: string;
