@@ -15,9 +15,18 @@ const PASOS = [
   </>,
 ];
 
+// Desde iOS 17 el sistema pregunta cada vez que un Atajo borra un archivo (el Atajo borra cada dictado
+// ya enviado), aunque la acción diga que no confirme. Solo este ajuste lo quita.
+const PIE = (
+  <>
+    Para que no te pida confirmar cada vez que borra un dictado ya enviado: Ajustes › Apps › Atajos › Avanzado ›{" "}
+    <strong className="font-semibold">«Permitir eliminar sin confirmación»</strong>.
+  </>
+);
+
 /** Los 3 pasos que siguen a "Instalar el Atajo". */
 export function PasosDescarga({ className }: { className?: string }) {
-  return <PasosNumerados pasos={PASOS} etiqueta="Pasos para terminar" className={className} />;
+  return <PasosNumerados pasos={PASOS} etiqueta="Pasos para terminar" pie={PIE} className={className} />;
 }
 
 /** "¿No se descargó?": vuelve a abrir el mismo archivo mientras no venza. */

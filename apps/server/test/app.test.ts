@@ -74,6 +74,17 @@ describe("API", () => {
     expect(r2.status).toBe(200);
   });
 
+  test('el "Ubicación" genérico de iOS no se guarda como lugar', async () => {
+    const { hablar, db } = montar([
+      llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 85, categoria: "Café" }] }),
+      llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 40, categoria: "Café" }] }),
+    ]);
+    expect((await hablar({ texto: "gasté 85 en café", client_id: "dictado-lugar-01", lat: 19.53, lon: -96.88, lugar: "Ubicación" })).status).toBe(200);
+    expect((await hablar({ texto: "gasté 40 en café", client_id: "dictado-lugar-02", lugar: "Café Bola de Oro" })).status).toBe(200);
+    const lugares = db.select().from(entradas).all().map((e) => e.lugar);
+    expect(lugares).toEqual([null, "Café Bola de Oro"]);
+  });
+
   test("un dictado vacío contesta algo para leer en voz alta en vez de un error", async () => {
     const { hablar } = montar([]);
     const r = await hablar({ texto: "  ", client_id: "dictado-vacio-01", conversacion_id: "c1" });

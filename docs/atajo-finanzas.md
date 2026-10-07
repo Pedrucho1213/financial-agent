@@ -29,7 +29,9 @@ Córrelo una vez a mano desde la app Atajos para contestar los permisos. Aparece
 | Atajos quiere usar tu ubicación | **Permitir al usar la app** |
 | "Finanzas" quiere acceder a tu ubicación | **Permitir siempre** |
 | "Finanzas" quiere conectarse a "tu-mac....ts.net" | **Permitir siempre** |
-| "Finanzas" quiere eliminar un archivo | **Permitir siempre** |
+| ¿Permitir que "Finanzas" elimine 1 archivo? | **Eliminar** (ver abajo para que no vuelva a salir) |
+
+El de eliminar no trae "Permitir siempre": desde iOS 17 el sistema pregunta cada vez que un Atajo borra un archivo, aunque la acción tenga "Confirmar antes de eliminar" apagado. El Atajo borra cada dictado en cuanto el servidor lo recibe, así que saldría en cada uso. Para quitarlo de una vez: **Ajustes > Apps > Atajos > Avanzado > Permitir eliminar sin confirmación**. La pantalla de instalación lo recuerda debajo de los pasos.
 
 Si contestas "Permitir una vez", te lo vuelve a preguntar la próxima vez. Si contestas "No permitir" a la ubicación o a la conexión, el Atajo se detiene con un error en cada uso. Para arreglarlo: en Atajos, mantén presionado Finanzas > Detalles > Privacidad, y en Ajustes > Privacidad y seguridad > Localización > Atajos.
 

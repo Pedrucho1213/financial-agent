@@ -2,9 +2,19 @@ import type { ReactNode } from "react";
 import { Grupo } from "./ui/lista";
 
 /** Pasos numerados en una lista agrupada, como las guías de iOS. */
-export function PasosNumerados({ pasos, etiqueta, className }: { pasos: ReactNode[]; etiqueta: string; className?: string }) {
+export function PasosNumerados({
+  pasos,
+  etiqueta,
+  pie,
+  className,
+}: {
+  pasos: ReactNode[];
+  etiqueta: string;
+  pie?: ReactNode;
+  className?: string;
+}) {
   return (
-    <Grupo className={className}>
+    <Grupo className={className} pie={pie}>
       <ol aria-label={etiqueta}>
         {pasos.map((texto, i) => (
           <li
