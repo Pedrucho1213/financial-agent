@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  blob,
   index,
   integer,
   real,
@@ -61,6 +62,20 @@ export const invitaciones = sqliteTable(
   },
   (t) => [uniqueIndex("invitaciones_codigo").on(t.codigo)],
 );
+
+// El Atajo recién preparado, para bajarlo unos minutos aunque el servidor se reinicie. El archivo lleva
+// el token del dispositivo, así que va cifrado con una clave que sale del id del enlace, y ese id solo lo
+// conoce quien pidió el Atajo: aquí se guarda su hash. La base sola no revela el token.
+export const descargasAtajo = sqliteTable("descargas_atajo", {
+  idHash: text("id_hash").primaryKey(),
+  usuarioId: text("usuario_id")
+    .notNull()
+    .references(() => usuarios.id),
+  archivo: blob("archivo", { mode: "buffer" }).notNull(),
+  expiraEn: text("expira_en").notNull(),
+  descargas: integer("descargas").notNull().default(0),
+  creadoEn: creadoEn(),
+});
 
 export const TIPOS_CUENTA = [
   "efectivo",

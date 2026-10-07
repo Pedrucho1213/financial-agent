@@ -174,6 +174,18 @@ function enCola<T>(deps: Dependencias, usuarioId: string, trabajo: () => Promise
 /** Dictados que ya están en la cola, por id de entrada, para no procesar dos veces el mismo. */
 const enCurso = new Map<string, Promise<Respuesta>>();
 
+/**
+ * Al apagar el servidor: espera a que terminen los dictados en curso, hasta `maximoMs`. Lo que no
+ * alcance queda "procesando" en la base y `reanudarPendientes` lo retoma al arrancar.
+ */
+export async function terminarEnCurso(maximoMs: number): Promise<number> {
+  const limite = Date.now() + maximoMs;
+  while (enCurso.size > 0 && Date.now() < limite) {
+    await Promise.race([Promise.allSettled([...enCurso.values()]), Bun.sleep(Math.max(0, limite - Date.now()))]);
+  }
+  return enCurso.size;
+}
+
 // Si la IA falla después de haber contestado "pendiente", la Mac reintenta sola.
 const REINTENTOS_MS = [30_000, 120_000, 600_000];
 

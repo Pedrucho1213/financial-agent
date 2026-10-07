@@ -3,6 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
 import { z } from "zod";
 import { consultarEntrada, type Dependencias, ErrorEnProceso, ErrorIA, hablar } from "./ai/asistente";
+import { guardarDescarga, limpiarDescargas, tomarDescarga } from "./atajo/descargas";
 import { ErrorFirma, firmarAtajo, generarAtajo } from "./atajo/generar";
 import {
   canjearInvitacion,
@@ -174,9 +175,9 @@ const NOMBRE_ATAJO = "Atajo Finanzas";
 
 export function crearApp(opciones: OpcionesApp) {
   const { db } = opciones;
+  limpiarDescargas(db);
   const app = new Hono<{ Variables: VariablesAuth }>();
   const intentos = new LimiteIntentos(VENTANA_INTENTOS_MS, MAX_INTENTOS_POR_IP, MAX_INTENTOS_TOTAL);
-  const atajos = new Map<string, { archivo: Uint8Array; expira: number; descargas: number }>();
   /** Lo que el Atajo lee en voz: los montos dichos ("50 pesos", no "$50") y si sigue escuchando. */
   const paraVoz = <T extends { respuesta?: string; pendiente?: boolean }>(r: T) =>
     conSeguir(r.respuesta ? { ...r, respuesta: montosParaVoz(r.respuesta, opciones.monedaBase) } : r);
@@ -189,11 +190,8 @@ export function crearApp(opciones: OpcionesApp) {
     const nombre = db.select().from(usuarios).where(eq(usuarios.id, usuarioId)).get()?.nombre;
     const archivo = await firmar(generarAtajo({ servidor: servidor.replace(/\/+$/, ""), token, nombre }));
     revocarAtajosSinUsar(db, usuarioId, NOMBRE_ATAJO, dispositivoId);
-    const id = crypto.randomUUID();
-    const expira = Date.now() + ATAJO_VIGENCIA_MS;
-    for (const [clave, a] of atajos) if (a.expira < Date.now()) atajos.delete(clave);
-    atajos.set(id, { archivo, expira, descargas: 0 });
-    return { url: `/atajo/${id}.shortcut`, expiraEn: new Date(expira).toISOString(), nombre: nombre ?? null };
+    const { id, expiraEn } = await guardarDescarga(db, usuarioId, archivo, ATAJO_VIGENCIA_MS);
+    return { url: `/atajo/${id}.shortcut`, expiraEn, nombre: nombre ?? null };
   };
   const sinFirma = (error: ErrorFirma) => {
     console.error("No se pudo firmar el Atajo:", error.message);
@@ -269,16 +267,12 @@ export function crearApp(opciones: OpcionesApp) {
   });
   app.route("/v1", publico);
 
-  app.get("/atajo/:archivo", (c) => {
+  app.get("/atajo/:archivo", async (c) => {
     const id = c.req.param("archivo").replace(/\.shortcut$/, "");
-    const atajo = atajos.get(id);
-    if (!atajo || atajo.expira < Date.now() || atajo.descargas >= ATAJO_MAX_DESCARGAS) {
-      atajos.delete(id);
-      return c.text("Este enlace ya venció. Vuelve a pedir el Atajo desde la app.", 410);
-    }
     // El archivo lleva un token: solo se puede bajar unas pocas veces.
-    if (c.req.method === "GET") atajo.descargas++;
-    return c.body(atajo.archivo as Uint8Array<ArrayBuffer>, 200, {
+    const archivo = await tomarDescarga(db, id, ATAJO_MAX_DESCARGAS, c.req.method === "GET");
+    if (!archivo) return c.text("Este enlace ya venció. Vuelve a pedir el Atajo desde la app.", 410);
+    return c.body(archivo as Uint8Array<ArrayBuffer>, 200, {
       "Content-Type": "application/octet-stream",
       "Content-Disposition": 'attachment; filename="Finanzas.shortcut"',
       "Cache-Control": "no-store",
