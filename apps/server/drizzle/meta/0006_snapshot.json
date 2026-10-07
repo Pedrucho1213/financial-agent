@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "0f9f499f-2478-4458-9c32-093f14d5c7ee",
-  "prevId": "fdd4c65b-1065-4b99-a218-31d2e5c20d07",
+  "id": "cf7cc213-61c8-4031-8d82-7079a73c1df3",
+  "prevId": "39216b44-c523-4a2a-adb0-81572ba1198b",
   "tables": {
     "avisos": {
       "name": "avisos",
