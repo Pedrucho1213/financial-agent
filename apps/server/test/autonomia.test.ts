@@ -195,3 +195,31 @@ describe("memorias", () => {
     expect(construirInstrucciones(ctx)).not.toContain("Lo que sabes del usuario");
   });
 });
+
+describe("preguntas de más", () => {
+  test("no ofrece más ayuda ni pregunta con qué pagó, y la pregunta del monto se queda", async () => {
+    const { hablar } = montar([
+      texto("¡Hola! ¿En qué puedo ayudarte con tus finanzas hoy?"),
+      texto("Entendido. ¿Algo más en lo que te pueda ayudar?"),
+      texto("¿De cuánto fue el gasto y con qué pagaste?"),
+    ]);
+    expect((await hablar("Hola")).respuesta).toBe("¡Hola!");
+    expect((await hablar("Regla")).respuesta).toBe("Entendido.");
+    expect((await hablar("Gasté en el súper")).respuesta).toBe("¿De cuánto fue el gasto?");
+  });
+
+  test("'borra el café' con varios cafés pregunta cuál; 'el último' borra el más reciente", async () => {
+    const borrar = (buscar: unknown) => llamada("eliminar_movimiento", { buscar });
+    const { ctx, hablar } = montar([
+      borrar({ texto: "café", mas_reciente: true }),
+      texto("¿Cuál café, el de $60 o el de $85?"),
+      borrar({ texto: "café", mas_reciente: true }),
+    ]);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café", fecha: "ayer" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 60, categoria: "Café" });
+    expect((await hablar("Borra el café")).respuesta).toBe("¿Cuál café, el de 60 pesos o el de 85 pesos?");
+    expect(todos(ctx)).toHaveLength(2);
+    expect((await hablar("Borra el último café")).respuesta).toBe("Listo, borré café de 60 pesos.");
+    expect(todos(ctx).map((m) => m.monto)).toEqual(["$85"]);
+  });
+});

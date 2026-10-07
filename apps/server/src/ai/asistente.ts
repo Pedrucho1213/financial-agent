@@ -109,6 +109,23 @@ function respuestaPorOmision(acciones: Accion[]): string {
   return acciones.length ? "Listo." : "No entendí, ¿me lo repites?";
 }
 
+// Preguntas que solo ofrecen más ayuda ("¿En qué puedo ayudarte?", "¿Algo más?"): dejarían el micrófono
+// abierto sin necesidad, y las instrucciones ya piden no hacerlas.
+const OFRECE_AYUDA =
+  /^¿\s*(y\s+)?(en qu[eé] (m[aá]s )?(te |le )?puedo (ayudar|apoyar|servir)|(hay |necesitas |quieres |se te ofrece )?algo m[aá]s|qu[eé] m[aá]s|(te |le )?puedo ayudar|quieres que|te gustar[ií]a|deseas|necesitas ayuda)/i;
+// "¿De cuánto fue y con qué pagaste?": decir con qué pagó es opcional y nunca se pregunta.
+const Y_CON_QUE_PAGO = /,?\s+y\s+con\s+qu[eé]\s+(lo\s+|la\s+)?(pagaste|pag[oó]|tarjeta|cuenta|m[eé]todo)[^?]*(?=\?)/i;
+const CON_QUE_PAGO = /^¿\s*(y\s+)?con\s+qu[eé]\s+(lo\s+|la\s+)?(pagaste|pag[oó]|tarjeta|cuenta|m[eé]todo)[^?]*\?$/i;
+
+/** Quita del texto del modelo las preguntas que no necesita que le contesten. */
+function sinPreguntasDeMas(texto: string): string {
+  const frases = texto.replace(Y_CON_QUE_PAGO, "").split(/(?<=[.!?])\s+/);
+  const quedan = frases.filter((f) => !OFRECE_AYUDA.test(f.trim()) && !CON_QUE_PAGO.test(f.trim()));
+  if (quedan.length) return quedan.join(" ");
+  // Solo ofrecía ayuda ("¿En qué te ayudo?"); si solo preguntaba con qué pagó, mejor eso que nada.
+  return frases.every((f) => OFRECE_AYUDA.test(f.trim())) ? "Aquí estoy." : texto;
+}
+
 function limpiarParaVoz(texto: string): string {
   return texto
     .replace(/\*\*?|__|`|#+\s/g, "")
@@ -464,7 +481,7 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   // recibió "Anotado", nadie lo va a oír: se deja para el próximo dictado.
   const hablaDeCobros = acciones.some((a) => a.herramienta.endsWith("_recurrente") || a.herramienta === "listar_recurrentes");
   const cobros = acciones.length > 0 && !texto.includes("?") && !hablaDeCobros && !enSegundoPlano.has(entrada.id) ? cobrosPorAvisar(ctx) : undefined;
-  const hablado = limpiarParaVoz(texto) || respuestaPorOmision(acciones);
+  const hablado = limpiarParaVoz(sinPreguntasDeMas(texto)) || respuestaPorOmision(acciones);
   cobros?.marcar();
 
   const respuesta: Respuesta = {

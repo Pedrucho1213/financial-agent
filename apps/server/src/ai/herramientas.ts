@@ -64,6 +64,9 @@ const tipoRecurrente = z.preprocess((valor) => {
   return [t, t.replace(/es$/, ""), t.replace(/s$/, "")].find((x) => tipos.includes(x)) ?? t;
 }, z.enum(TIPOS_RECURRENTE));
 
+// La frase señala un movimiento en particular: "el último", "ese", "bórralo", "el que acabo de anotar".
+const SENALA_UNO = /\b(ultim[oa]s?|reciente|ese|esa|eso|este|esta|esto|acabo|(borra|elimina|quita|cancela)(lo|la|melo|mela))\b/;
+
 /** Las herramientas que la IA puede usar. Cada una solo toca datos del usuario del contexto. */
 export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
   // Los errores de validación regresan a la IA como texto para que corrija o pregunte.
@@ -190,9 +193,12 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         id: z.string().optional().describe("id, si ya lo tienes"),
         buscar: busqueda.optional(),
       }),
-      execute: ejecutar("eliminar_movimiento", ({ id, buscar }) => ({
-        eliminado: eliminarMovimiento(ctx, idDelMovimiento(ctx, id, buscar)),
-      })),
+      execute: ejecutar("eliminar_movimiento", ({ id, buscar }) => {
+        // "Borra el café" con varios cafés: el modelo a veces manda mas_reciente aunque la frase no diga
+        // cuál ("el último", "ese", "bórralo"). Si coinciden varios, mejor que pregunte.
+        const sinDecirCual = buscar?.mas_reciente && ctx.textoOriginal && !SENALA_UNO.test(normalizar(ctx.textoOriginal));
+        return { eliminado: eliminarMovimiento(ctx, idDelMovimiento(ctx, id, sinDecirCual ? { ...buscar, mas_reciente: false } : buscar)) };
+      }),
     }),
 
     deshacer: tool({
