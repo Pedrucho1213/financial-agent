@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { drizzle } from "drizzle-orm/bun-sqlite";
@@ -33,7 +33,14 @@ test("respalda la base antes de aplicar migraciones pendientes y guarda los últ
 
     const respaldos = join(carpeta, "respaldos");
     mkdirSync(respaldos);
-    for (let i = 0; i < 12; i++) writeFileSync(join(respaldos, `antes-migrar-2000-01-${String(i + 10)}.db`), "");
+    const viejo = new Date(Date.now() - 3600_000);
+    for (let i = 0; i < 12; i++) {
+      const archivo = join(respaldos, `antes-migrar-2000-01-${String(i + 10)}.db`);
+      writeFileSync(archivo, "");
+      utimesSync(archivo, viejo, viejo);
+    }
+    const sinMigrar = join(carpeta, "sin-migrar.db");
+    cpSync(ruta, sinMigrar);
 
     abrirBaseDatos(ruta).$client.close();
     const archivos = readdirSync(respaldos).filter((f) => f.startsWith("antes-migrar-")).sort();
@@ -46,6 +53,22 @@ test("respalda la base antes de aplicar migraciones pendientes y guarda los últ
     abrirBaseDatos(ruta).$client.close();
     abrirBaseDatos(join(carpeta, "nueva.db")).$client.close();
     expect(readdirSync(respaldos).filter((f) => f.startsWith("antes-migrar-")).sort()).toEqual(archivos);
+
+    // Si la migración falló y launchd reinicia el servidor, no rota los respaldos con copias iguales...
+    // (Cada vuelta en otro archivo de la misma carpeta: drizzle deja la conexión anterior abierta.)
+    let vuelta = 0;
+    const otraVez = () => {
+      const reintento = join(carpeta, `reintento-${++vuelta}.db`);
+      cpSync(sinMigrar, reintento);
+      abrirBaseDatos(reintento).$client.close();
+      return readdirSync(respaldos).filter((f) => f.startsWith("antes-migrar-")).sort();
+    };
+    expect(otraVez()).toEqual(archivos);
+    // ...salvo que el último tenga más de 10 minutos.
+    utimesSync(nuevo, viejo, viejo);
+    const despues = otraVez();
+    expect(despues).toHaveLength(10);
+    expect(despues.at(-1)).not.toBe(archivos.at(-1));
   } finally {
     rmSync(carpeta, { recursive: true, force: true });
   }

@@ -1,39 +1,36 @@
 // Código de invitación para entrar a la app desde un iPhone o navegador nuevo.
-// Uso: bun run invitar -- --nombre Pedro [--url https://finanzas.tu-red.ts.net] [--atajo]
-// Con --nombre el código entra a la cuenta de esa persona (la crea si no existe), así la app
-// no pregunta el nombre. Sin --nombre, quien lo use escribe su nombre y se crea su cuenta.
+// Uso: bun run invitar -- --usuario pedro [--url https://finanzas.tu-red.ts.net] [--atajo]
+// Con --usuario (o --nombre) el código entra a la cuenta de esa persona, así la app no pregunta el
+// nombre. Para crear la cuenta de alguien más: --nombre Ana --nueva. Sin ninguno de los dos, quien lo
+// use escribe su nombre y se crea su cuenta.
 // Con --atajo saca otro código para el enlace que instala el Atajo directo (/instalar?codigo=...).
 // Cada código sirve una sola vez y vence en 24 horas (--horas para cambiarlo).
 import { parseArgs } from "node:util";
-import { eq } from "drizzle-orm";
-import { crearInvitacion, crearUsuario } from "../src/auth";
+import { crearInvitacion } from "../src/auth";
 import { config } from "../src/config";
 import { abrirBaseDatos } from "../src/db/client";
-import { usuarios } from "../src/db/schema";
-import { sembrarCategorias } from "../src/finanzas/catalogos";
+import { buscarCuenta } from "./cuenta";
 
 const { values } = parseArgs({
   args: Bun.argv.slice(2),
   options: {
+    usuario: { type: "string" },
     nombre: { type: "string" },
+    nueva: { type: "boolean", default: false },
     horas: { type: "string", default: "24" },
     url: { type: "string" },
     atajo: { type: "boolean", default: false },
   },
 });
 
-const nombre = values.nombre?.trim();
-if (values.atajo && !nombre) {
-  console.error("Para el enlace del Atajo hace falta --nombre: el Atajo entra a la cuenta de esa persona.");
+if (values.atajo && !values.usuario && !values.nombre?.trim()) {
+  console.error("Para el enlace del Atajo hace falta --usuario o --nombre: el Atajo entra a la cuenta de esa persona.");
   process.exit(1);
 }
 const db = abrirBaseDatos(config.baseDatos);
-let usuario = nombre ? db.select().from(usuarios).where(eq(usuarios.nombre, nombre)).get() : undefined;
-const nuevo = !!nombre && !usuario;
-if (nombre && !usuario) {
-  usuario = crearUsuario(db, nombre);
-  sembrarCategorias(db, usuario.id);
-}
+const encontrada = buscarCuenta(db, values);
+const usuario = encontrada?.cuenta;
+const nuevo = !!encontrada?.nueva;
 const invitacion = crearInvitacion(db, { usuarioId: usuario?.id, horas: Number(values.horas) || 24 });
 const vence = new Date(invitacion.expiraEn).toLocaleString("es-MX", { timeZone: config.zonaHoraria });
 

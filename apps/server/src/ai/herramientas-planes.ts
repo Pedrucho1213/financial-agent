@@ -231,7 +231,8 @@ export function herramientasPlanes(ctx: Contexto, ejecutar: Ejecutar) {
 export function nombresDePlanes(ctx: Contexto) {
   const metas = listarMetas(ctx).metas.filter((m) => !m.completada).map((m) => m.nombre);
   const personas = [...new Set(listarPrestamos(ctx).prestamos.map((p) => p.persona))];
-  return { metas, personas };
+  const msi = listarMsi(ctx).compras.map((c) => ({ descripcion: c.descripcion, proximoCargo: c.proximoCargo }));
+  return { metas, personas, msi };
 }
 
 const escapar = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -239,23 +240,54 @@ const escapar = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const primeras = (nombres: string[]) =>
   nombres.map((n) => normalizar(n).split(" ")[0] ?? "").filter((p) => p.length > 2).map(escapar);
 
+// Un monto dicho: "500", "2 mil", "mil", "quinientos".
+const MONTO = "(\\d|dos |tres |cuatro |cinco |seis |siete |ocho |nueve |diez |veinte |cien|mil\\b|doscientos|trescientos|quinientos)";
+// Para qué fue el dinero ("del corte", "por la comida"): un pago así es un gasto, no un abono. "De los 500" sí habla del préstamo.
+const PARA_QUE = /\b(por|del|de la|de los|de las|de un|de una) (?!\d|lo que|deuda|prestamo|lana|dinero)\S/;
+
+/**
+ * Prestar o pedir prestado dinero, con el monto junto al verbo: "le presté 500 a Juan", "me prestaron
+ * 2 mil". "Me prestaron el coche y le eché 500 de gasolina" es un gasto.
+ */
+export function prestaDinero(texto: string) {
+  const plano = normalizar(texto);
+  return new RegExp(`\\b((le |les |te )?preste|(me|nos) prest(o|aron|aste))( \\S+){0,3} ${MONTO}|${MONTO}\\S*( \\S+){0,3} (que )?(le |les |te |me |nos )?prest(e|o|aron|aste)\\b`).test(plano);
+}
+
 /**
  * Paga o cobra un préstamo que ya existe, con la persona junto al verbo: "Juan me pagó 200",
- * "me devolvió Juan", "le pagué a Ana". "Le pagué la luz" no es Luz, ni "le pagué 300 a Juan por el corte".
+ * "me devolvió Juan", "le pagué a Ana". "Le pagué la luz" no es Luz, ni "le pagué a Juan 300 del corte".
  */
 export function pagaPrestamo(texto: string, personas: string[]) {
   const nombres = primeras(personas);
   if (!nombres.length) return false;
+  const plano = normalizar(texto);
+  if (PARA_QUE.test(plano)) return false;
   const p = `(${nombres.join("|")})`;
   const verbo = "(pago|pagaron|devolvio|regreso|abono)";
-  return new RegExp(`\\b(${p} (ya )?(me|nos) ${verbo}|(me|nos) ${verbo} ${p}|le (pague|devolvi|regrese|abone) a ${p})\\b`).test(normalizar(texto));
+  return new RegExp(`\\b(${p} (ya )?(me|nos) ${verbo}|(me|nos) ${verbo} ${p}|le (pague|abone) a ${p}|le (devolvi|regrese)( \\S+){0,2} a ${p})\\b`).test(plano);
 }
 
-/** "Aparté 500 para el viaje", "ahorré mil para la meta": apartar dinero, no gastarlo. */
+/**
+ * "Aparté 500 para el viaje", "ahorré mil para la meta": apartar dinero, no gastarlo. "Guardé 200 en
+ * el coche" no es la meta Coche.
+ */
 export function apartaParaMeta(texto: string, metas: string[]) {
   const plano = normalizar(texto);
   if (!/\b(aparte|ahorre|guarde)\b/.test(plano)) return false;
   const nombres = primeras(metas);
   const destino = nombres.length ? `|${nombres.join("|")}` : "";
-  return new RegExp(`\\b(para|a|en) (el |la |mi |mis )?(meta${destino})\\b`).test(plano);
+  return new RegExp(`\\b((para|pa|pal|al|a) (el |la |mi |mis )?(meta${destino})|en (la |mi |mis )?metas?)\\b`).test(plano);
+}
+
+/** "Pagué la mensualidad de la pantalla": la compra a meses de la que habla, si es una de las que tiene. */
+export function mensualidadDe(texto: string, compras: { descripcion: string; proximoCargo: string | null }[]) {
+  const plano = normalizar(texto);
+  if (!/\b(mensualidad|mensualidades|meses sin intereses|msi)\b/.test(plano)) return undefined;
+  return compras.find((c) =>
+    normalizar(c.descripcion)
+      .split(" ")
+      .filter((w) => w.length > 3)
+      .some((w) => new RegExp(`\\b${escapar(w)}\\b`).test(plano)),
+  );
 }

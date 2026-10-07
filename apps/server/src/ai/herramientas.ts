@@ -26,7 +26,7 @@ import { listarMemorias, olvidar, recordar } from "../finanzas/memorias";
 import { cancelarRecurrente, crearRecurrente, editarRecurrente, listarRecurrentes } from "../finanzas/recurrentes";
 import { fechaDelTexto, fechasDelTexto, mencionaFecha, resolverFecha } from "../lib/fechas";
 import { montoConPalabras, montosDelTexto } from "../lib/numeros";
-import { apartaParaMeta, herramientasPlanes, nombresDePlanes, pagaPrestamo } from "./herramientas-planes";
+import { apartaParaMeta, herramientasPlanes, mensualidadDe, nombresDePlanes, pagaPrestamo, prestaDinero } from "./herramientas-planes";
 import { monedaDelTexto, normalizar, tipoDelTexto } from "../lib/texto";
 
 /** Lo que hizo una herramienta: con qué la llamó el modelo y qué resultó. */
@@ -94,10 +94,8 @@ const PIDE_VARIOS = new RegExp(
 
 // "A 12 meses sin intereses", "compré unos tenis a 6 meses": no es un gasto de una vez. Pagar una
 // mensualidad ("la mensualidad de la pantalla") sí es un gasto.
-const ES_MSI = /\b(meses sin intereses|msi)\b|\bcompre\b.*\ba (\d+|tres|seis|nueve|doce|dieciocho|veinticuatro) meses\b/;
+const ES_MSI = /\b(meses sin intereses|msi)\b|\b(compre|saque|me lleve)\b.*\ba (\d+|tres|seis|nueve|doce|dieciocho|veinticuatro) meses\b(?! con intereses)/;
 const PAGA_MENSUALIDAD = /\b(mensualidad|mensualidades|pago de|abono de)\b/;
-// Prestar o pedir prestado entre personas no es gasto ni ingreso.
-const ES_PRESTAMO = /\b(le preste|les preste|te preste|preste|me presto|me prestaron|me prestaste|nos presto)\b/;
 // "Recuerda que mi último gasto no fue de dólares": corrige un registro, no es un dato para recordar.
 const CORRIGE_REGISTRO =
   /\b(no (fue|fueron|era|eran)|ultimo (gasto|registro|movimiento|ingreso)|que (agregamos|anotamos|registramos|apuntamos|anotaste|registraste|apuntaste|agregaste))\b/;
@@ -107,6 +105,14 @@ const SE_REPITE = /\b(cada|al mes|por mes|a la semana|por semana|al ano|mensual|
 
 /** Las herramientas que la IA puede usar. Cada una solo toca datos del usuario del contexto. */
 export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
+  // Una frase que parece préstamo, meta o compra a meses se desvía a su herramienta una sola vez: si el
+  // modelo insiste en que es un gasto, se registra (la regla puede equivocarse con "me prestaron el coche").
+  const desviadas = new Set<string>();
+  const desviar = (clave: string, mensaje: string) => {
+    if (desviadas.has(clave)) return;
+    desviadas.add(clave);
+    throw new ErrorFinanzas(`${mensaje} Si de verdad es un gasto o ingreso normal, vuelve a llamar registrar_movimientos igual.`);
+  };
   // Los errores de validación regresan a la IA como texto para que corrija o pregunte.
   const ejecutar =
     <A, R>(nombre: string, fn: (args: A) => R) =>
@@ -126,11 +132,15 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
   // pregunte; si pidió varios ("borra los tacos"), que use el id de cada uno. "Fueron 70" a secas, sin
   // nombrar nada, sí es lo último que anotó.
   const pideVarios = !!ctx.textoOriginal && PIDE_VARIOS.test(normalizar(ctx.textoOriginal));
-  const comoLoDijo = <B extends { texto?: string; categoria?: string; mas_reciente?: boolean }>(buscar?: B): B | undefined => {
-    const nombraAlgo = !!(buscar?.texto || buscar?.categoria);
+  // "Mi último gasto" no es un ingreso que llegó después.
+  const tipoDicho = normalizar(ctx.textoOriginal ?? "").match(/\bultimo (gasto|ingreso)\b/)?.[1] as "gasto" | "ingreso" | undefined;
+  const comoLoDijo = <B extends { texto?: string; categoria?: string; mas_reciente?: boolean }>(buscar?: B): (B & { tipo?: "gasto" | "ingreso" }) | undefined => {
+    if (!buscar) return buscar;
+    const nombraAlgo = !!(buscar.texto || buscar.categoria);
     const senala =
       !pideVarios && (ctx.confiarEnMasReciente || !ctx.textoOriginal || SENALA_UNO.test(normalizar(ctx.textoOriginal)));
-    return buscar?.mas_reciente && nombraAlgo && !senala ? { ...buscar, mas_reciente: false } : buscar;
+    const conTipo = tipoDicho ? { ...buscar, tipo: tipoDicho } : buscar;
+    return buscar.mas_reciente && nombraAlgo && !senala ? { ...conTipo, mas_reciente: false } : conTipo;
   };
 
   // "Spotify me cobra 10 dólares": la moneda de la frase manda si el modelo no dijo otra.
@@ -154,14 +164,18 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         if (texto && montosDelTexto(texto).length <= 1) {
           const plano = normalizar(texto);
           const planes = nombresDePlanes(ctx);
-          if (ES_MSI.test(plano) && !PAGA_MENSUALIDAD.test(plano)) {
-            throw new ErrorFinanzas("Es una compra a meses sin intereses: usa compra_msi, no registrar_movimientos.");
+          const compra = PAGA_MENSUALIDAD.test(plano) ? mensualidadDe(texto, planes.msi) : undefined;
+          if (compra) {
+            const cuando = compra.proximoCargo ? `; la próxima es el ${compra.proximoCargo}` : "";
+            desviar("msi", `Las mensualidades de ${compra.descripcion} ya se anotan solas el día del cargo${cuando}. No la registres: dile que ya queda anotada sola.`);
+          } else if (ES_MSI.test(plano) && !PAGA_MENSUALIDAD.test(plano)) {
+            desviar("msi", "Parece una compra a meses sin intereses: usa compra_msi.");
           }
-          if (ES_PRESTAMO.test(plano) || pagaPrestamo(texto, planes.personas)) {
-            throw new ErrorFinanzas("Es un préstamo entre personas: usa prestamo, no registrar_movimientos.");
+          if (prestaDinero(texto) || pagaPrestamo(texto, planes.personas)) {
+            desviar("prestamo", "Parece un préstamo entre personas: usa prestamo.");
           }
           if (apartaParaMeta(texto, planes.metas)) {
-            throw new ErrorFinanzas("Es dinero apartado para una meta de ahorro: usa meta con accion aportar, no registrar_movimientos.");
+            desviar("meta", "Parece dinero apartado para una meta de ahorro: usa meta con accion aportar.");
           }
         }
         // Si la frase dice una sola fecha ("ayer", "el viernes"), esa manda sobre una fecha que el

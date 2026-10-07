@@ -40,15 +40,22 @@
     {
       "idx": 5,
       "version": "6",
-      "when": 1791354628270,
-      "tag": "0005_planes_y_avisos",
+      "when": 1791346029393,
+      "tag": "0005_usuario_y_codigo",
       "breakpoints": true
     },
     {
       "idx": 6,
       "version": "6",
-      "when": 1791354984477,
-      "tag": "0006_notificaciones",
+      "when": 1791355591716,
+      "tag": "0006_planes_y_avisos",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1791355729707,
+      "tag": "0007_notificaciones",
       "breakpoints": true
     }
   ]

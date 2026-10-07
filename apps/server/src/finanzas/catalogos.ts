@@ -248,12 +248,11 @@ export function encontrarOCrearCuenta(db: Db, usuarioId: string, texto: string |
     buscado = buscado.replace(/^\S+ /, "");
   }
   const lista = db.select().from(cuentas).where(eq(cuentas.usuarioId, usuarioId)).all();
-  const existente = lista.find((c) =>
-    [c.nombre, ...c.alias].some((n) => {
-      const x = normalizar(n);
-      return x === buscado || x.split(" ").includes(buscado) || buscado.split(" ").includes(x);
-    }),
-  );
+  // El nombre exacto primero: "BBVA Azul" no es "BBVA" si existen las dos.
+  const nombres = (c: (typeof lista)[number]) => [c.nombre, ...c.alias].map(normalizar);
+  const existente =
+    lista.find((c) => nombres(c).includes(buscado)) ??
+    lista.find((c) => nombres(c).some((x) => x.split(" ").includes(buscado) || buscado.split(" ").includes(x)));
   if (existente) return existente;
   let nombre = texto.trim();
   while (/^(con|la|el|mi|mis|tarjeta|cuenta|de|cr[eé]dito|d[eé]bito)\s+/i.test(nombre)) {

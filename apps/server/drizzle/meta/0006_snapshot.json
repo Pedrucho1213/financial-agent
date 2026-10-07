@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "c4ebe9d9-0baa-4a28-b5e6-a9c3de785cfc",
-  "prevId": "39216b44-c523-4a2a-adb0-81572ba1198b",
+  "id": "2dfe0072-4670-4923-aea4-fddec1c3a3ed",
+  "prevId": "6315a173-aafb-4050-bb2d-b60106e53507",
   "tables": {
     "avisos": {
       "name": "avisos",
@@ -516,38 +516,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "configuracion": {
-      "name": "configuracion",
-      "columns": {
-        "clave": {
-          "name": "clave",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "valor": {
-          "name": "valor",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "creado_en": {
-          "name": "creado_en",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "cuentas": {
       "name": "cuentas",
       "columns": {
@@ -861,14 +829,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "origen": {
-          "name": "origen",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'voz'"
         },
         "estado": {
           "name": "estado",
@@ -1751,137 +1711,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "suscripciones_push": {
-      "name": "suscripciones_push",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "usuario_id": {
-          "name": "usuario_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "dispositivo_id": {
-          "name": "dispositivo_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "endpoint": {
-          "name": "endpoint",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "p256dh": {
-          "name": "p256dh",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "auth": {
-          "name": "auth",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "contacto": {
-          "name": "contacto",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "en_iphone": {
-          "name": "en_iphone",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "creado_en": {
-          "name": "creado_en",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
-        },
-        "ultimo_envio": {
-          "name": "ultimo_envio",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "ultimo_error": {
-          "name": "ultimo_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "suscripciones_push_endpoint": {
-          "name": "suscripciones_push_endpoint",
-          "columns": [
-            "endpoint"
-          ],
-          "isUnique": true
-        },
-        "suscripciones_push_usuario": {
-          "name": "suscripciones_push_usuario",
-          "columns": [
-            "usuario_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "suscripciones_push_usuario_id_usuarios_id_fk": {
-          "name": "suscripciones_push_usuario_id_usuarios_id_fk",
-          "tableFrom": "suscripciones_push",
-          "tableTo": "usuarios",
-          "columnsFrom": [
-            "usuario_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "suscripciones_push_dispositivo_id_dispositivos_id_fk": {
-          "name": "suscripciones_push_dispositivo_id_dispositivos_id_fk",
-          "tableFrom": "suscripciones_push",
-          "tableTo": "dispositivos",
-          "columnsFrom": [
-            "dispositivo_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "usuarios": {
       "name": "usuarios",
       "columns": {
@@ -1897,6 +1726,20 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "usuario": {
+          "name": "usuario",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "codigo_hash": {
+          "name": "codigo_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "creado_en": {
@@ -1915,7 +1758,15 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "usuarios_usuario": {
+          "name": "usuarios_usuario",
+          "columns": [
+            "usuario"
+          ],
+          "isUnique": true
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
