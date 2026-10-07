@@ -56,11 +56,28 @@ Al final verás algo así por modelo: `gemma4:12b-it-qat@none: 237/237 correctas
 ./ops/instalar-servicio.sh
 ```
 
-Registra el servidor en launchd: arranca al iniciar sesión y se reinicia solo si falla. Sirve la API y la app en el mismo puerto. Los logs quedan en `logs/servidor.log`. Para quitarlo: `./ops/instalar-servicio.sh --quitar`.
+Registra tres cosas en launchd, sin contraseña de administrador:
 
-La primera vez, macOS pregunta si `bun` puede acceder a la carpeta Documentos (ahí vive el repositorio). Hay que aceptar; mientras la pregunta sigue abierta, el servidor no responde.
+- **El servidor**: arranca al iniciar sesión y se reinicia solo si falla. Sirve la API y la app en el mismo puerto. Logs en `logs/servidor.log`.
+- **El actualizador**: cada 5 minutos revisa si hay algo nuevo en `main` y lo instala solo (ver abajo). Logs en `logs/actualizador.log`.
+- **caffeinate -s**: la Mac no se duerme mientras está conectada a la corriente (ver la sección 8).
 
-Para actualizar a lo último de una rama, con pruebas, compilación de la app y reinicio incluidos:
+Para quitar los tres: `./ops/instalar-servicio.sh --quitar`. Si cambia este script, hay que volver a correrlo para que launchd tome los cambios.
+
+La primera vez, macOS pregunta si `bun` puede acceder a la carpeta Documentos (ahí vive el repositorio). Hay que aceptar; mientras la pregunta sigue abierta, el servidor no responde. El actualizador también corre con `bun`, así que no vuelve a preguntar.
+
+### Actualizaciones
+
+El actualizador (`ops/auto-actualizar.sh`) instala lo nuevo de `main` sin que tengas que dejar de usar el asistente:
+
+1. Prueba la versión nueva en una copia aparte (`bun install`, tipos y pruebas). Si falla, se queda con la actual y no vuelve a intentar esa versión.
+2. Espera a que pasen 2 minutos sin dictados y sin nada a medias. Si en una hora no hay un rato así, instala de todos modos: al reiniciarse, el servidor termina lo que tiene en curso y retoma al arrancar lo que no alcanzó. Los enlaces para descargar el Atajo se guardan en la base, así que tampoco se pierden.
+3. Respalda la base en `apps/server/datos/respaldos/` (guarda los últimos 10).
+4. Instala con `ops/actualizar.sh`. Si el servidor no responde, regresa a la versión anterior.
+
+Solo actualiza si el repositorio está en `main` y sin cambios locales; si no, lo anota una vez en `logs/actualizador.log` y espera. Para instalar ya, sin esperar el rato sin uso: `./ops/auto-actualizar.sh --ya`.
+
+Para instalar a mano lo último de una rama, con pruebas, compilación de la app y reinicio incluidos:
 
 ```bash
 ./ops/actualizar.sh          # main
@@ -80,12 +97,12 @@ En el iPhone, con Tailscale encendido, abre esa dirección agregando `/salud`: s
 
 ## 8. Que la Mac esté disponible
 
-- Ajustes del Sistema > Batería > Opciones: activa "Evitar el reposo automático con el adaptador de corriente cuando la pantalla esté apagada" y "Activar para acceso a la red".
-- Con la tapa cerrada, una MacBook se duerme salvo que tenga monitor externo. Mientras esté dormida, el iPhone guarda tus dictados y los manda después.
+- `./ops/instalar-servicio.sh` deja corriendo `caffeinate -s`: mientras la Mac está conectada a la corriente no se duerme (la pantalla sí se apaga). Con batería se duerme como siempre.
+- Con la tapa cerrada, una MacBook se duerme de todos modos salvo que tenga monitor externo; evitarlo pide contraseña de administrador (`pmset`). Mientras esté dormida, el iPhone guarda tus dictados y los manda después.
 
 ## Respaldo
 
-La base es un solo archivo. Mientras llega el respaldo automático (etapa 4), cópialo de vez en cuando:
+La base es un solo archivo. El actualizador la respalda antes de cada instalación en `apps/server/datos/respaldos/`. Para un respaldo a mano:
 
 ```bash
 sqlite3 apps/server/datos/finanzas.db ".backup '$HOME/Documents/finanzas-respaldo.db'"
