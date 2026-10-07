@@ -67,7 +67,8 @@ export function notificacionDeDictado(entrada: Entrada, respuesta: Respuesta | u
   return {
     titulo,
     cuerpo,
-    url: movimientos.length ? `/#movimientos?detalle=${movimientos.map((m) => m.id).join(",")}` : "/#inicio",
+    // Un pago de Apple Pay abre el editor para agregarle detalles.
+    url: movimientos.length ? `/#movimientos?detalle=${movimientos.map((m) => m.id).join(",")}${applePay ? "&editar=1" : ""}` : "/#inicio",
     etiqueta,
     urgencia: "high",
     // Pasado un día, ya no sirve saber que se anotó.

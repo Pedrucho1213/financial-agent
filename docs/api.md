@@ -20,18 +20,18 @@ Para el primer usuario: `bun run invitar -- --nombre Pedro` crea la cuenta (si n
 
 | Método y ruta | Cuerpo | Respuesta |
 |---|---|---|
-| `POST /v1/hablar` | `{ texto, client_id, conversacion_id?, lat?, lon?, lugar?, capturado_en?, espera_ms? }` | 200 `{ respuesta, conversacion_id, acciones, duplicado? }`; 202 con `pendiente: true` (y `esperar: true` si era pregunta) cuando la IA tarda más que la espera |
+| `POST /v1/hablar` | `{ texto, client_id, conversacion_id?, lat?, lon?, lugar?, capturado_en?, equipo?, espera_ms? }` (`equipo`: el modelo que manda el Atajo, "iPhone" o "Apple Watch") | 200 `{ respuesta, conversacion_id, acciones, duplicado? }`; 202 con `pendiente: true` (y `esperar: true` si era pregunta) cuando la IA tarda más que la espera |
 | `GET /v1/entradas/:client_id?esperar_ms=` | | `{ estado: "procesando" \| "listo" \| "error", respuesta?, ... }` |
 | `POST /v1/despertar` | | `{ ok: true }`; precarga el modelo |
 | `POST /v1/hablar` con `origen: "apple_pay"` | `{ origen, client_id, monto?, comercio?, nombre?, tarjeta?, lat?, lon?, capturado_en? }` (lo que da la Cartera; `monto` como texto, "$85.00") | 202 `{ pendiente: true, ... }`: se registra en segundo plano como "Pagué 85 pesos en ... (Apple Pay)" con `origen: "apple_pay"`. Sin ningún dato es la prueba del Atajo corrido a mano: 200 `{ prueba: true, respuesta }` y una notificación de prueba. Va por `/v1/hablar` para que la cola del Atajo "Finanzas" también lo reenvíe |
 
 Quién no manda `espera_ms` es el Atajo. Para él:
 
-- **Respuesta rápida**: si la cuenta tiene notificaciones activas, un registro con monto (no una pregunta, una orden sin monto ni un borrado o cambio) no espera a la IA: contesta 202 `{ respuesta: "Anotado.", pendiente: true }` y lo anotado llega por notificación.
+- **Respuesta rápida**: si la cuenta tiene notificaciones activas, un registro con monto (no una pregunta, una orden sin monto ni un borrado o cambio, y no desde el Apple Watch, donde la notificación no llega sin el iPhone cerca) no espera a la IA: contesta 202 `{ respuesta: "Anotado.", pendiente: true }` y lo anotado llega por notificación.
 - **Aviso del día**: la primera respuesta que oye lleva al final el aviso más importante pendiente ("Por cierto: ..."), una sola vez. No va detrás de una pregunta, de una espera ni de un `dato`.
 - **Pregunta por notificación**: si la IA terminó en segundo plano con una pregunta, la notificación la dice y el siguiente dictado sin `conversacion_id` en los 10 minutos siguientes sigue esa conversación.
 
-Todo dictado que se termina sin que nadie lo espere (el iPhone ya no esperó y nadie consulta `/v1/entradas` en ese momento) llega como notificación a quien las tenga activas: lo que se anotó (al tocarla abre `/#movimientos?detalle=<id>[,<id>...]`), la pregunta que quedó o que no se pudo procesar.
+Todo dictado que se termina sin que nadie lo espere (el iPhone ya no esperó y nadie consulta `/v1/entradas` en ese momento) llega como notificación a quien las tenga activas: lo que se anotó (al tocarla abre `/#movimientos?detalle=<id>[,<id>...]`, con `&editar=1` si fue un pago con Apple Pay), la pregunta que quedó o que no se pudo procesar.
 
 ## Notificaciones
 

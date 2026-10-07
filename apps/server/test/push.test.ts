@@ -185,6 +185,14 @@ describe("Atajo rápido", () => {
     expect(enviadas[0]!.cuerpo).toContain("85");
   });
 
+  test("desde el Apple Watch contesta completo en voz: la notificación no le llega sin el iPhone", async () => {
+    const { pedir, activar } = montar([REGISTRO_CAFE]);
+    await activar();
+    const r = await pedir("/v1/hablar", "POST", { texto: "gasté 85 en Starbucks", client_id: "reloj-00001", equipo: "Apple Watch" });
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as { respuesta: string }).respuesta).not.toBe(RESPUESTA_RAPIDA);
+  });
+
   test("si la última notificación no llegó, vuelve a contestar en voz", async () => {
     const { pedir, activar, db } = montar([REGISTRO_CAFE]);
     await activar();
@@ -328,7 +336,7 @@ describe("Apple Pay", () => {
     expect(m.textoOriginal).toBe("Pagué 85 pesos en STARBUCKS COFFEE con la tarjeta Nu (Apple Pay)");
     expect(enviadas[0]!.titulo).toBe("Apple Pay · $85 · Starbucks");
     expect(enviadas[0]!.cuerpo).toEndWith("Toca para agregar detalles.");
-    expect(enviadas[0]!.url).toBe(`/#movimientos?detalle=${m.id}`);
+    expect(enviadas[0]!.url).toBe(`/#movimientos?detalle=${m.id}&editar=1`);
     // Reenviado desde la cola, no se duplica.
     const otra = await pedir("/v1/hablar", "POST", { origen: "apple_pay", client_id: "applepay-20261007-123456", monto: "$85.00" });
     expect(otra.status).toBe(200);
