@@ -62,6 +62,7 @@ describe("montosParaVoz", () => {
   test("una coma después del monto no se queda pegada al número", () => {
     expect(montosParaVoz("¿Fue de $3,500, como la vez pasada?")).toBe("¿Fue de 3,500 pesos, como la vez pasada?");
     expect(montosParaVoz("Llevas $1,250.50, y ayer 20 USD, nada más.")).toBe("Llevas 1,250.50 pesos, y ayer 20 dólares, nada más.");
+    expect(montosParaVoz("Fueron $1,2500")).toBe("Fueron 1,2500 pesos");
   });
 });
 

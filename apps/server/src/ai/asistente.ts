@@ -3,12 +3,12 @@ import { and, asc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { cuentas, entradas, mensajes } from "../db/schema";
 import { type Contexto, crearContexto } from "../finanzas/contexto";
-import { habitoMencionado } from "../finanzas/habitos";
+import { habitoMencionado, hablaDeOtroMonto } from "../finanzas/habitos";
 import { revertirEntrada } from "../finanzas/movimientos";
 import { cobrosPorAvisar } from "../finanzas/recurrentes";
 import { formatearMonto } from "../lib/dinero";
 import { montosDelTexto } from "../lib/numeros";
-import { esOrdenSobreLoAnotado, esPregunta, normalizar, tipoDelTexto } from "../lib/texto";
+import { esOrdenSobreLoAnotado, esPregunta, normalizar, pideInformacion, tipoDelTexto } from "../lib/texto";
 import { confirmacionDirecta, confirmarRegistro, type Ejecutada } from "./confirmacion";
 import { construirInstrucciones } from "./instrucciones";
 import { crearHerramientas, type Accion } from "./herramientas";
@@ -370,6 +370,15 @@ async function corregirCuenta(ctx: Contexto, texto: string, acciones: Accion[]):
   return confirmacionDirecta(texto, ctx.hoy, [{ herramienta: "editar_movimiento", resultado }]) ?? "Listo, lo corregí.";
 }
 
+/** Comercios y conceptos que se registraron en este dictado ("Netflix", "Renta"), para no avisar de su cobro. */
+function loQuePago(acciones: Accion[]): string[] {
+  return acciones.flatMap((a) => {
+    const r = a.resultado as { registrados?: { comercio?: string; descripcion?: string; categoria?: string }[] } | undefined;
+    if (a.herramienta !== "registrar_movimientos" || !r?.registrados) return [];
+    return r.registrados.flatMap((m) => [m.comercio, m.descripcion, m.categoria?.split(" > ").at(-1)].filter((x): x is string => !!x));
+  });
+}
+
 // El modelo pregunta cuánto fue: "¿De cuánto fue?", "¿Qué monto?".
 const PREGUNTA_EL_MONTO = /\b(cuanto|cuanta|monto|cantidad)\b/;
 
@@ -379,8 +388,11 @@ const PREGUNTA_EL_MONTO = /\b(cuanto|cuanta|monto|cantidad)\b/;
  */
 async function registrarDeSiempre(ctx: Contexto, texto: string, respuesta: string, acciones: Accion[]): Promise<string | undefined> {
   if (!respuesta.includes("?") || !PREGUNTA_EL_MONTO.test(normalizar(respuesta))) return undefined;
-  if (montosDelTexto(texto).length > 0 || esOrdenSobreLoAnotado(texto)) return undefined;
-  const habito = habitoMencionado(ctx, texto, tipoDelTexto(texto));
+  if (montosDelTexto(texto).length > 0 || esOrdenSobreLoAnotado(texto) || hablaDeOtroMonto(texto)) return undefined;
+  // Solo si dice que ya pagó o le pagaron: "Netflix subió de precio" o "cuánto me cuesta Netflix" no son un pago.
+  const tipo = tipoDelTexto(texto);
+  if (!tipo || pideInformacion(texto)) return undefined;
+  const habito = habitoMencionado(ctx, texto, tipo);
   if (!habito) return undefined;
   if (!habito.seguro) return `¿Fue de ${formatearMonto(habito.montoCentavos, habito.moneda)}, como la vez pasada?`;
   const registrar = crearHerramientas(ctx, acciones).registrar_movimientos;
@@ -418,7 +430,7 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   const historial = cargarHistorial(db, usuarioId, conversacionId);
   // El Atajo solo sigue la conversación si la respuesta anterior preguntaba algo ("¿cuál café?"): lo que
   // se dice ahora la contesta, y el modelo ya sabe de cuál se habla.
-  ctx.confiarEnMasReciente = historial.length > 0;
+  ctx.enConversacion = ctx.confiarEnMasReciente = historial.length > 0;
   // Si un paso solo guardó, corrigió o borró, la confirmación se arma aquí y el modelo no da otra vuelta.
   let confirmacion: string | undefined;
   const generar = (aviso = "") => {
@@ -485,12 +497,11 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   // Si hizo algo y no espera respuesta, aprovecha para avisar de un cobro que viene. Si el iPhone ya
   // recibió "Anotado", nadie lo va a oír: se deja para el próximo dictado.
   const hablaDeCobros = acciones.some((a) => a.herramienta.endsWith("_recurrente") || a.herramienta === "listar_recurrentes");
-  const cobros = acciones.length > 0 && !texto.includes("?") && !hablaDeCobros && !enSegundoPlano.has(entrada.id) ? cobrosPorAvisar(ctx) : undefined;
+  const cobros = acciones.length > 0 && !texto.includes("?") && !hablaDeCobros && !enSegundoPlano.has(entrada.id) ? cobrosPorAvisar(ctx, loQuePago(acciones)) : undefined;
   const hablado = limpiarParaVoz(sinPreguntasDeMas(texto)) || respuestaPorOmision(acciones);
-  cobros?.marcar();
 
   const respuesta: Respuesta = {
-    respuesta: cobros ? `${hablado} ${cobros.aviso}` : hablado,
+    respuesta: cobros?.aviso ? `${hablado} ${cobros.aviso}` : hablado,
     conversacion_id: conversacionId,
     acciones,
   };
@@ -499,6 +510,8 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
       tx.insert(mensajes).values({ usuarioId, conversacionId, contenido }).run();
     }
     tx.update(entradas).set({ estado: "listo", respuesta }).where(eq(entradas.id, entrada.id)).run();
+    // Con la respuesta guardada: si algo falla antes, el aviso se da en el próximo dictado.
+    cobros?.marcar();
   });
   return respuesta;
 }

@@ -19,6 +19,8 @@ export type Contexto = {
    * reciente, `mas_reciente` se respeta aunque la frase no diga "el último".
    */
   confiarEnMasReciente?: boolean;
+  /** Hay mensajes anteriores en esta conversación: el modelo puede traer datos de turnos pasados. */
+  enConversacion?: boolean;
 };
 
 export function crearContexto(

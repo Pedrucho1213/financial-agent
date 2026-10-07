@@ -192,7 +192,7 @@ describe("memorias", () => {
     expect(await llamar(ctx, "olvidar", { buscar: "Oxxo", todas: true })).toMatchObject({ olvidado: expect.any(Array) });
     expect(await llamar(ctx, "recordar", { texto: "x".repeat(201) })).toMatchObject({ error: expect.any(String) });
     expect(await llamar(ctx, "olvidar", { buscar: "gimnasio" })).toMatchObject({ error: expect.stringContaining("No recuerdo") });
-    expect(construirInstrucciones(ctx)).not.toContain("Lo que sabes del usuario");
+    expect(construirInstrucciones(ctx)).not.toContain("Lo que sabes del usuario:");
   });
 });
 
@@ -260,5 +260,65 @@ describe("preguntas de más", () => {
     expect((await hablar("Cambia el café a 95")).respuesta).toBe("¿Cuál café, el de 60 pesos o el de 85 pesos?");
     expect((await hablar("No, fueron 70")).respuesta).toBe("Listo, quedó café de 70 pesos.");
     expect(todos(ctx).map((m) => m.monto)).toEqual(["$70", "$85"]);
+  });
+});
+
+describe("cuándo no usar el monto de siempre (revisión del PR)", () => {
+  test("una pregunta o un cambio de precio no se anotan como pago", async () => {
+    const { ctx, hablar } = montar([texto("¿A cuánto subió Netflix?"), texto("¿Cuánto te cobran ahora?")]);
+    crearRecurrente(ctx, { nombre: "Netflix", tipo: "suscripcion", monto: 219, frecuencia: "mensual", dia: 20 });
+    expect((await hablar("Netflix subió de precio")).respuesta).toBe("¿A cuánto subió Netflix?");
+    expect((await hablar("Cuánto me cuesta Netflix")).respuesta).toBe("¿Cuánto te cobran ahora?");
+    expect(todos(ctx)).toHaveLength(0);
+  });
+
+  test("Netflix no es el Disney Plus que también es de streaming", async () => {
+    const { ctx, hablar } = montar([texto("¿De cuánto fue Netflix?")]);
+    crearRecurrente(ctx, { nombre: "Disney Plus", tipo: "suscripcion", monto: 159, frecuencia: "mensual", dia: 20, categoria: "Streaming" });
+    expect((await hablar("Ya pagué Netflix")).respuesta).toBe("¿De cuánto fue Netflix?");
+    const r = await llamar(dictado(ctx, "Ya pagué Netflix"), "registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 199, comercio: "Netflix" }] });
+    expect(r.registrados[0]).toMatchObject({ monto: "$199", comercio: "Netflix" });
+    expect(r.registrados[0].monto_de_siempre).toBeUndefined();
+  });
+
+  test("no pisa un monto que viene de la conversación, de \"la mitad\" o de \"dos meses\"", async () => {
+    const { ctx } = preparar();
+    crearRecurrente(ctx, { nombre: "Netflix", tipo: "suscripcion", monto: 219, frecuencia: "mensual", dia: 20 });
+    crearRecurrente(ctx, { nombre: "Renta", tipo: "renta", monto: 7000, frecuencia: "mensual", dia: 1 });
+    const monto = async (c: Contexto, comercio: string, m: number) =>
+      (await llamar(c, "registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: m, comercio }] })).registrados[0].monto;
+    expect(await monto({ ...dictado(ctx, "con la Nu"), enConversacion: true }, "Netflix", 300)).toBe("$300");
+    expect(await monto(dictado(ctx, "Pagué dos meses de Netflix"), "Netflix", 438)).toBe("$438");
+    expect(await monto(dictado(ctx, "Pagué la mitad de la renta"), "Renta", 3500)).toBe("$3,500");
+  });
+
+  test("no avisa del cobro que se acaba de pagar, y no lo vuelve a avisar", async () => {
+    const registrarCafe = llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 85, categoria: "Café" }] });
+    const { ctx, hablar } = montar([texto("¿De cuánto fue?"), registrarCafe]);
+    // Hoy es miércoles 7 y Netflix se cobra hoy.
+    crearRecurrente(ctx, { nombre: "Netflix", tipo: "suscripcion", monto: 219, frecuencia: "mensual", dia: 7 });
+    expect((await hablar("Ya pagué Netflix")).respuesta).toBe("Listo, Netflix de 219 pesos en Streaming, como siempre.");
+    expect((await hablar("Café 85")).respuesta).toBe("Listo, café de 85 pesos.");
+  });
+});
+
+describe("frases que fallaron con la IA real", () => {
+  test("\"recuerda que cada 15 me cobran 199 de Spotify\" es un pago fijo, no un recuerdo", async () => {
+    const { ctx } = preparar();
+    const r = await llamar(dictado(ctx, "Recuerda que cada día 15 me cobran 199 de Spotify"), "recordar", { texto: "Cada día 15 cobran 199 de Spotify" });
+    expect(r.error).toContain("registrar_recurrente");
+    expect(listarMemorias(ctx)).toHaveLength(0);
+  });
+
+  test("\"borra los dos cafés de ayer\" los borra sin preguntar cuál", async () => {
+    const { ctx } = preparar();
+    crearMovimiento(ctx, { tipo: "gasto", monto: 45, categoria: "Café", comercio: "Oxxo", fecha: "ayer" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 60, categoria: "Café", comercio: "Starbucks", fecha: "ayer" });
+    const c = dictado(ctx, "Borra los dos cafés de ayer");
+    for (let i = 0; i < 2; i++) {
+      const r = await llamar(c, "eliminar_movimiento", { buscar: { texto: "café", periodo: "ayer", mas_reciente: true } });
+      expect(r.eliminado).toBeDefined();
+    }
+    expect(todos(ctx)).toHaveLength(0);
   });
 });

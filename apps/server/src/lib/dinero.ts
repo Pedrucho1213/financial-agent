@@ -35,7 +35,7 @@ const PALABRA_MONEDA: [RegExp, string][] = [
   [/^(euros?|eur)$/i, "EUR"],
 ];
 // "1,250.50" o "85"; la coma de "$219, como siempre" no es parte del número.
-const NUMERO = String.raw`(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?`;
+const NUMERO = String.raw`\d+(?:,\d+)*(?:\.\d+)?`;
 
 /**
  * Montos escritos para leerse en voz alta. La voz del iPhone lee "$50" como "50 dólares", así que

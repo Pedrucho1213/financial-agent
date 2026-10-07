@@ -3,7 +3,7 @@ import { comercios, cuentas, movimientos, recurrentes } from "../db/schema";
 import { formatearMonto } from "../lib/dinero";
 import { sumarDias } from "../lib/fechas";
 import { normalizar } from "../lib/texto";
-import { hojasMencionadas, listarCategorias, type Categoria } from "./catalogos";
+import { listarCategorias, type Categoria } from "./catalogos";
 import type { Contexto } from "./contexto";
 
 /** Algo que el usuario paga o recibe siempre por lo mismo: Netflix, la renta, la quincena. */
@@ -33,6 +33,18 @@ const CATEGORIAS_FIJAS = new Set(
 );
 // Pagos fijos que no son un comercio: se anotan como descripción ("Quincena"), no como tienda.
 const SIN_COMERCIO = /^(la |el |mi )?(quincena|nomina|salario|sueldo|renta|luz|agua|gas|internet|telefono|celular|colegiatura|mantenimiento|predial|tenencia|seguro)$/;
+// Palabras que nombran un pago fijo por su categoría, sin decir a quién: la categoría (normalizada) a la que apuntan.
+const GENERICAS: Record<string, string> = {
+  quincena: "sueldo",
+  nomina: "sueldo",
+  salario: "sueldo",
+  casero: "renta",
+  gym: "gimnasio",
+  internet: "internet y telefono",
+  telefono: "internet y telefono",
+  celular: "internet y telefono",
+  colegiatura: "educacion",
+};
 const DIAS_HISTORIAL = 180;
 const MAX_HISTORIAL = 500;
 
@@ -144,7 +156,16 @@ export function habitosMencionados(ctx: Contexto, texto: string, tipo?: Habito["
   });
   let elegidos = porNombre;
   if (!elegidos.length) {
-    const dichas = new Set([...hojasMencionadas(cats, texto, "gasto"), ...hojasMencionadas(cats, texto, "ingreso")].map((c) => c.id));
+    // Por categoría solo con palabras genéricas ("la nómina", "la renta"): "Netflix" es sinónimo de
+    // Streaming, pero no es el Disney Plus que también va ahí.
+    const dichas = new Set(
+      cats
+        .filter((c) => {
+          const nombre = normalizar(c.nombre);
+          return plano.includes(` ${nombre} `) || Object.entries(GENERICAS).some(([palabra, cat]) => cat === nombre && plano.includes(` ${palabra} `));
+        })
+        .map((c) => c.id),
+    );
     elegidos = todos.filter((h) => h.categoriaId && dichas.has(h.categoriaId) && esFija(cats, h.categoriaId));
   }
   const unicos = new Map<string, Habito>();
@@ -154,6 +175,14 @@ export function habitosMencionados(ctx: Contexto, texto: string, tipo?: Habito["
     if (!previo || (h.seguro && !previo.seguro)) unicos.set(clave, h);
   }
   return [...unicos.values()];
+}
+
+// "La mitad de la renta", "dos meses de Netflix", "una parte": no es el monto de siempre aunque no diga cuánto.
+const OTRO_MONTO = /\b(mitad|medio|media|doble|triple|parte|partes|meses|semanas|quincenas|anos|veces|cada uno|cada una|entre|resto|abono|adelanto|anticipo)\b/;
+
+/** Si la frase dice algo que cambia el monto sin decir cuánto ("la mitad", "dos meses"). */
+export function hablaDeOtroMonto(texto: string): boolean {
+  return OTRO_MONTO.test(normalizar(texto));
 }
 
 /** El hábito que nombra la frase, si es uno solo. */
@@ -182,6 +211,8 @@ export function nombreDeCuenta(ctx: Contexto, cuentaId: string | null): string |
 /**
  * Con qué paga siempre en ese comercio: si las últimas veces que dijo con qué pagó (al menos dos,
  * hasta tres) fue con la misma cuenta. Así "Uber 120" queda con la Nu si los Uber anteriores fueron con la Nu.
+ * Solo cuentan las veces en que el usuario la eligió (en la app, al dictar o al corregir), no las que se
+ * pusieron solas; y no las cuentas archivadas.
  */
 export function cuentaHabitual(ctx: Contexto, comercio: string | undefined): string | undefined {
   if (!comercio?.trim()) return undefined;
@@ -191,20 +222,36 @@ export function cuentaHabitual(ctx: Contexto, comercio: string | undefined): str
     .where(and(eq(comercios.usuarioId, ctx.usuarioId), eq(comercios.nombreNormalizado, normalizar(comercio))))
     .get();
   if (!fila) return undefined;
-  const ultimas = ctx.db
-    .select({ cuentaId: movimientos.cuentaId })
+  const recientes = ctx.db
+    .select({
+      cuentaId: movimientos.cuentaId,
+      origen: movimientos.origen,
+      textoOriginal: movimientos.textoOriginal,
+      actualizadoEn: movimientos.actualizadoEn,
+      nombre: cuentas.nombre,
+      alias: cuentas.alias,
+    })
     .from(movimientos)
+    .innerJoin(cuentas, eq(cuentas.id, movimientos.cuentaId))
     .where(
       and(
         eq(movimientos.usuarioId, ctx.usuarioId),
         eq(movimientos.comercioId, fila.id),
         isNull(movimientos.eliminadoEn),
         isNotNull(movimientos.cuentaId),
+        eq(cuentas.archivada, false),
       ),
     )
     .orderBy(desc(movimientos.ocurridoEn), desc(movimientos.creadoEn))
-    .limit(3)
+    .limit(10)
     .all();
-  if (ultimas.length < 2 || new Set(ultimas.map((u) => u.cuentaId)).size !== 1) return undefined;
-  return nombreDeCuenta(ctx, ultimas[0]!.cuentaId);
+  const elegidas = recientes
+    .filter((m) => {
+      if (m.origen !== "voz" || m.actualizadoEn || !m.textoOriginal) return true;
+      const dicho = ` ${normalizar(m.textoOriginal)} `;
+      return [m.nombre, ...m.alias].some((n) => normalizar(n).length > 0 && dicho.includes(` ${normalizar(n)} `));
+    })
+    .slice(0, 3);
+  if (elegidas.length < 2 || new Set(elegidas.map((u) => u.cuentaId)).size !== 1) return undefined;
+  return elegidas[0]!.nombre;
 }

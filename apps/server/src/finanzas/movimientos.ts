@@ -288,7 +288,7 @@ export function idDelMovimiento(ctx: Contexto, id?: string, buscar?: Busqueda): 
     const d = describir(ctx, m, cats);
     return `${d.comercio ?? d.categoria ?? d.tipo} de ${d.monto} del ${d.fecha} (id ${d.id})`;
   });
-  throw new ErrorFinanzas(`Coinciden ${filas.length}: ${opciones.join("; ")}. Pregunta cuál o usa su id.`);
+  throw new ErrorFinanzas(`Coinciden ${filas.length}: ${opciones.join("; ")}. Pregunta cuál; si pidió borrar o cambiar varios, usa el id de cada uno.`);
 }
 
 export function editarMovimiento(ctx: Contexto, id: string, cambios: Partial<DatosMovimiento>) {
