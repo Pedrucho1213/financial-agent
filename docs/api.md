@@ -94,13 +94,15 @@ Montos en centavos. Todo se puede hacer también por voz (`/v1/hablar`), y lo qu
 | `PUT /v1/presupuestos` | `{ categoria_id, limite }` (`categoria_id` null u omitido = presupuesto general del mes) | `Presupuesto`; crea o cambia, uno por categoría |
 | `DELETE /v1/presupuestos/:id` | | `{ ok: true }` |
 | `GET /v1/metas` | | `{ metas: Meta[] }` |
-| `POST /v1/metas` | `{ nombre, objetivo, ahorrado?, fecha_limite? }` (AAAA-MM-DD; una fecha pasada se mueve al año siguiente) | 201 `Meta` |
+| `POST /v1/metas` | `{ nombre, objetivo, ahorrado?, fecha_limite? }` (AAAA-MM-DD, de hoy en adelante; una fecha pasada da 400) | 201 `Meta` |
 | `PATCH /v1/metas/:id` | `{ nombre?, objetivo?, fecha_limite? }` (`null` quita la fecha) | `Meta` |
 | `POST /v1/metas/:id/aportes` | `{ monto }` (negativo = retiro; no puede quedar debajo de cero) | `Meta` |
 | `DELETE /v1/metas/:id` | | `{ ok: true }` |
 | `GET /v1/prestamos?todos=1` | sin `todos`, solo los pendientes | `{ prestamos: Prestamo[], meDebenCentavos, deboCentavos }` |
 | `GET /v1/msi?todas=1` | sin `todas`, solo las que tienen cargos por venir | `{ compras: CompraMsi[], mensualCentavos }` |
 | `GET /v1/disponible` | | ver abajo ("¿cuánto puedo gastar hoy?") |
+
+Los presupuestos y "¿cuánto puedo gastar hoy?" cuentan solo lo que está en pesos (la moneda base); un gasto en dólares no suma.
 
 ```ts
 type Presupuesto = {
@@ -126,7 +128,9 @@ type Prestamo = {
 };
 type CompraMsi = {
   id: string; descripcion: string; totalCentavos: number; meses: number; mensualidadCentavos: number;
-  primerCargo: string; pagadas: number; restanteCentavos: number; proximoCargo: string | null; cuenta: string | null;
+  primerCargo: string; pagadas: number; restanteCentavos: number; proximoCargo: string | null;
+  proximoMontoCentavos: number | null; // la última mensualidad absorbe el redondeo
+  cuenta: string | null;
 };
 ```
 

@@ -38,6 +38,8 @@ const esquemaEdicionMeta = z.object({
 const esquemaAporte = z.object({ monto: z.coerce.number().refine((n) => n !== 0 && Math.abs(n) <= 1e10, "El monto no puede ser cero.") });
 
 type Errores = { error: string; detalles?: unknown };
+// La app elige la fecha en un calendario: una fecha pasada es un error, no "la del año que viene" como en la voz.
+const fechaPasada: Errores = { error: "Datos inválidos.", detalles: { fecha_limite: ["La fecha límite ya pasó."] } };
 const invalido = (error: z.ZodError): Errores => ({ error: "Datos inválidos.", detalles: z.flattenError(error).fieldErrors });
 
 /**
@@ -64,14 +66,18 @@ export function rutasPlanes(v1: Hono<{ Variables: VariablesAuth }>, contexto: (u
     const cuerpo = esquemaMeta.safeParse(await c.req.json().catch(() => null));
     if (!cuerpo.success) return c.json(invalido(cuerpo.error), 400);
     const d = cuerpo.data;
-    return c.json(crearMeta(contexto(c.get("usuarioId")), { nombre: d.nombre, objetivo: d.objetivo, ahorrado: d.ahorrado, fechaLimite: d.fecha_limite }), 201);
+    const ctx = contexto(c.get("usuarioId"));
+    if (d.fecha_limite && d.fecha_limite < ctx.hoy) return c.json(fechaPasada, 400);
+    return c.json(crearMeta(ctx, { nombre: d.nombre, objetivo: d.objetivo, ahorrado: d.ahorrado, fechaLimite: d.fecha_limite }), 201);
   });
 
   v1.patch("/metas/:id", async (c) => {
     const cuerpo = esquemaEdicionMeta.safeParse(await c.req.json().catch(() => null));
     if (!cuerpo.success) return c.json(invalido(cuerpo.error), 400);
     const { nombre, objetivo, fecha_limite } = cuerpo.data;
-    return c.json(editarMeta(contexto(c.get("usuarioId")), { id: c.req.param("id"), cambios: { nombre, objetivo, fechaLimite: fecha_limite } }));
+    const ctx = contexto(c.get("usuarioId"));
+    if (fecha_limite && fecha_limite < ctx.hoy) return c.json(fechaPasada, 400);
+    return c.json(editarMeta(ctx, { id: c.req.param("id"), cambios: { nombre, objetivo, fechaLimite: fecha_limite } }));
   });
 
   v1.post("/metas/:id/aportes", async (c) => {

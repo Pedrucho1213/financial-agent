@@ -93,7 +93,7 @@ const PIDE_VARIOS = new RegExp(
 
 // "A 12 meses sin intereses", "compré unos tenis a 6 meses": no es un gasto de una vez. Pagar una
 // mensualidad ("la mensualidad de la pantalla") sí es un gasto.
-const ES_MSI = /\b(meses sin intereses|msi)\b|\b(compre|saque|me lleve)\b.*\ba (\d+|tres|seis|nueve|doce|dieciocho|veinticuatro) meses\b/;
+const ES_MSI = /\b(meses sin intereses|msi)\b|\b(compre|saque|me lleve)\b.*\ba (\d+|tres|seis|nueve|doce|dieciocho|veinticuatro) meses\b(?! con intereses)/;
 const PAGA_MENSUALIDAD = /\b(mensualidad|mensualidades|pago de|abono de)\b/;
 // "Recuerda que mi último gasto no fue de dólares": corrige un registro, no es un dato para recordar.
 const CORRIGE_REGISTRO =
@@ -131,11 +131,15 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
   // pregunte; si pidió varios ("borra los tacos"), que use el id de cada uno. "Fueron 70" a secas, sin
   // nombrar nada, sí es lo último que anotó.
   const pideVarios = !!ctx.textoOriginal && PIDE_VARIOS.test(normalizar(ctx.textoOriginal));
-  const comoLoDijo = <B extends { texto?: string; categoria?: string; mas_reciente?: boolean }>(buscar?: B): B | undefined => {
-    const nombraAlgo = !!(buscar?.texto || buscar?.categoria);
+  // "Mi último gasto" no es un ingreso que llegó después.
+  const tipoDicho = normalizar(ctx.textoOriginal ?? "").match(/\bultimo (gasto|ingreso)\b/)?.[1] as "gasto" | "ingreso" | undefined;
+  const comoLoDijo = <B extends { texto?: string; categoria?: string; mas_reciente?: boolean }>(buscar?: B): (B & { tipo?: "gasto" | "ingreso" }) | undefined => {
+    if (!buscar) return buscar;
+    const nombraAlgo = !!(buscar.texto || buscar.categoria);
     const senala =
       !pideVarios && (ctx.confiarEnMasReciente || !ctx.textoOriginal || SENALA_UNO.test(normalizar(ctx.textoOriginal)));
-    return buscar?.mas_reciente && nombraAlgo && !senala ? { ...buscar, mas_reciente: false } : buscar;
+    const conTipo = tipoDicho ? { ...buscar, tipo: tipoDicho } : buscar;
+    return buscar.mas_reciente && nombraAlgo && !senala ? { ...conTipo, mas_reciente: false } : conTipo;
   };
 
   // "Spotify me cobra 10 dólares": la moneda de la frase manda si el modelo no dijo otra.

@@ -411,6 +411,9 @@ describe("API para la app", () => {
     expect(r.cuerpo.presupuestos.map((p: any) => p.categoriaId)).toEqual([null, comida.id]);
     expect((await pedir(`/v1/presupuestos/${r.cuerpo.presupuestos[1].id}`, "DELETE")).cuerpo).toEqual({ ok: true });
 
+    // En la app la fecha se elige: una que ya pasó, o que no existe, es un error.
+    expect((await pedir("/v1/metas", "POST", { nombre: "Viaje", objetivo: 10000, fecha_limite: "2025-01-15" })).estado).toBe(400);
+    expect((await pedir("/v1/metas", "POST", { nombre: "Viaje", objetivo: 10000, fecha_limite: "2027-02-30" })).estado).toBe(400);
     r = await pedir("/v1/metas", "POST", { nombre: "Viaje", objetivo: 10000, fecha_limite: "2027-12-31" });
     expect(r.estado).toBe(201);
     const id = r.cuerpo.id;
@@ -641,5 +644,37 @@ describe("casos de la revisión de código", () => {
     expect(() => fechaLimiteDe(ctx, "marzo de 2026")).toThrow(/ya pasó/);
     // Fin de febrero que cae en bisiesto.
     expect(fechaLimiteDe(otroDia(ctx, "2027-03-07"), "para febrero")).toBe("2028-02-29");
+  });
+
+  test('"mi último gasto" es el último gasto que anotó, no un ingreso ni uno con fecha más nueva', async () => {
+    const { ctx } = preparar();
+    gasto(ctx, 85, "Café");
+    crearMovimiento({ ...ctx, entradaId: "previa2" }, { tipo: "gasto", monto: 20, moneda: "USD", categoria: "Taxi y apps", comercio: "Uber", fecha: "ayer" });
+    crearMovimiento({ ...ctx, entradaId: "previa3" }, { tipo: "ingreso", monto: 500, categoria: "Otros ingresos" });
+    const r = await llamar(dictado(ctx, "mi último gasto no fue en dólares, fue en pesos"), "editar_movimiento", {
+      buscar: { mas_reciente: true },
+      cambios: { moneda: "MXN" },
+    });
+    expect(r.error).toBeUndefined();
+    const uber = buscarMovimientos(ctx, { texto: "Uber" }).movimientos[0]!;
+    expect(uber.monto).toBe("$20");
+  });
+
+  test("deshacer una compra a meses quita las mensualidades del revisor; la última dice su monto exacto", () => {
+    const { ctx } = preparar();
+    const compra = { ...ctx, entradaId: "compra" };
+    registrarMsi(compra, { descripcion: "pantalla", total: 1000, meses: 3 });
+    const diciembre = otroDia(ctx, "2026-12-06");
+    revisar(diciembre);
+    expect(listarAvisos(diciembre).avisos.find((a) => a.tipo === "msi")?.texto).toBe("Mañana llega la mensualidad 3 de 3 de Pantalla: $333.34.");
+    expect(buscarMovimientos(diciembre, { texto: "MSI", periodo: "2026-10-01..2026-12-31" }).encontrados).toBe(2);
+    revertirEntrada(diciembre, "compra");
+    expect(buscarMovimientos(diciembre, { texto: "MSI", periodo: "2026-10-01..2026-12-31" }).encontrados).toBe(0);
+  });
+
+  test('"a 6 meses con intereses" no es una compra a meses sin intereses', async () => {
+    const { ctx } = preparar();
+    const r = await llamar(dictado(ctx, "compré un celular de 6 mil a 6 meses con intereses"), "registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 6000 }] });
+    expect(r.registrados).toHaveLength(1);
   });
 });

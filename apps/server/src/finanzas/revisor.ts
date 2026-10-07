@@ -227,7 +227,7 @@ function cobrosProximos(ctx: Contexto): AvisoNuevo[] {
       tipo: "msi",
       clave: `msi:${c.id}:${c.proximoCargo}`,
       titulo: `Mensualidad de ${c.descripcion}`,
-      texto: `${cuando(c.proximoCargo!)} llega la mensualidad ${c.pagadas + 1} de ${c.meses} de ${c.descripcion}: ${$(ctx, c.mensualidadCentavos)}.`,
+      texto: `${cuando(c.proximoCargo!)} llega la mensualidad ${c.pagadas + 1} de ${c.meses} de ${c.descripcion}: ${$(ctx, c.proximoMontoCentavos ?? c.mensualidadCentavos)}.`,
       vence: c.proximoCargo,
       prioridad: 2,
       enlace: "#inicio",

@@ -590,6 +590,7 @@ export function msiApp(ctx: Contexto, c: CompraMsi, cuentas?: Map<string, string
     pagadas,
     restanteCentavos: c.totalCentavos - pagado,
     proximoCargo: pagadas < c.meses ? fechaDelCargo(c, pagadas) : null,
+    proximoMontoCentavos: pagadas < c.meses ? montoDelCargo(c, pagadas) : null,
     cuenta: c.cuentaId ? (cuentas?.get(c.cuentaId) ?? null) : null,
   };
 }

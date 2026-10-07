@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import {
   bitacora,
   comercios,
@@ -341,7 +341,17 @@ export function idDelMovimiento(ctx: Contexto, id?: string, buscar?: Busqueda, v
   if (filas.length === 0) {
     throw new ErrorFinanzas("No encontré ningún movimiento con esos datos. Prueba con menos filtros.");
   }
-  if (filas.length === 1 || buscar.mas_reciente) return filas[0]!.id;
+  if (filas.length === 1) return filas[0]!.id;
+  // "El último" es lo último que anotó, aunque sea de ayer: no un gasto con fecha de hoy anotado antes.
+  if (buscar.mas_reciente) {
+    return ctx.db
+      .select({ id: movimientos.id })
+      .from(movimientos)
+      .where(inArray(movimientos.id, filas.map((m) => m.id)))
+      .orderBy(desc(movimientos.creadoEn), desc(sql`rowid`))
+      .limit(1)
+      .get()!.id;
+  }
   const opciones = filas.slice(0, 5).map((m) => {
     const d = describir(ctx, m, cats);
     return `${d.comercio ?? d.categoria ?? d.tipo} de ${d.monto} del ${d.fecha} (id ${d.id})`;
@@ -515,6 +525,13 @@ function revertir(ctx: Contexto, grupo: CambioBitacora[], por?: string) {
             ? { eliminadoEn: ahora }
             : valoresDePlan(tabla, cambio.registroId, (cambio.despues ?? {}) as Record<string, unknown>, (cambio.antes ?? {}) as Record<string, unknown>, tx);
         if (Object.keys(valores).length) tx.update(tabla).set(valores).where(eq(tabla.id, cambio.registroId)).run();
+        // Deshacer una compra a meses quita también las mensualidades que el revisor anotó solo.
+        if (cambio.tabla === "compras_msi" && cambio.accion === "crear") {
+          tx.update(movimientos)
+            .set({ eliminadoEn: ahora })
+            .where(and(eq(movimientos.msiId, cambio.registroId), isNull(movimientos.eliminadoEn)))
+            .run();
+        }
       }
       tx.update(bitacora).set({ deshechoEn: ahora, deshechoPor: por ?? null }).where(eq(bitacora.id, cambio.id)).run();
       revertidos.push(`${cambio.accion} en ${cambio.tabla}`);
@@ -547,6 +564,12 @@ function rehacer(ctx: Contexto, grupo: CambioBitacora[]) {
             ? { eliminadoEn: null }
             : valoresDePlan(tabla, cambio.registroId, (cambio.antes ?? {}) as Record<string, unknown>, despues as Record<string, unknown>, tx);
         if (Object.keys(valores).length) tx.update(tabla).set(valores).where(eq(tabla.id, cambio.registroId)).run();
+        if (cambio.tabla === "compras_msi" && cambio.accion === "crear" && cambio.deshechoEn) {
+          tx.update(movimientos)
+            .set({ eliminadoEn: null })
+            .where(and(eq(movimientos.msiId, cambio.registroId), eq(movimientos.eliminadoEn, cambio.deshechoEn)))
+            .run();
+        }
       }
       tx.update(bitacora).set({ deshechoEn: null, deshechoPor: null }).where(eq(bitacora.id, cambio.id)).run();
     }
