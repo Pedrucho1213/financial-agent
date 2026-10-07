@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNotNull, isNull, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
 import { comercios, cuentas, memorias, movimientos, recurrentes } from "../db/schema";
 import { formatearMonto } from "../lib/dinero";
 import { sumarDias } from "../lib/fechas";
@@ -278,13 +278,23 @@ const PARA_TODO = /^(casi )?(siempre |normalmente |por lo general )?(paga|pago|u
  * "Siempre paga con la Nu", para lo demás. `pistas`: comercio, subcategoría y descripción del gasto.
  */
 export function cuentaRecordada(ctx: Contexto, pistas: (string | null | undefined)[]): { cuenta: string; paraTodo: boolean } | undefined {
-  const recuerdos = ctx.db.select({ texto: memorias.texto }).from(memorias).where(eq(memorias.usuarioId, ctx.usuarioId)).all();
+  // Lo más reciente primero: "ahora pago con la Nu" manda sobre lo que dijo antes.
+  const recuerdos = ctx.db
+    .select({ texto: memorias.texto })
+    .from(memorias)
+    .where(eq(memorias.usuarioId, ctx.usuarioId))
+    .orderBy(desc(memorias.creadoEn), desc(sql`rowid`))
+    .all();
   if (recuerdos.length === 0) return undefined;
   const conocidas = ctx.db
     .select({ nombre: cuentas.nombre, alias: cuentas.alias })
     .from(cuentas)
     .where(and(eq(cuentas.usuarioId, ctx.usuarioId), eq(cuentas.archivada, false)))
     .all();
+  const opciones = [
+    ...conocidas.map((c) => ({ cuenta: c.nombre, nombres: [c.nombre, ...c.alias] })),
+    ...FORMAS_DE_PAGO.map((f) => ({ cuenta: f.replace(/^./, (l) => l.toUpperCase()), nombres: [f] })),
+  ];
   const palabras = pistas
     .filter((p): p is string => !!p?.trim())
     .map((p) => normalizar(p))
@@ -293,12 +303,33 @@ export function cuentaRecordada(ctx: Contexto, pistas: (string | null | undefine
   for (const { texto } of recuerdos) {
     const plano = normalizar(texto);
     const enTexto = (n: string) => !!n && ` ${plano} `.includes(` ${normalizar(n)} `);
-    if (!/\b(paga|pago|pagar|usa|uso|con|en)\b/.test(plano)) continue;
-    const cuenta =
-      conocidas.find((c) => [c.nombre, ...c.alias].some(enTexto))?.nombre ?? FORMAS_DE_PAGO.find((f) => enTexto(f))?.replace(/^./, (l) => l.toUpperCase());
+    if (!/\b(paga|pagas|pago|pagar|usa|usas|uso|usar)\b/.test(plano)) continue;
+    const cuenta = cuentaMencionada(plano, opciones);
     if (!cuenta) continue;
     if (palabras.some((p) => enTexto(p))) return { cuenta, paraTodo: false };
     if (PARA_TODO.test(plano)) general ??= cuenta;
   }
   return general ? { cuenta: general, paraTodo: true } : undefined;
+}
+
+/**
+ * La cuenta que dice un recuerdo. Si nombra varias, la última que no esté negada:
+ * "El Uber ya no lo pago con la BBVA, ahora con la Nu" es la Nu.
+ */
+function cuentaMencionada(plano: string, opciones: { cuenta: string; nombres: string[] }[]) {
+  const menciones = opciones.flatMap(({ cuenta, nombres }) =>
+    nombres.flatMap((n) => {
+      const buscado = normalizar(n);
+      if (!buscado) return [];
+      const lugares: { cuenta: string; en: number }[] = [];
+      const patron = new RegExp(`\\b${buscado.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g");
+      for (const m of plano.matchAll(patron)) lugares.push({ cuenta, en: m.index });
+      return lugares;
+    }),
+  );
+  const negada = (en: number) => /\b(no|nunca|ya no)\b( \S+){0,4} $/.test(plano.slice(0, en)) && !/\b(sino|ahora|mejor)\b/.test(plano.slice(Math.max(0, en - 20), en));
+  return menciones
+    .filter((m) => !negada(m.en))
+    .sort((a, b) => a.en - b.en)
+    .at(-1)?.cuenta;
 }

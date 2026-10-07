@@ -126,7 +126,11 @@ export function estadoPresupuestos(ctx: Contexto, mesPedido?: string) {
   // El general primero; luego del más apretado al más holgado.
   lista.sort((a, b) => Number(b.categoriaId === null) - Number(a.categoriaId === null) || b.porcentaje - a.porcentaje);
   const general = lista.find((p) => p.categoriaId === null);
-  const porCategoria = lista.filter((p) => p.categoriaId !== null);
+  // "Comida > Restaurantes" ya cuenta dentro de "Comida" si las dos tienen presupuesto.
+  const conPresupuesto = lista.filter((p) => p.categoriaId !== null).map((p) => p.categoriaId!);
+  const porCategoria = lista.filter(
+    (p) => p.categoriaId !== null && !conPresupuesto.some((otra) => otra !== p.categoriaId && idsConHijas(cats, otra).includes(p.categoriaId!)),
+  );
   return {
     mes,
     hoy: ctx.hoy,
@@ -269,10 +273,25 @@ export function listarMetas(ctx: Contexto) {
 /** "Para diciembre", "en marzo", "2027-06-30", "el 15 de diciembre": el último día de ese plazo. */
 export function fechaLimiteDe(ctx: Contexto, texto: string | null | undefined): string | null {
   if (!texto?.trim()) return null;
+  let fecha: string;
   if (/^\d{4}-\d{2}-\d{2}$/.test(texto.trim())) {
-    if (texto.trim() < ctx.hoy) throw new ErrorFinanzas("La fecha límite ya pasó.");
-    return texto.trim();
+    if (!esFechaValida(texto.trim())) throw new ErrorFinanzas(`La fecha "${texto}" no existe.`);
+    fecha = texto.trim();
+  } else {
+    fecha = fechaLimiteDicha(ctx, texto);
   }
+  // Una meta siempre es a futuro: "para marzo" dicho en octubre es el marzo que viene.
+  while (fecha < ctx.hoy) fecha = sumarMeses(fecha, 12);
+  return fecha;
+}
+
+/** Un AAAA-MM-DD que de verdad existe (sin 2026-02-30 ni 2026-13-01). */
+export function esFechaValida(fecha: string) {
+  const [anio, mes, dia] = fecha.split("-").map(Number) as [number, number, number];
+  return mes >= 1 && mes <= 12 && dia >= 1 && dia <= ultimoDiaDelMes(anio, mes);
+}
+
+function fechaLimiteDicha(ctx: Contexto, texto: string): string {
   const limpio = normalizar(texto).replace(/^(para|en|antes de|a|hasta)( el)? /, "");
   const anioDicho = limpio.match(/\b(20\d\d)\b/)?.[1];
   const sinAnio = limpio.replace(/\s*(de |del )?20\d\d\b/, "").trim();
@@ -281,10 +300,11 @@ export function fechaLimiteDe(ctx: Contexto, texto: string | null | undefined): 
   let fecha = periodo?.hasta ?? dia;
   if (!fecha) throw new ErrorFinanzas(`No entendí la fecha "${texto}". Usa un mes ("diciembre") o AAAA-MM-DD.`);
   if (anioDicho && !fecha.startsWith(anioDicho)) fecha = `${anioDicho}${fecha.slice(4)}`;
-  // Una meta siempre es a futuro: "para marzo" dicho en octubre es el marzo que viene.
-  while (fecha < ctx.hoy) fecha = sumarMeses(fecha, 12);
   return fecha;
 }
+
+const PREFIJO_META = /^(el|la|los|las|mi|mis|meta|metas|para|de|del|al|a) /;
+const VACIAS = new Set(["del", "las", "los", "para", "meta", "mis", "con", "que", "una", "por"]);
 
 /** La meta que nombra ("el viaje", "mi fondo de emergencia"); si solo hay una y no la nombra, esa. */
 function encontrarMeta(ctx: Contexto, nombre: string | undefined, id?: string): Meta {
@@ -294,10 +314,12 @@ function encontrarMeta(ctx: Contexto, nombre: string | undefined, id?: string): 
     if (!porId) throw new ErrorFinanzas("No encontré esa meta.");
     return porId;
   }
-  const buscado = normalizar(nombre ?? "").replace(/^(el|la|los|las|mi|mis|meta|para|de|del) /g, "").replace(/^(el|la|mi) /, "");
+  // "La meta del viaje" → "viaje".
+  let buscado = normalizar(nombre ?? "");
+  while (PREFIJO_META.test(buscado)) buscado = buscado.replace(PREFIJO_META, "");
   if (!buscado && activas.length === 1) return activas[0]!;
   const exactas = activas.filter((m) => normalizar(m.nombre) === buscado);
-  const palabras = buscado.split(" ").filter((p) => p.length > 2);
+  const palabras = buscado.split(" ").filter((p) => p.length > 2 && !VACIAS.has(p));
   const parecidas = exactas.length
     ? exactas
     : activas.filter((m) => {
@@ -559,21 +581,28 @@ export function registrarMensualidades(ctx: Contexto, opciones: { soloCompra?: s
     if (soloCompra && c.id !== soloCompra) continue;
     const hechos = cargosHechos(c, ctx.hoy);
     if (hechos === 0) continue;
+    // También las borradas: si el usuario quitó o movió una mensualidad, no se vuelve a crear.
     const anteriores = ctx.db
-      .select({ fecha: movimientos.fecha, categoriaId: movimientos.categoriaId })
+      .select({ fecha: movimientos.fecha, descripcion: movimientos.descripcion, categoriaId: movimientos.categoriaId, eliminadoEn: movimientos.eliminadoEn })
       .from(movimientos)
-      .where(and(eq(movimientos.usuarioId, ctx.usuarioId), eq(movimientos.msiId, c.id), isNull(movimientos.eliminadoEn)))
+      .where(and(eq(movimientos.usuarioId, ctx.usuarioId), eq(movimientos.msiId, c.id)))
       .orderBy(asc(movimientos.fecha))
       .all();
-    const yaRegistradas = new Set(anteriores.map((m) => m.fecha));
+    // Cada mensualidad se reconoce por su número ("3 de 12 MSI"); si le cambiaron el texto, por su fecha.
+    const yaRegistradas = new Set(
+      anteriores.map((m) => {
+        const k = m.descripcion?.match(/\((\d+) de \d+ MSI\)$/)?.[1];
+        return k ? Number(k) - 1 : Array.from({ length: c.meses }, (_, n) => n).find((n) => fechaDelCargo(c, n) === m.fecha) ?? -1;
+      }),
+    );
     // La categoría de la mensualidad anterior (quizá ya corregida) vale para las siguientes.
-    let categoriaId = anteriores.at(-1)?.categoriaId ?? undefined;
+    let categoriaId = anteriores.filter((m) => !m.eliminadoEn).at(-1)?.categoriaId ?? undefined;
     const cuenta = c.cuentaId ? nombresDeCuentas(ctx).get(c.cuentaId) : undefined;
     // Solo las de los últimos dos meses: una compra vieja dada de alta hoy no llena el historial.
     const desde = sumarMeses(ctx.hoy, -2);
     for (let n = 0; n < hechos; n++) {
       const fecha = fechaDelCargo(c, n);
-      if (fecha < desde || yaRegistradas.has(fecha)) continue;
+      if (fecha < desde || yaRegistradas.has(n)) continue;
       const creado = crearMovimiento(
         { ...ctx, textoOriginal: undefined },
         {
@@ -602,7 +631,11 @@ export function registrarMsi(ctx: Contexto, datos: { descripcion: string; total:
   if (!descripcion) throw new ErrorFinanzas("Falta qué compró.");
   validarMonto(datos.total, "El total");
   if (!Number.isInteger(datos.meses) || datos.meses < 2 || datos.meses > 48) throw new ErrorFinanzas("Los meses deben estar entre 2 y 48.");
-  const primerCargo = resolverFecha(datos.fecha, ctx.hoy) ?? ctx.hoy;
+  let primerCargo = resolverFecha(datos.fecha, ctx.hoy) ?? ctx.hoy;
+  // "El primer cargo es el 15 de noviembre" dicho en octubre es el que viene, no el del año pasado.
+  if (primerCargo < ctx.hoy && !/\b20\d\d\b/.test(datos.fecha ?? "") && sumarMeses(primerCargo, 12) <= sumarMeses(ctx.hoy, 2)) {
+    primerCargo = sumarMeses(primerCargo, 12);
+  }
   const total = aCentavos(datos.total);
   const fila = ctx.db
     .insert(comprasMsi)
@@ -635,6 +668,64 @@ function cobrosEntre(r: Pick<typeof recurrentes.$inferSelect, "frecuencia" | "di
     dia = sumarDias(proximo, 1);
   }
   return fechas;
+}
+
+/** Los gastos desde una fecha, con el texto en que se buscan los pagos fijos (descripción, dictado y comercio). */
+function pagosRecientes(ctx: Contexto, desde: string) {
+  const nombresComercio = new Map(
+    ctx.db
+      .select({ id: comercios.id, nombre: comercios.nombreNormalizado })
+      .from(comercios)
+      .where(eq(comercios.usuarioId, ctx.usuarioId))
+      .all()
+      .map((c) => [c.id, c.nombre]),
+  );
+  return gastosEntre(ctx, desde, ctx.hoy).map((m) => ({
+    fecha: m.fecha,
+    recurrenteId: m.recurrenteId,
+    montoCentavos: m.montoCentavos,
+    texto: normalizar([m.descripcion, m.textoOriginal].filter(Boolean).join(" ")),
+    comercio: m.comercioId ? (nombresComercio.get(m.comercioId) ?? "") : "",
+  }));
+}
+
+/** El cobro anterior a `fecha` de un pago fijo. */
+function cobroAnterior(r: Pick<typeof recurrentes.$inferSelect, "frecuencia">, fecha: string) {
+  switch (r.frecuencia) {
+    case "semanal":
+      return sumarDias(fecha, -7);
+    case "quincenal":
+      return sumarDias(fecha, -15);
+    case "mensual":
+      return sumarMeses(fecha, -1);
+    case "anual":
+      return sumarMeses(fecha, -12);
+  }
+}
+
+const PALABRAS_VACIAS = new Set(["pago", "pagos", "cobro", "del", "las", "los", "para", "mensual", "mensualidad", "plan", "cuota"]);
+
+/**
+ * Si ya hay un gasto de este pago fijo después del cobro anterior y hasta hoy. Coincide por el nombre
+ * en cualquier sentido ("renta" y "Renta del departamento"), por el comercio, o por la primera palabra
+ * que distingue al pago si el monto se parece.
+ */
+function yaSePago(
+  r: Pick<typeof recurrentes.$inferSelect, "id" | "nombre" | "montoCentavos">,
+  despuesDe: string,
+  hasta: string,
+  pagos: ReturnType<typeof pagosRecientes>,
+) {
+  const nombre = normalizar(r.nombre);
+  const clave = nombre.split(" ").find((p) => p.length > 3 && !PALABRAS_VACIAS.has(p));
+  const contiene = (texto: string, parte: string) => !!parte && new RegExp(`\\b${parte.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(texto);
+  return pagos.some((m) => {
+    if (m.fecha <= despuesDe || m.fecha > hasta) return false;
+    if (m.recurrenteId === r.id) return true;
+    if (contiene(m.texto, nombre) || (m.comercio.length > 3 && (contiene(nombre, m.comercio) || contiene(m.comercio, nombre)))) return true;
+    const montoParecido = m.montoCentavos >= r.montoCentavos * 0.5 && m.montoCentavos <= r.montoCentavos * 1.5;
+    return !!clave && montoParecido && (contiene(m.texto, clave) || contiene(m.comercio, clave));
+  });
 }
 
 /**
@@ -681,23 +772,13 @@ export function disponible(ctx: Contexto) {
     .reduce((s, r) => s + cobrosEntre(r, desde, hasta).length * r.montoCentavos, 0);
   const ingresos = Math.max(ingresosRegistrados, ingresosEsperados);
 
-  // Lo que falta pagar este mes. Un cobro de hoy que ya se anotó (por su nombre) no se cuenta dos veces.
-  const pagadoHoy = gastos
-    .filter((m) => m.fecha === ctx.hoy)
-    .map((m) => normalizar([m.descripcion, m.textoOriginal].filter(Boolean).join(" ")));
-  const nombresComercio = new Map(
-    ctx.db
-      .select({ id: comercios.id, nombre: comercios.nombreNormalizado })
-      .from(comercios)
-      .where(eq(comercios.usuarioId, ctx.usuarioId))
-      .all()
-      .map((c) => [c.id, c.nombre]),
-  );
-  for (const m of gastos.filter((m) => m.fecha === ctx.hoy && m.comercioId)) pagadoHoy.push(nombresComercio.get(m.comercioId!) ?? "");
+  // Lo que falta pagar este mes. Un cobro que ya se anotó en este ciclo (por su nombre) no se cuenta
+  // dos veces: la renta del 10 pagada el 5 ya está en lo gastado.
+  const pagados = pagosRecientes(ctx, sumarMeses(desde, -1));
   const porPagarFijos = fijos
     .filter((r) => r.tipo !== "ingreso")
-    .flatMap((r) => cobrosEntre(r, ctx.hoy, hasta).map((f) => ({ r, f })))
-    .filter(({ r, f }) => f > ctx.hoy || !pagadoHoy.some((t) => t.includes(normalizar(r.nombre))))
+    .flatMap((r) => cobrosEntre(r, ctx.hoy, hasta).map((f, i) => ({ r, f, i })))
+    .filter(({ r, f, i }) => i > 0 || !yaSePago(r, cobroAnterior(r, f), ctx.hoy, pagados))
     .reduce((s, { r }) => s + r.montoCentavos, 0);
   const mensualidades = ctx.db
     .select({ fecha: movimientos.fecha, msiId: movimientos.msiId })
@@ -711,7 +792,7 @@ export function disponible(ctx: Contexto) {
       ),
     )
     .reduce((s, { c, n }) => s + montoDelCargo(c, n), 0);
-  const comprometido = porPagarFijos + porPagarMsi;
+  let comprometido = porPagarFijos + porPagarMsi;
 
   let base: "ingresos" | "presupuestos" | null = null;
   let libreMes = 0;
@@ -729,6 +810,8 @@ export function disponible(ctx: Contexto) {
     } else if (estado.presupuestos.length) {
       base = "presupuestos";
       libreMes = estado.total.limiteCentavos - estado.total.gastadoCentavos;
+      // Los presupuestos por categoría ya incluyen lo que se paga en ellas: no se aparta nada aparte.
+      comprometido = 0;
       const cats = listarCategorias(ctx.db, ctx.usuarioId);
       const cubiertas = new Set(estado.presupuestos.flatMap((p) => idsConHijas(cats, p.categoriaId!)));
       gastadoHoyBase = gastos.filter((m) => m.fecha === ctx.hoy && m.categoriaId && cubiertas.has(m.categoriaId)).reduce((s, m) => s + m.montoCentavos, 0);

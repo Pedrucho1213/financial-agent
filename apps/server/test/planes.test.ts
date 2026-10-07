@@ -4,7 +4,8 @@ import { crearHerramientas } from "../src/ai/herramientas";
 import { construirInstrucciones } from "../src/ai/instrucciones";
 import { crearApp } from "../src/app";
 import { crearDispositivo } from "../src/auth";
-import { entradas } from "../src/db/schema";
+import { eq } from "drizzle-orm";
+import { entradas, movimientos } from "../src/db/schema";
 import { avisoDelDia, avisosPorEnviar, guardarAviso, listarAvisos, marcarEnviados } from "../src/finanzas/avisos";
 import { listarCategorias } from "../src/finanzas/catalogos";
 import { type Contexto, crearContexto } from "../src/finanzas/contexto";
@@ -447,4 +448,123 @@ test("un dictado que falla a medias no deja metas ni préstamos duplicados", () 
   // Y el reintento puede volver a crearlos.
   crearMeta(ctx, { nombre: "Viaje", objetivo: 1000 });
   expect(listarMetas(ctx).metas).toHaveLength(1);
+});
+
+describe("casos de la revisión de código", () => {
+  test("los atajos a meta, préstamo o MSI no se roban gastos normales", async () => {
+    const { ctx } = preparar();
+    crearMeta(ctx, { nombre: "Carro nuevo", objetivo: 100000 });
+    registrarPrestamo(ctx, { persona: "Luz", direccion: "me_deben", monto: 300 });
+    registrarMsi(ctx, { descripcion: "pantalla", total: 12000, meses: 12 });
+    const gastoDe = (monto: number) => ({ movimientos: [{ tipo: "gasto", monto }] });
+    for (const [frase, monto] of [
+      ["le puse 500 de gasolina al carro", 500],
+      ["ya le pagué la luz, 800", 800],
+      ["pagué la mensualidad de la pantalla de meses sin intereses, 1000", 1000],
+    ] as const) {
+      expect((await llamar(dictado(ctx, frase), "registrar_movimientos", gastoDe(monto))).registrados).toHaveLength(1);
+    }
+    // Y los que sí son lo siguen siendo.
+    expect((await llamar(dictado(ctx, "Luz ya me pagó 300"), "registrar_movimientos", { movimientos: [{ tipo: "ingreso", monto: 300 }] })).error).toMatch(/prestamo/);
+    expect((await llamar(dictado(ctx, "aparté 2 mil para el carro"), "registrar_movimientos", gastoDe(2000))).error).toMatch(/meta/);
+  });
+
+  test("una mensualidad borrada o movida no vuelve en la noche", () => {
+    const { ctx } = preparar();
+    registrarMsi(ctx, { descripcion: "pantalla", total: 3000, meses: 3 });
+    const noviembre = otroDia(ctx, "2026-11-08");
+    revisar(noviembre);
+    const [segunda, primera] = buscarMovimientos(noviembre, { texto: "MSI", periodo: "2026-10-01..2026-11-30" }).movimientos;
+    expect([primera!.fecha, segunda!.fecha]).toEqual(["2026-10-07", "2026-11-07"]);
+    // La primera la borra; la segunda la pasa al corte de la tarjeta.
+    noviembre.db.update(movimientos).set({ eliminadoEn: new Date().toISOString() }).where(eq(movimientos.id, primera!.id)).run();
+    noviembre.db.update(movimientos).set({ fecha: "2026-11-10" }).where(eq(movimientos.id, segunda!.id)).run();
+    revisar(otroDia(ctx, "2026-11-09"));
+    expect(buscarMovimientos(noviembre, { texto: "MSI", periodo: "2026-10-01..2026-11-30" }).movimientos.map((m) => m.fecha)).toEqual(["2026-11-10"]);
+  });
+
+  test("un primer cargo a meses dicho a futuro es del año que viene, no del pasado", () => {
+    const { ctx } = preparar();
+    const c = registrarMsi(ctx, { descripcion: "sala", total: 12000, meses: 12, fecha: "15 de noviembre" });
+    expect([c.primerCargo, c.pagadas]).toEqual(["2026-11-15", 0]);
+    expect(buscarMovimientos(ctx, { texto: "sala" }).encontrados).toBe(0);
+    // Una compra de hace unos meses sí queda en el pasado.
+    expect(registrarMsi(ctx, { descripcion: "laptop", total: 12000, meses: 12, fecha: "15 de agosto" }).primerCargo).toBe("2026-08-15");
+  });
+
+  test("un pago fijo que ya se pagó antes de su día no se cuenta dos veces", () => {
+    const { ctx } = preparar();
+    crearRecurrente(ctx, { nombre: "Quincena", tipo: "ingreso", monto: 10000, frecuencia: "quincenal", dia: 15 });
+    crearRecurrente(ctx, { nombre: "Renta del departamento", tipo: "renta", monto: 6000, frecuencia: "mensual", dia: 20 });
+    crearRecurrente(ctx, { nombre: "Netflix", tipo: "suscripcion", monto: 219, frecuencia: "mensual", dia: 25 });
+    expect(disponible(ctx).comprometidoCentavos).toBe(621900);
+    crearMovimiento({ ...ctx, textoOriginal: "pagué la renta, 6 mil" }, { tipo: "gasto", monto: 6000, descripcion: "Renta", fecha: "2026-10-05" });
+    expect(disponible(ctx).comprometidoCentavos).toBe(21900);
+    // La renta de septiembre no paga la de octubre.
+    const { ctx: otro } = preparar();
+    crearRecurrente(otro, { nombre: "Renta del departamento", tipo: "renta", monto: 6000, frecuencia: "mensual", dia: 20 });
+    crearMovimiento(otro, { tipo: "gasto", monto: 6000, descripcion: "Renta", fecha: "2026-09-20" });
+    expect(disponible(otro).comprometidoCentavos).toBe(600000);
+  });
+
+  test("con presupuestos por categoría no dice que apartó pagos, y uno dentro de otro no cuenta doble", () => {
+    const { ctx } = preparar();
+    crearRecurrente(ctx, { nombre: "Netflix", tipo: "suscripcion", monto: 219, frecuencia: "mensual", dia: 25 });
+    fijarPresupuesto(ctx, { categoria: "Comida", monto: 5000 });
+    fijarPresupuesto(ctx, { categoria: "Restaurantes", monto: 2000 });
+    gasto(ctx, 500, "Restaurantes", { fecha: "2026-10-02" });
+    expect(estadoPresupuestos(ctx).total).toEqual({ limiteCentavos: 500000, gastadoCentavos: 50000 });
+    const d = disponible(ctx);
+    expect([d.base, d.comprometidoCentavos, d.libreMesCentavos]).toEqual(["presupuestos", 0, 450000]);
+    expect(respuestaDisponible(ctx, d)).toBe("Hoy puedes gastar hasta $180 para cerrar bien el mes.");
+  });
+
+  test("el aviso de un cobro guarda el día exacto y se dice Mañana u Hoy al leerlo", () => {
+    const { ctx } = preparar();
+    crearRecurrente(ctx, { nombre: "Netflix", tipo: "suscripcion", monto: 219, frecuencia: "mensual", dia: 9 });
+    revisar(ctx);
+    const texto = (c: Contexto) => listarAvisos(c).avisos.find((a) => a.tipo === "cobro_proximo")?.texto;
+    expect(texto(ctx)).toBe("El viernes 9 se cobra Netflix de $219.");
+    expect(texto(otroDia(ctx, "2026-10-08"))).toBe("Mañana se cobra Netflix de $219.");
+    expect(texto(otroDia(ctx, "2026-10-09"))).toBe("Hoy se cobra Netflix de $219.");
+  });
+
+  test("deshacer un abono no borra otro que llegó después", () => {
+    const { ctx } = preparar();
+    crearMeta(ctx, { nombre: "Viaje", objetivo: 10000 });
+    registrarPrestamo(ctx, { persona: "Juan", direccion: "me_deben", monto: 1000 });
+    const a = { ...ctx, entradaId: "a" };
+    const b = { ...ctx, entradaId: "b" };
+    aportarMeta(a, { nombre: "viaje", monto: 500 });
+    abonarPrestamo(a, { persona: "Juan", monto: 1000 });
+    aportarMeta(b, { nombre: "viaje", monto: 200 });
+    revertirEntrada(ctx, "a");
+    expect(listarMetas(ctx).metas[0]!.ahorradoCentavos).toBe(20000);
+    const p = listarPrestamos(ctx).prestamos[0]!;
+    expect([p.pagadoCentavos, p.saldadoEn]).toEqual([0, null]);
+  });
+
+  test('"la meta del viaje" no confunde palabras vacías con el nombre', () => {
+    const { ctx } = preparar();
+    crearMeta(ctx, { nombre: "Viaje", objetivo: 10000 });
+    crearMeta(ctx, { nombre: "Fondo del hogar", objetivo: 10000 });
+    expect(aportarMeta(ctx, { nombre: "meta del viaje", monto: 100 }).nombre).toBe("Viaje");
+    expect(aportarMeta(ctx, { nombre: "la meta para el fondo del hogar", monto: 100 }).nombre).toBe("Fondo del hogar");
+  });
+
+  test("un recuerdo con dos cuentas toma la que no está negada", async () => {
+    const { ctx } = preparar();
+    crearMovimiento(ctx, { tipo: "gasto", monto: 1, cuenta: "Nu" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 1, cuenta: "BBVA" });
+    recordar(ctx, "El Uber ya no lo pago con la BBVA, ahora con la Nu");
+    const r = await llamar(dictado(ctx, "120 de Uber"), "registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 120, comercio: "Uber", categoria: "Taxi y apps" }] });
+    expect(r.registrados[0].cuenta).toBe("Nu");
+  });
+
+  test("la fecha límite se valida de verdad y una pasada se mueve al año que viene", () => {
+    const { ctx } = preparar();
+    expect(() => fechaLimiteDe(ctx, "2026-13-45")).toThrow(/no existe/);
+    expect(() => fechaLimiteDe(ctx, "2027-02-30")).toThrow(/no existe/);
+    expect(fechaLimiteDe(ctx, "2025-12-31")).toBe("2026-12-31");
+  });
 });
