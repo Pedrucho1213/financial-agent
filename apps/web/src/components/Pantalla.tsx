@@ -1,3 +1,4 @@
+import { ChevronLeft } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { cn } from "../lib/utils";
 import { JalarParaRefrescar } from "./JalarParaRefrescar";
@@ -16,6 +17,7 @@ export function Pantalla({
   className,
   barraFija = false,
   alRefrescar,
+  atras,
 }: {
   titulo: ReactNode;
   /** Texto de la barra compacta; por omisión, el título. */
@@ -32,6 +34,8 @@ export function Pantalla({
   barraFija?: boolean;
   /** Activa jalar para refrescar. */
   alRefrescar?: () => Promise<unknown>;
+  /** Botón "‹ Atrás" a la izquierda de la barra (páginas que se abren encima de una pestaña). */
+  atras?: { etiqueta: string; alTocar: () => void };
 }) {
   const barra = useRef<HTMLDivElement>(null);
   const marca = useRef<HTMLDivElement>(null);
@@ -76,6 +80,16 @@ export function Pantalla({
         )}
       >
         <div className="relative mx-auto flex h-11 max-w-3xl items-center justify-end px-safe">
+          {atras ? (
+            <button
+              type="button"
+              onClick={atras.alTocar}
+              className="absolute left-[max(0.5rem,env(safe-area-inset-left))] z-10 flex h-11 max-w-[40%] items-center gap-0.5 pr-2 text-[17px] text-tint active:opacity-50"
+            >
+              <ChevronLeft className="size-[26px] shrink-0" strokeWidth={2.4} aria-hidden />
+              <span className="truncate">{atras.etiqueta}</span>
+            </button>
+          ) : null}
           <div
             aria-hidden={!compacta}
             className={cn(

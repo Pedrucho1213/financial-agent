@@ -1,5 +1,5 @@
 import { precalentar, reanudarPendientes, terminarEnCurso } from "./ai/asistente";
-import { crearModelo } from "./ai/modelo";
+import { crearModelo, estadoModelo } from "./ai/modelo";
 import { crearApp } from "./app";
 import { config } from "./config";
 import { abrirBaseDatos } from "./db/client";
@@ -18,6 +18,8 @@ const app = crearApp({
   espera: config.espera,
   despertar: (usuarioId) => precalentar(deps, usuarioId),
   carpetaWeb: config.carpetaWeb,
+  estadoIa: () => estadoModelo(config.ia),
+  version: versionDelCodigo(),
 });
 
 const servidor = Bun.serve({ hostname: config.host, port: config.puerto, fetch: app.fetch, idleTimeout: 120 });
@@ -46,3 +48,17 @@ async function apagar(senal: string) {
 }
 process.on("SIGTERM", () => void apagar("SIGTERM"));
 process.on("SIGINT", () => void apagar("SIGINT"));
+
+/** Commit que corre y su fecha (lo que se desplegó), leídos una vez al arrancar. */
+function versionDelCodigo() {
+  const git = (...args: string[]) => {
+    try {
+      const r = Bun.spawnSync(["git", ...args], { cwd: import.meta.dir, stderr: "ignore" });
+      return r.success ? r.stdout.toString().trim() || null : null;
+    } catch {
+      return null;
+    }
+  };
+  const [commit, commitEn] = (git("log", "-1", "--format=%h %cI") ?? "").split(" ");
+  return { commit: commit || null, commitEn: commitEn || null };
+}

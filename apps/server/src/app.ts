@@ -29,7 +29,7 @@ import {
   type VariablesAuth,
   verificarCodigo,
 } from "./auth";
-import { invitaciones, usuarios } from "./db/schema";
+import { entradas, invitaciones, usuarios } from "./db/schema";
 import { listarCategorias, nombreCompleto } from "./finanzas/catalogos";
 import { crearContexto } from "./finanzas/contexto";
 import {
@@ -47,9 +47,10 @@ import { montosParaVoz } from "./lib/dinero";
 import { hostsDeLaPeticion, ipDelCliente, LimiteIntentos } from "./lib/limites";
 import { montosDelTexto } from "./lib/numeros";
 import { esOrdenSobreLoAnotado, esPregunta } from "./lib/texto";
-import { and, eq, gte } from "drizzle-orm";
+import { and, count, eq, gte, sql } from "drizzle-orm";
 import { rutasPlanes } from "./rutas-planes";
 import { servirApp } from "./web";
+import type { EstadoIa } from "./ai/modelo";
 
 export type OpcionesApp = Dependencias & {
   /** Precarga el modelo de IA con las instrucciones del usuario; en pruebas no hace nada. */
@@ -63,6 +64,10 @@ export type OpcionesApp = Dependencias & {
   firmarAtajo?: (xml: string) => Promise<Uint8Array>;
   /** Carpeta con la PWA compilada. Sin ella, la app no se sirve. */
   carpetaWeb?: string;
+  /** Para "Estado del sistema" en Ajustes: cómo está la IA. Sin esto se reporta como no disponible. */
+  estadoIa?: () => Promise<EstadoIa>;
+  /** Qué versión del código corre (commit y su fecha), para saber qué está desplegado. */
+  version?: { commit: string | null; commitEn: string | null };
   /** Límites del código personal; las pruebas los bajan para no verificar cien veces con argon2. */
   limitesCodigo?: Partial<{ fallosPorUsuarioIp: number; fallosPorUsuario: number; verificandoALaVez: number }>;
 };
@@ -170,7 +175,9 @@ const POLITICA_CONTENIDO = {
   defaultSrc: ["'self'"],
   scriptSrc: ["'self'"],
   styleSrc: ["'self'", "'unsafe-inline'"],
-  imgSrc: ["'self'", "data:", "blob:"],
+  // Mosaicos del mapa de dónde gastas (CARTO), solo si el usuario enciende "Mostrar calles": CARTO
+  // ve qué zonas del mapa se miran (no los gastos). Apagado por omisión.
+  imgSrc: ["'self'", "data:", "blob:", "https://*.basemaps.cartocdn.com"],
   fontSrc: ["'self'", "data:"],
   connectSrc: ["'self'"],
   manifestSrc: ["'self'"],
@@ -212,6 +219,7 @@ const datosDeCuenta = (u: typeof usuarios.$inferSelect) => ({
 
 export function crearApp(opciones: OpcionesApp) {
   const { db } = opciones;
+  const arrancadoEn = new Date().toISOString();
   limpiarDescargas(db);
   const app = new Hono<{ Variables: VariablesAuth }>();
   const intentos = new LimiteIntentos(VENTANA_INTENTOS_MS, MAX_INTENTOS_POR_IP, MAX_INTENTOS_TOTAL);
@@ -617,6 +625,17 @@ export function crearApp(opciones: OpcionesApp) {
     return c.json(movimientoApp(ctx, obtenerPropio(ctx, creado.id)), 201);
   });
 
+  // Detalle de un registro (la PWA lo abre al tocar una notificación).
+  v1.get("/movimientos/:id", (c) => {
+    const ctx = contexto(c.get("usuarioId"));
+    try {
+      return c.json(movimientoApp(ctx, obtenerPropio(ctx, c.req.param("id"))));
+    } catch (error) {
+      if (error instanceof ErrorFinanzas) return c.json({ error: "No existe ese movimiento." }, 404);
+      throw error;
+    }
+  });
+
   v1.patch("/movimientos/:id", async (c) => {
     const cuerpo = esquemaEdicion.safeParse(await c.req.json().catch(() => null));
     if (!cuerpo.success) {
@@ -643,6 +662,43 @@ export function crearApp(opciones: OpcionesApp) {
   });
 
   v1.post("/deshacer", (c) => c.json(deshacer(contexto(c.get("usuarioId")))));
+
+  // Ajustes > Sistema: qué versión corre, desde cuándo, si la IA está lista y si hay dictados atorados.
+  // Ajustes lo pide al abrirse: a Ollama se le pregunta como mucho cada 10 s, la pidan cuantos la pidan.
+  let iaReciente: { en: number; estado: Promise<EstadoIa> } | null = null;
+  const estadoIaReciente = () => {
+    if (!iaReciente || Date.now() - iaReciente.en > 10_000) {
+      const estado = (opciones.estadoIa?.() ?? Promise.resolve(null))
+        .catch(() => null)
+        .then((e) => e ?? { modelo: "", disponible: false, cargada: false });
+      iaReciente = { en: Date.now(), estado };
+    }
+    return iaReciente.estado;
+  };
+  // El dueño es la primera cuenta (la que crea `bun run invitar -- --nombre ...` en una base vacía).
+  const esDueno = (usuarioId: string) =>
+    db.select({ id: usuarios.id }).from(usuarios).orderBy(usuarios.creadoEn, sql`rowid`).limit(1).get()?.id === usuarioId;
+
+  v1.get("/estado", async (c) => {
+    const usuarioId = c.get("usuarioId");
+    // Solo la última semana: un error viejo ya no dice nada del estado de hoy.
+    const desde = new Date(Date.now() - 7 * 86_400_000).toISOString();
+    const contar = (estado: "procesando" | "error") =>
+      db
+        .select({ n: count() })
+        .from(entradas)
+        .where(and(eq(entradas.usuarioId, usuarioId), eq(entradas.estado, estado), gte(entradas.creadoEn, desde)))
+        .get()?.n ?? 0;
+    const { modelo, disponible, cargada } = await estadoIaReciente();
+    const cola = { pendientes: contar("procesando"), conError: contar("error") };
+    // El servidor es público: qué código y qué modelo corren, y desde cuándo, solo lo ve el dueño de la instalación.
+    if (!esDueno(usuarioId)) return c.json({ servidor: null, ia: { disponible, cargada }, cola });
+    return c.json({
+      servidor: { commit: opciones.version?.commit ?? null, commitEn: opciones.version?.commitEn ?? null, arrancadoEn },
+      ia: { modelo, disponible, cargada },
+      cola,
+    });
+  });
 
   v1.get("/tablero", (c) => c.json(tablero(contexto(c.get("usuarioId")), c.req.query("mes") || undefined)));
 

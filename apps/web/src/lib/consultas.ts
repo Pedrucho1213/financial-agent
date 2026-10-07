@@ -4,6 +4,7 @@ import { api, ErrorApi } from "./api";
 import { alCerrarSesion } from "./sesion";
 import type { Categoria, DatosMovimiento, MovimientoApp, Tablero, TipoMovimiento, Yo } from "./tipos";
 import { rangoDelMes } from "./formato";
+import { hashDetalle, navegar } from "./ruta";
 
 const DIA = 24 * 60 * 60 * 1000;
 
@@ -136,6 +137,64 @@ export function useGastoPorDia(mes: string, activo = true) {
   });
 }
 
+/** Un movimiento por id (detalle; destino de una notificación). */
+/** Abre el detalle con lo que ya se ve en la lista; el servidor lo confirma detrás. */
+export function abrirDetalle(m: MovimientoApp) {
+  clienteConsultas.setQueryData(["movimientos", "uno", m.id], m);
+  navegar(hashDetalle(m.id));
+}
+
+export function useMovimiento(id: string | null) {
+  return useQuery({
+    queryKey: ["movimientos", "uno", id] as const,
+    enabled: !!id,
+    queryFn: ({ signal }) => api<MovimientoApp>(`/v1/movimientos/${encodeURIComponent(id ?? "")}`, { signal }),
+  });
+}
+
+export type GastoConLugar = {
+  id: string;
+  fecha: string;
+  centavos: number;
+  moneda: string;
+  lat: number;
+  lon: number;
+  lugar: string | null;
+  comercio: string | null;
+  descripcion: string | null;
+};
+
+/** Gastos con ubicación en un rango, para el mapa. Solo guarda lo que el mapa usa. */
+export function useGastosConLugar(desde: string, hasta: string) {
+  return useQuery({
+    queryKey: ["movimientos", "mapa", desde, hasta] as const,
+    staleTime: 60_000,
+    queryFn: async ({ signal }) => {
+      const lista: GastoConLugar[] = [];
+      for (let offset = 0; offset < 5000; offset += 500) {
+        const p = new URLSearchParams({ desde, hasta, tipo: "gasto", limite: "500", offset: String(offset) });
+        const pagina = await api<PaginaMovimientos>(`/v1/movimientos?${p}`, { signal });
+        for (const m of pagina.movimientos) {
+          if (m.lat === null || m.lon === null) continue;
+          lista.push({
+            id: m.id,
+            fecha: m.fecha,
+            centavos: m.montoCentavos,
+            moneda: m.moneda,
+            lat: m.lat,
+            lon: m.lon,
+            lugar: m.lugar,
+            comercio: m.comercio,
+            descripcion: m.descripcion,
+          });
+        }
+        if (pagina.movimientos.length < 500 || offset + 500 >= pagina.total) break;
+      }
+      return lista;
+    },
+  });
+}
+
 /** Después de cualquier cambio: tablero y listas se vuelven a pedir. */
 export function useRefrescarDatos() {
   const qc = useQueryClient();
@@ -143,6 +202,7 @@ export function useRefrescarDatos() {
     Promise.all([
       qc.invalidateQueries({ queryKey: ["tablero"] }),
       qc.invalidateQueries({ queryKey: ["movimientos"] }),
+      qc.invalidateQueries({ queryKey: ["plan"] }),
     ]);
 }
 

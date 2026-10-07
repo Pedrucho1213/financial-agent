@@ -5,13 +5,16 @@ import { CasillasCodigo } from "../components/CasillasCodigo";
 import { PasosDescarga, ReintentarDescarga } from "../components/PasosAtajo";
 import { Spinner } from "../components/Spinner";
 import { Button } from "../components/ui/button";
+import { CampoFila } from "../components/ui/input";
 import { Fila, Grupo, IconoAjuste } from "../components/ui/lista";
 import { api, ErrorApi } from "../lib/api";
 import { abrirAtajo } from "../lib/atajo";
 import { codigoDeLaDireccion, LARGO_CODIGO, mensajeInvitacion } from "../lib/codigo";
 import { useEnLinea } from "../lib/conexion";
+import { mensajeEntrar, useAtajoConUsuario } from "../lib/cuenta";
 import { haptico } from "../lib/haptico";
 import type { AtajoCanjeado, Invitacion } from "../lib/tipos";
+import { CampoSecreto } from "./Entrar";
 
 const PARA_CUENTA = "Este código es para crear una cuenta. Ábrelo en la app.";
 
@@ -48,15 +51,25 @@ function mensajeCanje(error: unknown) {
   return error instanceof Error ? error.message : "No se pudo preparar el Atajo. Inténtalo de nuevo.";
 }
 
+/** Con usuario y código: 401 y 429 traen el mensaje del servidor. */
+function mensajeEntrarAtajo(error: unknown) {
+  if (estadoDe(error) === 501) return "Tu Mac no pudo firmar el Atajo. Vuelve a intentarlo.";
+  return mensajeEntrar(error);
+}
+
 /**
  * /instalar?codigo=XXXXXX: instala el Atajo con un código de dispositivo, sin sesión.
  * No toca el token guardado; si hay sesión, igual se muestra esta pantalla.
+ * También se puede instalar con usuario y código (los que se crean en Ajustes), sin invitación.
  */
 export function Instalar() {
   const enLinea = useEnLinea();
   const [codigoInicial] = useState(codigoDeLaDireccion);
   const [codigo, setCodigo] = useState(codigoInicial);
   const completo = codigo.length === LARGO_CODIGO;
+  const [conUsuario, setConUsuario] = useState(false);
+  const [usuario, setUsuario] = useState("");
+  const [secreto, setSecreto] = useState("");
 
   const invitacion = useQuery({
     queryKey: ["invitacion", codigo],
@@ -79,7 +92,8 @@ export function Instalar() {
       abrirAtajo(r.url);
     },
   });
-  const listo = canjear.data;
+  const entrar = useAtajoConUsuario();
+  const listo = canjear.data ?? entrar.data;
 
   const para = invitacion.data?.para;
   const estadoRevision = invitacion.isError ? estadoDe(invitacion.error) : null;
@@ -105,13 +119,31 @@ export function Instalar() {
   const nombre = listo?.nombre ?? (para === "dispositivo" ? invitacion.data?.nombre : undefined);
   const puedeInstalar = enLinea && para === "dispositivo" && !canjeSinCodigo && !canjear.isPending;
 
+  const puedeEntrar = enLinea && usuario.trim().length > 0 && secreto.length > 0 && !entrar.isPending;
+  const estadoEntrar = entrar.isError ? estadoDe(entrar.error) : null;
+  // 501 o sin red: los mismos datos sirven otra vez.
+  const reintentarEntrar = entrar.isError && (estadoEntrar === 501 || estadoEntrar === 0);
+  const instalarConUsuario = () =>
+    entrar.mutate(
+      { usuario, codigo: secreto },
+      {
+        onSuccess: (r) => {
+          haptico();
+          abrirAtajo(r.url);
+        },
+      },
+    );
+
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col px-safe pt-[calc(env(safe-area-inset-top)+44px)] pb-[max(1.25rem,env(safe-area-inset-bottom))]">
       <form
         className="flex flex-1 flex-col"
         onSubmit={(e) => {
           e.preventDefault();
-          if (puedeInstalar && !listo) canjear.mutate();
+          if (listo) return;
+          if (conUsuario) {
+            if (puedeEntrar) instalarConUsuario();
+          } else if (puedeInstalar) canjear.mutate();
         }}
       >
         <div className="flex flex-col items-center text-center animate-entrar">
@@ -137,13 +169,15 @@ export function Instalar() {
           >
             {listo
               ? "Ya casi está. Sigue estos 3 pasos:"
-              : nombre
+              : conUsuario
+                ? "Entra con tu usuario y tu código para instalarlo."
+                : nombre
                 ? `Hola, ${nombre}. Así vas a hablar con tus finanzas.`
                 : "Así vas a hablar con tus finanzas."}
           </p>
         </div>
 
-        {conCasillas ? (
+        {conCasillas && !conUsuario ? (
           <CasillasCodigo
             className="mt-8"
             codigo={codigo}
@@ -157,6 +191,55 @@ export function Instalar() {
 
         {listo ? (
           <PasosDescarga className="mt-8 animate-entrar" />
+        ) : conUsuario ? (
+          <>
+            <Grupo className="mt-8 animate-entrar" pie="El código se crea en Ajustes de la app, en un dispositivo donde ya entraste.">
+              <Fila>
+                <label htmlFor="usuario" className="w-24 shrink-0">
+                  Usuario
+                </label>
+                <CampoFila
+                  id="usuario"
+                  value={usuario}
+                  onChange={(e) => {
+                    entrar.reset();
+                    setUsuario(e.target.value);
+                  }}
+                  placeholder="pedro"
+                  autoComplete="username"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  enterKeyHint="next"
+                  autoFocus
+                />
+              </Fila>
+              <Fila>
+                <label htmlFor="codigo-entrar" className="w-24 shrink-0">
+                  Código
+                </label>
+                <CampoSecreto
+                  id="codigo-entrar"
+                  value={secreto}
+                  onChange={(e) => {
+                    entrar.reset();
+                    setSecreto(e.target.value);
+                  }}
+                  placeholder="Requerido"
+                  autoComplete="current-password"
+                  enterKeyHint="go"
+                />
+              </Fila>
+            </Grupo>
+            <Grupo className="mt-6" aria-label="Cómo funciona">
+              {PASOS.map((p, i) => (
+                <Fila key={i} sangria="3.75rem" className="min-h-[60px]">
+                  <IconoAjuste color={p.color}>{p.icono}</IconoAjuste>
+                  <p className="min-w-0 flex-1 py-3 text-[16px] leading-snug">{p.texto}</p>
+                </Fila>
+              ))}
+            </Grupo>
+          </>
         ) : (
           <>
             <div className="mt-4 min-h-6 text-center text-[15px]" aria-live="polite">
@@ -187,11 +270,41 @@ export function Instalar() {
         <div className="mt-auto pt-8">
           {listo ? (
             <div className="flex flex-col items-center gap-3 animate-entrar">
-              <ReintentarDescarga atajo={listo} mensajeVencido="El enlace ya venció. Pide otro código o instala el Atajo desde Ajustes en la app." />
+              <ReintentarDescarga
+                atajo={listo}
+                mensajeVencido={
+                  entrar.data
+                    ? "El enlace ya venció. Vuelve a abrir esta página y entra otra vez."
+                    : "El enlace ya venció. Pide otro código o instala el Atajo desde Ajustes en la app."
+                }
+              />
               <Button asChild variant="tinted" size="lg">
                 <a href="/">Abrir la app Finanzas</a>
               </Button>
             </div>
+          ) : conUsuario ? (
+            <>
+              {entrar.isError ? (
+                <p role="alert" className="mb-3 text-center text-[15px] text-balance text-negative">
+                  {mensajeEntrarAtajo(entrar.error)}
+                </p>
+              ) : null}
+              {!enLinea ? (
+                <p className="mb-3 text-center text-[15px] text-muted-foreground">Necesitas conexión para instalarlo.</p>
+              ) : null}
+              <Button type="submit" size="lg" disabled={!puedeEntrar}>
+                {entrar.isPending ? (
+                  <Spinner className="size-5" etiqueta="Preparando el Atajo" />
+                ) : reintentarEntrar ? (
+                  "Reintentar"
+                ) : (
+                  "Instalar el Atajo"
+                )}
+              </Button>
+              <Button variant="plain" size="text" className="mt-2 w-full text-[15px]" onClick={() => setConUsuario(false)}>
+                Usar un código de invitación
+              </Button>
+            </>
           ) : esDeCuenta ? (
             <Button asChild size="lg">
               <a href={`/?codigo=${encodeURIComponent(codigo)}`}>Abrir en la app</a>
@@ -210,6 +323,9 @@ export function Instalar() {
                 ) : (
                   "Instalar el Atajo"
                 )}
+              </Button>
+              <Button variant="plain" size="text" className="mt-2 w-full text-[15px]" onClick={() => setConUsuario(true)}>
+                Instalar con usuario y código
               </Button>
             </>
           )}

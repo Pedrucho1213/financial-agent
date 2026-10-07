@@ -21,7 +21,7 @@ const MENSAJES: Record<number, string> = {
 };
 
 type Opciones = {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   signal?: AbortSignal;
   /** Rutas públicas: no manda el token ni cierra sesión con 401. */
