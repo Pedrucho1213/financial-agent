@@ -45,7 +45,8 @@ const OTRA_ACCION =
   /\b(borra|elimina|quita|cambia|corrige|deshaz|registra que|anota que|apunta que|fue con|fue el|fue del|era de|era del|no era)/;
 
 // Se corrige al dictar: "450, no, perdón, fueron 540". El monto que corrige no es otro movimiento.
-const SE_CORRIGE = /\d[^\d]*\b(no perdon|perdon|no digo|digo|mejor dicho|me equivoque|no espera)\b[^\d]*\d/g;
+// Con una "y" entre los dos montos ("200 en tacos, perdón, y 100 en refresco") son dos movimientos.
+const SE_CORRIGE = /\d(?:(?!\by\b)\D)*\b(no perdon|perdon|no digo|digo|mejor dicho|me equivoque|no espera)\b(?:(?!\by\b)\D)*\d/g;
 
 /** Cuántos montos dijo, sin contar los que corrigió en la misma frase. */
 function montosDichos(texto: string): number {
