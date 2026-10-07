@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { haptico } from "../lib/haptico";
 import { Spinner } from "./Spinner";
 
 const UMBRAL = 72;
@@ -62,7 +63,9 @@ export function JalarParaRefrescar({ alRefrescar, children }: { alRefrescar: () 
       }
       if (e.cancelable) e.preventDefault();
       // Resistencia creciente, como el rebote de iOS.
+      const antes = distancia;
       distancia = Math.min(MAXIMO, dy * 0.5);
+      if (antes < UMBRAL * 0.75 && distancia >= UMBRAL * 0.75) haptico();
       pintar(distancia, false);
     };
     const fin = () => {

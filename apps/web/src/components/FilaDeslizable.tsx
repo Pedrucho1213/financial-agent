@@ -1,5 +1,6 @@
 import { Trash } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
+import { haptico } from "../lib/haptico";
 import { cn } from "../lib/utils";
 
 const ANCHO_BOTON = 84;
@@ -43,6 +44,7 @@ export function FilaDeslizable({
     let base = 0;
     let actual = 0;
     let estado: "nada" | "decidiendo" | "horizontal" = "nada";
+    let pasoUmbral = false;
 
     const poner = (x: number, animado: boolean) => {
       actual = x;
@@ -67,6 +69,7 @@ export function FilaDeslizable({
       x0 = t.clientX;
       y0 = t.clientY;
       base = actual;
+      pasoUmbral = false;
       estado = "decidiendo";
       arrastro.current = false;
     };
@@ -90,6 +93,12 @@ export function FilaDeslizable({
       let x = base + dx;
       if (x > 0) x = x / 6; // resistencia a la derecha
       poner(x, false);
+      // Un "tic" al llegar al punto en que soltar borra de una vez.
+      const ahora = -x > contenedor.offsetWidth * BORRADO_COMPLETO;
+      if (ahora !== pasoUmbral) {
+        pasoUmbral = ahora;
+        haptico();
+      }
     };
     const fin = () => {
       if (estado !== "horizontal") {

@@ -126,39 +126,3 @@ export function useGuardarMovimiento() {
     onSuccess: () => refrescar(),
   });
 }
-
-type DatosInfinitos = { pages: PaginaMovimientos[]; pageParams: number[] };
-
-export function useEliminarMovimiento() {
-  const qc = useQueryClient();
-  const refrescar = useRefrescarDatos();
-  return useMutation({
-    mutationFn: (id: string) => api<{ ok: true }>(`/v1/movimientos/${encodeURIComponent(id)}`, { method: "DELETE" }),
-    // Desaparece de la lista al instante; si falla, vuelve.
-    onMutate: async (id) => {
-      await qc.cancelQueries({ queryKey: ["movimientos"] });
-      const previos = qc.getQueriesData<DatosInfinitos>({ queryKey: ["movimientos"] });
-      qc.setQueriesData<DatosInfinitos>({ queryKey: ["movimientos"] }, (d) => {
-        if (!d) return d;
-        const quitados = d.pages.reduce((n, p) => n + p.movimientos.filter((m) => m.id === id).length, 0);
-        return {
-          ...d,
-          pages: d.pages.map((p) => ({ total: p.total - quitados, movimientos: p.movimientos.filter((m) => m.id !== id) })),
-        };
-      });
-      return { previos };
-    },
-    onError: (_e, _id, ctx) => {
-      for (const [clave, datos] of ctx?.previos ?? []) qc.setQueryData(clave, datos);
-    },
-    onSettled: () => refrescar(),
-  });
-}
-
-export function useDeshacer() {
-  const refrescar = useRefrescarDatos();
-  return useMutation({
-    mutationFn: () => api<{ deshecho: boolean; mensaje?: string }>("/v1/deshacer", { method: "POST" }),
-    onSuccess: () => refrescar(),
-  });
-}

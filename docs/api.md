@@ -80,4 +80,4 @@ Solo los movimientos en la moneda base entran en las sumas.
 | Método y ruta | Cuerpo | Respuesta |
 |---|---|---|
 | `POST /v1/atajo` | `{ servidor }` (la dirección con la que el iPhone llega a la Mac, por ejemplo `location.origin`) | 201 `{ url, expiraEn }`. Crea un dispositivo "Atajo" con su propio token y prepara el Atajo firmado. 501 si la Mac no puede firmar |
-| `GET /atajo/:id.shortcut` (pública, una sola vez, 10 minutos) | | El archivo `Finanzas.shortcut` firmado |
+| `GET /atajo/:id.shortcut` (pública, vale 10 minutos) | | El archivo `Finanzas.shortcut` firmado; el id es aleatorio y solo lo conoce quien pidió el Atajo |

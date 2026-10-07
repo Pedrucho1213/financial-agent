@@ -73,4 +73,4 @@ bun run typecheck   # servidor y app
 bun run --cwd apps/web e2e   # la app en un navegador, con la API simulada
 ```
 
-Las dos corren solas en GitHub en cada PR y en cada cambio a `main` (`.github/workflows/ci.yml`).
+Las tres corren solas en GitHub en cada PR y en cada cambio a `main` (`.github/workflows/ci.yml`). Para recorrer la app contra un servidor de verdad: `API_REAL=http://127.0.0.1:8787 INVITACION=<código> bun run --cwd apps/web e2e servidor-real`.

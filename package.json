@@ -13,6 +13,8 @@
     "eval": "bun run --cwd apps/server eval",
     "invitar": "bun run --cwd apps/server invitar",
     "web:build": "bun run --cwd apps/web build",
-    "web:dev": "bun run --cwd apps/web dev"
+    "web:dev": "bun run --cwd apps/web dev",
+    "web:typecheck": "bun run --cwd apps/web typecheck",
+    "web:e2e": "bun run --cwd apps/web e2e"
   }
 }

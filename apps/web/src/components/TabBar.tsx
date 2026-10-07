@@ -37,7 +37,11 @@ export function TabBar({ actual, oculta }: { actual: Pestana; oculta?: boolean }
                   activa ? "text-tint" : "text-gray-icon",
                 )}
               >
-                <Icono className="size-[25px]" strokeWidth={activa ? 2.3 : 1.8} />
+                <Icono
+                  key={activa ? "activa" : "inactiva"}
+                  className={cn("size-[25px]", activa && "animate-rebote")}
+                  strokeWidth={activa ? 2.3 : 1.8}
+                />
                 <span className="text-[10px] leading-none font-medium tracking-[0.01em]">{etiqueta}</span>
               </a>
             </li>

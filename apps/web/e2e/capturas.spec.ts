@@ -42,6 +42,23 @@ for (const esquema of ["light", "dark"] as const) {
       await expect(page.getByText("Starbucks").first()).toBeVisible();
       await capturar(page, `movimientos-${sufijo}`);
 
+      // Fila deslizada a medias (muestra Eliminar).
+      const fila = page.getByRole("button", { name: /^Uber/ });
+      const caja = await fila.boundingBox();
+      if (caja) {
+        const cdp = await page.context().newCDPSession(page);
+        const y = caja.y + caja.height / 2;
+        const tocar = (type: "touchStart" | "touchMove" | "touchEnd", x: number) =>
+          cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y }] });
+        await tocar("touchStart", caja.x + caja.width - 30);
+        for (let i = 1; i <= 8; i++) await tocar("touchMove", caja.x + caja.width - 30 - i * 15);
+        await tocar("touchEnd", 0);
+        await capturar(page, `deslizar-${sufijo}`);
+        await fila.locator("xpath=..").locator("button", { hasText: "Eliminar" }).click();
+        await expect(page.locator("[data-sonner-toast]")).toBeVisible();
+        await capturar(page, `aviso-${sufijo}`);
+      }
+
       await page.getByText("Starbucks").first().click();
       await expect(page.getByRole("dialog")).toBeVisible();
       await capturar(page, `editar-${sufijo}`);

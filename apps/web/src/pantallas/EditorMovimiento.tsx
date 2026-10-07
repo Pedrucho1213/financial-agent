@@ -8,7 +8,7 @@ import { Fila, FilaBoton, Grupo } from "../components/ui/lista";
 import { Segmented } from "../components/ui/segmented";
 import { SelectNativo } from "../components/ui/select";
 import { Sheet, SheetContent } from "../components/ui/sheet";
-import { useEliminarConDeshacer } from "../lib/acciones";
+import { eliminarConDeshacer } from "../lib/acciones";
 import { mensajeDeError } from "../lib/api";
 import { OpcionesCategorias } from "../lib/categorias";
 import { useEnLinea } from "../lib/conexion";
@@ -74,7 +74,6 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
   const [f, setF] = useState<Formulario>(original);
   const categorias = useCategorias();
   const guardar = useGuardarMovimiento();
-  const eliminar = useEliminarConDeshacer();
   const campoMonto = useRef<HTMLInputElement>(null);
   const editando = !!movimiento;
 
@@ -202,6 +201,7 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
                 enterKeyHint="done"
                 autoComplete="off"
                 placeholder="0"
+                size={1}
                 value={f.monto}
                 onChange={(e) => poner("monto", e.target.value.replace(/[^\d.,]/g, "").slice(0, 12))}
                 className="col-start-1 row-start-1 w-full min-w-0 bg-transparent p-0 text-center text-[1em] leading-[1.1] font-bold tracking-[inherit] outline-none placeholder:text-placeholder"
@@ -320,7 +320,7 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
             <FilaBoton
               className="justify-center text-destructive"
               disabled={!enLinea}
-              onClick={() => eliminar(movimiento, cerrarEditor)}
+              onClick={() => void eliminarConDeshacer(movimiento, cerrarEditor)}
             >
               <Trash className="size-[18px]" />
               <span>Eliminar movimiento</span>

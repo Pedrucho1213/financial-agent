@@ -1,29 +1,54 @@
 import { toast } from "sonner";
-import { mensajeDeError } from "./api";
-import { useDeshacer, useEliminarMovimiento } from "./consultas";
+import { api, mensajeDeError } from "./api";
+import { clienteConsultas } from "./consultas";
 import type { MovimientoApp } from "./tipos";
 
-/** Elimina y ofrece "Deshacer" en el aviso, que llama a POST /v1/deshacer. */
-export function useEliminarConDeshacer() {
-  const eliminar = useEliminarMovimiento();
-  const deshacer = useDeshacer();
-  return (m: MovimientoApp, alTerminar?: () => void) =>
-    eliminar.mutate(m.id, {
-      onSuccess: () => {
-        alTerminar?.();
-        toast("Eliminado", {
-          description: m.comercio ?? m.descripcion ?? m.categoria ?? undefined,
-          duration: 6000,
-          action: {
-            label: "Deshacer",
-            onClick: () =>
-              deshacer.mutate(undefined, {
-                onSuccess: (r) => toast.success(r.mensaje ?? (r.deshecho ? "Listo, lo regresé." : "No había nada que deshacer.")),
-                onError: (e) => toast.error(mensajeDeError(e)),
-              }),
-          },
-        });
-      },
-      onError: (e) => toast.error(mensajeDeError(e)),
+// Funciones sueltas (no hooks): el aviso de "Deshacer" sigue funcionando
+// aunque la hoja o la fila que lo lanzó ya no exista.
+
+type Pagina = { total: number; movimientos: MovimientoApp[] };
+type Infinito = { pages: Pagina[]; pageParams: number[] };
+
+function refrescar() {
+  return Promise.all([
+    clienteConsultas.invalidateQueries({ queryKey: ["tablero"] }),
+    clienteConsultas.invalidateQueries({ queryKey: ["movimientos"] }),
+  ]);
+}
+
+async function deshacer() {
+  try {
+    const r = await api<{ deshecho: boolean; mensaje?: string }>("/v1/deshacer", { method: "POST" });
+    toast.success(r.mensaje ?? (r.deshecho ? "Listo, lo regresé." : "No había nada que deshacer."));
+  } catch (error) {
+    toast.error(mensajeDeError(error));
+  } finally {
+    await refrescar();
+  }
+}
+
+/** Elimina (desaparece de la lista al instante) y ofrece "Deshacer", que llama a POST /v1/deshacer. */
+export async function eliminarConDeshacer(m: MovimientoApp, alTerminar?: () => void) {
+  const clave = { queryKey: ["movimientos"] };
+  await clienteConsultas.cancelQueries(clave);
+  const previos = clienteConsultas.getQueriesData<Infinito>(clave);
+  clienteConsultas.setQueriesData<Infinito>(clave, (d) => {
+    if (!d) return d;
+    const quitados = d.pages.reduce((n, p) => n + p.movimientos.filter((x) => x.id === m.id).length, 0);
+    return { ...d, pages: d.pages.map((p) => ({ total: p.total - quitados, movimientos: p.movimientos.filter((x) => x.id !== m.id) })) };
+  });
+  try {
+    await api<{ ok: true }>(`/v1/movimientos/${encodeURIComponent(m.id)}`, { method: "DELETE" });
+    alTerminar?.();
+    toast("Eliminado", {
+      description: m.comercio ?? m.descripcion ?? m.categoria ?? undefined,
+      duration: 6000,
+      action: { label: "Deshacer", onClick: () => void deshacer() },
     });
+  } catch (error) {
+    for (const [k, datos] of previos) clienteConsultas.setQueryData(k, datos);
+    toast.error(mensajeDeError(error));
+  } finally {
+    await refrescar();
+  }
 }

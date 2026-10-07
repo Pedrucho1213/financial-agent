@@ -9,13 +9,14 @@ import { Buscador } from "../components/ui/input";
 import { Segmented } from "../components/ui/segmented";
 import { SelectNativo } from "../components/ui/select";
 import { Skeleton } from "../components/ui/skeleton";
-import { useEliminarConDeshacer } from "../lib/acciones";
+import { eliminarConDeshacer } from "../lib/acciones";
 import { mensajeDeError } from "../lib/api";
 import { IconoCategoria, OpcionesCategorias } from "../lib/categorias";
 import { useEnLinea } from "../lib/conexion";
 import { type FiltrosMovimientos, useCategorias, useMovimientos } from "../lib/consultas";
 import { abrirEditor } from "../lib/editor";
 import { diaCorto, dinero, mesActual, nombreDia, nombreMes, sumarMeses, TIPOS } from "../lib/formato";
+import { useMedia } from "../lib/medios";
 import { hashDe, navegar } from "../lib/ruta";
 import type { MovimientoApp, Origen, TipoMovimiento } from "../lib/tipos";
 import { cn } from "../lib/utils";
@@ -25,6 +26,8 @@ const MES_VALIDO = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 export function Movimientos({ params }: { params: URLSearchParams }) {
   const enLinea = useEnLinea();
+  // Lista por día en el teléfono; tabla en pantallas anchas.
+  const ancho = useMedia("(min-width: 768px)");
   const pedido = params.get("mes");
   const mes = pedido === "todo" || (pedido && MES_VALIDO.test(pedido)) ? pedido : mesActual();
   const tipoParam = params.get("tipo");
@@ -59,7 +62,6 @@ export function Movimientos({ params }: { params: URLSearchParams }) {
   );
   const consulta = useMovimientos(filtros);
   const categorias = useCategorias();
-  const eliminar = useEliminarConDeshacer();
 
   const movimientos = useMemo(() => consulta.data?.pages.flatMap((p) => p.movimientos) ?? [], [consulta.data]);
   const total = consulta.data?.pages.at(-1)?.total ?? 0;
@@ -164,8 +166,11 @@ export function Movimientos({ params }: { params: URLSearchParams }) {
         </Vacio>
       ) : (
         <>
-          <ListaPorDia movimientos={movimientos} alEliminar={(m) => eliminar(m)} deshabilitada={!enLinea} />
-          <Tabla movimientos={movimientos} />
+          {ancho ? (
+            <Tabla movimientos={movimientos} />
+          ) : (
+            <ListaPorDia movimientos={movimientos} alEliminar={(m) => void eliminarConDeshacer(m)} deshabilitada={!enLinea} />
+          )}
           {consulta.hasNextPage ? (
             <Button
               variant="gray"
@@ -253,7 +258,7 @@ function ListaPorDia({
   }, [movimientos]);
 
   return (
-    <div className="space-y-6 pt-3 md:hidden">
+    <div className="space-y-6 pt-3">
       {dias.map(([fecha, lista]) => {
         const gastado = lista.filter((m) => m.tipo === "gasto").reduce((s, m) => s + Math.abs(m.montoCentavos), 0);
         return (
@@ -298,7 +303,7 @@ function ListaPorDia({
 
 function Tabla({ movimientos }: { movimientos: MovimientoApp[] }) {
   return (
-    <div className="mt-3 hidden overflow-hidden rounded-xl bg-card md:block">
+    <div className="mt-3 overflow-hidden rounded-xl bg-card">
       <table className="w-full table-fixed text-left text-[15px]">
         <thead className="text-[13px] text-muted-foreground">
           <tr className="hairline-b">

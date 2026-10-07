@@ -1,4 +1,5 @@
-# Revisa cada PR y cada cambio en main: tipos y pruebas. No necesita Ollama; las pruebas usan un modelo simulado.
+# Revisa cada PR y cada cambio en main: tipos, pruebas del servidor y la app en un navegador.
+# No necesita Ollama: el servidor usa un modelo simulado y la app una API simulada.
 name: CI
 
 on:
@@ -23,3 +24,17 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun run test
+
+  app:
+    name: App en el navegador
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+        working-directory: apps/web
+      - run: bun run web:e2e

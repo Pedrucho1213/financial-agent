@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
+import { haptico } from "../../lib/haptico";
 import { cn } from "../../lib/utils";
 
 type Opcion<T extends string> = { valor: T; etiqueta: string };
@@ -59,7 +60,10 @@ export function Segmented<T extends string>({
             type="button"
             role="radio"
             aria-checked={sel}
-            onClick={() => onChange(o.valor)}
+            onClick={() => {
+              if (!sel) haptico();
+              onChange(o.valor);
+            }}
             className={cn(
               "relative z-[1] min-w-0 truncate px-1.5 text-[13px] transition-[font-weight,color] duration-200",
               sel ? "font-semibold text-foreground" : "font-medium text-foreground/80",

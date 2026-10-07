@@ -5,6 +5,9 @@ import { App } from "./App";
 import { clienteConsultas, persistidor } from "./lib/consultas";
 import "./index.css";
 
+// Sin esto, Safari de iOS no aplica los estilos :active al tocar.
+document.addEventListener("touchstart", () => undefined, { passive: true });
+
 const raiz = document.getElementById("root");
 if (!raiz) throw new Error("Falta #root");
 

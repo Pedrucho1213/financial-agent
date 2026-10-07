@@ -1,5 +1,5 @@
 import { Plus, WifiOff } from "lucide-react";
-import { type CSSProperties, useEffect, useLayoutEffect, useRef } from "react";
+import { type CSSProperties, lazy, Suspense, useEffect, useLayoutEffect, useRef } from "react";
 import { Toaster } from "sonner";
 import { TabBar } from "./components/TabBar";
 import { retomarPendientes } from "./lib/chat";
@@ -9,18 +9,33 @@ import { type Pestana, useRuta } from "./lib/ruta";
 import { useToken } from "./lib/sesion";
 import { useTeclado } from "./lib/teclado";
 import { cn } from "./lib/utils";
-import { Ajustes } from "./pantallas/Ajustes";
-import { Chat } from "./pantallas/Chat";
-import { EditorMovimiento } from "./pantallas/EditorMovimiento";
-import { Entrar } from "./pantallas/Entrar";
 import { Inicio } from "./pantallas/Inicio";
 import { Movimientos } from "./pantallas/Movimientos";
+
+// Inicio y Movimientos van en el paquete principal; lo demás se carga aparte
+// (el service worker ya lo tiene guardado) para que la app abra más rápido.
+const cargas = {
+  chat: () => import("./pantallas/Chat"),
+  ajustes: () => import("./pantallas/Ajustes"),
+  editor: () => import("./pantallas/EditorMovimiento"),
+  entrar: () => import("./pantallas/Entrar"),
+};
+const Chat = lazy(() => cargas.chat().then((m) => ({ default: m.Chat })));
+const Ajustes = lazy(() => cargas.ajustes().then((m) => ({ default: m.Ajustes })));
+const EditorMovimiento = lazy(() => cargas.editor().then((m) => ({ default: m.EditorMovimiento })));
+const Entrar = lazy(() => cargas.entrar().then((m) => ({ default: m.Entrar })));
 
 export function App() {
   const token = useToken();
   return (
     <>
-      {token ? <Aplicacion /> : <Entrar />}
+      {token ? (
+        <Aplicacion />
+      ) : (
+        <Suspense fallback={null}>
+          <Entrar />
+        </Suspense>
+      )}
       <Toaster
         position="top-center"
         offset={{ top: "calc(env(safe-area-inset-top) + 10px)" }}
@@ -30,12 +45,13 @@ export function App() {
           duration: 4000,
           classNames: {
             toast: "!rounded-2xl !shadow-[0_10px_40px_rgb(0_0_0/0.18)] !text-[15px] !backdrop-blur-xl",
+            description: "!text-muted-foreground !text-[15px]",
             actionButton: "!bg-transparent !text-tint !text-[15px] !font-semibold !h-8 !px-2",
           },
         }}
         style={
           {
-            "--normal-bg": "color-mix(in srgb, var(--elevated) 92%, transparent)",
+            "--normal-bg": "var(--elevated)",
             "--normal-text": "var(--foreground)",
             "--normal-border": "var(--border)",
             "--border-radius": "16px",
@@ -55,6 +71,12 @@ function Aplicacion() {
   useEffect(() => {
     if (window.location.search) window.history.replaceState(null, "", `/${window.location.hash}`);
     retomarPendientes();
+    // Precarga las otras pantallas cuando la app ya está quieta.
+    const id = window.setTimeout(() => {
+      void cargas.chat();
+      void cargas.ajustes();
+    }, 1200);
+    return () => window.clearTimeout(id);
   }, []);
 
   // Cada pestaña recuerda dónde se quedó, como en iOS.
@@ -99,8 +121,10 @@ function Aplicacion() {
       <main key={pestana} className="animate-aparecer">
         {pestana === "inicio" ? <Inicio params={params} /> : null}
         {pestana === "movimientos" ? <Movimientos params={params} /> : null}
-        {pestana === "chat" ? <Chat /> : null}
-        {pestana === "ajustes" ? <Ajustes /> : null}
+        <Suspense fallback={null}>
+          {pestana === "chat" ? <Chat /> : null}
+          {pestana === "ajustes" ? <Ajustes /> : null}
+        </Suspense>
       </main>
 
       <button
@@ -117,7 +141,9 @@ function Aplicacion() {
       </button>
 
       <TabBar actual={pestana} oculta={teclado} />
-      <EditorMovimiento />
+      <Suspense fallback={null}>
+        <EditorMovimiento />
+      </Suspense>
     </div>
   );
 }

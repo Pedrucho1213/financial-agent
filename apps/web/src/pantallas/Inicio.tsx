@@ -33,6 +33,7 @@ import {
   pct,
   sumarMeses,
 } from "../lib/formato";
+import { haptico } from "../lib/haptico";
 import { hashDe, navegar } from "../lib/ruta";
 import type { Tablero } from "../lib/tipos";
 import { cn } from "../lib/utils";
@@ -287,7 +288,11 @@ function UltimosMeses({ t }: { t: Tablero }) {
           <BarrasMeses
             meses={t.porMes}
             seleccionado={sel}
-            alElegir={(i) => setSel(Math.min(ultimo, Math.max(0, i)))}
+            alElegir={(i) => {
+              const n = Math.min(ultimo, Math.max(0, i));
+              if (n !== sel) haptico();
+              setSel(n);
+            }}
             moneda={t.moneda}
             className="mt-3 h-[170px]"
           />
@@ -380,11 +385,17 @@ function PorCategoria({ t }: { t: Tablero }) {
                 items={items}
                 moneda={t.moneda}
                 seleccionado={sel}
-                alElegir={(i) => setSel((s) => (s === i ? null : i))}
+                alElegir={(i) => {
+                  haptico();
+                  setSel((s) => (s === i ? null : i));
+                }}
                 className="size-full"
               />
             </Suspense>
-            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-12 text-center">
+            <div
+              key={sel ?? "total"}
+              className="pointer-events-none absolute inset-0 flex animate-aparecer flex-col items-center justify-center px-12 text-center"
+            >
               <span className="max-w-full truncate text-[13px] font-medium text-muted-foreground">
                 {elegido ? elegido.nombre : "Total"}
               </span>

@@ -129,7 +129,7 @@ test.describe("Movimientos", () => {
     await hoja.getByLabel("Comercio").fill("Tacos El Güero");
     await hoja.getByRole("button", { name: "Agregar" }).click();
     await expect(hoja).toBeHidden();
-    await expect(page.getByText("Tacos El Güero")).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Tacos El Güero/ })).toBeVisible();
     expect(api.de("POST", "/v1/movimientos")[0]?.cuerpo).toEqual({
       tipo: "gasto",
       monto: 249.9,
@@ -145,7 +145,7 @@ test.describe("Movimientos", () => {
     await hoja.getByLabel("Comercio").fill("Starbucks Reforma");
     await hoja.getByRole("button", { name: "Guardar" }).click();
     await expect(hoja).toBeHidden();
-    await expect(page.getByText("Starbucks Reforma")).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Starbucks Reforma/ })).toBeVisible();
     const patch = api.de("PATCH", /\/v1\/movimientos\//)[0];
     expect(patch?.ruta).toBe("/v1/movimientos/mov-001");
     expect(patch?.cuerpo).toEqual({ monto: 95, comercio: "Starbucks Reforma" });
@@ -209,7 +209,7 @@ test.describe("Movimientos", () => {
     const y = caja.y + caja.height / 2;
     // Gesto táctil simulado con CDP (Chromium).
     const cdp = await page.context().newCDPSession(page);
-    const tocar = (type: string, x: number) =>
+    const tocar = (type: "touchStart" | "touchMove" | "touchEnd", x: number) =>
       cdp.send("Input.dispatchTouchEvent", {
         type,
         touchPoints: type === "touchEnd" ? [] : [{ x, y }],
@@ -315,11 +315,12 @@ test.describe("Ajustes", () => {
     page.on("request", (r) => {
       if (r.url().endsWith("/v1/atajo")) pedido = r.postDataJSON();
     });
-    const navega = page.waitForRequest(/\/atajo\/abc123\.shortcut$/);
-    await page.route(/\/atajo\/abc123\.shortcut$/, (route) => route.fulfill({ status: 200, body: "" }));
+    await page.route(/\/atajo\/abc123\.shortcut$/, (route) =>
+      route.fulfill({ status: 200, contentType: "text/plain", body: "atajo" }),
+    );
     await page.goto("/#ajustes");
     await page.getByRole("button", { name: /Instalar el Atajo/ }).click();
-    await navega;
+    await page.waitForURL(/\/atajo\/abc123\.shortcut$/);
     expect(pedido).toEqual({ servidor: "http://127.0.0.1:4173" });
     void api;
   });
@@ -357,5 +358,30 @@ test.describe("Sin conexión", () => {
     await page.route(/\/v1\//, (route) => route.abort("internetdisconnected"));
     await page.reload();
     await expect(page.getByRole("region", { name: "Gastado" })).toContainText("$16,754.70");
+  });
+});
+
+test.describe("Pantalla angosta", () => {
+  test.use({ viewport: { width: 375, height: 667 } });
+  test("ninguna pantalla se desplaza hacia los lados a 375 px", async ({ page }) => {
+    await prepararSesion(page);
+    const sinDesborde = async () =>
+      expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+
+    await page.goto("/#inicio");
+    await expect(page.getByRole("region", { name: "Gastado" })).toContainText("$16,754.70");
+    await sinDesborde();
+
+    await page.goto("/#movimientos");
+    await expect(page.getByText(/\d+ movimientos/).first()).toBeVisible();
+    await sinDesborde();
+
+    await page.goto("/#chat");
+    await expect(page.locator("#mensaje")).toBeVisible();
+    await sinDesborde();
+
+    await page.goto("/#ajustes");
+    await expect(page.getByText("Dispositivos")).toBeVisible();
+    await sinDesborde();
   });
 });

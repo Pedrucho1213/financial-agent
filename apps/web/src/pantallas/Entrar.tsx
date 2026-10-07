@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { CircleCheck } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Spinner } from "../components/Spinner";
 import { Button } from "../components/ui/button";
@@ -112,7 +113,6 @@ export function Entrar() {
                     "flex h-14 items-center justify-center rounded-xl bg-card text-[26px] font-semibold tabular transition-[box-shadow] duration-150",
                     activa && "ring-2 ring-primary",
                     errorCodigo && "ring-2 ring-destructive/70",
-                    invitacion.isSuccess && "ring-2 ring-[#34c759]",
                   )}
                 >
                   {c || (activa ? <span className="h-7 w-0.5 animate-pulse rounded bg-primary" /> : null)}
@@ -149,10 +149,13 @@ export function Entrar() {
             <span className="text-negative">{errorCodigo}</span>
           ) : para === "dispositivo" ? (
             <span className="font-medium">
+              <CircleCheck className="mr-1.5 inline size-[18px] -translate-y-px text-positive" aria-hidden />
               Agregar este dispositivo a la cuenta de <strong>{invitacion.data?.nombre ?? "tu cuenta"}</strong>
             </span>
           ) : para === "usuario" ? (
-            <span className="text-muted-foreground">Código válido. Cuéntanos cómo te llamas.</span>
+            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+              <CircleCheck className="size-[18px] text-positive" aria-hidden /> Código válido. Cuéntanos cómo te llamas.
+            </span>
           ) : null}
         </div>
 
