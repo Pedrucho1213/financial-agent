@@ -304,7 +304,7 @@ export function editarMovimiento(ctx: Contexto, id: string, cambios: Partial<Dat
   }
   // De gasto a ingreso (o al revés) la categoría anterior ya no sirve: se busca una del tipo nuevo
   // en la frase original o queda la general, para revisar.
-  if (cambios.tipo && !nuevo.categoriaId) {
+  if (cambios.tipo && nuevo.categoriaId === undefined) {
     const actual = cats.find((c) => c.id === antes.categoriaId);
     const tipoCat = tipo === "ingreso" ? "ingreso" : "gasto";
     if (tipo === "transferencia" || tipo === "pago_tarjeta") {

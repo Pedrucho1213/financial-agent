@@ -198,6 +198,9 @@ describe("hallazgos de QA", () => {
     const r = crearMovimiento({ ...ctx, textoOriginal: "me cayó el reembolso de 300" }, { tipo: "gasto", monto: 300 });
     expect(editarMovimiento(ctx, r.id, { tipo: "ingreso" }).categoria).toBe("Reembolsos");
     expect(editarMovimiento(ctx, r.id, { tipo: "transferencia" }).categoria).toBeUndefined();
+    // Si en la misma edición eliges "Sin categoría", se respeta.
+    const s = crearMovimiento(ctx, { tipo: "gasto", monto: 200, categoria: "Café" });
+    expect(editarMovimiento(ctx, s.id, { tipo: "ingreso", categoriaId: null }).categoria).toBeUndefined();
   });
 
   test("un monto que se redondea a cero centavos no se guarda", () => {
