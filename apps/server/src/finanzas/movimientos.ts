@@ -76,9 +76,13 @@ function elegirCategoria(
 ) {
   if (tipo === "transferencia" || tipo === "pago_tarjeta") return { id: null, revisar: false };
   const tipoCat = tipo === "ingreso" ? "ingreso" : "gasto";
-  // Lo aprendido de tus correcciones manda sobre la suposición del modelo.
+  // Lo aprendido de tus correcciones manda sobre la suposición del modelo, salvo que la frase nombre
+  // otra categoría: en el Oxxo compras café, pero "recarga de celular en el Oxxo" es teléfono.
   const aprendida = categoriaDelComercio ? cats.find((c) => c.id === categoriaDelComercio) : undefined;
-  if (aprendida && aprendida.tipo === tipoCat) return { id: aprendida.id, revisar: false };
+  if (aprendida && aprendida.tipo === tipoCat) {
+    const dichas = hojasMencionadas(cats, pistas.at(-1), tipoCat);
+    if (!(dichas.length === 1 && dichas[0]!.id !== aprendida.id)) return { id: aprendida.id, revisar: false };
+  }
   // Una categoría de ingreso en un gasto (o al revés) no sirve.
   const nombrada = encontrarCategoria(cats, categoria, tipoCat);
   const encontrada = nombrada?.tipo === tipoCat ? nombrada : undefined;
@@ -116,8 +120,14 @@ export function registrarEnBitacora(
     .run();
 }
 
+/** Un monto que, redondeado a centavos, no queda en cero. */
+function validarMonto(monto: number) {
+  if (!(monto > 0)) throw new ErrorFinanzas("El monto debe ser mayor a cero.");
+  if (aCentavos(monto) < 1) throw new ErrorFinanzas("El monto debe ser de al menos un centavo.");
+}
+
 export function crearMovimiento(ctx: Contexto, datos: DatosMovimiento) {
-  if (!(datos.monto > 0)) throw new ErrorFinanzas("El monto debe ser mayor a cero.");
+  validarMonto(datos.monto);
   const fechaResuelta = resolverFecha(datos.fecha, ctx.hoy);
   const fecha = fechaResuelta ?? ctx.hoy;
   const cats = listarCategorias(ctx.db, ctx.usuarioId);
@@ -129,9 +139,8 @@ export function crearMovimiento(ctx: Contexto, datos: DatosMovimiento) {
         datos.descripcion,
         ctx.textoOriginal,
       ]);
-  if (comercio && !comercio.categoriaId && categoria.id && !categoria.revisar) {
-    ctx.db.update(comercios).set({ categoriaId: categoria.id }).where(eq(comercios.id, comercio.id)).run();
-  }
+  // El comercio solo aprende de tus correcciones (editarMovimiento): Oxxo, Walmart o Amazon venden
+  // de todo y la primera compra no dice a qué categoría van las demás.
   const cuenta = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, datos.cuenta);
 
   const fila = ctx.db
@@ -153,7 +162,8 @@ export function crearMovimiento(ctx: Contexto, datos: DatosMovimiento) {
       origen: datos.origen,
       textoOriginal: ctx.textoOriginal,
       entradaId: ctx.entradaId,
-      revisar: categoria.revisar || fechaResuelta === null,
+      // Una fecha que no entendimos o que aún no llega ("20 de octubre" dicho el 6) se marca para revisar.
+      revisar: categoria.revisar || fechaResuelta === null || fecha > ctx.hoy,
     })
     .returning()
     .get();
@@ -264,7 +274,7 @@ export function editarMovimiento(ctx: Contexto, id: string, cambios: Partial<Dat
   const tipo = cambios.tipo ?? antes.tipo;
   if (cambios.tipo) nuevo.tipo = cambios.tipo;
   if (cambios.monto !== undefined) {
-    if (!(cambios.monto > 0)) throw new ErrorFinanzas("El monto debe ser mayor a cero.");
+    validarMonto(cambios.monto);
     nuevo.montoCentavos = aCentavos(cambios.monto);
   }
   if (cambios.moneda) nuevo.moneda = cambios.moneda.toUpperCase();
@@ -291,6 +301,19 @@ export function editarMovimiento(ctx: Contexto, id: string, cambios: Partial<Dat
     // Aprende: la próxima vez este comercio irá a esta categoría.
     const comercioId = nuevo.comercioId ?? antes.comercioId;
     if (comercioId) ctx.db.update(comercios).set({ categoriaId: cat.id }).where(eq(comercios.id, comercioId)).run();
+  }
+  // De gasto a ingreso (o al revés) la categoría anterior ya no sirve: se busca una del tipo nuevo
+  // en la frase original o queda la general, para revisar.
+  if (cambios.tipo && !nuevo.categoriaId) {
+    const actual = cats.find((c) => c.id === antes.categoriaId);
+    const tipoCat = tipo === "ingreso" ? "ingreso" : "gasto";
+    if (tipo === "transferencia" || tipo === "pago_tarjeta") {
+      if (antes.categoriaId) nuevo.categoriaId = null;
+    } else if (!actual || actual.tipo !== tipoCat) {
+      const elegida = elegirCategoria(cats, tipo, undefined, null, [antes.descripcion, antes.textoOriginal]);
+      nuevo.categoriaId = elegida.id;
+      if (elegida.revisar) nuevo.revisar = true;
+    }
   }
   if (Object.keys(nuevo).length === 0) throw new ErrorFinanzas("No indicaste qué cambiar.");
   const despues = ctx.db
@@ -378,7 +401,8 @@ export function resumir(
 
 type CambioBitacora = typeof bitacora.$inferSelect;
 
-function revertir(ctx: Contexto, grupo: CambioBitacora[]) {
+/** `por`: la entrada que pidió deshacer, para poder rehacerlo si esa entrada falla. */
+function revertir(ctx: Contexto, grupo: CambioBitacora[], por?: string) {
   const ahora = new Date().toISOString();
   const revertidos: string[] = [];
   ctx.db.transaction((tx) => {
@@ -397,11 +421,34 @@ function revertir(ctx: Contexto, grupo: CambioBitacora[]) {
           .where(eq(recurrentes.id, cambio.registroId))
           .run();
       }
-      tx.update(bitacora).set({ deshechoEn: ahora }).where(eq(bitacora.id, cambio.id)).run();
+      tx.update(bitacora).set({ deshechoEn: ahora, deshechoPor: por ?? null }).where(eq(bitacora.id, cambio.id)).run();
       revertidos.push(`${cambio.accion} en ${cambio.tabla}`);
     }
   });
   return revertidos;
+}
+
+/** Vuelve a aplicar lo que deshizo una entrada, del cambio más antiguo al más reciente. */
+function rehacer(ctx: Contexto, grupo: CambioBitacora[]) {
+  ctx.db.transaction((tx) => {
+    for (const cambio of [...grupo].reverse()) {
+      const despues = (cambio.despues ?? {}) as { eliminadoEn?: string | null };
+      if (cambio.tabla === "movimientos") {
+        if (cambio.accion === "crear") {
+          tx.update(movimientos).set({ eliminadoEn: null }).where(eq(movimientos.id, cambio.registroId)).run();
+        } else if (cambio.despues) {
+          const { id: _, ...valores } = cambio.despues as Movimiento;
+          tx.update(movimientos).set(valores).where(eq(movimientos.id, cambio.registroId)).run();
+        }
+      } else {
+        tx.update(recurrentes)
+          .set({ eliminadoEn: cambio.accion === "crear" ? null : (despues.eliminadoEn ?? new Date().toISOString()) })
+          .where(eq(recurrentes.id, cambio.registroId))
+          .run();
+      }
+      tx.update(bitacora).set({ deshechoEn: null, deshechoPor: null }).where(eq(bitacora.id, cambio.id)).run();
+    }
+  });
 }
 
 function pendientesDeDeshacer(ctx: Contexto) {
@@ -419,11 +466,22 @@ export function deshacer(ctx: Contexto) {
   const ultima = pendientes[0];
   if (!ultima) return { deshecho: false, mensaje: "No hay nada que deshacer." };
   const grupo = ultima.entradaId ? pendientes.filter((b) => b.entradaId === ultima.entradaId) : [ultima];
-  return { deshecho: true, cambios_revertidos: revertir(ctx, grupo) };
+  return { deshecho: true, cambios_revertidos: revertir(ctx, grupo, ctx.entradaId) };
 }
 
-/** Revierte lo que alcanzó a hacer una entrada que falló, antes de reintentarla. */
+/**
+ * Revierte lo que alcanzó a hacer una entrada que falló, antes de reintentarla. Si esa entrada
+ * había deshecho algo ("deshaz eso"), lo rehace: si no, el reintento desharía otra cosa más.
+ */
 export function revertirEntrada(ctx: Contexto, entradaId: string) {
   const grupo = pendientesDeDeshacer(ctx).filter((b) => b.entradaId === entradaId);
-  return grupo.length ? revertir(ctx, grupo) : [];
+  const revertidos = grupo.length ? revertir(ctx, grupo) : [];
+  const deshechos = ctx.db
+    .select()
+    .from(bitacora)
+    .where(and(eq(bitacora.usuarioId, ctx.usuarioId), eq(bitacora.deshechoPor, entradaId)))
+    .orderBy(desc(bitacora.creadoEn), desc(sql`rowid`))
+    .all();
+  if (deshechos.length) rehacer(ctx, deshechos);
+  return revertidos;
 }

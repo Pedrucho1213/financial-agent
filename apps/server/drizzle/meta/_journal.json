@@ -15,6 +15,13 @@
       "when": 1791328419288,
       "tag": "0001_invitaciones",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791331621192,
+      "tag": "0002_deshecho_por",
+      "breakpoints": true
     }
   ]
 }

@@ -364,9 +364,13 @@ export function crearApp(opciones: OpcionesApp) {
 
   v1.get("/recurrentes", (c) => c.json(listarRecurrentes(contexto(c.get("usuarioId")))));
 
-  v1.get("/resumen", (c) =>
-    c.json(resumir(contexto(c.get("usuarioId")), { periodo: c.req.query("periodo") ?? "este_mes", agruparPor: "categoria" })),
-  );
+  const AGRUPACIONES = ["ninguno", "categoria", "subcategoria", "comercio", "dia"] as const;
+  // ?tipo=ingreso resume ingresos; ?agrupar= cambia la agrupación (categoría por omisión).
+  v1.get("/resumen", (c) => {
+    const tipo = c.req.query("tipo") === "ingreso" ? "ingreso" : "gasto";
+    const agruparPor = AGRUPACIONES.find((a) => a === c.req.query("agrupar")) ?? "categoria";
+    return c.json(resumir(contexto(c.get("usuarioId")), { periodo: c.req.query("periodo") ?? "este_mes", tipo, agruparPor }));
+  });
 
   // Prepara el Atajo con un token propio y deja el archivo firmado 10 minutos para descargarlo.
   v1.post("/atajo", async (c) => {

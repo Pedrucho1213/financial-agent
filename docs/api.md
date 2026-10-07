@@ -50,7 +50,8 @@ Para el primer usuario: `bun run invitar -- --nombre Pedro` crea la cuenta (si n
 | `DELETE /v1/movimientos/:id` | | `{ ok: true }` |
 | `POST /v1/deshacer` | | `{ deshecho, mensaje? }`; revierte el último cambio |
 | `GET /v1/tablero?mes=YYYY-MM` | mes actual por omisión | ver abajo |
-| `GET /v1/recurrentes` | | `{ recurrentes: [...], total_mensual_gastos }` |
+| `GET /v1/recurrentes` | | `{ recurrentes: [...], total_mensual_gastos, total_mensual_otras_monedas? }`; el total solo suma la moneda base |
+| `GET /v1/resumen` | `?periodo=este_mes`, `tipo=gasto\|ingreso` (gasto por omisión), `agrupar=categoria\|subcategoria\|comercio\|dia\|ninguno` | `{ tipo, desde, hasta, total, cantidad, grupos?, otras_monedas? }` con montos en texto |
 
 `GET /v1/tablero`:
 

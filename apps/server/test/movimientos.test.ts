@@ -8,6 +8,7 @@ import {
   eliminarMovimiento,
   ErrorFinanzas,
   resumir,
+  revertirEntrada,
 } from "../src/finanzas/movimientos";
 import { crearRecurrente, listarRecurrentes } from "../src/finanzas/recurrentes";
 import { AHORA, preparar } from "./ayuda";
@@ -159,5 +160,68 @@ describe("recurrentes", () => {
     expect(() =>
       crearRecurrente(ctx, { nombre: "X", tipo: "otro", monto: 1, frecuencia: "semanal", dia: 9 }),
     ).toThrow(ErrorFinanzas);
+  });
+});
+
+describe("hallazgos de QA", () => {
+  test("la primera compra en un comercio no fija la categoría de las demás", () => {
+    const { ctx } = preparar();
+    crearMovimiento({ ...ctx, textoOriginal: "café en el Oxxo 35" }, { tipo: "gasto", monto: 35, comercio: "Oxxo", categoria: "Café" });
+    const recarga = crearMovimiento(
+      { ...ctx, textoOriginal: "recarga de celular en el Oxxo 200" },
+      { tipo: "gasto", monto: 200, comercio: "Oxxo", categoria: "Internet y teléfono" },
+    );
+    expect(recarga.categoria).toBe("Vivienda > Internet y teléfono");
+    crearMovimiento({ ...ctx, textoOriginal: "audífonos en Amazon 900" }, { tipo: "gasto", monto: 900, comercio: "Amazon", categoria: "Electrónica" });
+    const playera = crearMovimiento({ ...ctx, textoOriginal: "una playera en Amazon 300" }, { tipo: "gasto", monto: 300, comercio: "Amazon", categoria: "Ropa y calzado" });
+    expect(playera.categoria).toBe("Compras > Ropa y calzado");
+  });
+
+  test("lo aprendido de una corrección cede cuando la frase nombra otra categoría", () => {
+    const { ctx } = preparar();
+    const m = crearMovimiento(ctx, { tipo: "gasto", monto: 47.5, categoria: "Súper", comercio: "Oxxo" });
+    editarMovimiento(ctx, m.id, { categoria: "Antojos" });
+    const recarga = crearMovimiento(
+      { ...ctx, textoOriginal: "recarga de celular en el Oxxo 200" },
+      { tipo: "gasto", monto: 200, comercio: "Oxxo", categoria: "Internet y teléfono" },
+    );
+    expect(recarga.categoria).toBe("Vivienda > Internet y teléfono");
+  });
+
+  test("cambiar un gasto a ingreso no deja una categoría de gasto", () => {
+    const { ctx } = preparar();
+    const m = crearMovimiento({ ...ctx, textoOriginal: "gasté 500 en café" }, { tipo: "gasto", monto: 500, categoria: "Café" });
+    expect(editarMovimiento(ctx, m.id, { tipo: "ingreso" }).categoria).toBe("Otros ingresos");
+    const r = crearMovimiento({ ...ctx, textoOriginal: "me cayó el reembolso de 300" }, { tipo: "gasto", monto: 300 });
+    expect(editarMovimiento(ctx, r.id, { tipo: "ingreso" }).categoria).toBe("Reembolsos");
+    expect(editarMovimiento(ctx, r.id, { tipo: "transferencia" }).categoria).toBeUndefined();
+  });
+
+  test("un monto que se redondea a cero centavos no se guarda", () => {
+    const { ctx } = preparar();
+    expect(() => crearMovimiento(ctx, { tipo: "gasto", monto: 0.001 })).toThrow(ErrorFinanzas);
+    const m = crearMovimiento(ctx, { tipo: "gasto", monto: 5 });
+    expect(() => editarMovimiento(ctx, m.id, { monto: 0.004 })).toThrow(ErrorFinanzas);
+  });
+
+  test("una fecha que aún no llega se guarda como la dijo, marcada para revisar", () => {
+    const { ctx } = preparar(); // 7 de octubre
+    expect(crearMovimiento(ctx, { tipo: "gasto", monto: 80, categoria: "Café", fecha: "20 de octubre" })).toMatchObject({ fecha: "2026-10-20", revisar: true });
+    expect(crearMovimiento(ctx, { tipo: "gasto", monto: 80, categoria: "Café", fecha: "ayer" }).revisar).toBeUndefined();
+  });
+
+  test("si 'deshaz eso' falla y se reintenta, no deshace dos cosas", () => {
+    const { ctx } = preparar();
+    crearMovimiento({ ...ctx, entradaId: "e1" }, { tipo: "gasto", monto: 100 });
+    crearMovimiento({ ...ctx, entradaId: "e2" }, { tipo: "gasto", monto: 200 });
+    const deshaz = { ...ctx, entradaId: "e3" };
+    deshacer(deshaz);
+    // La IA falló después de deshacer: el reintento primero revierte lo que hizo esa entrada...
+    revertirEntrada(deshaz, "e3");
+    const montos = () => buscarMovimientos(ctx, { periodo: "todo", limite: 50 }).movimientos.map((x) => x.monto).sort();
+    expect(montos()).toEqual(["$100", "$200"]);
+    // ...y al volver a deshacer, deshace lo mismo.
+    deshacer(deshaz);
+    expect(montos()).toEqual(["$100"]);
   });
 });
