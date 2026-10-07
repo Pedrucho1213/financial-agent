@@ -54,7 +54,7 @@ Un dictado sale de la cola cuando el servidor lo recibió, aunque no lo haya pod
 
 Las versiones anteriores del Atajo guardaban en `Finanzas/pendientes/`; si quedó algo ahí, ya no se usa y se puede borrar desde Archivos.
 
-El iPhone espera a la IA como máximo 5 segundos al registrar algo con monto, y 30 al preguntar o dar una orden sin monto ("borra el café", "gasté en el súper"), porque ahí la respuesta puede ser una pregunta. Si la Mac tarda más, contesta "Anotado" y lo termina sola; en las preguntas el Atajo espera la respuesta hasta 45 segundos más.
+El iPhone espera a la IA como máximo 5 segundos al registrar algo con monto, y 30 al preguntar, dar una orden sin monto ("gasté en el súper") o borrar o cambiar algo ("borra el café de 85"), porque ahí la respuesta puede ser una pregunta. Si la Mac tarda más, contesta "Anotado" y lo termina sola; en las preguntas el Atajo espera la respuesta hasta 45 segundos más.
 
 Para dictar sin internet el iPhone necesita el dictado en el dispositivo para Español (México); si no lo tiene, el dictado mismo falla y no se guarda nada.
 

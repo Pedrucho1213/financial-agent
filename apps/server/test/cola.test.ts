@@ -155,6 +155,15 @@ describe("cola de dictados", () => {
     expect((await hablar({ texto: "gasté en el súper 850", client_id: "dictado-4102" })).status).toBe(202);
   });
 
+  test("borrar o cambiar algo con monto también espera como a una pregunta (QA-029)", async () => {
+    const modelo = new MockLanguageModelV4({ doGenerate: async () => (await dormir(40), texto("Hay dos cafés de $85, ¿cuál borro?")) });
+    const { hablar } = montar(modelo, { registroMs: 5, preguntaMs: 2000 });
+    const r = await hablar({ texto: "Borra el café de 85", client_id: "dictado-4103" });
+    expect(r.status).toBe(200);
+    expect(r.cuerpo).toMatchObject({ seguir: true });
+    expect((await hablar({ texto: "el súper de 850 cámbialo a la BBVA", client_id: "dictado-4104" })).status).toBe(200);
+  });
+
   test("si una pregunta tarda demasiado, pide esperar la respuesta", async () => {
     const { modelo } = modeloFalso({ retrasoMs: () => 50 });
     const { hablar, get } = montar(modelo, { registroMs: 5, preguntaMs: 5 });
