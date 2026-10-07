@@ -244,7 +244,7 @@ function inferirTipoCuenta(texto: string): (typeof TIPOS_CUENTA)[number] {
 export function encontrarOCrearCuenta(db: Db, usuarioId: string, texto: string | undefined) {
   if (!texto?.trim()) return undefined;
   let buscado = normalizar(texto);
-  while (/^(con|la|el|mi|mis|tarjeta|cuenta|de) /.test(buscado)) {
+  while (/^(con|la|el|mi|mis|tarjeta|cuenta|de|credito|debito) /.test(buscado)) {
     buscado = buscado.replace(/^\S+ /, "");
   }
   const lista = db.select().from(cuentas).where(eq(cuentas.usuarioId, usuarioId)).all();
@@ -256,7 +256,7 @@ export function encontrarOCrearCuenta(db: Db, usuarioId: string, texto: string |
   );
   if (existente) return existente;
   let nombre = texto.trim();
-  while (/^(con|la|el|mi|mis|tarjeta|cuenta|de)\s+/i.test(nombre)) {
+  while (/^(con|la|el|mi|mis|tarjeta|cuenta|de|cr[eé]dito|d[eé]bito)\s+/i.test(nombre)) {
     nombre = nombre.replace(/^\S+\s+/, "");
   }
   const tipo = inferirTipoCuenta(texto);

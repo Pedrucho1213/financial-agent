@@ -259,6 +259,16 @@ export const CASOS: Caso[] = [
   },
   {
     grupo: "edicion",
+    // QA-020: sin verbo de pago ni monto, el modelo preguntaba "¿de cuánto fue?".
+    frase: "El súper de hoy fue con la tarjeta de crédito Nu",
+    preparar: gastosDeEjemplo,
+    verificar: (r) => {
+      const m = r.movimientos.find((x) => x.comercio === "Walmart");
+      return motivo(m?.cuenta === "Nu" && r.movimientos.length === 6, r.movimientos);
+    },
+  },
+  {
+    grupo: "edicion",
     frase: "Elimina el gasto de gasolina de 800",
     preparar: (ctx) => {
       crearMovimiento(previa(ctx), { tipo: "gasto", monto: 800, categoria: "Gasolina", fecha: "ayer" });

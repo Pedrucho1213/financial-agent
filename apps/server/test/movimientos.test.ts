@@ -45,6 +45,9 @@ describe("registrar", () => {
     expect(crearMovimiento(ctx, { tipo: "gasto", monto: 1, cuenta: "con la BBVA" }).cuenta).toBe("BBVA");
     expect(crearMovimiento(ctx, { tipo: "gasto", monto: 1, cuenta: "bbva" }).cuenta).toBe("BBVA");
     expect(crearMovimiento(ctx, { tipo: "gasto", monto: 1, cuenta: "efectivo" }).cuenta).toBe("Efectivo");
+    // QA-020: "la tarjeta de crédito Nu" es la cuenta Nu, no "crédito Nu".
+    expect(crearMovimiento(ctx, { tipo: "gasto", monto: 1, cuenta: "la tarjeta de crédito Nu" }).cuenta).toBe("Nu");
+    expect(crearMovimiento(ctx, { tipo: "gasto", monto: 1, cuenta: "Nu" }).cuenta).toBe("Nu");
   });
 
   test("rechaza montos inválidos", () => {
