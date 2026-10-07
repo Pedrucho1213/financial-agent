@@ -68,12 +68,16 @@ function nombrador(ctx: Contexto, cats: Categoria[]) {
   };
 }
 
+// Gastos que se repiten por necesidad, no por antojo: el metro diario no es una fuga ni la gasolina una suscripción.
+const NECESIDADES_QUE_SE_REPITEN = new Set(["transporte publico", "gasolina", "casetas", "estacionamiento"]);
+const esNecesidad = (cats: Categoria[], m: Mov) => NECESIDADES_QUE_SE_REPITEN.has(normalizar(nombreCompleto(cats, m.categoriaId)?.split(" > ").at(-1) ?? ""));
+
 /** Gastos chicos que se repiten: "En 30 días gastaste $780 en Starbucks, 12 veces." */
 function hormiga(ctx: Contexto, cats: Categoria[]): AvisoNuevo[] {
   const nombre = nombrador(ctx, cats);
   const grupos = new Map<string, { nombre: string; filas: Mov[] }>();
   for (const m of gastos(ctx, sumarDias(ctx.hoy, -29))) {
-    if (m.montoCentavos > HORMIGA_MAXIMO || m.recurrenteId || m.msiId) continue;
+    if (m.montoCentavos > HORMIGA_MAXIMO || m.recurrenteId || m.msiId || esNecesidad(cats, m)) continue;
     const n = nombre(m);
     if (!n) continue;
     const g = grupos.get(n.clave) ?? { nombre: n.nombre, filas: [] };
@@ -117,7 +121,7 @@ function suscripcionesOlvidadas(ctx: Contexto, cats: Categoria[]): AvisoNuevo[] 
   // 1. El mismo monto en el mismo comercio con 25 a 35 días de diferencia.
   const porComercio = new Map<string, { nombre: string; filas: Mov[] }>();
   for (const m of gastos(ctx, sumarDias(ctx.hoy, -100))) {
-    if (!m.comercioId || m.recurrenteId || m.msiId) continue;
+    if (!m.comercioId || m.recurrenteId || m.msiId || esNecesidad(cats, m)) continue;
     const n = nombre(m)!;
     const g = porComercio.get(n.clave) ?? { nombre: n.nombre, filas: [] };
     g.filas.push(m);
@@ -375,6 +379,16 @@ export type OpcionesRevisor = {
  * Si la Mac estaba dormida a las 3, lo hace en cuanto despierta y queda libre. Devuelve a quiénes revisó.
  */
 export function revisarPendientes(opciones: OpcionesRevisor, ahora = new Date()): string[] {
+  // Corre solo, cada 10 minutos: un error nunca debe tumbar el servidor.
+  try {
+    return revisarPendientesSinCuidar(opciones, ahora);
+  } catch (error) {
+    console.error("El revisor falló:", error);
+    return [];
+  }
+}
+
+function revisarPendientesSinCuidar(opciones: OpcionesRevisor, ahora: Date): string[] {
   const { db, zonaHoraria, monedaBase } = opciones;
   const hoy = fechaLocal(ahora, zonaHoraria);
   const hora = Number(new Intl.DateTimeFormat("en-US", { timeZone: zonaHoraria, hour: "numeric", hourCycle: "h23" }).format(ahora));

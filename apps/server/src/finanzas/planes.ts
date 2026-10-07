@@ -180,9 +180,15 @@ function presupuestoApp(ctx: Contexto, p: Presupuesto, cats = listarCategorias(c
 export function quitarPresupuesto(ctx: Contexto, datos: { id?: string; categoria?: string | null }) {
   const cats = listarCategorias(ctx.db, ctx.usuarioId);
   const activos = presupuestosActivos(ctx);
+  // "Quita el presupuesto" sin decir cuál: solo si hay uno. "Quita el general" sí dice cuál.
+  if (!datos.id && !datos.categoria?.trim() && activos.length > 1) {
+    throw new ErrorFinanzas(`Hay varios presupuestos: ${activos.map((p) => nombreDelPresupuesto(cats, p.categoriaId)).join(", ")}. Pregunta cuál.`);
+  }
   const antes = datos.id
     ? activos.find((p) => p.id === datos.id)
-    : activos.find((p) => p.categoriaId === categoriaDelPresupuesto(cats, datos.categoria));
+    : !datos.categoria?.trim() && activos.length === 1
+      ? activos[0]
+      : activos.find((p) => p.categoriaId === categoriaDelPresupuesto(cats, datos.categoria));
   if (!antes) {
     const hay = activos.map((p) => nombreDelPresupuesto(cats, p.categoriaId)).join(", ") || "ninguno";
     throw new ErrorFinanzas(`No hay un presupuesto así. Los que hay: ${hay}.`);
@@ -325,6 +331,7 @@ function encontrarMeta(ctx: Contexto, nombre: string | undefined, id?: string): 
   let buscado = normalizar(nombre ?? "");
   while (PREFIJO_META.test(buscado)) buscado = buscado.replace(PREFIJO_META, "");
   if (!buscado && activas.length === 1) return activas[0]!;
+  if (!buscado) throw new ErrorFinanzas(activas.length ? `Hay varias metas: ${activas.map((m) => m.nombre).join(", ")}. Pregunta cuál.` : "No hay metas.");
   const exactas = activas.filter((m) => normalizar(m.nombre) === buscado);
   const palabras = buscado.split(" ").filter((p) => p.length > 2 && !VACIAS.has(p));
   const parecidas = exactas.length
@@ -423,6 +430,19 @@ const mismaPersona = (a: string, b: string) => {
   return x === y || x.split(" ")[0] === y || y.split(" ")[0] === x;
 };
 
+/**
+ * Los préstamos de quien nombra. El nombre exacto manda; si solo dice el nombre de pila ("Juan") y
+ * hay dos Juanes, no adivina: pide que pregunte cuál.
+ */
+function deLaPersona(filas: Prestamo[], persona: string): Prestamo[] {
+  const exactas = filas.filter((p) => normalizar(p.persona) === normalizar(limpiarPersona(persona)));
+  if (exactas.length) return exactas;
+  const parecidas = filas.filter((p) => mismaPersona(p.persona, persona));
+  const nombres = [...new Set(parecidas.map((p) => p.persona))];
+  if (nombres.length > 1) throw new ErrorFinanzas(`Coinciden ${nombres.join(" y ")}. Pregunta cuál.`);
+  return parecidas;
+}
+
 export function prestamoApp(p: Prestamo) {
   return {
     id: p.id,
@@ -447,7 +467,7 @@ export function listarPrestamos(ctx: Contexto, opciones: { todos?: boolean; pers
         .orderBy(asc(prestamosPersonales.creadoEn))
         .all()
     : prestamosAbiertos(ctx);
-  if (opciones.persona) filas = filas.filter((p) => mismaPersona(p.persona, opciones.persona!));
+  if (opciones.persona) filas = deLaPersona(filas, opciones.persona);
   const lista = filas.map(prestamoApp);
   const abiertos = lista.filter((p) => !p.saldadoEn);
   const suma = (d: Direccion) => abiertos.filter((p) => p.direccion === d).reduce((s, p) => s + p.pendienteCentavos, 0);
@@ -459,8 +479,13 @@ export function registrarPrestamo(ctx: Contexto, datos: { persona: string; direc
   const persona = limpiarPersona(datos.persona);
   if (!persona) throw new ErrorFinanzas("Falta a quién.");
   validarMonto(datos.monto);
-  // Mismo nombre que un préstamo anterior: se escribe igual para que se sumen.
-  const conocida = prestamosAbiertos(ctx).find((p) => mismaPersona(p.persona, persona))?.persona;
+  // Mismo nombre que un préstamo anterior: se escribe igual para que se sumen. "Juan" es "Juan Pérez" si
+  // es el único Juan; "Juan López" no es el "Juan" que ya estaba.
+  const abiertos = prestamosAbiertos(ctx);
+  const exacta = abiertos.find((p) => normalizar(p.persona) === normalizar(persona))?.persona;
+  const dePila = [...new Set(abiertos.filter((p) => normalizar(p.persona).split(" ")[0] === normalizar(persona)).map((p) => p.persona))];
+  if (!exacta && dePila.length > 1) throw new ErrorFinanzas(`Coinciden ${dePila.join(" y ")}. Pregunta cuál.`);
+  const conocida = exacta ?? dePila[0];
   const fila = ctx.db
     .insert(prestamosPersonales)
     .values({
@@ -483,7 +508,7 @@ export function registrarPrestamo(ctx: Contexto, datos: { persona: string; direc
  */
 export function abonarPrestamo(ctx: Contexto, datos: { persona: string; direccion?: Direccion; monto?: number }) {
   if (datos.monto !== undefined) validarMonto(datos.monto);
-  const abiertos = prestamosAbiertos(ctx).filter((p) => mismaPersona(p.persona, datos.persona));
+  const abiertos = deLaPersona(prestamosAbiertos(ctx), datos.persona);
   const direcciones = new Set(abiertos.map((p) => p.direccion));
   if (abiertos.length === 0) {
     const hay = [...new Set(prestamosAbiertos(ctx).map((p) => p.persona))].join(", ") || "nadie";

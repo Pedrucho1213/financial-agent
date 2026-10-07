@@ -460,7 +460,10 @@ describe("casos de la revisión de código", () => {
     for (const [frase, monto] of [
       ["le puse 500 de gasolina al carro", 500],
       ["ya le pagué la luz, 800", 800],
-      ["pagué la mensualidad de la pantalla de meses sin intereses, 1000", 1000],
+      ["pagué la mensualidad del gym, 600", 600],
+      ["me prestaron el coche y le eché 500 de gasolina", 500],
+      ["le pagué a Luz 300 del corte de pelo", 300],
+      ["guardé 200 en el carro para casetas", 200],
     ] as const) {
       expect((await llamar(dictado(ctx, frase), "registrar_movimientos", gastoDe(monto))).registrados).toHaveLength(1);
     }
@@ -470,6 +473,49 @@ describe("casos de la revisión de código", () => {
     expect((await llamar(dictado(ctx, "guardé 500 al carro nuevo"), "registrar_movimientos", gastoDe(500))).error).toMatch(/meta/);
     expect((await llamar(dictado(ctx, "le devolví los 300 a Luz"), "registrar_movimientos", gastoDe(300))).error).toMatch(/prestamo/);
     expect((await llamar(dictado(ctx, "saqué una tele de 9 mil a 12 meses"), "registrar_movimientos", gastoDe(9000))).error).toMatch(/compra_msi/);
+    expect((await llamar(dictado(ctx, "Luz me pagó 200 de lo que le debía"), "registrar_movimientos", { movimientos: [{ tipo: "ingreso", monto: 200 }] })).error).toMatch(/prestamo/);
+    // La mensualidad de una compra a meses ya se anota sola: anotarla a mano la contaría dos veces.
+    expect((await llamar(dictado(ctx, "pagué la mensualidad de la pantalla, mil pesos"), "registrar_movimientos", gastoDe(1000))).error).toMatch(/ya se anotan solas el día del cargo; la próxima es el 2026-11-07/);
+    // Si el modelo insiste en que es un gasto, la regla cede: puede equivocarse.
+    const herramientas = crearHerramientas(dictado(ctx, "me prestaron 800 para las casetas"), []) as Record<string, { execute?: unknown }>;
+    const registrar = (a: unknown) => (herramientas.registrar_movimientos!.execute as (a: unknown, o: unknown) => Promise<any>)(a, {});
+    expect((await registrar(gastoDe(800))).error).toMatch(/prestamo/);
+    expect((await registrar(gastoDe(800))).registrados).toHaveLength(1);
+  });
+
+  test("con dos Juanes, abonar o prestar a \"Juan\" pregunta cuál", () => {
+    const { ctx } = preparar();
+    registrarPrestamo(ctx, { persona: "Juan Pérez", direccion: "me_deben", monto: 500 });
+    registrarPrestamo(ctx, { persona: "Juan López", direccion: "me_deben", monto: 300 });
+    expect(() => abonarPrestamo(ctx, { persona: "Juan", monto: 700 })).toThrow(/Coinciden Juan Pérez y Juan López/);
+    expect(() => registrarPrestamo(ctx, { persona: "Juan", direccion: "me_deben", monto: 100 })).toThrow(/Coinciden/);
+    expect(abonarPrestamo(ctx, { persona: "Juan López", monto: 300 }).saldado).toBe(true);
+    // Con un solo Juan, "Juan" es él; "Juan Pérez" no se junta con un "Juan" que ya estaba.
+    expect(registrarPrestamo(ctx, { persona: "Juan", direccion: "me_deben", monto: 100 }).persona).toBe("Juan Pérez");
+    const { ctx: otro } = preparar();
+    registrarPrestamo(otro, { persona: "Ana", direccion: "me_deben", monto: 100 });
+    expect(registrarPrestamo(otro, { persona: "Ana Ruiz", direccion: "me_deben", monto: 50 }).totalPendienteCentavos).toBe(5000);
+  });
+
+  test("quitar un presupuesto o una meta sin decir cuál pregunta si hay varios", async () => {
+    const { ctx } = preparar();
+    fijarPresupuesto(ctx, { categoria: "del mes", monto: 15000 });
+    fijarPresupuesto(ctx, { categoria: "Comida", monto: 3000 });
+    expect(() => quitarPresupuesto(ctx, {})).toThrow(/Hay varios presupuestos: General, Comida/);
+    expect(quitarPresupuesto(ctx, { categoria: "general" }).categoria).toBe("General");
+    expect(quitarPresupuesto(ctx, {}).categoria).toBe("Comida");
+    crearMeta(ctx, { nombre: "Viaje", objetivo: 1000 });
+    crearMeta(ctx, { nombre: "Fondo", objetivo: 1000 });
+    expect((await llamar(dictado(ctx, "borra la meta"), "meta", { accion: "eliminar" })).error).toMatch(/Hay varias metas: Viaje, Fondo/);
+  });
+
+  test("el metro y la gasolina no son fugas", () => {
+    const { ctx } = preparar();
+    for (let i = 1; i <= 7; i++) gasto(ctx, 50, "Transporte público", { fecha: `2026-10-0${i}` });
+    gasto(ctx, 800, "Gasolina", { comercio: "Pemex", fecha: "2026-09-05" });
+    gasto(ctx, 800, "Gasolina", { comercio: "Pemex", fecha: "2026-10-05" });
+    revisar(ctx);
+    expect(listarAvisos(ctx).avisos.filter((a) => a.tipo === "hormiga" || a.tipo === "suscripcion_olvidada")).toHaveLength(0);
   });
 
   test("una mensualidad borrada o movida no vuelve en la noche", () => {
