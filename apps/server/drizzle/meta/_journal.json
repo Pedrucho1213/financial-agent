@@ -29,6 +29,13 @@
       "when": 1791340288217,
       "tag": "0003_aviso_recurrentes",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1791345533421,
+      "tag": "0004_descargas_atajo",
+      "breakpoints": true
     }
   ]
 }
