@@ -356,12 +356,14 @@ describe("segunda revisión del PR", () => {
     expect((await hablar("Otro café de 85")).respuesta).toBe("Listo, café de 85 pesos. Ojo: mañana se cobra Disney de 159 pesos.");
   });
 
-  test("\"el café de las dos\" es una hora, no varios cafés", async () => {
+  test("una hora o un plural que no son \"varios\" no eligen el más reciente (QA-037)", async () => {
     const { ctx } = preparar();
     crearMovimiento(ctx, { tipo: "gasto", monto: 45, categoria: "Café", fecha: "ayer" });
     crearMovimiento(ctx, { tipo: "gasto", monto: 60, categoria: "Café" });
-    const r = await llamar(dictado(ctx, "Borra el café de las dos de ayer"), "eliminar_movimiento", { buscar: { texto: "café", mas_reciente: true } });
-    expect(r.error).toContain("Coinciden 2");
+    for (const frase of ["Borra el café de las dos de ayer", "Borra el café de las tres", "Borra lo de los cafés", "Quita el café de los martes"]) {
+      const r = await llamar(dictado(ctx, frase), "eliminar_movimiento", { buscar: { texto: "café", mas_reciente: true } });
+      expect(r.error).toContain("Coinciden 2");
+    }
     expect(todos(ctx)).toHaveLength(2);
   });
 });
