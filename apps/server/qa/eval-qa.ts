@@ -96,7 +96,7 @@ const CASOS: Caso[] = [
     id: "nuevo", frase: "El súper de hoy fue con la tarjeta de crédito Nu", preparar: ejemplo,
     verificar: (r) => ok(r.movimientos.find((m) => m.monto === "$1,850")?.cuenta?.toLowerCase().includes("nu") === true, r.movimientos.find((m) => m.monto === "$1,850")),
   },
-  { id: "nuevo", frase: "Gasté 120 en tacos", previos: ["Gasté 120 en tacos"], verificar: (r) => ok(r.movimientos.length >= 1, r.movimientos) },
+  { id: "QA-077", frase: "Gasté 120 en tacos", previos: ["Gasté 120 en tacos"], verificar: (r) => ok(r.movimientos.length === 1 && !/no alcanc/i.test(r.respuesta), { mov: r.movimientos.length, resp: r.respuesta }) },
   { id: "nuevo", frase: "Uber 89, Didi 120 y un Rappi de 250", verificar: (r) => ok(r.movimientos.length === 3 && r.movimientos.filter((m) => cat(m, "Taxi y apps")).length === 2 && r.movimientos.some((m) => cat(m, "Delivery")), r.movimientos) },
   { id: "nuevo", frase: "Gasté 450 en la farmacia, no, perdón, fueron 540", verificar: (r) => ok(r.movimientos.length === 1 && r.movimientos[0]!.monto === "$540", r.movimientos) },
 ];
