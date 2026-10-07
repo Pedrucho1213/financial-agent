@@ -1,6 +1,7 @@
 import { and, eq, gte, isNull, lt } from "drizzle-orm";
-import { comercios, movimientos } from "../db/schema";
+import { comercios, configuracion, movimientos } from "../db/schema";
 import { formatearMonto } from "../lib/dinero";
+import { normalizar } from "../lib/texto";
 import { sumarDias } from "../lib/fechas";
 import type { Contexto } from "./contexto";
 import { estadoPresupuestos } from "./planes";
@@ -16,12 +17,13 @@ const MINIMO_GASTOS = 10;
 const MINIMO_DIAS = 7;
 const LARGO_MAXIMO = 160;
 
-// Cuántos comentarios se han dicho hoy por usuario. Si el servidor se reinicia, a lo más se dice uno de más.
-const dichosHoy = new Map<string, { dia: string; cuantos: number }>();
+// Cuántos comentarios se han dicho hoy, en la base: cada despliegue reinicia el servidor.
+const clave = (ctx: Contexto) => `comentarios:${ctx.usuarioId}`;
 
 function dichos(ctx: Contexto) {
-  const hoy = dichosHoy.get(ctx.usuarioId);
-  return hoy?.dia === ctx.hoy ? hoy.cuantos : 0;
+  const fila = ctx.db.select().from(configuracion).where(eq(configuracion.clave, clave(ctx))).get();
+  const hoy = fila?.valor as { dia?: string; cuantos?: number } | undefined;
+  return hoy?.dia === ctx.hoy ? (hoy.cuantos ?? 0) : 0;
 }
 
 export function puedeComentar(ctx: Contexto): boolean {
@@ -29,12 +31,8 @@ export function puedeComentar(ctx: Contexto): boolean {
 }
 
 export function marcarComentario(ctx: Contexto) {
-  dichosHoy.set(ctx.usuarioId, { dia: ctx.hoy, cuantos: dichos(ctx) + 1 });
-}
-
-/** Para pruebas. */
-export function olvidarComentarios() {
-  dichosHoy.clear();
+  const valor = { dia: ctx.hoy, cuantos: dichos(ctx) + 1 };
+  ctx.db.insert(configuracion).values({ clave: clave(ctx), valor }).onConflictDoUpdate({ target: configuracion.clave, set: { valor } }).run();
 }
 
 function gastosEntre(ctx: Contexto, desde: string, hasta: string) {
@@ -87,7 +85,9 @@ export function costumbreParaLaIA(ctx: Contexto): string | undefined {
   // "Es tu cuarto Starbucks de la semana": cuántas veces fue a cada lugar en los últimos 7 días.
   const semana = [...previos.filter((g) => g.fecha >= sumarDias(ctx.hoy, -6)), ...hoy];
   const veces = new Map<string, number>();
-  for (const g of semana) if (g.comercio) veces.set(g.comercio, (veces.get(g.comercio) ?? 0) + 1);
+  // El nombre de un comercio de Apple Pay lo escribe un tercero: corto y en una línea.
+  const nombre = (c: string) => c.replace(/[\s"“”]+/g, " ").trim().slice(0, 40);
+  for (const g of semana) if (g.comercio) veces.set(nombre(g.comercio), (veces.get(nombre(g.comercio)) ?? 0) + 1);
   const frecuentes = [...veces].filter(([, n]) => n >= 3).sort((a, b) => b[1] - a[1]).slice(0, 3);
   if (frecuentes.length) lineas.push(`- Esta semana: ${frecuentes.map(([c, n]) => `${c} ${n} veces`).join(", ")}.`);
   const apretados = estadoPresupuestos(ctx).presupuestos.filter((p) => p.porcentaje >= 60);
@@ -96,6 +96,10 @@ export function costumbreParaLaIA(ctx: Contexto): string | undefined {
   }
   return `Su costumbre (solo para decidir si comentas algo al registrar un gasto):\n${lineas.join("\n")}`;
 }
+
+// Una cifra en palabras ("diez veces", "el triple", "tu quinta vez") no se puede comparar con las fuentes.
+const CIFRA_EN_PALABRAS =
+  /\b(dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|veinte|treinta|cuarenta|cincuenta|cien|ciento|cientos|mil|doble|triple|cuadruple|mitad|tercera|cuarta|quinta|sexta|septima|octava|novena|decima|tercer|cuarto|quinto|sexto|septimo|octavo|noveno|decimo)\b/;
 
 const cifras = (texto: string) => (texto.match(/\d[\d,]*(\.\d+)?/g) ?? []).map((n) => Number(n.replace(/,/g, "")));
 
@@ -106,6 +110,7 @@ const cifras = (texto: string) => (texto.match(/\d[\d,]*(\.\d+)?/g) ?? []).map((
 export function comentarioValido(ctx: Contexto, propuesto: string | undefined, fuentes: string[]): string | undefined {
   const texto = propuesto?.replace(/\s+/g, " ").trim();
   if (!texto || !puedeComentar(ctx) || texto.includes("?") || texto.length > LARGO_MAXIMO) return undefined;
+  if (CIFRA_EN_PALABRAS.test(normalizar(texto))) return undefined;
   const conocidas = new Set(fuentes.flatMap(cifras));
   if (!cifras(texto).every((n) => conocidas.has(n))) return undefined;
   return /[.!]$/.test(texto) ? texto : `${texto}.`;

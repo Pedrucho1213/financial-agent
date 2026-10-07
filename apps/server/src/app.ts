@@ -52,6 +52,7 @@ import { esOrdenSobreLoAnotado, esPregunta } from "./lib/texto";
 import { and, count, eq, gte, sql } from "drizzle-orm";
 import { avisoDeDictado, conversacionPorContestar } from "./push/dictados";
 import { desuscribir, type EnviarPush, ErrorSuscripcion, estadoPush, notificar, suscribir, tienePush } from "./push/notificaciones";
+import { costumbreParaLaIA } from "./finanzas/comentario";
 import { rutasPlanes } from "./rutas-planes";
 import { servirApp } from "./web";
 import type { EstadoIa } from "./ai/modelo";
@@ -521,9 +522,9 @@ export function crearApp(opciones: OpcionesApp) {
     // o decir qué borró o cambió. Si contestara "Anotado" y lo terminara sola, nadie oiría esa respuesta.
     // Lo mismo al borrar o cambiar algo, aunque diga el monto: "borra el café de 85" (QA-029).
     const pregunta = esPregunta(p.texto) || montosDelTexto(p.texto).length === 0 || esOrdenSobreLoAnotado(p.texto);
-    // Con notificaciones, un registro espera a la IA para saber si ella quiere comentar algo del gasto
-    // (finanzas/comentario.ts). Si no, el Atajo dice "Anotado" y termina, y lo que anotó llega en una
-    // notificación. Las preguntas se siguen contestando en voz.
+    // Con notificaciones, un registro espera a la IA cuando ella puede comentar algo del gasto
+    // (finanzas/comentario.ts). Si no comenta, o no puede, el Atajo dice "Anotado" y termina, y lo que
+    // anotó llega en una notificación. Las preguntas se siguen contestando en voz.
     // En el reloj no: la notificación va a la app del iPhone y, si no está cerca, nunca le llega.
     // Se reconoce por `equipo` o por el User-Agent. Cada User-Agent nuevo del Atajo queda una vez en el
     // registro, para comprobar cómo se presenta el reloj.
@@ -534,7 +535,10 @@ export function crearApp(opciones: OpcionesApp) {
     }
     const enReloj = /watch/i.test(p.equipo ?? "") || /watch/i.test(agente);
     const rapida = delAtajo && !pregunta && !enReloj && tienePush(db, usuarioId);
-    const esperaMs = p.espera_ms ?? (pregunta ? opciones.espera?.preguntaMs : opciones.espera?.registroMs);
+    // Si la IA no va a poder comentar (poco historial, ya comentó lo del día), no tiene caso esperarla.
+    const esperaMs =
+      p.espera_ms ??
+      (pregunta ? opciones.espera?.preguntaMs : rapida && !costumbreParaLaIA(contexto(usuarioId)) ? 0 : opciones.espera?.registroMs);
     try {
       let respuesta = await hablar(
         deps,

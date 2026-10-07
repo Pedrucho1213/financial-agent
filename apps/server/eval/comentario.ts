@@ -9,7 +9,7 @@ import { crearUsuario } from "../src/auth";
 import { config } from "../src/config";
 import { abrirBaseDatos } from "../src/db/client";
 import { sembrarCategorias } from "../src/finanzas/catalogos";
-import { marcarComentario, olvidarComentarios } from "../src/finanzas/comentario";
+import { marcarComentario } from "../src/finanzas/comentario";
 import { crearContexto } from "../src/finanzas/contexto";
 import { crearMovimiento } from "../src/finanzas/movimientos";
 import { fijarPresupuesto } from "../src/finanzas/planes";
@@ -50,7 +50,6 @@ const comentados = { normales: 0, fuera: 0 };
 const propuestos = { normales: 0, fuera: 0 };
 
 async function dictar(frase: string, conCostumbre: boolean) {
-  olvidarComentarios();
   const { datos, ctx } = base();
   // Con el tope del día alcanzado, la IA no ve la costumbre: es el mismo dictado de antes de este cambio.
   if (!conCostumbre) for (let i = 0; i < 2; i++) marcarComentario(ctx);
