@@ -493,12 +493,24 @@ describe("Apple Pay", () => {
     const { pedir, activar, enviadas, db } = montar([REGISTRO_CAFE, REGISTRO_CAFE]);
     await activar();
     const pago = { origen: "apple_pay", monto: "$85.00", comercio: "STARBUCKS" };
-    await pedir("/v1/hablar", "POST", { ...pago, client_id: "applepay-doble-0001" });
+    await pedir("/v1/hablar", "POST", { ...pago, client_id: "applepay-doble-0001", capturado_en: "2026-10-07T14:00:00.000Z" });
     await hasta(() => enviadas.length > 0);
-    const otra = await pedir("/v1/hablar", "POST", { ...pago, client_id: "applepay-doble-0002" });
+    const otra = await pedir("/v1/hablar", "POST", { ...pago, client_id: "applepay-doble-0002", capturado_en: "2026-10-07T14:00:20.000Z" });
     expect(otra.status).toBe(200);
     expect(((await otra.json()) as { duplicado: boolean }).duplicado).toBe(true);
     expect(db.select().from(movimientos).all()).toHaveLength(1);
+  });
+
+  test("la misma compra en la mañana y en la tarde, reenviadas juntas por la cola, son dos pagos", async () => {
+    const { pedir, activar, enviadas, db } = montar([REGISTRO_CAFE, REGISTRO_CAFE]);
+    await activar();
+    const pago = { origen: "apple_pay", monto: "$85.00", comercio: "STARBUCKS" };
+    await pedir("/v1/hablar", "POST", { ...pago, client_id: "applepay-manana-001", capturado_en: "2026-10-07T14:00:00.000Z" });
+    await hasta(() => enviadas.length > 0);
+    const tarde = await pedir("/v1/hablar", "POST", { ...pago, client_id: "applepay-tarde-0001", capturado_en: "2026-10-07T23:00:00.000Z" });
+    expect(((await tarde.json()) as { duplicado?: boolean }).duplicado).toBeUndefined();
+    await hasta(() => enviadas.length > 1);
+    expect(db.select().from(movimientos).all()).toHaveLength(2);
   });
 
   test("corrido a mano (sin pago) es una prueba que avisa por push", async () => {

@@ -136,8 +136,9 @@ const esquemaSuscripcion = z.object({
 });
 
 const PRUEBA_PUSH_CADA_MS = 15_000;
-// La automatización de la Cartera a veces corre dos veces por el mismo pago, cada vez con otro folio.
-const PAGO_REPETIDO_MS = 3 * 60_000;
+// La automatización de la Cartera a veces corre dos veces por el mismo pago, segundos aparte y cada vez
+// con otro folio.
+const PAGO_REPETIDO_MS = 90_000;
 
 /** Lo que el Atajo dice cuando registró y el resultado llega por notificación. */
 export const RESPUESTA_RAPIDA = "Anotado.";
@@ -270,6 +271,7 @@ export function crearApp(opciones: OpcionesApp) {
   const paraVoz = <T extends { respuesta?: string; pendiente?: boolean }>(r: T) =>
     conSeguir(r.respuesta ? { ...r, respuesta: montosParaVoz(r.respuesta, opciones.monedaBase) } : r);
   const firmar = opciones.firmarAtajo ?? firmarAtajo;
+  const agentesVistos = new Set<string>();
   // Lo que el iPhone ya no esperó llega por notificación a quien las tenga activas.
   const deps = {
     ...opciones,
@@ -498,9 +500,13 @@ export function crearApp(opciones: OpcionesApp) {
     // Con notificaciones, un registro no espera a la IA: el Atajo dice "Anotado" y termina, y lo que
     // anotó llega en una notificación. Las preguntas se siguen contestando en voz.
     // En el reloj no: la notificación va a la app del iPhone y, si no está cerca, nunca le llega.
-    // Se reconoce por `equipo` o por el User-Agent; el del Atajo queda en el registro para comprobarlo.
+    // Se reconoce por `equipo` o por el User-Agent. Cada User-Agent nuevo del Atajo queda una vez en el
+    // registro, para comprobar cómo se presenta el reloj.
     const agente = c.req.header("user-agent") ?? "";
-    if (delAtajo && process.env.NODE_ENV !== "test") console.log(`Atajo desde: ${agente.slice(0, 160)}`);
+    if (delAtajo && !agentesVistos.has(agente) && agentesVistos.size < 20) {
+      agentesVistos.add(agente);
+      if (process.env.NODE_ENV !== "test") console.log(`Atajo desde un User-Agent nuevo: ${agente.slice(0, 160)}`);
+    }
     const enReloj = /watch/i.test(p.equipo ?? "") || /watch/i.test(agente);
     const rapida = delAtajo && !pregunta && !enReloj && tienePush(db, usuarioId);
     const esperaMs = p.espera_ms ?? (rapida ? 0 : pregunta ? opciones.espera?.preguntaMs : opciones.espera?.registroMs);
@@ -578,19 +584,15 @@ export function crearApp(opciones: OpcionesApp) {
         acciones: [],
       });
     }
+    // Se compara la hora del pago (capturado_en), no la de llegada: dos compras iguales en la mañana y en
+    // la tarde que la cola reenvía juntas son dos pagos.
+    const momento = p.capturado_en ? Date.parse(p.capturado_en) : Date.now();
     const repetido = db
-      .select({ clientId: entradas.clientId })
+      .select({ clientId: entradas.clientId, capturadoEn: entradas.capturadoEn })
       .from(entradas)
-      .where(
-        and(
-          eq(entradas.usuarioId, usuarioId),
-          eq(entradas.origen, "apple_pay"),
-          eq(entradas.texto, texto),
-          gte(entradas.creadoEn, new Date(Date.now() - PAGO_REPETIDO_MS).toISOString()),
-        ),
-      )
+      .where(and(eq(entradas.usuarioId, usuarioId), eq(entradas.origen, "apple_pay"), eq(entradas.texto, texto)))
       .all()
-      .some((e) => e.clientId !== p.client_id);
+      .some((e) => e.clientId !== p.client_id && Math.abs(Date.parse(e.capturadoEn) - momento) <= PAGO_REPETIDO_MS);
     if (repetido) return c.json({ respuesta: "Ese pago ya estaba anotado.", duplicado: true, acciones: [] });
     try {
       const respuesta = await hablar(
@@ -647,6 +649,8 @@ export function crearApp(opciones: OpcionesApp) {
     if (ahora - (ultimaPrueba.get(c.get("dispositivoId")) ?? 0) < PRUEBA_PUSH_CADA_MS) {
       return c.json({ error: "Espera unos segundos antes de mandar otra prueba." }, 429);
     }
+    // Antes de enviar: con pruebas en paralelo o envíos que fallan, el límite también aplica.
+    ultimaPrueba.set(c.get("dispositivoId"), ahora);
     const nombre = db.select().from(usuarios).where(eq(usuarios.id, c.get("usuarioId"))).get()?.nombre.split(" ")[0];
     const llegaron = await notificar(
       db,
@@ -660,7 +664,6 @@ export function crearApp(opciones: OpcionesApp) {
       opciones.enviarPush,
     );
     if (!llegaron) return c.json({ error: "No llegó a ningún dispositivo. Vuelve a activar las notificaciones.", enviadas: 0 }, 502);
-    ultimaPrueba.set(c.get("dispositivoId"), ahora);
     return c.json({ enviadas: llegaron });
   });
 
