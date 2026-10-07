@@ -8,7 +8,7 @@ import { preparar, texto } from "../test/ayuda";
 function montar() {
   const { db, usuario } = preparar({ ahora: new Date() });
   const token = crearDispositivo(db, usuario.id, "iPhone");
-  const app = crearApp({ db, modelo: new MockLanguageModelV4({ doGenerate: async () => texto("x") }), zonaHoraria: "America/Mexico_City", monedaBase: "MXN", firmarAtajo: async (a: Uint8Array) => a } as any);
+  const app = crearApp({ db, modelo: new MockLanguageModelV4({ doGenerate: async () => texto("x") }), zonaHoraria: "America/Mexico_City", monedaBase: "MXN", firmarAtajo: async (xml: string) => new TextEncoder().encode(xml) } as any);
   return { db, usuario, token, app };
 }
 
