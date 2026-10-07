@@ -97,27 +97,34 @@ export function costumbreParaLaIA(ctx: Contexto, texto: string): string | undefi
   if (monto >= GASTO_ALTO_MINIMO_CENTAVOS && veces >= (conocido ? 2 : 3)) {
     notas.push(
       conocido
-        ? `Es como ${veces} veces lo que suele gastar en ${lugar} (como ${m(tipica)}).`
-        : `Es como ${veces} veces su compra típica (como ${m(tipica)}).`,
+        ? `Ojo, es como ${veces} veces lo que sueles gastar en ${lugar}, que es como ${m(tipica)}.`
+        : `Ojo, es como ${veces} veces tu compra típica, que es como ${m(tipica)}.`,
     );
   }
   const porDia = new Map<string, number>();
   for (const g of previos.filter((g) => g.fecha >= sumarDias(ctx.hoy, -30))) porDia.set(g.fecha, (porDia.get(g.fecha) ?? 0) + g.montoCentavos);
-  if (porDia.size >= MINIMO_DIAS) {
+  // El súper de la semana dispara el día, pero es lo de siempre en ese lugar: eso no se nota. Y si el gasto
+  // ya es alto por sí solo, con decir eso basta.
+  const deSiempreAhi = conocido && monto <= 1.5 * tipica;
+  if (porDia.size >= MINIMO_DIAS && !deSiempreAhi && notas.length === 0) {
     const normal = [...porDia.values()].reduce((s, v) => s + v, 0) / porDia.size;
     const antes = hoy.reduce((s, g) => s + g.montoCentavos, 0);
     if (antes < VECES_DIA_ALTO * normal && antes + monto >= VECES_DIA_ALTO * normal) {
-      notas.push(`Con esto, hoy llevaría ${formatearMonto(antes + monto, ctx.monedaBase)}; un día normal gasta como ${m(normal)}.`);
+      notas.push(`Con esto llevas ${formatearMonto(antes + monto, ctx.monedaBase)} hoy, y un día normal gastas como ${m(normal)}.`);
     }
   }
   // Ir seguido no tiene nada de raro si siempre va así: se compara con su semana de costumbre ahí.
   const haceUnaSemana = sumarDias(ctx.hoy, -6);
   const enLaSemana = [...delLugar.filter((g) => g.fecha >= haceUnaSemana), ...hoy.filter(enElLugar)].length + 1;
-  const porSemana = delLugar.filter((g) => g.fecha < haceUnaSemana).length / ((60 - 7) / 7);
-  if (lugar && enLaSemana >= 4 && enLaSemana >= 1.5 * porSemana) notas.push(`Sería su vez número ${enLaSemana} en ${lugar} esta semana.`);
+  const antesDeLaSemana = delLugar.filter((g) => g.fecha < haceUnaSemana);
+  // Por semana, contando desde su primer registro (no hay 60 días de historial en una cuenta nueva).
+  const desde = previos.reduce((min, g) => (g.fecha < min ? g.fecha : min), haceUnaSemana);
+  const semanas = Math.max(1, (Date.parse(haceUnaSemana) - Date.parse(desde)) / (7 * 86_400_000));
+  const porSemana = antesDeLaSemana.length / semanas;
+  if (lugar && enLaSemana >= 4 && enLaSemana >= 1.5 * porSemana) notas.push(`Es tu vez número ${enLaSemana} en ${lugar} esta semana.`);
 
   if (!notas.length) return undefined;
-  return `Para comentar al registrar este gasto, si de verdad le sirve oírlo:\n${notas.map((n) => `- ${n}`).join("\n")}`;
+  return `Para comentar al registrar este gasto (dilo tal cual si de verdad le sirve oírlo):\n${notas.map((n) => `- ${n}`).join("\n")}`;
 }
 
 // Una cifra en palabras ("diez veces", "el triple", "tu quinta vez") no se puede comparar con las fuentes.

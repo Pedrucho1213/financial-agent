@@ -19,8 +19,9 @@ import { sumarDias } from "../src/lib/fechas";
 const { values } = parseArgs({ args: Bun.argv.slice(2), options: { repeticiones: { type: "string", default: "2" } } });
 const repeticiones = Math.max(1, Number(values.repeticiones) || 1);
 
-const NORMALES = ["gasté 120 en Uber", "gasolina 700", "comida 250 en el Vips", "45 de un agua en el Oxxo", "súper 1,300 en Walmart", "pagué 90 de estacionamiento"];
-const FUERA_DE_LO_NORMAL = ["gasté 4,500 en Liverpool", "pagué 3,200 en el dentista", "8 mil de una tele en Best Buy", "café 85 en Starbucks", "comida 900 en el Sonora Grill"];
+// Starbucks casi diario: el quinto de la semana es su costumbre, no algo raro.
+const NORMALES = ["café 85 en Starbucks", "gasté 120 en Uber", "gasolina 700", "comida 250 en el Vips", "45 de un agua en el Oxxo", "súper 1,300 en Walmart", "pagué 90 de estacionamiento"];
+const FUERA_DE_LO_NORMAL = ["gasté 4,500 en Liverpool", "pagué 3,200 en el dentista", "8 mil de una tele en Best Buy", "comida 900 en el Sonora Grill"];
 
 function base() {
   const db = abrirBaseDatos(":memory:");

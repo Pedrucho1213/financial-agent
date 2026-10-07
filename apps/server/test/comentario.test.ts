@@ -69,7 +69,7 @@ describe("la IA decide si comenta al registrar", () => {
     expect(r.respuesta).toEndWith("Ojo, es mucho más que tu compra típica de 100 pesos.");
     expect(r.comentario).toBe(OJO);
     // La IA vio qué tiene de raro el gasto para decidir.
-    expect(JSON.stringify(modelo.doGenerateCalls[0]?.prompt)).toContain("Es como 9 veces su compra típica (como $100).");
+    expect(JSON.stringify(modelo.doGenerateCalls[0]?.prompt)).toContain("Ojo, es como 9 veces tu compra típica, que es como $100.");
     await Bun.sleep(20);
     expect(enviadas).toHaveLength(0);
   });
@@ -140,10 +140,10 @@ describe("costumbre y comentario", () => {
     conCostumbre(ctx);
     for (let i = 0; i < 3; i++) crearMovimiento(ctx, { tipo: "gasto", monto: 85, comercio: "Starbucks", categoria: "Café" });
     const alto = costumbreParaLaIA(ctx, "gasté 900 en Liverpool")!;
-    expect(alto).toContain("Es como 9 veces su compra típica (como $100).");
-    expect(costumbreParaLaIA(ctx, "café 85 en Starbucks")).toContain("Sería su vez número 4 en Starbucks esta semana.");
+    expect(alto).toContain("Ojo, es como 9 veces tu compra típica, que es como $100.");
+    expect(costumbreParaLaIA(ctx, "café 85 en Starbucks")).toContain("Es tu vez número 4 en Starbucks esta semana.");
     // En un lugar conocido se compara con lo que suele gastar ahí.
-    expect(costumbreParaLaIA(ctx, "gasté 300 en el Oxxo")).toContain("Es como 3 veces lo que suele gastar en Oxxo (como $100).");
+    expect(costumbreParaLaIA(ctx, "gasté 300 en el Oxxo")).toContain("Ojo, es como 3 veces lo que sueles gastar en Oxxo, que es como $100.");
     // Nada raro: ni monto alto, ni día que se dispare (ya iba arriba), ni lugar repetido.
     expect(costumbreParaLaIA(ctx, "gasté 90 en la farmacia")).toBeUndefined();
     expect(costumbreParaLaIA(ctx, "gasté 900 dólares en Amazon")).toBeUndefined();
@@ -153,7 +153,7 @@ describe("costumbre y comentario", () => {
     const { ctx } = preparar();
     conCostumbre(ctx);
     expect(costumbreParaLaIA(ctx, "gasté 60 en un café")).toBeUndefined();
-    expect(costumbreParaLaIA(ctx, "gasté 160 en una comida")).toContain("Con esto, hoy llevaría $160; un día normal gasta como $100.");
+    expect(costumbreParaLaIA(ctx, "gasté 160 en una comida")).toContain("Con esto llevas $160 hoy, y un día normal gastas como $100.");
   });
 
   test("el nombre de un comercio (en Apple Pay lo escribe un tercero) entra corto y en una línea", () => {
