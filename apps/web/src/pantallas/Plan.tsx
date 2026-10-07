@@ -12,7 +12,7 @@ import { ErrorApi, mensajeDeError } from "../lib/api";
 import { OpcionesCategorias } from "../lib/categorias";
 import { useEnLinea } from "../lib/conexion";
 import { useCategorias, useYo } from "../lib/consultas";
-import { aFecha, diasHasta, dinero, hoyIso, leerMonto, nombreMes, pct, rangoDelMes } from "../lib/formato";
+import { aFecha, diasHasta, dinero, dineroCorto, hoyIso, leerMonto, nombreMes, pct, rangoDelMes } from "../lib/formato";
 import { haptico } from "../lib/haptico";
 import {
   useAportarMeta,
@@ -38,13 +38,8 @@ const COLOR_ESTADO: Record<Presupuesto["estado"], string> = {
   excedido: "var(--negative)",
 };
 
-/** Pesos sin centavos: en listas y leyendas se lee mejor y cabe. */
-function pesos(centavos: number, moneda: string) {
-  const texto = new Intl.NumberFormat("es-MX", { style: "currency", currency: moneda, maximumFractionDigits: 0 }).format(
-    Math.abs(centavos) / 100,
-  );
-  return centavos < 0 ? `−${texto}` : texto;
-}
+/** Sin ",00" cuando son pesos cerrados (se lee mejor y cabe), pero sin redondear centavos. */
+const pesos = (centavos: number, moneda: string) => dineroCorto(centavos, moneda);
 
 const nombrePresupuesto = (p: Presupuesto) =>
   p.categoriaId === null ? "Todo el mes" : (p.categoria?.replace(/ > /g, " › ") ?? "Categoría");

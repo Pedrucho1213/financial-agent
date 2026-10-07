@@ -340,6 +340,20 @@ test.describe("Sistema en Ajustes", () => {
     expect(api.de("GET", "/v1/estado")[0]?.autorizacion).toBe(`Bearer ${TOKEN}`);
   });
 
+  test("quien no es el dueño de la instalación no ve versión, modelo ni arranque", async ({ page }) => {
+    const api = new ApiFalsa();
+    ponerEstado(api, { servidor: null });
+    await prepararSesion(page, api);
+    await page.goto("/#ajustes");
+    const sistema = page.getByRole("region", { name: "Sistema" });
+    await expect(sistema.getByText("Lista")).toBeVisible();
+    await expect(sistema.getByText("En línea")).toHaveCount(1);
+    await expect(sistema.getByText("Nada pendiente")).toBeVisible();
+    await expect(sistema.getByText("Versión")).toHaveCount(0);
+    await expect(sistema.getByText(/Encendido desde/)).toHaveCount(0);
+    await expect(sistema.getByText("qwen3-14b")).toHaveCount(0);
+  });
+
   test("IA disponible pero sin cargar, y dictados en cola", async ({ page }) => {
     const api = new ApiFalsa();
     ponerEstado(api, { ia: { cargada: false }, cola: { pendientes: 2, conError: 1 } });

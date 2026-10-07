@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { hablar } from "../src/ai/asistente";
-import { crearModelo } from "../src/ai/modelo";
+import { crearModelo, esOllama } from "../src/ai/modelo";
 import { config } from "../src/config";
 import { crearContexto } from "../src/finanzas/contexto";
 import { buscarMovimientos } from "../src/finanzas/movimientos";
@@ -68,4 +68,14 @@ test("a Ollama le pide mantener cargado el modelo", async () => {
     clientId: "dictado-keep-alive",
   });
   expect(peticiones.at(-1)?.keep_alive).toBe("7m");
+});
+
+test("sabe que IA_URL es el mismo Ollama aunque uno diga localhost y otro 127.0.0.1", () => {
+  expect(esOllama({ url: "http://127.0.0.1:11434/v1", ollamaUrl: "http://localhost:11434" })).toBe(true);
+  expect(esOllama({ url: "http://localhost:11434/v1", ollamaUrl: "http://localhost:11434/" })).toBe(true);
+  // startsWith decía que sí a estos.
+  expect(esOllama({ url: "http://localhost:114340/v1", ollamaUrl: "http://localhost:11434" })).toBe(false);
+  expect(esOllama({ url: "http://localhost:11434.evil.com/v1", ollamaUrl: "http://localhost:11434" })).toBe(false);
+  expect(esOllama({ url: "https://api.proveedor.com/v1", ollamaUrl: "http://localhost:11434" })).toBe(false);
+  expect(esOllama({ url: "no es url", ollamaUrl: "http://localhost:11434" })).toBe(false);
 });

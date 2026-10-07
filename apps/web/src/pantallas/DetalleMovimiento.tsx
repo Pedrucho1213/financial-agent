@@ -1,5 +1,5 @@
 import { CircleAlert, Mic, Pencil, Search, Smartphone, Sparkles, Trash2, Wallet } from "lucide-react";
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import { Pantalla } from "../components/Pantalla";
 import { Button } from "../components/ui/button";
@@ -10,7 +10,7 @@ import { ErrorApi, mensajeDeError } from "../lib/api";
 import { iconoCategoria } from "../lib/categorias";
 import { preguntarAlChat } from "../lib/chat";
 import { useEnLinea } from "../lib/conexion";
-import { useMovimiento } from "../lib/consultas";
+import { useMovimiento, useYo } from "../lib/consultas";
 import { abrirEditor } from "../lib/editor";
 import { dinero, TIPOS } from "../lib/formato";
 import { haptico } from "../lib/haptico";
@@ -28,14 +28,17 @@ const ORIGENES: Record<MovimientoApp["origen"], { texto: string; Icono: typeof M
   importacion: { texto: "Importado", Icono: Smartphone },
 };
 
-const fFechaLarga = new Intl.DateTimeFormat("es-MX", {
-  weekday: "long",
-  day: "numeric",
-  month: "long",
-  year: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-});
+// En la zona del servidor, como el resto de la app: de viaje, la hora no cambia de día.
+const fechaLarga = (zonaHoraria?: string) =>
+  new Intl.DateTimeFormat("es-MX", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: zonaHoraria,
+  });
 
 /**
  * Detalle de un registro, como en Wallet. Es a donde lleva tocar una notificación (#movimientos?detalle=<id>).
@@ -43,17 +46,17 @@ const fFechaLarga = new Intl.DateTimeFormat("es-MX", {
  */
 export function DetalleMovimiento({ params }: { params: URLSearchParams }) {
   const ids = (params.get("detalle") ?? "").split(",").filter(Boolean);
-  if (ids.length > 1) return <VariosMovimientos ids={ids} />;
+  if (ids.length > 1) return <VariosMovimientos ids={ids} editar={params.get("editar") === "1"} />;
   return <UnMovimiento id={ids[0] ?? null} params={params} />;
 }
 
-function VariosMovimientos({ ids }: { ids: string[] }) {
+function VariosMovimientos({ ids, editar }: { ids: string[]; editar: boolean }) {
   return (
     <Pantalla titulo={`${ids.length} registros`} atras={{ etiqueta: "Atrás", alTocar: () => volver("movimientos") }}>
       <div className="pt-2 pb-6">
         <Grupo pie="Toca uno para ver su detalle o agregarle información.">
           {ids.map((id) => (
-            <FilaDeVarios key={id} id={id} />
+            <FilaDeVarios key={id} id={id} editar={editar} />
           ))}
         </Grupo>
       </div>
@@ -61,7 +64,8 @@ function VariosMovimientos({ ids }: { ids: string[] }) {
   );
 }
 
-function FilaDeVarios({ id }: { id: string }) {
+// Con editar (Apple Pay con varios registros), cada uno abre directo su editor.
+function FilaDeVarios({ id, editar }: { id: string; editar: boolean }) {
   const { data: m, isError } = useMovimiento(id);
   if (!m) {
     return isError ? (
@@ -89,7 +93,7 @@ function FilaDeVarios({ id }: { id: string }) {
         </span>
       }
       chevron
-      onClick={() => navegar(hashDetalle(m.id))}
+      onClick={() => navegar(hashDetalle(m.id, { editar }))}
     />
   );
 }
@@ -102,11 +106,11 @@ function UnMovimiento({ id, params }: { id: string | null; params: URLSearchPara
   const m = consulta.data;
   const enLinea = useEnLinea();
 
-  // ?editar=1 (notificación de Apple Pay: "agrega más info") abre el editor una sola vez.
-  const editarAbierto = useRef(false);
+  // ?editar=1 (notificación de Apple Pay: "agrega más info") abre el editor y se quita de la dirección:
+  // recargar o volver no lo abre otra vez, y otra notificación igual sí (la dirección cambia).
   useEffect(() => {
-    if (!m || params.get("editar") !== "1" || editarAbierto.current) return;
-    editarAbierto.current = true;
+    if (!m || params.get("editar") !== "1") return;
+    navegar(hashDetalle(m.id), { reemplazar: true });
     abrirEditor(m);
   }, [m, params]);
 
@@ -150,7 +154,9 @@ function Detalle({ m, enLinea }: { m: MovimientoApp; enLinea: boolean }) {
   const signo = m.tipo === "ingreso" ? "+" : m.tipo === "gasto" ? "−" : "";
   const origen = ORIGENES[m.origen];
   const conLugar = m.lat !== null && m.lon !== null;
-  const fecha = fFechaLarga.format(new Date(m.ocurridoEn));
+  const zonaHoraria = useYo().data?.zonaHoraria;
+  const formato = useMemo(() => fechaLarga(zonaHoraria), [zonaHoraria]);
+  const fecha = formato.format(new Date(m.ocurridoEn));
 
   return (
     <div className="space-y-6 pt-4 pb-6">

@@ -8,9 +8,12 @@ type Peticion = {
   json: (estado: number, datos: unknown) => Promise<void>;
 };
 
+type ServidorFalso = { commit: string | null; commitEn: string | null; arrancadoEn: string };
+
+/** `servidor: null` y la IA sin `modelo`: lo que ve una cuenta que no es la dueña de la instalación. */
 export type EstadoFalso = {
-  servidor: { commit: string | null; commitEn: string | null; arrancadoEn: string };
-  ia: { modelo: string; disponible: boolean; cargada: boolean };
+  servidor: ServidorFalso | null;
+  ia: { modelo?: string; disponible: boolean; cargada: boolean };
   cola: { pendientes: number; conError: number };
 };
 
@@ -33,11 +36,11 @@ function estadoDe(api: ApiFalsa) {
 
 /**
  * Cambia lo que responde GET /v1/estado. `null` lo deja en 404, como un servidor anterior.
- * Ej.: ponerEstado(api, { ia: { cargada: false } }).
+ * Ej.: ponerEstado(api, { ia: { cargada: false } }); ponerEstado(api, { servidor: null }) para alguien que no es el dueño.
  */
 export function ponerEstado(
   api: ApiFalsa,
-  cambios: { servidor?: Partial<EstadoFalso["servidor"]>; ia?: Partial<EstadoFalso["ia"]>; cola?: Partial<EstadoFalso["cola"]> } | null,
+  cambios: { servidor?: Partial<ServidorFalso> | null; ia?: Partial<EstadoFalso["ia"]>; cola?: Partial<EstadoFalso["cola"]> } | null,
 ) {
   if (cambios === null) {
     estados.set(api, null);
@@ -45,8 +48,8 @@ export function ponerEstado(
   }
   const e = estadoDe(api) ?? estadoInicial();
   estados.set(api, {
-    servidor: { ...e.servidor, ...cambios.servidor },
-    ia: { ...e.ia, ...cambios.ia },
+    servidor: cambios.servidor === null || e.servidor === null ? null : { ...e.servidor, ...cambios.servidor },
+    ia: cambios.servidor === null ? { disponible: e.ia.disponible, cargada: e.ia.cargada, ...cambios.ia } : { ...e.ia, ...cambios.ia },
     cola: { ...e.cola, ...cambios.cola },
   });
 }
