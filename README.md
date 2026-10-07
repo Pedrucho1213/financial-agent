@@ -63,7 +63,7 @@ Con esta prueba se eligió `gemma4:12b-it-qat` con razonamiento `none`: en una M
 
 La lista completa (registro con código, editar, deshacer, recurrentes, instalar el Atajo) está en [docs/api.md](docs/api.md). Las rutas `/v1` piden `Authorization: Bearer <token>`, salvo las de entrar con un código. `client_id` lo genera el iPhone: si el mismo dictado llega dos veces, se responde lo mismo sin registrar nada de nuevo. Si la IA no responde, la API devuelve 503 y el Atajo deja el dictado en su cola.
 
-La IA corre en una sola Mac, así que los dictados se procesan de uno en uno y en orden de llegada. Si la IA tarda más de `ESPERA_REGISTRO_MS` (5 s) en un registro o `ESPERA_PREGUNTA_MS` (30 s) en una pregunta, `/v1/hablar` responde 202 con `pendiente: true` y la Mac lo termina sola. Si falla en segundo plano, lo reintenta a los 30 s, 2 min y 10 min, y al reiniciarse retoma lo que quedó a medias.
+La IA corre en una sola Mac, así que los dictados se procesan de uno en uno y en orden de llegada. Si la IA tarda más de `ESPERA_REGISTRO_MS` (5 s) en un registro con monto o `ESPERA_PREGUNTA_MS` (30 s) en una pregunta o una orden sin monto, `/v1/hablar` responde 202 con `pendiente: true` y la Mac lo termina sola. Si falla en segundo plano, lo reintenta a los 30 s, 2 min y 10 min, y al reiniciarse retoma lo que quedó a medias.
 
 ## Pruebas
 
