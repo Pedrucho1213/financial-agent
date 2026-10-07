@@ -26,8 +26,11 @@ export const CARPETA_PENDIENTES = "/Finanzas/pendientes";
 export const PALABRAS_PARA_TERMINAR = "^\\s*¡?\\s*(no|nada|listo|ya|es todo|gracias)\\s*[.!]?\\s*$";
 export const TURNOS = 10;
 export const IDIOMA = "es-MX";
-/** Si existe, ya se dio la bienvenida (en iCloud Drive, así no se repite al reinstalar). */
-export const ARCHIVO_BIENVENIDA = "/Finanzas/bienvenida.txt";
+/**
+ * Si existe, ya se dio la bienvenida (en iCloud Drive, así no se repite al reinstalar). Va en la raíz de la
+ * carpeta de Atajos y no en /Finanzas: es lo primero que corre y esa subcarpeta aún no existe la primera vez.
+ */
+export const ARCHIVO_BIENVENIDA = "/Finanzas-bienvenida.txt";
 /** Un "sí" a "¿quieres que te cuente cómo funciono?". */
 export const QUIERE_EXPLICACION =
   "^\\W*(s[ií]|claro|va|dale|ok|okay|por favor|cu[eé]ntame|expl[ií]ca|[aá]ndale|sale|bueno|me gustar[ií]a|quiero)";
@@ -416,7 +419,7 @@ export function construirAtajo(opciones: OpcionesAtajo): Record<string, ValorPli
     // Se marca antes de explicar: si lo cierra a la mitad, no vuelve a empezar desde el saludo.
     const marca = a.conSalida("setitemname", "Archivo de bienvenida", {
       WFInput: adjunto(a.texto("Bienvenida", "Ya te saludé. Borra este archivo para escuchar la bienvenida otra vez.")),
-      WFName: "bienvenida.txt",
+      WFName: ARCHIVO_BIENVENIDA.slice(1),
     });
     a.accion("documentpicker.save", {
       WFInput: adjunto(marca),

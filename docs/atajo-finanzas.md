@@ -12,11 +12,11 @@ Con el enlace que imprime `bun run invitar -- --nombre Pedro --url https://TU-MA
 
 Safari no le pasa el archivo a Atajos por su cuenta; por eso el paso 2. El archivo descargado dura 10 minutos en la Mac; si se vence, vuelve a tocar el botón. El código del enlace sirve una vez y, si la Mac no pudo firmar, sigue sirviendo. Cada instalación crea un dispositivo "Atajo Finanzas" con su token, que puedes quitar desde Ajustes; los que se prepararon en la última media hora y nunca se usaron se quitan solos al preparar uno nuevo.
 
-Necesita iCloud Drive encendido para Atajos (Ajustes > tu nombre > iCloud > iCloud Drive), porque ahí guarda los dictados antes de enviarlos.
+Necesita iCloud Drive encendido para Atajos (Ajustes > tu nombre > iCloud > iCloud Drive), porque ahí guarda los dictados antes de enviarlos. Sin iCloud Drive se detiene en la primera acción con "La ubicación no existe", antes de escuchar nada.
 
 ## La primera vez
 
-Al abrirlo por primera vez te saluda por tu nombre y te pregunta si quieres que te cuente cómo funciona; si dices "sí", te explica en voz cómo registrar, preguntar y corregir. Luego guarda `Finanzas/bienvenida.txt` en iCloud Drive para no repetirlo, aunque reinstales el Atajo. Para volver a oír la bienvenida, borra ese archivo.
+Al abrirlo por primera vez te saluda por tu nombre y te pregunta si quieres que te cuente cómo funciona; si dices "sí", te explica en voz cómo registrar, preguntar y corregir. Luego guarda `Finanzas-bienvenida.txt` en iCloud Drive > Atajos para no repetirlo, aunque reinstales el Atajo. Para volver a oír la bienvenida, borra ese archivo.
 
 Lee con la voz que tenga el iPhone para español de México. La más natural es la de Siri: Ajustes > Accesibilidad > Contenido leído > Voces > Español (México) > Siri. Sirve en cualquier iPhone con iOS 17 o más reciente, tenga o no Apple Intelligence. El Atajo no fija una voz porque, si no está descargada en ese iPhone, se quedaría callado.
 
