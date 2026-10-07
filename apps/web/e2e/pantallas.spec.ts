@@ -138,24 +138,30 @@ test.describe("Presupuestos y metas", () => {
     await expect(page).toHaveURL(/\/(#inicio)?$/);
   });
 
-  test("los montos con centavos no se cortan a 390 px (QA-073)", async ({ page }) => {
-    const api = await prepararSesion(page);
-    api.plan.presupuestos = [
-      { id: "pre-1", categoriaId: null, limiteCentavos: 30_000_51 },
-      { id: "pre-2", categoriaId: "cat-comida", limiteCentavos: 3_000_51 },
-    ];
-    api.plan.metas[0]!.objetivoCentavos = 60_000_51;
-    await page.goto("/#plan");
-    await expect(page.getByRole("region", { name: "Resumen del plan" })).toContainText("de $30,000.51");
-    await expect(page.getByRole("button", { name: /^Comida/ })).toContainText("de $3,000.51");
-    // Ningún "X de $Y" queda cortado con puntos suspensivos.
-    const cortados = await page.evaluate(() =>
-      [...document.querySelectorAll<HTMLElement>("dd, .truncate")]
-        .filter((e) => / de \$/.test(e.textContent ?? "") && e.scrollWidth > e.clientWidth + 1)
-        .map((e) => e.textContent),
-    );
-    expect(cortados).toEqual([]);
-  });
+  for (const ancho of [390, 320]) {
+    test(`los montos con centavos no se cortan a ${ancho} px (QA-073, QA-076)`, async ({ page }) => {
+      await page.setViewportSize({ width: ancho, height: 844 });
+      const api = await prepararSesion(page);
+      api.plan.presupuestos = [
+        { id: "pre-1", categoriaId: null, limiteCentavos: 30_000_51 },
+        { id: "pre-2", categoriaId: "cat-comida", limiteCentavos: 3_000_51 },
+      ];
+      api.plan.metas[0]!.objetivoCentavos = 60_000_51;
+      api.plan.metas[1]!.objetivoCentavos = 40_000_51;
+      api.plan.metas[1]!.ahorradoCentavos = 40_000_51;
+      await page.goto("/#plan");
+      await expect(page.getByRole("region", { name: "Resumen del plan" })).toContainText("de $30,000.51");
+      await expect(page.getByRole("button", { name: /^Comida/ })).toContainText("de $3,000.51");
+      await expect(page.getByRole("button", { name: /^Fondo de emergencia/ })).toContainText("¡Lograda! $40,000.51");
+      // Ningún monto queda cortado: ni con puntos suspensivos ni perdiendo dígitos.
+      const cortados = await page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>("dd, .truncate, .whitespace-normal")]
+          .filter((e) => /\$/.test(e.textContent ?? "") && e.scrollWidth > e.clientWidth + 1)
+          .map((e) => e.textContent),
+      );
+      expect(cortados).toEqual([]);
+    });
+  }
 
   test("crear y cambiar un presupuesto manda el tope en pesos", async ({ page }) => {
     const api = await prepararSesion(page);

@@ -41,11 +41,15 @@ const COLOR_ESTADO: Record<Presupuesto["estado"], string> = {
 /** Sin ",00" cuando son pesos cerrados (se lee mejor y cabe), pero sin redondear centavos. */
 const pesos = (centavos: number, moneda: string) => dineroCorto(centavos, moneda);
 
-/** "$1,627.81 de $1,500.51": si no cabe, baja "de $1,500.51" a otra línea en vez de cortar el tope (QA-073). */
-function DeTotal({ parte, total }: { parte: string; total: string }) {
+/**
+ * "Quedan $1,627.81 de $1,500.51": si no cabe, parte entre palabras en vez de cortar el tope (QA-073). Solo los
+ * montos van sin partir, para que ninguno pierda dígitos ni a 320 px (QA-076).
+ */
+function DeTotal({ antes, parte, total }: { antes?: string; parte: string; total: string }) {
   return (
     <>
-      <span className="whitespace-nowrap">{parte}</span> <span className="whitespace-nowrap">de {total}</span>
+      {antes ? `${antes} ` : null}
+      <span className="whitespace-nowrap">{parte}</span> de <span className="whitespace-nowrap">{total}</span>
     </>
   );
 }
@@ -216,7 +220,7 @@ export function Plan({ params }: { params: URLSearchParams }) {
 
 function subtituloPresupuesto(p: Presupuesto, moneda: string): ReactNode {
   if (p.restanteCentavos < 0) return <span className="text-negative">Te pasaste {dinero(-p.restanteCentavos, moneda)}</span>;
-  const base = <DeTotal parte={`Quedan ${pesos(p.restanteCentavos, moneda)}`} total={pesos(p.limiteCentavos, moneda)} />;
+  const base = <DeTotal antes="Quedan" parte={pesos(p.restanteCentavos, moneda)} total={pesos(p.limiteCentavos, moneda)} />;
   // Solo se avisa del ritmo cuando de verdad no alcanza.
   if (p.proyeccionCentavos > p.limiteCentavos)
     return enVariasLineas(
@@ -228,7 +232,7 @@ function subtituloPresupuesto(p: Presupuesto, moneda: string): ReactNode {
 }
 
 function subtituloMeta(m: Meta, hoy: string, moneda: string) {
-  if (m.completada) return `¡Lograda! ${dinero(m.ahorradoCentavos, moneda)}`;
+  if (m.completada) return enVariasLineas(`¡Lograda! ${dinero(m.ahorradoCentavos, moneda)}`);
   const base = <DeTotal parte={pesos(m.ahorradoCentavos, moneda)} total={pesos(m.objetivoCentavos, moneda)} />;
   if (!m.fechaLimite) return enVariasLineas(base);
   if (diasHasta(m.fechaLimite, hoy) <= 0) return enVariasLineas(<>{base} · venció</>);
