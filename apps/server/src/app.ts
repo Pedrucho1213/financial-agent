@@ -535,10 +535,11 @@ export function crearApp(opciones: OpcionesApp) {
     }
     const enReloj = /watch/i.test(p.equipo ?? "") || /watch/i.test(agente);
     const rapida = delAtajo && !pregunta && !enReloj && tienePush(db, usuarioId);
-    // Si la IA no va a poder comentar (poco historial, ya comentó lo del día), no tiene caso esperarla.
+    // Si no hay nada que comentar (nada raro en el gasto, poco historial, ya comentó lo del día), no tiene
+    // caso esperar a la IA.
     const esperaMs =
       p.espera_ms ??
-      (pregunta ? opciones.espera?.preguntaMs : rapida && !costumbreParaLaIA(contexto(usuarioId)) ? 0 : opciones.espera?.registroMs);
+      (pregunta ? opciones.espera?.preguntaMs : rapida && !costumbreParaLaIA(contexto(usuarioId), p.texto) ? 0 : opciones.espera?.registroMs);
     try {
       let respuesta = await hablar(
         deps,

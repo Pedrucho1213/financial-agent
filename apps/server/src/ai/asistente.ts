@@ -651,10 +651,10 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   ctx.confiarEnMasReciente = anterior.includes("?") && PIDE_ELEGIR.test(normalizar(anterior));
   // Si un paso solo guardó, corrigió o borró, la confirmación se arma aquí y el modelo no da otra vuelta.
   let confirmacion: string | undefined;
-  // Al dictar un gasto, la IA ve la costumbre del usuario para decidir si comenta algo.
+  // Al dictar un gasto, la IA ve qué tiene de raro para decidir si comenta algo.
   const costumbre =
     montosDelTexto(entrada.texto).length > 0 && !esPregunta(entrada.texto) && !esOrdenSobreLoAnotado(entrada.texto)
-      ? costumbreParaLaIA(ctx)
+      ? costumbreParaLaIA(ctx, entrada.texto)
       : undefined;
   const generar = (aviso = "") => {
     confirmacion = undefined;

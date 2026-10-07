@@ -169,7 +169,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         comentario: z
           .string()
           .optional()
-          .describe('Casi siempre vacío. Una frase corta solo si "Su costumbre" muestra algo que de verdad le sirva saber de este gasto.'),
+          .describe('Solo si los datos traen "Para comentar" y le sirve oírlo: una frase corta para el usuario. Si no, vacío.'),
       }),
       execute: ejecutar("registrar_movimientos", ({ movimientos, comentario }) => {
         if (comentario) ctx.comentario = comentario;
