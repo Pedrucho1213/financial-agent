@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,15 +13,20 @@ test("con SIGTERM deja de aceptar conexiones, termina lo que tiene y sale con 0"
     stdout: "pipe",
     stderr: "pipe",
   });
-  const salida = new Response(proceso.stdout).text();
-  let listo = false;
-  for (let i = 0; i < 100 && !listo; i++) {
-    listo = await fetch(`http://127.0.0.1:${puerto}/salud`).then((r) => r.ok, () => false);
-    if (!listo) await Bun.sleep(100);
+  try {
+    const salida = new Response(proceso.stdout).text();
+    let listo = false;
+    for (let i = 0; i < 100 && !listo; i++) {
+      listo = await fetch(`http://127.0.0.1:${puerto}/salud`).then((r) => r.ok, () => false);
+      if (!listo) await Bun.sleep(100);
+    }
+    expect(listo).toBe(true);
+    proceso.kill("SIGTERM");
+    expect(await proceso.exited).toBe(0);
+    expect(await salida).toContain("SIGTERM: termino lo que está en curso");
+    expect(await fetch(`http://127.0.0.1:${puerto}/salud`).then(() => "responde", () => "apagado")).toBe("apagado");
+  } finally {
+    proceso.kill("SIGKILL");
+    rmSync(carpeta, { recursive: true, force: true });
   }
-  expect(listo).toBe(true);
-  proceso.kill("SIGTERM");
-  expect(await proceso.exited).toBe(0);
-  expect(await salida).toContain("SIGTERM: termino lo que está en curso");
-  expect(await fetch(`http://127.0.0.1:${puerto}/salud`).then(() => "responde", () => "apagado")).toBe("apagado");
 }, 20_000);
