@@ -14,6 +14,13 @@ export type Contexto = {
   entradaId?: string;
   textoOriginal?: string;
   ubicacion?: { lat?: number; lon?: number; lugar?: string };
+  /**
+   * Si la frase contesta una pregunta ("¿cuál café?" → "el de ahorita") o la corrección ya eligió el más
+   * reciente, `mas_reciente` se respeta aunque la frase no diga "el último".
+   */
+  confiarEnMasReciente?: boolean;
+  /** Hay mensajes anteriores en esta conversación: el modelo puede traer datos de turnos pasados. */
+  enConversacion?: boolean;
 };
 
 export function crearContexto(

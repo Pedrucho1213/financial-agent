@@ -22,6 +22,13 @@
       "when": 1791331621192,
       "tag": "0002_deshecho_por",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1791340288217,
+      "tag": "0003_aviso_recurrentes",
+      "breakpoints": true
     }
   ]
 }

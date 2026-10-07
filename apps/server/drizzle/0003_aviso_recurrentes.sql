@@ -1,0 +1,1 @@
+ALTER TABLE `recurrentes` ADD `avisado_para` text;

@@ -12,6 +12,8 @@ import {
   idDelMovimiento,
   resumir,
 } from "../finanzas/movimientos";
+import { cuentaHabitual, habitoMencionado, hablaDeOtroMonto, nombreDeCuenta } from "../finanzas/habitos";
+import { listarMemorias, olvidar, recordar } from "../finanzas/memorias";
 import { cancelarRecurrente, crearRecurrente, editarRecurrente, listarRecurrentes } from "../finanzas/recurrentes";
 import { fechaDelTexto, fechasDelTexto, mencionaFecha, resolverFecha } from "../lib/fechas";
 import { montoConPalabras, montosDelTexto } from "../lib/numeros";
@@ -62,6 +64,27 @@ const tipoRecurrente = z.preprocess((valor) => {
   return [t, t.replace(/es$/, ""), t.replace(/s$/, "")].find((x) => tipos.includes(x)) ?? t;
 }, z.enum(TIPOS_RECURRENTE));
 
+// Verbos con que se pide borrar o cambiar algo ya anotado: "borra", "bórrame", "quitar".
+const VERBO = String.raw`(borra|elimina|quita|cancela|cambia|corrige|pasa)r?(me)?`;
+
+// La frase señala cuál: "el último", "ese", "bórralo", "el de ahorita"; o dice cuántos: "borra los dos
+// cafés" (el modelo los toma uno por uno, del más reciente al más antiguo). Un plural más adelante no
+// cuenta: "el café de las tres" es una hora y "lo de los tacos" es uno.
+const SENALA_UNO = new RegExp(
+  String.raw`\b(ultim[oa]s?|reciente|nuevo|nueva|ahorita|hace rato|ese|esa|eso|este|esta|esto|acabo|${VERBO}(lo|la|melo|mela))\b|\b${VERBO} (los|las) (ultim[oa]s )?(dos|tres|cuatro|cinco|2|3|4|5)\b`,
+);
+
+// Pide varios sin decir cuántos: "borra los tacos", "bórralos", "todos", "ambos". Con mas_reciente el
+// modelo borraría solo uno; sin él, el error le da el id de cada uno. "Cambia los 300 del súper" son
+// pesos, no varios.
+const CIFRA = String.raw`(\d|(mil|cien|ciento|\w*cientos|diez|once|doce|trece|catorce|quince|veinte|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa)\b)`;
+const PIDE_VARIOS = new RegExp(
+  String.raw`\b(ambos|ambas|todos|todas|${VERBO}(los|las|melos|melas))\b|\b${VERBO} (los|las) (?!(ultim[oa]s )?(dos|tres|cuatro|cinco)\b|${CIFRA})`,
+);
+
+// Algo que se repite: "cada día 15", "cada mes", "mensual", "cada quincena".
+const SE_REPITE = /\b(cada|al mes|por mes|a la semana|por semana|al ano|mensual|mensualmente|semanal|quincenal|anual|diario)\b/;
+
 /** Las herramientas que la IA puede usar. Cada una solo toca datos del usuario del contexto. */
 export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
   // Los errores de validación regresan a la IA como texto para que corrija o pregunte.
@@ -77,6 +100,18 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         throw error;
       }
     };
+
+  // "Borra el café" con varios cafés: el modelo a veces manda mas_reciente aunque la frase no diga cuál.
+  // Si nombra algo ("el café") sin señalar uno ("el último", "ese", "bórralo") y coinciden varios, que
+  // pregunte; si pidió varios ("borra los tacos"), que use el id de cada uno. "Fueron 70" a secas, sin
+  // nombrar nada, sí es lo último que anotó.
+  const pideVarios = !!ctx.textoOriginal && PIDE_VARIOS.test(normalizar(ctx.textoOriginal));
+  const comoLoDijo = <B extends { texto?: string; categoria?: string; mas_reciente?: boolean }>(buscar?: B): B | undefined => {
+    const nombraAlgo = !!(buscar?.texto || buscar?.categoria);
+    const senala =
+      !pideVarios && (ctx.confiarEnMasReciente || !ctx.textoOriginal || SENALA_UNO.test(normalizar(ctx.textoOriginal)));
+    return buscar?.mas_reciente && nombraAlgo && !senala ? { ...buscar, mas_reciente: false } : buscar;
+  };
 
   // "Spotify me cobra 10 dólares": la moneda de la frase manda si el modelo no dijo otra.
   const monedaDicha = (moneda?: string) => {
@@ -116,16 +151,39 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         const tipoDicho = unico ? tipoDelTexto(texto) : undefined;
         const conTipo = (tipo: (typeof movimientos)[number]["tipo"]) =>
           tipoDicho && (tipo === "gasto" || tipo === "ingreso") ? tipoDicho : tipo;
+        // "Ya pagué Netflix" no dice cuánto: si siempre es lo mismo, ese monto manda sobre uno que
+        // el modelo inventó o copió mal.
+        // En una conversación el monto puede venir de un turno anterior ("¿de cuánto?" "300" "con la Nu").
+        const sinMonto = !!texto && !ctx.enConversacion && montosDelTexto(texto).length === 0 && !hablaDeOtroMonto(texto);
+        // Salvo que el monto del modelo venga de algo que el usuario pidió recordar ("mi quincena ahora es de 8 mil").
+        const recordado = (monto: number) => listarMemorias(ctx).some((mem) => montosDelTexto(mem.texto).includes(monto));
+        const deSiempre = (m: (typeof movimientos)[number], tipo: string) => {
+          if (!sinMonto || (tipo !== "gasto" && tipo !== "ingreso") || recordado(m.monto)) return undefined;
+          const habito = habitoMencionado(ctx, [m.comercio, m.descripcion, unico ? texto : ""].join(" "), tipo);
+          // Si el modelo dice otro comercio, no es ese hábito.
+          const otroComercio = habito?.comercio && m.comercio && normalizar(m.comercio) !== normalizar(habito.comercio);
+          return habito?.seguro && !otroComercio ? habito : undefined;
+        };
         return {
-          registrados: movimientos.map((m, i) =>
-            crearMovimiento(ctx, {
+          registrados: movimientos.map((m, i) => {
+            const tipo = conTipo(m.tipo);
+            const habito = deSiempre(m, tipo);
+            const comercio = m.comercio || habito?.comercio;
+            // Decir con qué pagó es opcional: si en ese comercio siempre paga con lo mismo, se pone sola.
+            const cuenta = m.cuenta || nombreDeCuenta(ctx, habito?.cuentaId ?? null) || cuentaHabitual(ctx, comercio);
+            const registrado = crearMovimiento(ctx, {
               ...m,
-              tipo: conTipo(m.tipo),
-              monto: montoDicho ?? m.monto,
-              moneda: conMoneda(m.moneda),
+              tipo,
+              monto: habito ? habito.montoCentavos / 100 : (montoDicho ?? m.monto),
+              moneda: habito ? habito.moneda : conMoneda(m.moneda),
+              comercio,
+              descripcion: m.descripcion || habito?.descripcion,
+              categoriaId: !m.categoria && habito?.categoriaId ? habito.categoriaId : undefined,
+              cuenta,
               fecha: conFecha(m.fecha, i),
-            }),
-          ),
+            });
+            return habito ? { ...registrado, monto_de_siempre: true } : registrado;
+          }),
         };
       }),
     }),
@@ -156,7 +214,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         // Un "" del modelo no borra nada: para la IA, vacío es lo mismo que no mandarlo.
         editado: editarMovimiento(
           ctx,
-          idDelMovimiento(ctx, id, buscar),
+          idDelMovimiento(ctx, id, comoLoDijo(buscar), pideVarios),
           Object.fromEntries(Object.entries(cambios).filter(([, v]) => v !== "")),
         ),
       })),
@@ -169,7 +227,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         buscar: busqueda.optional(),
       }),
       execute: ejecutar("eliminar_movimiento", ({ id, buscar }) => ({
-        eliminado: eliminarMovimiento(ctx, idDelMovimiento(ctx, id, buscar)),
+        eliminado: eliminarMovimiento(ctx, idDelMovimiento(ctx, id, comoLoDijo(buscar), pideVarios)),
       })),
     }),
 
@@ -246,6 +304,29 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
               }),
             },
       ),
+    }),
+
+    recordar: tool({
+      description:
+        'Guarda un dato que el usuario te pide recordar ("recuerda que el Oxxo lo pago en efectivo"). Escríbelo corto y en tercera persona: "Paga el Oxxo en efectivo". Un cobro que se repite con monto ("recuerda que cada día 15 me cobran 199 de Spotify") no va aquí: es registrar_recurrente.',
+      inputSchema: z.object({ texto: z.string().describe("Lo que hay que recordar, en una frase corta.") }),
+      execute: ejecutar("recordar", ({ texto }) => {
+        // "Recuerda que cada día 15 me cobran 199 de Spotify" atrae a recordar, pero es un pago fijo con
+        // recordatorio: se le regresa al modelo para que use registrar_recurrente.
+        if (ctx.textoOriginal && montosDelTexto(ctx.textoOriginal).length > 0 && SE_REPITE.test(normalizar(ctx.textoOriginal))) {
+          throw new ErrorFinanzas("Eso es un cobro o ingreso que se repite: guárdalo con registrar_recurrente, no con recordar.");
+        }
+        return recordar(ctx, texto);
+      }),
+    }),
+
+    olvidar: tool({
+      description: 'Borra algo que recordabas cuando el usuario lo pide ("olvida lo del Oxxo", "ya no pago en efectivo").',
+      inputSchema: z.object({
+        buscar: z.string().describe("Palabras de lo que hay que olvidar: Oxxo, efectivo."),
+        todas: z.boolean().optional().describe("true si pide olvidar todo lo que coincida."),
+      }),
+      execute: ejecutar("olvidar", ({ buscar, todas }) => olvidar(ctx, buscar, todas)),
     }),
 
     listar_recurrentes: tool({

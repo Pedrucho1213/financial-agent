@@ -58,6 +58,12 @@ describe("montosParaVoz", () => {
     expect(montosParaVoz("$50 pesos, $20 USD, US$5 y $ 300")).toBe("50 pesos, 20 dólares, 5 dólares y 300 pesos");
     expect(montosParaVoz("Tienes 3 cafés y 2 Ubers.")).toBe("Tienes 3 cafés y 2 Ubers.");
   });
+
+  test("una coma después del monto no se queda pegada al número", () => {
+    expect(montosParaVoz("¿Fue de $3,500, como la vez pasada?")).toBe("¿Fue de 3,500 pesos, como la vez pasada?");
+    expect(montosParaVoz("Llevas $1,250.50, y ayer 20 USD, nada más.")).toBe("Llevas 1,250.50 pesos, y ayer 20 dólares, nada más.");
+    expect(montosParaVoz("Fueron $1,2500")).toBe("Fueron 1,2500 pesos");
+  });
 });
 
 test("reconoce órdenes de borrar o cambiar algo ya anotado (QA-029)", () => {

@@ -4,6 +4,7 @@
 import type { Respuesta } from "../src/ai/asistente";
 import type { Contexto } from "../src/finanzas/contexto";
 import { buscarMovimientos, crearMovimiento } from "../src/finanzas/movimientos";
+import { listarMemorias, recordar } from "../src/finanzas/memorias";
 import { crearRecurrente, listarRecurrentes } from "../src/finanzas/recurrentes";
 import { resolverFecha, resolverPeriodo, sumarDias } from "../src/lib/fechas";
 
@@ -12,7 +13,7 @@ type Mov = ReturnType<typeof buscarMovimientos>["movimientos"][number];
 export type Resultado = Respuesta & { movimientos: Mov[]; recurrentes: ReturnType<typeof listarRecurrentes>["recurrentes"]; ctx: Contexto };
 
 export type Caso = {
-  grupo: "registro" | "dificil" | "charla" | "consulta" | "edicion" | "conversacion" | "recurrentes";
+  grupo: "registro" | "dificil" | "charla" | "consulta" | "edicion" | "conversacion" | "recurrentes" | "autonomia";
   frase: string;
   preparar?: (ctx: Contexto) => void;
   /** Lo que el usuario dijo antes en la misma conversación. */
@@ -657,6 +658,18 @@ export const CASOS: Caso[] = [
       return motivo(r.movimientos.length === 4 && cafes.length === 1 && cafes[0]?.monto === "$30", r.movimientos);
     },
   },
+  {
+    grupo: "edicion",
+    frase: "Borra los tacos",
+    preparar: (ctx) => {
+      const c = previa(ctx);
+      crearMovimiento(c, { tipo: "gasto", monto: 120, categoria: "Antojos", descripcion: "tacos", fecha: "ayer" });
+      crearMovimiento(c, { tipo: "gasto", monto: 95, categoria: "Antojos", descripcion: "tacos" });
+      crearMovimiento(c, { tipo: "gasto", monto: 300, categoria: "Súper" });
+    },
+    // Los dos, no solo el más reciente.
+    verificar: (r) => motivo(r.movimientos.length === 1 && r.movimientos[0]?.monto === "$300", r.movimientos),
+  },
 
   // Conversaciones de varios pasos: lo anterior da el contexto.
   {
@@ -734,5 +747,99 @@ export const CASOS: Caso[] = [
       crearRecurrente(c, { nombre: "Netflix", tipo: "suscripcion", monto: 219, frecuencia: "mensual", dia: 5 });
     },
     verificar: (r) => motivo(/renta/i.test(r.respuesta) && r.respuesta.includes("Netflix"), r.respuesta),
+  },
+
+  // Autonomía: usa lo que ya sabe del usuario en vez de preguntar.
+  {
+    grupo: "autonomia",
+    frase: "Ya pagué Netflix",
+    preparar: (ctx) => {
+      crearRecurrente(previa(ctx), { nombre: "Netflix", tipo: "suscripcion", monto: 219, frecuencia: "mensual", dia: 20 });
+    },
+    verificar: (r) => motivo(unoSolo(r)?.monto === "$219" && !pregunta(r), { movimientos: r.movimientos, respuesta: r.respuesta }),
+  },
+  {
+    grupo: "autonomia",
+    frase: "Me depositaron la quincena",
+    preparar: (ctx) => {
+      const c = previa(ctx);
+      crearMovimiento(c, { tipo: "ingreso", monto: 3500, categoria: "Sueldo", fecha: sumarDias(ctx.hoy, -15) });
+      crearMovimiento(c, { tipo: "ingreso", monto: 3500, categoria: "Sueldo", fecha: sumarDias(ctx.hoy, -30) });
+    },
+    verificar: (r) => {
+      const nuevo = r.movimientos.filter((m) => m.fecha === r.ctx.hoy);
+      return motivo(nuevo.length === 1 && nuevo[0]!.monto === "$3,500" && nuevo[0]!.tipo === "ingreso" && !pregunta(r), {
+        movimientos: r.movimientos,
+        respuesta: r.respuesta,
+      });
+    },
+  },
+  {
+    grupo: "autonomia",
+    frase: "Ya me cayó la quincena",
+    preparar: (ctx) => {
+      crearMovimiento(previa(ctx), { tipo: "ingreso", monto: 3500, categoria: "Sueldo", fecha: sumarDias(ctx.hoy, -15) });
+    },
+    // Solo una vez: propone el monto en vez de anotarlo.
+    verificar: (r) => motivo(r.movimientos.length === 1 && pregunta(r) && dice(r, "3500"), { movimientos: r.movimientos, respuesta: r.respuesta }),
+  },
+  {
+    grupo: "autonomia",
+    previos: ["Ya me cayó la quincena"],
+    frase: "Sí",
+    preparar: (ctx) => {
+      crearMovimiento(previa(ctx), { tipo: "ingreso", monto: 3500, categoria: "Sueldo", fecha: sumarDias(ctx.hoy, -15) });
+    },
+    verificar: (r) => {
+      const nuevo = r.movimientos.filter((m) => m.fecha === r.ctx.hoy);
+      return motivo(nuevo.length === 1 && nuevo[0]!.monto === "$3,500" && enCategoria(nuevo[0], "Sueldo"), r.movimientos);
+    },
+  },
+  {
+    grupo: "autonomia",
+    frase: "Uber 130",
+    preparar: (ctx) => {
+      const c = previa(ctx);
+      crearMovimiento(c, { tipo: "gasto", monto: 120, comercio: "Uber", categoria: "Taxi y apps", cuenta: "Nu", fecha: "ayer" });
+      crearMovimiento(c, { tipo: "gasto", monto: 95, comercio: "Uber", categoria: "Taxi y apps", cuenta: "Nu", fecha: "antier" });
+    },
+    verificar: (r) => {
+      const m = r.movimientos.find((x) => x.monto === "$130");
+      return motivo(m?.cuenta === "Nu", r.movimientos);
+    },
+  },
+  {
+    grupo: "autonomia",
+    frase: "Recuerda que el Oxxo siempre lo pago en efectivo",
+    verificar: (r) => {
+      const memorias = listarMemorias(r.ctx).map((m) => m.texto);
+      return motivo(memorias.length === 1 && /oxxo/i.test(memorias[0]!) && r.movimientos.length === 0, { memorias, respuesta: r.respuesta });
+    },
+  },
+  {
+    grupo: "autonomia",
+    frase: "Gasté 45 en el Oxxo",
+    preparar: (ctx) => {
+      recordar(previa(ctx), "Paga el Oxxo en efectivo");
+    },
+    verificar: (r) => motivo(unoSolo(r)?.monto === "$45" && unoSolo(r)?.cuenta === "Efectivo", r.movimientos),
+  },
+  {
+    grupo: "autonomia",
+    frase: "Olvida lo del Oxxo",
+    preparar: (ctx) => {
+      recordar(previa(ctx), "Paga el Oxxo en efectivo");
+      recordar(previa(ctx), "Su quincena llega el 15 y el último día");
+    },
+    verificar: (r) => {
+      const memorias = listarMemorias(r.ctx).map((m) => m.texto);
+      return motivo(memorias.length === 1 && memorias[0]!.includes("quincena"), { memorias, respuesta: r.respuesta });
+    },
+  },
+  {
+    grupo: "autonomia",
+    frase: "Fui al súper",
+    // Sin un monto conocido sí pregunta, y no anota nada.
+    verificar: (r) => motivo(r.movimientos.length === 0 && pregunta(r), { movimientos: r.movimientos, respuesta: r.respuesta }),
   },
 ];

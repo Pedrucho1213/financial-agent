@@ -215,3 +215,41 @@ export function editarRecurrente(ctx: Contexto, nombre: string, cambios: Cambios
   registrarEnBitacora(ctx, "recurrentes", fila.id, "crear", undefined, fila);
   return describir(ctx, fila);
 }
+
+const NOMBRES_DIA = ["", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
+
+/**
+ * Cobros que vienen (hoy, mañana, o dentro de los días de aviso de cada uno) de los que todavía no
+ * se avisó: "Ojo: mañana se cobra Netflix de $219." `marcar` los da por avisados para no repetirlo.
+ * `pagados`: lo que se acaba de registrar ("Netflix", "Renta"); de eso no se avisa y queda como avisado.
+ */
+export function cobrosPorAvisar(ctx: Contexto, pagados: string[] = []): { aviso?: string; marcar: () => void } | undefined {
+  const yaPagado = new Set(pagados.map(normalizar));
+  const pendientes = activos(ctx)
+    .filter((r) => r.tipo !== "ingreso")
+    .map((r) => ({ r, fecha: proximoCobro(r, ctx.hoy) }))
+    .filter(({ r, fecha }) => fecha <= sumarDias(ctx.hoy, r.avisarDiasAntes) && r.avisadoPara !== fecha);
+  if (pendientes.length === 0) return undefined;
+  const recienPagados = pendientes.filter(({ r }) => yaPagado.has(normalizar(r.nombre)));
+  const proximos = pendientes
+    .filter(({ r }) => !yaPagado.has(normalizar(r.nombre)))
+    .sort((a, b) => a.fecha.localeCompare(b.fecha))
+    .slice(0, 2);
+  // Solo lo que se pagó o se dijo: un tercer cobro queda para el siguiente dictado.
+  const marcar = () => {
+    for (const { r, fecha } of [...recienPagados, ...proximos]) {
+      ctx.db.update(recurrentes).set({ avisadoPara: fecha }).where(eq(recurrentes.id, r.id)).run();
+    }
+  };
+  if (proximos.length === 0) return { marcar };
+  const cuando = (fecha: string) =>
+    fecha === ctx.hoy ? "hoy" : fecha === sumarDias(ctx.hoy, 1) ? "mañana" : `el ${NOMBRES_DIA[diaSemana(fecha)]}`;
+  const cobro = ({ r }: (typeof proximos)[number]) => `${r.nombre} de ${formatearMonto(r.montoCentavos, r.moneda)}`;
+  const [a, b] = proximos as [(typeof proximos)[number], (typeof proximos)[number] | undefined];
+  const aviso = !b
+    ? `Ojo: ${cuando(a.fecha)} se cobra ${cobro(a)}.`
+    : a.fecha === b.fecha
+      ? `Ojo: ${cuando(a.fecha)} se cobran ${cobro(a)} y ${cobro(b)}.`
+      : `Ojo: ${cuando(a.fecha)} se cobra ${cobro(a)} y ${cuando(b.fecha)}, ${cobro(b)}.`;
+  return { aviso, marcar };
+}

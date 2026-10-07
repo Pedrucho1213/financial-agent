@@ -44,6 +44,13 @@ Hablas después del sonido y se detiene solo tras una pausa. Te contesta y el At
 
 Los montos te los dice en pesos ("50 pesos"): el servidor cambia "$50" antes de mandarlo, porque la voz del iPhone lee el signo "$" como dólares.
 
+No hace falta decirlo todo; la IA usa lo que ya sabe de ti:
+
+- **Monto de siempre**: "ya pagué Netflix" o "me cayó la quincena" sin decir cuánto se anota con el monto de siempre y te dice "como siempre". Cuenta como de siempre un pago fijo que diste de alta, o el mismo monto dos veces seguidas en la quincena, la renta o una suscripción (tres veces en lo demás). Si solo lo pagaste una vez, te pregunta "¿fue de 3,500 pesos, como la vez pasada?" y con un "sí" lo anota.
+- **Cuenta de siempre**: si en un lugar las últimas veces pagaste con la misma tarjeta, la pone sola y te dice con cuál.
+- **Lo que le pides recordar**: "recuerda que el Oxxo lo pago en efectivo" lo toma en cuenta en cada dictado; "olvida lo del Oxxo" lo borra.
+- **Avisos**: si mañana se cobra un pago fijo, te lo dice una vez al terminar lo que le pediste ("Ojo: mañana se cobra Netflix de 219 pesos").
+
 Quien decide si sigue escuchando es el servidor: manda `seguir: true` solo cuando la respuesta pregunta algo (lleva "?", al final o en medio). Las instrucciones de la IA le piden no cerrar con ofrecimientos como "¿algo más?".
 
 ## Sin conexión

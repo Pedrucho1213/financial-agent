@@ -273,8 +273,11 @@ function vinoDespues(ctx: Contexto): (fila: { entradaId: string | null; creadoEn
   return (fila) => (fila.entradaId ? posteriores.has(fila.entradaId) : fila.creadoEn > propia.creadoEn);
 }
 
-/** El movimiento a editar o eliminar: por id, o con una búsqueda que deje uno solo. */
-export function idDelMovimiento(ctx: Contexto, id?: string, buscar?: Busqueda): string {
+/**
+ * El movimiento a editar o eliminar: por id, o con una búsqueda que deje uno solo. Con `varios` ("borra
+ * los tacos"), si coinciden pocos el error le pide a la IA ir uno por uno con su id.
+ */
+export function idDelMovimiento(ctx: Contexto, id?: string, buscar?: Busqueda, varios = false): string {
   if (id) return id;
   if (!buscar) throw new ErrorFinanzas("Indica el id o qué buscar.");
   const cats = listarCategorias(ctx.db, ctx.usuarioId);
@@ -288,7 +291,12 @@ export function idDelMovimiento(ctx: Contexto, id?: string, buscar?: Busqueda): 
     const d = describir(ctx, m, cats);
     return `${d.comercio ?? d.categoria ?? d.tipo} de ${d.monto} del ${d.fecha} (id ${d.id})`;
   });
-  throw new ErrorFinanzas(`Coinciden ${filas.length}: ${opciones.join("; ")}. Pregunta cuál o usa su id.`);
+  const queHacer = !varios
+    ? "Pregunta cuál; si pidió borrar o cambiar varios, usa el id de cada uno."
+    : filas.length <= 3
+      ? "Pidió varios: hazlo con el id de cada uno, uno por uno, sin preguntar."
+      : "Pidió varios y son muchos: pregunta si son todos o cuáles.";
+  throw new ErrorFinanzas(`Coinciden ${filas.length}: ${opciones.join("; ")}. ${queHacer}`);
 }
 
 export function editarMovimiento(ctx: Contexto, id: string, cambios: Partial<DatosMovimiento>) {
