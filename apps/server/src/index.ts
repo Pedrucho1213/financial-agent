@@ -6,6 +6,7 @@ import { abrirBaseDatos } from "./db/client";
 import { enviarAvisosDelDia } from "./push/avisos-manana";
 import { avisoDeDictado } from "./push/dictados";
 import { tienePush } from "./push/notificaciones";
+import { programarRevisor, revisarPendientes } from "./finanzas/revisor";
 
 const db = abrirBaseDatos(config.baseDatos);
 const deps = {
@@ -35,3 +36,9 @@ const revisarAvisos = () =>
 setInterval(revisarAvisos, 5 * 60_000);
 void revisarAvisos();
 console.log(`Asistente financiero escuchando en http://${config.host}:${config.puerto} con el modelo ${config.ia.modelo}`);
+
+// Una vez al día, desde las 3 de la mañana y con la Mac sin uso, busca fugas y cobros que vienen.
+// No usa el modelo de IA: no lo carga ni lo mantiene en memoria.
+const revisor = { db, zonaHoraria: config.zonaHoraria, monedaBase: config.moneda };
+revisarPendientes(revisor);
+programarRevisor(revisor);

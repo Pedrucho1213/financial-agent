@@ -1,19 +1,3 @@
-CREATE TABLE `avisos` (
-	`id` text PRIMARY KEY NOT NULL,
-	`usuario_id` text NOT NULL,
-	`fecha` text NOT NULL,
-	`tipo` text NOT NULL,
-	`titulo` text NOT NULL,
-	`texto` text NOT NULL,
-	`url` text,
-	`prioridad` integer DEFAULT 0 NOT NULL,
-	`creado_en` text DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')) NOT NULL,
-	`dicho_en` text,
-	`notificado_en` text,
-	FOREIGN KEY (`usuario_id`) REFERENCES `usuarios`(`id`) ON UPDATE no action ON DELETE no action
-);
---> statement-breakpoint
-CREATE UNIQUE INDEX `avisos_unico` ON `avisos` (`usuario_id`,`fecha`,`tipo`,`titulo`);--> statement-breakpoint
 CREATE TABLE `configuracion` (
 	`clave` text PRIMARY KEY NOT NULL,
 	`valor` text NOT NULL,

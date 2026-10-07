@@ -19,7 +19,7 @@ import {
 } from "./auth";
 import { entradas, invitaciones, usuarios } from "./db/schema";
 import { fraseDePago } from "./finanzas/applepay";
-import { avisoDelDia, marcarDicho } from "./finanzas/avisos";
+import { avisoDelDia } from "./finanzas/avisos";
 import { listarCategorias, nombreCompleto } from "./finanzas/catalogos";
 import { crearContexto } from "./finanzas/contexto";
 import {
@@ -40,6 +40,7 @@ import { esOrdenSobreLoAnotado, esPregunta } from "./lib/texto";
 import { and, eq, gte } from "drizzle-orm";
 import { avisoDeDictado, conversacionPorContestar } from "./push/dictados";
 import { desuscribir, type EnviarPush, ErrorSuscripcion, estadoPush, notificar, suscribir, tienePush } from "./push/notificaciones";
+import { rutasPlanes } from "./rutas-planes";
 import { servirApp } from "./web";
 
 export type OpcionesApp = Dependencias & {
@@ -225,18 +226,19 @@ export function crearApp(opciones: OpcionesApp) {
   };
   /**
    * La primera respuesta del día que oye el Atajo lleva el aviso del día (fugas, presupuestos), una sola vez.
-   * No va detrás de una pregunta (la pregunta tiene que ser lo último que se oye) ni de una espera.
+   * No va detrás de una pregunta (la pregunta tiene que ser lo último que se oye), de una espera ni de un
+   * dato útil (uno por respuesta basta).
    */
-  const conAvisoDelDia = <T extends { respuesta: string; pendiente?: boolean; duplicado?: boolean }>(
+  const conAvisoDelDia = <T extends { respuesta: string; pendiente?: boolean; duplicado?: boolean; dato?: string }>(
     usuarioId: string,
     r: T,
     rapida: boolean,
   ): T => {
-    if (r.duplicado || (r.pendiente && !rapida) || r.respuesta.includes("?")) return r;
-    const aviso = avisoDelDia(db, usuarioId, contexto(usuarioId).hoy);
-    if (!aviso) return r;
-    marcarDicho(db, aviso.id);
-    return { ...r, respuesta: `${r.respuesta} Por cierto: ${aviso.texto}` };
+    if (r.duplicado || r.dato || (r.pendiente && !rapida) || r.respuesta.includes("?")) return r;
+    const delDia = avisoDelDia(contexto(usuarioId));
+    if (!delDia) return r;
+    delDia.marcar();
+    return { ...r, respuesta: `${r.respuesta} Por cierto: ${delDia.aviso.texto}` };
   };
   const contexto = (usuarioId: string) =>
     crearContexto({ db, usuarioId, zonaHoraria: opciones.zonaHoraria, monedaBase: opciones.monedaBase });
@@ -672,6 +674,8 @@ export function crearApp(opciones: OpcionesApp) {
     const agruparPor = AGRUPACIONES.find((a) => a === c.req.query("agrupar")) ?? "categoria";
     return c.json(resumir(contexto(c.get("usuarioId")), { periodo: c.req.query("periodo") ?? "este_mes", tipo, agruparPor }));
   });
+
+  rutasPlanes(v1, contexto);
 
   // Prepara el Atajo con un token propio y deja el archivo firmado 10 minutos para descargarlo.
   // tipo "apple_pay" prepara el Atajo que corre la automatización de la Cartera.

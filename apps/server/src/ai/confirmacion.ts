@@ -1,6 +1,7 @@
 import { diaSemana, sumarDias } from "../lib/fechas";
 import { montosDelTexto } from "../lib/numeros";
 import { esPregunta, normalizar } from "../lib/texto";
+import { ESCRITURAS_PLANES } from "./herramientas-planes";
 
 /** Lo que la herramienta regresó de un movimiento (ver `describir`). */
 type Movimiento = {
@@ -35,6 +36,8 @@ const PIDE_MAS = new RegExp(
     ].join("|") +
     ")\\b",
 );
+// Después de guardar un presupuesto o una meta, la frase pide otra cosa.
+const OTRA_PARTE = /\b(tambien|ademas|luego|despues|recuerdame|avisame)\b|\by (registra|anota|apunta|borra|elimina|cambia|gaste|pague|compre|cuanto|como|dime)\b/;
 // La frase habla de varios movimientos.
 const PLURAL = /\b(los|las|estos|estas|esos|esas|unos|unas|ambos|ambas|todos|todas|dos|tres|cuatro|cinco)\b/;
 // Al registrar, además pide corregir o borrar otra cosa ("y registra que el Uber de ayer fue con la Nu").
@@ -88,6 +91,20 @@ export function confirmarRegistro(registrados: Movimiento[], hoy: string): strin
 export function confirmacionDirecta(texto: string, hoy: string, ejecutadas: Ejecutada[]): string | undefined {
   if (ejecutadas.length === 0 || ejecutadas.some((e) => esError(e.resultado))) return undefined;
   const plano = normalizar(texto);
+
+  // "¿Cuánto puedo gastar hoy?": la cifra ya viene calculada y redactada.
+  if (ejecutadas.length === 1 && ejecutadas[0]!.herramienta === "consultar_planes" && !/\by\b/.test(plano)) {
+    const respuesta = (ejecutadas[0]!.resultado as { respuesta?: string }).respuesta;
+    if (respuesta) return respuesta;
+  }
+  // Presupuestos, metas, préstamos y MSI traen su confirmación. "Al mes" o "a 12 meses" son parte de lo
+  // que guardaron, no algo más que pedir; una pregunta o un "también" sí lo son.
+  if (ejecutadas.every((e) => ESCRITURAS_PLANES.has(e.herramienta))) {
+    if (esPregunta(texto) || OTRA_PARTE.test(plano) || montosDelTexto(texto).length > ejecutadas.length) return undefined;
+    const confirmaciones = ejecutadas.map((e) => (e.resultado as { confirmacion?: string }).confirmacion);
+    return confirmaciones.every(Boolean) ? confirmaciones.join(" ") : undefined;
+  }
+
   if (esPregunta(texto) || PIDE_MAS.test(plano)) return undefined;
 
   const nombres = new Set(ejecutadas.map((e) => e.herramienta));

@@ -3,8 +3,8 @@ import { createPublicKey, verify } from "node:crypto";
 import { MockLanguageModelV4 } from "ai/test";
 import { crearApp, RESPUESTA_RAPIDA } from "../src/app";
 import { crearDispositivo, revocarDispositivo } from "../src/auth";
-import { dispositivos, movimientos, suscripcionesPush } from "../src/db/schema";
-import { crearAviso } from "../src/finanzas/avisos";
+import type { Db } from "../src/db/client";
+import { avisos, dispositivos, movimientos, suscripcionesPush } from "../src/db/schema";
 import { fraseDePago, montoDeWallet } from "../src/finanzas/applepay";
 import { enviarAvisosDelDia } from "../src/push/avisos-manana";
 import { clavesVapid, type EnviarPush, notificar, suscribir } from "../src/push/notificaciones";
@@ -237,39 +237,56 @@ describe("Atajo rápido", () => {
 });
 
 describe("aviso del día", () => {
-  test("el Atajo lo dice una vez, al final de la primera respuesta del día, en pesos", async () => {
+  type Nuevo = Partial<typeof avisos.$inferInsert> & Pick<typeof avisos.$inferInsert, "usuarioId" | "titulo" | "texto">;
+  const guardar = (db: Db, a: Nuevo) =>
+    db
+      .insert(avisos)
+      .values({ tipo: "hormiga", clave: a.titulo, fecha: hoyEnMexico(), ...a })
+      .run();
+  const hoyEnMexico = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City" }).format(new Date());
+
+  test("el Atajo lo dice una vez, el más importante, al final de la primera respuesta, en pesos", async () => {
     const consulta = llamada("consultar_gastos", { periodo: "este_mes" });
     const { db, usuario, pedir } = montar([consulta, texto("Llevas $85 este mes."), consulta, texto("Llevas $85 este mes.")]);
-    const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City" }).format(new Date());
-    crearAviso(db, { usuarioId: usuario.id, fecha: hoy, tipo: "fuga", titulo: "Cafés", texto: "Llevas $400 en cafés esta semana.", prioridad: 2 });
-    crearAviso(db, { usuarioId: usuario.id, fecha: hoy, tipo: "meta", titulo: "Meta", texto: "Vas bien con tu meta.", prioridad: 1 });
+    guardar(db, { usuarioId: usuario.id, titulo: "Meta", texto: "Vas bien con tu meta.", tipo: "meta", prioridad: 3 });
+    guardar(db, { usuarioId: usuario.id, titulo: "Cafés", texto: "Llevas $400 en cafés esta semana.", prioridad: 1 });
     const uno = (await (await pedir("/v1/hablar", "POST", { texto: "¿cuánto llevo?", client_id: "aviso-00001" })).json()) as { respuesta: string };
     expect(uno.respuesta).toBe("Llevas 85 pesos este mes. Por cierto: Llevas 400 pesos en cafés esta semana.");
+    const dicho = db.select().from(avisos).all().find((a) => a.titulo === "Cafés")!;
+    expect(dicho.dichoEn).not.toBeNull();
+    // Uno por respuesta: el siguiente sale en la próxima.
     const dos = (await (await pedir("/v1/hablar", "POST", { texto: "¿cuánto llevo?", client_id: "aviso-00002" })).json()) as { respuesta: string };
-    expect(dos.respuesta).toBe("Llevas 85 pesos este mes.");
+    expect(dos.respuesta).toBe("Llevas 85 pesos este mes. Por cierto: Vas bien con tu meta.");
   });
 
-  test("sale por push en la mañana, uno por día con cuántos más hay, y no de madrugada", async () => {
+  test("sale por push en la mañana, uno con cuántos más hay, y no de madrugada ni lo que ya se dijo", async () => {
     const { db, usuario } = preparar();
     const dispositivo = crearDispositivoConId(db, usuario.id, "iPhone");
     suscribir(db, usuario.id, dispositivo, { endpoint: ENDPOINT, ...LLAVES, contacto: "mailto:a@b.mx" });
     const enviadas: { titulo: string; cuerpo: string; url: string }[] = [];
     const enviar: EnviarPush = async (_s, m) => (enviadas.push(JSON.parse(m)), { ok: true, estado: 201, vencida: false });
-    crearAviso(db, { usuarioId: usuario.id, fecha: "2026-10-07", tipo: "fuga", titulo: "Cafés", texto: "Llevas $400 en cafés.", prioridad: 2, url: "/#movimientos?q=caf%C3%A9" });
-    crearAviso(db, { usuarioId: usuario.id, fecha: "2026-10-07", tipo: "meta", titulo: "Meta", texto: "Vas bien." });
-    crearAviso(db, { usuarioId: usuario.id, fecha: "2026-10-06", tipo: "meta", titulo: "Viejo", texto: "Ya pasó." });
+    const creadoEn = "2026-10-07T08:00:00.000Z";
+    guardar(db, { usuarioId: usuario.id, fecha: "2026-10-07", titulo: "Meta", texto: "Vas bien.", tipo: "meta", prioridad: 2, creadoEn });
+    guardar(db, { usuarioId: usuario.id, fecha: "2026-10-07", titulo: "Cafés", texto: "Llevas $400 en cafés.", prioridad: 1, enlace: "#movimientos?texto=caf%C3%A9", creadoEn });
+    guardar(db, { usuarioId: usuario.id, fecha: "2026-10-07", titulo: "Dicho", texto: "Ya lo oyó.", prioridad: 1, creadoEn, dichoEn: creadoEn });
     // 3:00 en Ciudad de México.
     expect(await enviarAvisosDelDia(db, "America/Mexico_City", new Date("2026-10-07T09:00:00Z"), enviar)).toBe(0);
     // 9:30.
     expect(await enviarAvisosDelDia(db, "America/Mexico_City", new Date("2026-10-07T15:30:00Z"), enviar)).toBe(1);
-    expect(enviadas).toEqual([{ titulo: "Cafés", cuerpo: "Llevas $400 en cafés. Y un aviso más en la app.", url: "/#movimientos?q=caf%C3%A9", etiqueta: "avisos-2026-10-07" } as never]);
+    expect(enviadas).toEqual([
+      { titulo: "Cafés", cuerpo: "Llevas $400 en cafés. Y un aviso más en la app.", url: "/#movimientos?texto=caf%C3%A9", etiqueta: "avisos-2026-10-07" } as never,
+    ]);
     expect(await enviarAvisosDelDia(db, "America/Mexico_City", new Date("2026-10-07T16:00:00Z"), enviar)).toBe(0);
   });
 
-  test("crearAviso no duplica el mismo aviso", () => {
+  test("sin notificaciones activas espera, y le llegan si las activa más tarde", async () => {
     const { db, usuario } = preparar();
-    const datos = { usuarioId: usuario.id, fecha: "2026-10-07", tipo: "fuga", titulo: "Cafés", texto: "x" };
-    expect(crearAviso(db, datos).id).toBe(crearAviso(db, datos).id);
+    const enviadas: unknown[] = [];
+    const enviar: EnviarPush = async (_s, m) => (enviadas.push(JSON.parse(m)), { ok: true, estado: 201, vencida: false });
+    guardar(db, { usuarioId: usuario.id, fecha: "2026-10-07", titulo: "Cafés", texto: "x", creadoEn: "2026-10-07T08:00:00.000Z" });
+    expect(await enviarAvisosDelDia(db, "America/Mexico_City", new Date("2026-10-07T15:30:00Z"), enviar)).toBe(0);
+    suscribir(db, usuario.id, crearDispositivoConId(db, usuario.id, "iPhone"), { endpoint: ENDPOINT, ...LLAVES, contacto: "mailto:a@b.mx" });
+    expect(await enviarAvisosDelDia(db, "America/Mexico_City", new Date("2026-10-07T17:00:00Z"), enviar)).toBe(1);
   });
 });
 

@@ -24,6 +24,8 @@ export const usuarios = sqliteTable("usuarios", {
   id: id(),
   nombre: text("nombre").notNull(),
   creadoEn: creadoEn(),
+  // Último día (YYYY-MM-DD) que el revisor nocturno buscó fugas para este usuario.
+  revisadoPara: text("revisado_para"),
 });
 
 export const dispositivos = sqliteTable(
@@ -213,6 +215,7 @@ export const comprasMsi = sqliteTable("compras_msi", {
   eliminadoEn: text("eliminado_en"),
 });
 
+// Límite mensual de gasto de una categoría (si es principal, incluye sus subcategorías).
 export const presupuestos = sqliteTable("presupuestos", {
   id: id(),
   usuarioId: text("usuario_id")
@@ -221,6 +224,7 @@ export const presupuestos = sqliteTable("presupuestos", {
   categoriaId: text("categoria_id").notNull(),
   limiteCentavos: integer("limite_centavos").notNull(),
   creadoEn: creadoEn(),
+  eliminadoEn: text("eliminado_en"),
 });
 
 export const metas = sqliteTable("metas", {
@@ -233,6 +237,7 @@ export const metas = sqliteTable("metas", {
   ahorradoCentavos: integer("ahorrado_centavos").notNull().default(0),
   fechaLimite: text("fecha_limite"),
   creadoEn: creadoEn(),
+  eliminadoEn: text("eliminado_en"),
 });
 
 // Dinero prestado entre personas ("le presté 500 a Juan").
@@ -244,9 +249,12 @@ export const prestamosPersonales = sqliteTable("prestamos_personales", {
   persona: text("persona").notNull(),
   direccion: text("direccion", { enum: ["me_deben", "debo"] }).notNull(),
   montoCentavos: integer("monto_centavos").notNull(),
+  // Lo que ya se devolvió en abonos ("Juan me pagó 200").
+  pagadoCentavos: integer("pagado_centavos").notNull().default(0),
   descripcion: text("descripcion"),
   saldadoEn: text("saldado_en"),
   creadoEn: creadoEn(),
+  eliminadoEn: text("eliminado_en"),
 });
 
 // Datos que la IA debe recordar ("mi quincena llega el 15 y el último día").
@@ -304,6 +312,15 @@ export const mensajes = sqliteTable(
   (t) => [index("mensajes_conversacion").on(t.usuarioId, t.conversacionId)],
 );
 
+export const TABLAS_BITACORA = [
+  "movimientos",
+  "recurrentes",
+  "presupuestos",
+  "metas",
+  "prestamos_personales",
+  "compras_msi",
+] as const;
+
 // Bitácora de cambios: permite deshacer cualquier cosa que hizo la IA.
 export const bitacora = sqliteTable(
   "bitacora",
@@ -313,7 +330,7 @@ export const bitacora = sqliteTable(
       .notNull()
       .references(() => usuarios.id),
     entradaId: text("entrada_id"),
-    tabla: text("tabla", { enum: ["movimientos", "recurrentes"] }).notNull(),
+    tabla: text("tabla", { enum: TABLAS_BITACORA }).notNull(),
     registroId: text("registro_id").notNull(),
     accion: text("accion", { enum: ["crear", "editar", "eliminar"] }).notNull(),
     antes: text("antes", { mode: "json" }).$type<Record<string, unknown>>(),
@@ -356,8 +373,20 @@ export const suscripcionesPush = sqliteTable(
   (t) => [uniqueIndex("suscripciones_push_endpoint").on(t.endpoint), index("suscripciones_push_usuario").on(t.usuarioId)],
 );
 
-// Lo que el revisor nocturno encuentra (fugas, presupuestos, cobros): el Atajo lo dice una vez al usarlo
-// y sale como notificación en la mañana.
+export const TIPOS_AVISO = [
+  "hormiga",
+  "suscripcion_olvidada",
+  "suscripcion_duplicada",
+  "cobro_proximo",
+  "presupuesto",
+  "meta",
+  "msi",
+  "prestamo",
+  "gasto_inusual",
+] as const;
+
+// Lo que el revisor nocturno encontró (fugas, cobros que vienen, presupuestos en riesgo). El push y
+// el Atajo los entregan; `clave` evita guardar dos veces el mismo hallazgo.
 export const avisos = sqliteTable(
   "avisos",
   {
@@ -365,17 +394,22 @@ export const avisos = sqliteTable(
     usuarioId: text("usuario_id")
       .notNull()
       .references(() => usuarios.id),
-    // Día local (YYYY-MM-DD) para el que es el aviso.
-    fecha: text("fecha").notNull(),
-    tipo: text("tipo").notNull(),
+    tipo: text("tipo", { enum: TIPOS_AVISO }).notNull(),
+    clave: text("clave").notNull(),
     titulo: text("titulo").notNull(),
     texto: text("texto").notNull(),
-    // Ruta de la app a la que lleva tocar la notificación.
-    url: text("url"),
-    prioridad: integer("prioridad").notNull().default(0),
+    // Día del aviso y último día en que aplica (YYYY-MM-DD).
+    fecha: text("fecha").notNull(),
+    vence: text("vence"),
+    // 1 alta, 2 media, 3 baja.
+    prioridad: integer("prioridad").notNull().default(2),
+    // Ruta de la app que muestra el detalle.
+    enlace: text("enlace"),
     creadoEn: creadoEn(),
+    enviadoEn: text("enviado_en"),
     dichoEn: text("dicho_en"),
-    notificadoEn: text("notificado_en"),
+    leidoEn: text("leido_en"),
+    descartadoEn: text("descartado_en"),
   },
-  (t) => [uniqueIndex("avisos_unico").on(t.usuarioId, t.fecha, t.tipo, t.titulo)],
+  (t) => [uniqueIndex("avisos_usuario_clave").on(t.usuarioId, t.clave), index("avisos_usuario_fecha").on(t.usuarioId, t.fecha)],
 );

@@ -1,82 +1,178 @@
-// Avisos del día: los genera el revisor nocturno (fugas, presupuestos, cobros que vienen). El Atajo dice
-// el más importante una sola vez, al final de la primera respuesta del día, y sale como notificación en la mañana.
-import { and, asc, desc, eq, isNull, lte } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, or } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { avisos } from "../db/schema";
+import { avisos, recurrentes, TIPOS_AVISO } from "../db/schema";
+import { fechaLocal, sumarDias } from "../lib/fechas";
+import type { Contexto } from "./contexto";
+import { ErrorFinanzas } from "./movimientos";
 
 export type Aviso = typeof avisos.$inferSelect;
+export type TipoAviso = (typeof TIPOS_AVISO)[number];
 
-export type NuevoAviso = {
-  usuarioId: string;
-  /** Día local (YYYY-MM-DD) para el que es. */
-  fecha: string;
-  /** "fuga", "presupuesto", "cobro", "meta"... */
-  tipo: string;
-  /** Corto, para el título de la notificación. */
+export type AvisoNuevo = {
+  tipo: TipoAviso;
+  /** Identifica el hallazgo: el mismo hallazgo con la misma clave no se guarda dos veces. */
+  clave: string;
   titulo: string;
-  /** Una o dos frases; puede llevar "$85" (la voz lo dice "85 pesos"). */
   texto: string;
-  /** Ruta de la app a la que lleva tocar la notificación ("/#movimientos?categoria=..."). */
-  url?: string;
-  /** Mayor = más importante. Solo se dice uno por día. */
-  prioridad?: number;
+  vence?: string | null;
+  prioridad?: 1 | 2 | 3;
+  enlace?: string | null;
 };
 
-/** Guarda un aviso. El mismo usuario, día, tipo y título no se repite: devuelve el que ya estaba. */
-export function crearAviso(db: Db, aviso: NuevoAviso): Aviso {
-  const fila = db
+/** Guarda el aviso si no existía uno con la misma clave. Devuelve true si es nuevo. */
+export function guardarAviso(ctx: Contexto, a: AvisoNuevo): boolean {
+  const filas = ctx.db
     .insert(avisos)
-    .values({ ...aviso, url: aviso.url ?? null, prioridad: aviso.prioridad ?? 0 })
+    .values({
+      usuarioId: ctx.usuarioId,
+      tipo: a.tipo,
+      clave: a.clave,
+      titulo: a.titulo,
+      texto: a.texto,
+      fecha: ctx.hoy,
+      vence: a.vence ?? null,
+      prioridad: a.prioridad ?? 2,
+      enlace: a.enlace ?? null,
+    })
     .onConflictDoNothing()
-    .returning()
+    .returning({ id: avisos.id })
+    .all();
+  return filas.length > 0;
+}
+
+export function avisoApp(a: Aviso) {
+  return {
+    id: a.id,
+    tipo: a.tipo,
+    titulo: a.titulo,
+    texto: a.texto,
+    fecha: a.fecha,
+    vence: a.vence,
+    prioridad: a.prioridad,
+    enlace: a.enlace,
+    creadoEn: a.creadoEn,
+    enviadoEn: a.enviadoEn,
+    dichoEn: a.dichoEn,
+    leidoEn: a.leidoEn,
+  };
+}
+
+export type AvisoApp = ReturnType<typeof avisoApp>;
+
+const vigente = (hoy: string) => or(isNull(avisos.vence), gte(avisos.vence, hoy));
+
+/** Avisos de los últimos 7 días que siguen vigentes y no se descartaron; sin `todos`, solo los no leídos. */
+export function listarAvisos(ctx: Contexto, opciones: { todos?: boolean } = {}) {
+  const condiciones = [
+    eq(avisos.usuarioId, ctx.usuarioId),
+    isNull(avisos.descartadoEn),
+    gte(avisos.fecha, sumarDias(ctx.hoy, -7)),
+    vigente(ctx.hoy),
+  ];
+  if (!opciones.todos) condiciones.push(isNull(avisos.leidoEn));
+  const filas = ctx.db
+    .select()
+    .from(avisos)
+    .where(and(...condiciones))
+    .orderBy(desc(avisos.fecha), avisos.prioridad, desc(avisos.creadoEn))
+    .all();
+  return { avisos: filas.map(avisoApp) };
+}
+
+function propio(ctx: Contexto, id: string): Aviso {
+  const fila = ctx.db
+    .select()
+    .from(avisos)
+    .where(and(eq(avisos.id, id), eq(avisos.usuarioId, ctx.usuarioId)))
     .get();
-  return (
-    fila ??
-    db
-      .select()
-      .from(avisos)
-      .where(
-        and(
-          eq(avisos.usuarioId, aviso.usuarioId),
-          eq(avisos.fecha, aviso.fecha),
-          eq(avisos.tipo, aviso.tipo),
-          eq(avisos.titulo, aviso.titulo),
-        ),
-      )
-      .get()!
+  if (!fila) throw new ErrorFinanzas("No encontré ese aviso.");
+  return fila;
+}
+
+export function marcarLeido(ctx: Contexto, id: string) {
+  const fila = propio(ctx, id);
+  return avisoApp(
+    ctx.db.update(avisos).set({ leidoEn: fila.leidoEn ?? new Date().toISOString() }).where(eq(avisos.id, id)).returning().get()!,
   );
 }
 
+export function descartarAviso(ctx: Contexto, id: string) {
+  propio(ctx, id);
+  ctx.db.update(avisos).set({ descartadoEn: new Date().toISOString() }).where(eq(avisos.id, id)).run();
+  return { ok: true };
+}
+
 /**
- * El aviso que el Atajo dice hoy: el más importante de hoy, si todavía no se ha dicho ninguno hoy.
- * Uno por día: si ya dijo uno, no dice otro aunque queden.
+ * Para el push: avisos de cualquier usuario creados en las últimas 24 horas que nadie ha visto,
+ * enviado ni descartado, y que siguen vigentes. El push decide a qué hora mandarlos.
  */
-export function avisoDelDia(db: Db, usuarioId: string, hoy: string): Aviso | undefined {
-  const deHoy = db
-    .select()
-    .from(avisos)
-    .where(and(eq(avisos.usuarioId, usuarioId), eq(avisos.fecha, hoy)))
-    .orderBy(desc(avisos.prioridad), asc(avisos.creadoEn))
-    .all();
-  if (deHoy.some((a) => a.dichoEn)) return undefined;
-  return deHoy[0];
-}
-
-export function marcarDicho(db: Db, id: string) {
-  db.update(avisos).set({ dichoEn: new Date().toISOString() }).where(eq(avisos.id, id)).run();
-}
-
-/** Avisos de hoy o de antes que aún no salen como notificación, del más importante al menos. */
-export function avisosPorNotificar(db: Db, usuarioId: string, hoy: string): Aviso[] {
+export function avisosPorEnviar(db: Db, zonaHoraria: string, ahora = new Date()) {
+  const hoy = fechaLocal(ahora, zonaHoraria);
   return db
     .select()
     .from(avisos)
-    .where(and(eq(avisos.usuarioId, usuarioId), lte(avisos.fecha, hoy), isNull(avisos.notificadoEn)))
-    .orderBy(desc(avisos.prioridad), asc(avisos.creadoEn))
-    .all();
+    .where(
+      and(
+        isNull(avisos.enviadoEn),
+        isNull(avisos.leidoEn),
+        isNull(avisos.dichoEn),
+        isNull(avisos.descartadoEn),
+        gte(avisos.creadoEn, new Date(ahora.getTime() - 24 * 60 * 60_000).toISOString()),
+        vigente(hoy),
+      ),
+    )
+    .orderBy(avisos.prioridad, avisos.creadoEn)
+    .all()
+    .map((a) => ({ ...avisoApp(a), usuarioId: a.usuarioId }));
 }
 
-export function marcarNotificado(db: Db, ids: string[]) {
-  const ahora = new Date().toISOString();
-  for (const id of ids) db.update(avisos).set({ notificadoEn: ahora }).where(eq(avisos.id, id)).run();
+export function marcarEnviados(db: Db, ids: string[]) {
+  if (ids.length === 0) return;
+  db.update(avisos).set({ enviadoEn: new Date().toISOString() }).where(inArray(avisos.id, ids)).run();
+}
+
+/** El recurrente de un aviso de cobro (clave "cobro:<id>:<fecha>"). */
+function cobroDelAviso(a: Pick<Aviso, "tipo" | "clave">) {
+  const [tipo, id, fecha] = a.clave.split(":");
+  return a.tipo === "cobro_proximo" && tipo === "cobro" && id && fecha ? { id, fecha } : undefined;
+}
+
+/**
+ * El aviso que el Atajo dice al usarlo: el más importante de ayer u hoy que todavía no se dijo, leyó
+ * ni descartó. `marcar` lo da por dicho (llamarlo solo si de verdad se va a oír). Un cobro del que la
+ * voz ya avisó ("Ojo: mañana se cobra Netflix") no se repite.
+ */
+export function avisoDelDia(ctx: Contexto): { aviso: AvisoApp; marcar: () => void } | undefined {
+  const candidatos = ctx.db
+    .select()
+    .from(avisos)
+    .where(
+      and(
+        eq(avisos.usuarioId, ctx.usuarioId),
+        isNull(avisos.dichoEn),
+        isNull(avisos.leidoEn),
+        isNull(avisos.descartadoEn),
+        gte(avisos.fecha, sumarDias(ctx.hoy, -1)),
+        vigente(ctx.hoy),
+      ),
+    )
+    .orderBy(avisos.prioridad, desc(avisos.creadoEn))
+    .all();
+  const yaAvisado = (a: Aviso) => {
+    const cobro = cobroDelAviso(a);
+    if (!cobro) return false;
+    const r = ctx.db.select({ avisadoPara: recurrentes.avisadoPara }).from(recurrentes).where(eq(recurrentes.id, cobro.id)).get();
+    return r?.avisadoPara === cobro.fecha;
+  };
+  const elegido = candidatos.find((a) => !yaAvisado(a));
+  if (!elegido) return undefined;
+  return {
+    aviso: avisoApp(elegido),
+    marcar: () => {
+      ctx.db.update(avisos).set({ dichoEn: new Date().toISOString() }).where(eq(avisos.id, elegido.id)).run();
+      // Y la voz ya no lo repite al registrar algo.
+      const cobro = cobroDelAviso(elegido);
+      if (cobro) ctx.db.update(recurrentes).set({ avisadoPara: cobro.fecha }).where(eq(recurrentes.id, cobro.id)).run();
+    },
+  };
 }

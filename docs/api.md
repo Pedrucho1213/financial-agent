@@ -28,7 +28,7 @@ Para el primer usuario: `bun run invitar -- --nombre Pedro` crea la cuenta (si n
 Quién no manda `espera_ms` es el Atajo. Para él:
 
 - **Respuesta rápida**: si la cuenta tiene notificaciones activas, un registro con monto (no una pregunta, una orden sin monto ni un borrado o cambio) no espera a la IA: contesta 202 `{ respuesta: "Anotado.", pendiente: true }` y lo anotado llega por notificación.
-- **Aviso del día**: la primera respuesta del día lleva al final el aviso más importante de hoy ("Por cierto: ..."), una sola vez. No va detrás de una pregunta ni de una espera.
+- **Aviso del día**: la primera respuesta que oye lleva al final el aviso más importante pendiente ("Por cierto: ..."), una sola vez. No va detrás de una pregunta, de una espera ni de un `dato`.
 - **Pregunta por notificación**: si la IA terminó en segundo plano con una pregunta, la notificación la dice y el siguiente dictado sin `conversacion_id` en los 10 minutos siguientes sigue esa conversación.
 
 Todo dictado que se termina sin que nadie lo espere (el iPhone ya no esperó y nadie consulta `/v1/entradas` en ese momento) llega como notificación a quien las tenga activas: lo que se anotó (al tocarla abre `/#movimientos?detalle=<id>[,<id>...]`), la pregunta que quedó o que no se pudo procesar.
@@ -48,7 +48,7 @@ El mensaje que recibe el service worker (`public/sw-push.js`) es `{ titulo, cuer
 
 ## Avisos del día
 
-El revisor nocturno los guarda con `crearAviso(db, { usuarioId, fecha, tipo, titulo, texto, url?, prioridad? })` (`src/finanzas/avisos.ts`; el mismo usuario, día, tipo y título no se repiten). `texto` es una o dos frases y puede llevar "$85". El Atajo dice el de mayor prioridad del día una vez (`dicho_en`), y entre las 9:00 y las 21:00 locales sale por notificación el más importante con cuántos más hay (`notificado_en`); los de días pasados ya no se mandan.
+Los avisos del revisor nocturno (ver "Avisos (revisor nocturno)") se entregan de dos formas, cada uno una sola vez: el Atajo dice el más importante de ayer u hoy al final de su primera respuesta (`dicho_en`), y entre las 9:00 y las 21:00 locales sale por notificación el más importante de los no enviados con cuántos más hay (`enviado_en`); al tocarla abre su `enlace`. Lo que ya se dijo, se leyó o se descartó no sale por notificación.
 
 ## Movimientos y tablero
 
@@ -110,3 +110,94 @@ Solo los movimientos en la moneda base entran en las sumas.
 | `GET /v1/atajo/bienvenida` | | `{ saludo, explicacion, sinExplicacion, cierre }` con el nombre que tenga la cuenta: el Atajo lo pide la primera vez, así cambiar el nombre no obliga a reinstalarlo |
 | `POST /v1/atajo/canjear` (pública) | `{ codigo, servidor }` con un código de dispositivo de una cuenta | 201 `{ url, expiraEn, nombre }`, igual que `POST /v1/atajo` pero sin token: es el enlace `/instalar?codigo=...`. 400 si el código es de cuenta nueva o `servidor` no es este servidor, 404, 410, 429; 501 si la Mac no puede firmar (el código sigue sirviendo) |
 | `GET /atajo/:id.shortcut` (pública, vale 10 minutos y 5 descargas) | | El archivo `Finanzas.shortcut` (o `Finanzas Apple Pay.shortcut`) firmado; el id es aleatorio y solo lo conoce quien pidió el Atajo. 410 después |
+
+## Presupuestos, metas, préstamos y meses sin intereses
+
+Montos en centavos. Todo se puede hacer también por voz (`/v1/hablar`), y lo que se hace por voz se puede deshacer.
+
+| Método y ruta | Cuerpo o parámetros | Respuesta |
+|---|---|---|
+| `GET /v1/presupuestos?mes=YYYY-MM` | mes actual por omisión | `{ mes, hoy, diasDelMes, diaDelMes, presupuestos: Presupuesto[], total: { limiteCentavos, gastadoCentavos } }`; el general va primero y luego del más apretado al más holgado |
+| `PUT /v1/presupuestos` | `{ categoria_id, limite }` (`categoria_id` null u omitido = presupuesto general del mes) | `Presupuesto`; crea o cambia, uno por categoría |
+| `DELETE /v1/presupuestos/:id` | | `{ ok: true }` |
+| `GET /v1/metas` | | `{ metas: Meta[] }` |
+| `POST /v1/metas` | `{ nombre, objetivo, ahorrado?, fecha_limite? }` | 201 `Meta` |
+| `PATCH /v1/metas/:id` | `{ nombre?, objetivo?, fecha_limite? }` (`null` quita la fecha) | `Meta` |
+| `POST /v1/metas/:id/aportes` | `{ monto }` (negativo = retiro; no puede quedar debajo de cero) | `Meta` |
+| `DELETE /v1/metas/:id` | | `{ ok: true }` |
+| `GET /v1/prestamos?todos=1` | sin `todos`, solo los pendientes | `{ prestamos: Prestamo[], meDebenCentavos, deboCentavos }` |
+| `GET /v1/msi?todas=1` | sin `todas`, solo las que tienen cargos por venir | `{ compras: CompraMsi[], mensualCentavos }` |
+| `GET /v1/disponible` | | ver abajo ("¿cuánto puedo gastar hoy?") |
+
+```ts
+type Presupuesto = {
+  id: string;
+  categoriaId: string | null; // null = general (todo lo que se gasta en el mes)
+  categoria: string; // "General", "Comida" o "Comida > Café"; una principal incluye sus subcategorías
+  limiteCentavos: number; gastadoCentavos: number; restanteCentavos: number; // restante puede ser negativo
+  porcentaje: number; // entero, puede pasar de 100
+  proyeccionCentavos: number; // al ritmo actual, cuánto habrá gastado al cerrar el mes
+  estado: "bien" | "cerca" | "excedido"; // cerca desde 80%, excedido arriba de 100%
+};
+type Meta = {
+  id: string; nombre: string; objetivoCentavos: number; ahorradoCentavos: number;
+  porcentaje: number; // 0 a 100
+  fechaLimite: string | null;
+  mensualSugeridoCentavos: number | null; // cuánto apartar al mes para llegar a tiempo
+  completada: boolean;
+};
+type Prestamo = {
+  id: string; persona: string; direccion: "me_deben" | "debo";
+  montoCentavos: number; pagadoCentavos: number; pendienteCentavos: number;
+  descripcion: string | null; creadoEn: string; saldadoEn: string | null;
+};
+type CompraMsi = {
+  id: string; descripcion: string; totalCentavos: number; meses: number; mensualidadCentavos: number;
+  primerCargo: string; pagadas: number; restanteCentavos: number; proximoCargo: string | null; cuenta: string | null;
+};
+```
+
+Cada mensualidad de una compra a meses queda como un gasto (`origen: "importacion"`, descripción "Pantalla (3 de 12 MSI)") el día que toca: la primera al registrar la compra y las demás con el revisor diario. Así el mes muestra lo que de verdad sale de la cartera y no el total de la compra.
+
+`GET /v1/disponible`:
+
+```ts
+{
+  hoy: string; diasRestantes: number; // del mes, hoy incluido
+  porDiaCentavos: number; // lo que toca por día, en pesos enteros
+  disponibleHoyCentavos: number; // porDia menos lo gastado hoy (puede ser negativo)
+  libreMesCentavos: number; // ingresos - gastado - comprometido
+  base: "ingresos" | "presupuestos" | null; // null: no hay ingresos ni presupuestos para calcularlo
+  ingresosCentavos: number; // lo registrado este mes o lo esperado de los ingresos fijos, lo que sea mayor
+  gastadoCentavos: number; gastadoHoyCentavos: number;
+  comprometidoCentavos: number; // pagos fijos y mensualidades que faltan este mes
+}
+```
+
+## Avisos (revisor nocturno)
+
+Una vez al día, desde las 3:00 hora local y cuando nadie ha dictado en los últimos 10 minutos (o en cuanto la Mac despierta, si estaba dormida), el servidor revisa las finanzas de cada usuario y guarda avisos: gastos hormiga, suscripciones olvidadas o repetidas, cobros y mensualidades de hoy a pasado mañana, presupuestos rebasados o en riesgo, gastos fuera de lo normal, metas por vencer y préstamos viejos. Es solo SQL y reglas: no usa el modelo de IA. El mismo hallazgo no se guarda dos veces.
+
+| Método y ruta | Cuerpo | Respuesta |
+|---|---|---|
+| `GET /v1/avisos?todos=1` | sin `todos`, solo los no leídos | `{ avisos: Aviso[] }` de los últimos 7 días, vigentes y sin descartar |
+| `POST /v1/avisos/:id/leido` | | `Aviso` |
+| `POST /v1/avisos/:id/descartar` | | `{ ok: true }` |
+| `POST /v1/avisos/revisar` | | `{ nuevos, mensualidades }`; corre el revisor ya para este usuario |
+
+```ts
+type Aviso = {
+  id: string;
+  tipo: "hormiga" | "suscripcion_olvidada" | "suscripcion_duplicada" | "cobro_proximo" | "presupuesto" | "meta" | "msi" | "prestamo" | "gasto_inusual";
+  titulo: string; // corto, para el título de una notificación
+  texto: string; // una o dos frases con montos "$85"; para voz, pasarlo por montosParaVoz
+  fecha: string; vence: string | null; // después de vence ya no aplica
+  prioridad: 1 | 2 | 3; // 1 alta
+  enlace: string | null; // pantalla de la app: "#movimientos?texto=Starbucks", "#presupuestos", "#metas", "#inicio", "#ajustes"
+  creadoEn: string; enviadoEn: string | null; dichoEn: string | null; leidoEn: string | null;
+};
+```
+
+En el servidor (`src/finanzas/avisos.ts`): `avisosPorEnviar(db, zonaHoraria)` da los avisos de todos los usuarios de las últimas 24 horas que nadie ha visto, enviado, oído ni descartado, y `marcarEnviados(db, ids)` los da por enviados; `avisoDelDia(ctx)` da el aviso más importante de ayer u hoy que todavía no se dijo, con `marcar()` para darlo por dicho. Un cobro del que la voz ya avisó al registrar algo ("Ojo: mañana se cobra Netflix") queda como dicho y no se repite.
+
+Al registrar un gasto que cruza el 80% o el 100% de un presupuesto, `/v1/hablar` lo agrega a la respuesta ("Vas en 82% de tu presupuesto de Comida.") y lo repite aparte en `dato`.
