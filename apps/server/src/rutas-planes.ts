@@ -9,6 +9,7 @@ import {
   disponible,
   editarMeta,
   eliminarMeta,
+  esFechaValida,
   estadoPresupuestos,
   fijarPresupuesto,
   listarMetas,
@@ -20,7 +21,7 @@ import {
 import { revisar } from "./finanzas/revisor";
 
 const monto = z.coerce.number().positive().max(1e10);
-const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Usa AAAA-MM-DD.");
+const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Usa AAAA-MM-DD.").refine(esFechaValida, "Esa fecha no existe.");
 
 const esquemaPresupuesto = z.object({ categoria_id: z.string().trim().min(1).nullable().optional(), limite: monto });
 const esquemaMeta = z.object({

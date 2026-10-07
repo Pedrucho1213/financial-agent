@@ -46,11 +46,9 @@ function gastos(ctx: Contexto, desde: string, hasta = ctx.hoy): Mov[] {
     .all();
 }
 
-function cuando(ctx: Contexto, fecha: string) {
-  if (fecha === ctx.hoy) return "Hoy";
-  if (fecha === sumarDias(ctx.hoy, 1)) return "Mañana";
-  if (fecha === sumarDias(ctx.hoy, 2)) return "Pasado mañana";
-  return `El ${NOMBRES_DIA[diaSemana(fecha)]}`;
+// El texto se guarda con el día exacto ("El jueves 8"); al leerlo se dice "Hoy" o "Mañana" (avisos.ts).
+function cuando(fecha: string) {
+  return `El ${NOMBRES_DIA[diaSemana(fecha)]} ${partes(fecha).dia}`;
 }
 
 /** Nombre con que se habla de un gasto: el comercio, o la subcategoría. */
@@ -213,8 +211,8 @@ function cobrosProximos(ctx: Contexto): AvisoNuevo[] {
     .map(({ r, fecha }) => ({
       tipo: "cobro_proximo",
       clave: `cobro:${r.id}:${fecha}`,
-      titulo: `${cuando(ctx, fecha)} se cobra ${r.nombre}`,
-      texto: `${cuando(ctx, fecha)} se cobra ${r.nombre} de ${formatearMonto(r.montoCentavos, r.moneda)}.`,
+      titulo: `${cuando(fecha)} se cobra ${r.nombre}`,
+      texto: `${cuando(fecha)} se cobra ${r.nombre} de ${formatearMonto(r.montoCentavos, r.moneda)}.`,
       vence: fecha,
       prioridad: 1,
       enlace: "#inicio",
@@ -225,7 +223,7 @@ function cobrosProximos(ctx: Contexto): AvisoNuevo[] {
       tipo: "msi",
       clave: `msi:${c.id}:${c.proximoCargo}`,
       titulo: `Mensualidad de ${c.descripcion}`,
-      texto: `${cuando(ctx, c.proximoCargo!)} llega la mensualidad ${c.pagadas + 1} de ${c.meses} de ${c.descripcion}: ${$(ctx, c.mensualidadCentavos)}.`,
+      texto: `${cuando(c.proximoCargo!)} llega la mensualidad ${c.pagadas + 1} de ${c.meses} de ${c.descripcion}: ${$(ctx, c.mensualidadCentavos)}.`,
       vence: c.proximoCargo,
       prioridad: 2,
       enlace: "#inicio",

@@ -25,7 +25,7 @@ import { listarMemorias, olvidar, recordar } from "../finanzas/memorias";
 import { cancelarRecurrente, crearRecurrente, editarRecurrente, listarRecurrentes } from "../finanzas/recurrentes";
 import { fechaDelTexto, fechasDelTexto, mencionaFecha, resolverFecha } from "../lib/fechas";
 import { montoConPalabras, montosDelTexto } from "../lib/numeros";
-import { herramientasPlanes, mencionaA, nombresDePlanes } from "./herramientas-planes";
+import { apartaParaMeta, herramientasPlanes, nombresDePlanes, pagaPrestamo } from "./herramientas-planes";
 import { monedaDelTexto, normalizar, tipoDelTexto } from "../lib/texto";
 
 /** Lo que hizo una herramienta: con qué la llamó el modelo y qué resultó. */
@@ -91,14 +91,12 @@ const PIDE_VARIOS = new RegExp(
   String.raw`\b(ambos|ambas|todos|todas|${VERBO}(los|las|melos|melas))\b|\b${VERBO} (los|las) (?!(ultim[oa]s )?(dos|tres|cuatro|cinco)\b|${CIFRA})`,
 );
 
-// "A 12 meses sin intereses", "a 6 MSI": no es un gasto de una vez.
-const ES_MSI = /\b(meses sin intereses|msi|a (\d+|tres|seis|nueve|doce|dieciocho|veinticuatro) meses)\b/;
+// "A 12 meses sin intereses", "compré unos tenis a 6 meses": no es un gasto de una vez. Pagar una
+// mensualidad ("la mensualidad de la pantalla") sí es un gasto.
+const ES_MSI = /\b(meses sin intereses|msi)\b|\bcompre\b.*\ba (\d+|tres|seis|nueve|doce|dieciocho|veinticuatro) meses\b/;
+const PAGA_MENSUALIDAD = /\b(mensualidad|mensualidades|pago de|abono de)\b/;
 // Prestar o pedir prestado entre personas no es gasto ni ingreso.
 const ES_PRESTAMO = /\b(le preste|les preste|te preste|preste|me presto|me prestaron|me prestaste|nos presto)\b/;
-// Pagar o cobrar un préstamo que ya existe: "Juan me pagó", "le devolví a Ana".
-const PAGA_PRESTAMO = /\b(me pago|me pagaron|me devolvio|me regreso|me abono|le pague|le devolvi|le regrese|le abone)\b/;
-// Apartar dinero para una meta: "aparté 500 para el viaje".
-const APORTA_META = /\b(aparte|ahorre|guarde|meti|puse|abone|deposite)\b/;
 // "Recuerda que mi último gasto no fue de dólares": corrige un registro, no es un dato para recordar.
 const CORRIGE_REGISTRO =
   /\b(no (fue|fueron|era|eran)|ultimo (gasto|registro|movimiento|ingreso)|que (agregamos|anotamos|registramos|apuntamos|anotaste|registraste|apuntaste|agregaste))\b/;
@@ -152,11 +150,13 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         if (texto && montosDelTexto(texto).length <= 1) {
           const plano = normalizar(texto);
           const planes = nombresDePlanes(ctx);
-          if (ES_MSI.test(plano)) throw new ErrorFinanzas("Es una compra a meses sin intereses: usa compra_msi, no registrar_movimientos.");
-          if (ES_PRESTAMO.test(plano) || (PAGA_PRESTAMO.test(plano) && mencionaA(texto, planes.personas))) {
+          if (ES_MSI.test(plano) && !PAGA_MENSUALIDAD.test(plano)) {
+            throw new ErrorFinanzas("Es una compra a meses sin intereses: usa compra_msi, no registrar_movimientos.");
+          }
+          if (ES_PRESTAMO.test(plano) || pagaPrestamo(texto, planes.personas)) {
             throw new ErrorFinanzas("Es un préstamo entre personas: usa prestamo, no registrar_movimientos.");
           }
-          if (APORTA_META.test(plano) && (/\bmeta\b/.test(plano) || mencionaA(texto, planes.metas))) {
+          if (apartaParaMeta(texto, planes.metas)) {
             throw new ErrorFinanzas("Es dinero apartado para una meta de ahorro: usa meta con accion aportar, no registrar_movimientos.");
           }
         }

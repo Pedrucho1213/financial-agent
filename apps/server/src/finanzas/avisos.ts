@@ -1,7 +1,7 @@
 import { and, desc, eq, gte, inArray, isNull, or } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { avisos, recurrentes, TIPOS_AVISO } from "../db/schema";
-import { fechaLocal, sumarDias } from "../lib/fechas";
+import { fechaLocal, partes, sumarDias } from "../lib/fechas";
 import type { Contexto } from "./contexto";
 import { ErrorFinanzas } from "./movimientos";
 
@@ -40,12 +40,22 @@ export function guardarAviso(ctx: Contexto, a: AvisoNuevo): boolean {
   return filas.length > 0;
 }
 
-export function avisoApp(a: Aviso) {
+/**
+ * Los avisos de cobros se guardan con el día exacto ("El jueves 8 se cobra Netflix") para que no
+ * envejezcan; al leerlos el mismo día o la víspera se dicen "Hoy" o "Mañana".
+ */
+function conDiaRelativo(texto: string, vence: string | null, hoy: string | undefined) {
+  if (!vence || !hoy) return texto;
+  const relativo = vence === hoy ? "Hoy" : vence === sumarDias(hoy, 1) ? "Mañana" : undefined;
+  return relativo ? texto.replace(new RegExp(`^El [a-záéíóúñ]+ ${partes(vence).dia}\\b`), relativo) : texto;
+}
+
+export function avisoApp(a: Aviso, hoy?: string) {
   return {
     id: a.id,
     tipo: a.tipo,
-    titulo: a.titulo,
-    texto: a.texto,
+    titulo: conDiaRelativo(a.titulo, a.vence, hoy),
+    texto: conDiaRelativo(a.texto, a.vence, hoy),
     fecha: a.fecha,
     vence: a.vence,
     prioridad: a.prioridad,
@@ -76,7 +86,7 @@ export function listarAvisos(ctx: Contexto, opciones: { todos?: boolean } = {}) 
     .where(and(...condiciones))
     .orderBy(desc(avisos.fecha), avisos.prioridad, desc(avisos.creadoEn))
     .all();
-  return { avisos: filas.map(avisoApp) };
+  return { avisos: filas.map((a) => avisoApp(a, ctx.hoy)) };
 }
 
 function propio(ctx: Contexto, id: string): Aviso {
@@ -93,6 +103,7 @@ export function marcarLeido(ctx: Contexto, id: string) {
   const fila = propio(ctx, id);
   return avisoApp(
     ctx.db.update(avisos).set({ leidoEn: fila.leidoEn ?? new Date().toISOString() }).where(eq(avisos.id, id)).returning().get()!,
+    ctx.hoy,
   );
 }
 
@@ -123,7 +134,7 @@ export function avisosPorEnviar(db: Db, zonaHoraria: string, ahora = new Date())
     )
     .orderBy(avisos.prioridad, avisos.creadoEn)
     .all()
-    .map((a) => ({ ...avisoApp(a), usuarioId: a.usuarioId }));
+    .map((a) => ({ ...avisoApp(a, hoy), usuarioId: a.usuarioId }));
 }
 
 export function marcarEnviados(db: Db, ids: string[]) {
@@ -167,7 +178,7 @@ export function avisoDelDia(ctx: Contexto): { aviso: AvisoApp; marcar: () => voi
   const elegido = candidatos.find((a) => !yaAvisado(a));
   if (!elegido) return undefined;
   return {
-    aviso: avisoApp(elegido),
+    aviso: avisoApp(elegido, ctx.hoy),
     marcar: () => {
       ctx.db.update(avisos).set({ dichoEn: new Date().toISOString() }).where(eq(avisos.id, elegido.id)).run();
       // Y la voz ya no lo repite al registrar algo.

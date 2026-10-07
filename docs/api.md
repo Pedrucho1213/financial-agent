@@ -121,7 +121,7 @@ Montos en centavos. Todo se puede hacer también por voz (`/v1/hablar`), y lo qu
 | `PUT /v1/presupuestos` | `{ categoria_id, limite }` (`categoria_id` null u omitido = presupuesto general del mes) | `Presupuesto`; crea o cambia, uno por categoría |
 | `DELETE /v1/presupuestos/:id` | | `{ ok: true }` |
 | `GET /v1/metas` | | `{ metas: Meta[] }` |
-| `POST /v1/metas` | `{ nombre, objetivo, ahorrado?, fecha_limite? }` | 201 `Meta` |
+| `POST /v1/metas` | `{ nombre, objetivo, ahorrado?, fecha_limite? }` (AAAA-MM-DD; una fecha pasada se mueve al año siguiente) | 201 `Meta` |
 | `PATCH /v1/metas/:id` | `{ nombre?, objetivo?, fecha_limite? }` (`null` quita la fecha) | `Meta` |
 | `POST /v1/metas/:id/aportes` | `{ monto }` (negativo = retiro; no puede quedar debajo de cero) | `Meta` |
 | `DELETE /v1/metas/:id` | | `{ ok: true }` |
@@ -170,7 +170,7 @@ Cada mensualidad de una compra a meses queda como un gasto (`origen: "importacio
   base: "ingresos" | "presupuestos" | null; // null: no hay ingresos ni presupuestos para calcularlo
   ingresosCentavos: number; // lo registrado este mes o lo esperado de los ingresos fijos, lo que sea mayor
   gastadoCentavos: number; gastadoHoyCentavos: number;
-  comprometidoCentavos: number; // pagos fijos y mensualidades que faltan este mes
+  comprometidoCentavos: number; // pagos fijos y mensualidades que faltan este mes (0 si la base son presupuestos por categoría)
 }
 ```
 
@@ -191,6 +191,7 @@ type Aviso = {
   tipo: "hormiga" | "suscripcion_olvidada" | "suscripcion_duplicada" | "cobro_proximo" | "presupuesto" | "meta" | "msi" | "prestamo" | "gasto_inusual";
   titulo: string; // corto, para el título de una notificación
   texto: string; // una o dos frases con montos "$85"; para voz, pasarlo por montosParaVoz
+  // Los de cobros dicen el día exacto ("El viernes 9 se cobra Netflix…"); al leerlos ese día o la víspera ya llegan como "Hoy…" o "Mañana…".
   fecha: string; vence: string | null; // después de vence ya no aplica
   prioridad: 1 | 2 | 3; // 1 alta
   enlace: string | null; // pantalla de la app: "#movimientos?texto=Starbucks", "#presupuestos", "#metas", "#inicio", "#ajustes"

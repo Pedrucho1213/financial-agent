@@ -123,13 +123,39 @@ function elegirCategoria(
 
 export type TablaBitacora = (typeof TABLAS_BITACORA)[number];
 
-// Presupuestos, metas, préstamos y MSI se deshacen restaurando la fila completa de antes (o de después, al rehacer).
+// Presupuestos, metas, préstamos y MSI se deshacen columna por columna: solo lo que cambió esa entrada.
 const TABLAS_PLANES = {
   presupuestos,
   metas,
   prestamos_personales: prestamosPersonales,
   compras_msi: comprasMsi,
 } as const;
+
+// Saldos que se mueven por abonos: se deshace la diferencia, no el valor, para no borrar otro abono
+// que llegó después ("aparté 500" y luego "aparté 200"; deshacer el primero deja los 200).
+const SALDOS = new Set(["ahorradoCentavos", "pagadoCentavos"]);
+
+/** Lo que hay que escribir para llevar una fila de `desde` a `hacia`, sobre cómo está ahora. */
+function valoresDePlan(
+  tabla: (typeof TABLAS_PLANES)[keyof typeof TABLAS_PLANES],
+  registroId: string,
+  desde: Record<string, unknown>,
+  hacia: Record<string, unknown>,
+  tx: Pick<Contexto["db"], "select">,
+) {
+  const actual = (tx.select().from(tabla).where(eq(tabla.id, registroId)).get() ?? {}) as Record<string, unknown>;
+  const valores: Record<string, unknown> = {};
+  for (const k of Object.keys(hacia)) {
+    if (k === "id" || JSON.stringify(desde[k]) === JSON.stringify(hacia[k])) continue;
+    valores[k] = SALDOS.has(k) ? Math.max(0, Number(actual[k] ?? 0) + Number(hacia[k] ?? 0) - Number(desde[k] ?? 0)) : hacia[k];
+  }
+  // Un préstamo queda saldado según lo que de verdad lleva pagado.
+  if (tabla === prestamosPersonales && "pagadoCentavos" in valores) {
+    const saldado = (valores.pagadoCentavos as number) >= Number(actual.montoCentavos);
+    valores.saldadoEn = saldado ? (actual.saldadoEn ?? hacia.saldadoEn ?? new Date().toISOString()) : null;
+  }
+  return valores;
+}
 
 export function registrarEnBitacora(
   ctx: Contexto,
@@ -484,8 +510,11 @@ function revertir(ctx: Contexto, grupo: CambioBitacora[], por?: string) {
           .run();
       } else {
         const tabla = TABLAS_PLANES[cambio.tabla];
-        const { id: _, ...valores } = (cambio.accion === "crear" ? { eliminadoEn: ahora } : (cambio.antes ?? {})) as Record<string, unknown>;
-        tx.update(tabla).set(valores).where(eq(tabla.id, cambio.registroId)).run();
+        const valores =
+          cambio.accion === "crear"
+            ? { eliminadoEn: ahora }
+            : valoresDePlan(tabla, cambio.registroId, (cambio.despues ?? {}) as Record<string, unknown>, (cambio.antes ?? {}) as Record<string, unknown>, tx);
+        if (Object.keys(valores).length) tx.update(tabla).set(valores).where(eq(tabla.id, cambio.registroId)).run();
       }
       tx.update(bitacora).set({ deshechoEn: ahora, deshechoPor: por ?? null }).where(eq(bitacora.id, cambio.id)).run();
       revertidos.push(`${cambio.accion} en ${cambio.tabla}`);
@@ -513,8 +542,11 @@ function rehacer(ctx: Contexto, grupo: CambioBitacora[]) {
           .run();
       } else {
         const tabla = TABLAS_PLANES[cambio.tabla];
-        const { id: _, ...valores } = (cambio.accion === "crear" ? { eliminadoEn: null } : despues) as Record<string, unknown>;
-        tx.update(tabla).set(valores).where(eq(tabla.id, cambio.registroId)).run();
+        const valores =
+          cambio.accion === "crear"
+            ? { eliminadoEn: null }
+            : valoresDePlan(tabla, cambio.registroId, (cambio.antes ?? {}) as Record<string, unknown>, despues as Record<string, unknown>, tx);
+        if (Object.keys(valores).length) tx.update(tabla).set(valores).where(eq(tabla.id, cambio.registroId)).run();
       }
       tx.update(bitacora).set({ deshechoEn: null, deshechoPor: null }).where(eq(bitacora.id, cambio.id)).run();
     }

@@ -234,11 +234,28 @@ export function nombresDePlanes(ctx: Contexto) {
   return { metas, personas };
 }
 
-/** El texto menciona alguna de estas personas ("Juan me pagó 200"). */
-export function mencionaA(texto: string, nombres: string[]) {
-  const plano = ` ${normalizar(texto)} `;
-  return nombres.some((n) => {
-    const primero = normalizar(n).split(" ")[0];
-    return !!primero && primero.length > 2 && plano.includes(` ${primero} `);
-  });
+const escapar = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** La primera palabra de cada nombre ("Juan" de "Juan Pérez"), ya normalizada y escapada. */
+const primeras = (nombres: string[]) =>
+  nombres.map((n) => normalizar(n).split(" ")[0] ?? "").filter((p) => p.length > 2).map(escapar);
+
+/**
+ * Paga o cobra un préstamo que ya existe, con la persona junto al verbo: "Juan me pagó 200",
+ * "me devolvió Juan", "le pagué a Ana". "Le pagué la luz" no es Luz, ni "le pagué 300 a Juan por el corte".
+ */
+export function pagaPrestamo(texto: string, personas: string[]) {
+  const nombres = primeras(personas);
+  if (!nombres.length) return false;
+  const p = `(${nombres.join("|")})`;
+  const verbo = "(pago|pagaron|devolvio|regreso|abono)";
+  return new RegExp(`\\b(${p} (ya )?(me|nos) ${verbo}|(me|nos) ${verbo} ${p}|le (pague|devolvi|regrese|abone) a ${p})\\b`).test(normalizar(texto));
+}
+
+/** "Aparté 500 para el viaje", "ahorré mil para la meta": apartar dinero, no gastarlo. */
+export function apartaParaMeta(texto: string, metas: string[]) {
+  const plano = normalizar(texto);
+  if (!/\b(aparte|ahorre|guarde)\b/.test(plano)) return false;
+  const nombres = primeras(metas);
+  const destino = nombres.length ? `|${nombres.join("|")}` : "";
+  return new RegExp(`\\b(para|a|en) (el |la |mi |mis )?(meta${destino})\\b`).test(plano);
 }
