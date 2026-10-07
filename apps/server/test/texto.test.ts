@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { montosParaVoz } from "../src/lib/dinero";
-import { esPregunta, monedaDelTexto } from "../src/lib/texto";
+import { esOrdenSobreLoAnotado, esPregunta, monedaDelTexto } from "../src/lib/texto";
 
 describe("esPregunta", () => {
   test("reconoce preguntas dictadas sin signos", () => {
@@ -58,4 +58,24 @@ describe("montosParaVoz", () => {
     expect(montosParaVoz("$50 pesos, $20 USD, US$5 y $ 300")).toBe("50 pesos, 20 dólares, 5 dólares y 300 pesos");
     expect(montosParaVoz("Tienes 3 cafés y 2 Ubers.")).toBe("Tienes 3 cafés y 2 Ubers.");
   });
+});
+
+test("reconoce órdenes de borrar o cambiar algo ya anotado (QA-029)", () => {
+  for (const frase of [
+    "Borra el café de 85",
+    "Bórrame el café de 85",
+    "quítame el Uber de 120",
+    "cámbiame el súper de 850 a la BBVA",
+    "bórralos, los dos de 85",
+    "pásale el súper de 850 a crédito",
+    "quiero borrar el café de 85",
+    "puedes borrar el café de 85",
+    "corrige el Uber de 120, fueron 150",
+    "deshaz lo último",
+  ]) {
+    expect(esOrdenSobreLoAnotado(frase)).toBe(true);
+  }
+  for (const frase of ["Gasté 85 en un café", "Qué pasa con mis gastos de 500", "Pagué la cancelación de 300"]) {
+    expect(esOrdenSobreLoAnotado(frase)).toBe(false);
+  }
 });

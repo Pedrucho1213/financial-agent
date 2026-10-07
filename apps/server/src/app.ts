@@ -34,7 +34,7 @@ import { listarMovimientosApp, movimientoApp, tablero } from "./finanzas/vista";
 import { montosParaVoz } from "./lib/dinero";
 import { hostsDeLaPeticion, ipDelCliente, LimiteIntentos } from "./lib/limites";
 import { montosDelTexto } from "./lib/numeros";
-import { esPregunta } from "./lib/texto";
+import { esOrdenSobreLoAnotado, esPregunta } from "./lib/texto";
 import { and, eq, gte } from "drizzle-orm";
 import { servirApp } from "./web";
 
@@ -303,7 +303,8 @@ export function crearApp(opciones: OpcionesApp) {
     const p = cuerpo.data;
     // Sin monto, lo que conteste importa tanto como en una pregunta: puede pedir un dato ("¿de cuánto fue?")
     // o decir qué borró o cambió. Si contestara "Anotado" y lo terminara sola, nadie oiría esa respuesta.
-    const pregunta = esPregunta(p.texto) || montosDelTexto(p.texto).length === 0;
+    // Lo mismo al borrar o cambiar algo, aunque diga el monto: "borra el café de 85" (QA-029).
+    const pregunta = esPregunta(p.texto) || montosDelTexto(p.texto).length === 0 || esOrdenSobreLoAnotado(p.texto);
     const esperaMs = p.espera_ms ?? (pregunta ? opciones.espera?.preguntaMs : opciones.espera?.registroMs);
     try {
       const respuesta = await hablar(
