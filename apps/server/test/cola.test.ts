@@ -145,6 +145,16 @@ describe("cola de dictados", () => {
     expect(completo.status).toBe(200);
   });
 
+  test("sin monto espera como a una pregunta, para que se oiga lo que pregunte", async () => {
+    const modelo = new MockLanguageModelV4({ doGenerate: async () => (await dormir(40), texto("¿Cuál de los dos cafés?")) });
+    const { hablar } = montar(modelo, { registroMs: 5, preguntaMs: 2000 });
+    const r = await hablar({ texto: "borra el café", client_id: "dictado-4101" });
+    expect(r.status).toBe(200);
+    expect(r.cuerpo).toMatchObject({ respuesta: "¿Cuál de los dos cafés?", seguir: true });
+    // Con monto sigue siendo rápido: contesta "Anotado" y la Mac lo termina sola.
+    expect((await hablar({ texto: "gasté en el súper 850", client_id: "dictado-4102" })).status).toBe(202);
+  });
+
   test("si una pregunta tarda demasiado, pide esperar la respuesta", async () => {
     const { modelo } = modeloFalso({ retrasoMs: () => 50 });
     const { hablar, get } = montar(modelo, { registroMs: 5, preguntaMs: 5 });

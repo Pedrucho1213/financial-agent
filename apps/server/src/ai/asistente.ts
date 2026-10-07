@@ -45,7 +45,7 @@ export type Dependencias = {
 export type OpcionesHablar = {
   /** Cuánto esperar antes de contestar "pendiente" y seguir en segundo plano. Sin valor, espera todo. */
   esperaMs?: number;
-  /** Si es una pregunta, la respuesta "pendiente" invita a esperar en vez de decir "anotado". */
+  /** Si es una pregunta (o una orden sin monto), la respuesta "pendiente" invita a esperar en vez de decir "anotado". */
   esPregunta?: boolean;
 };
 

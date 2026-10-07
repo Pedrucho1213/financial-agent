@@ -42,7 +42,7 @@ Si contestas "Permitir una vez", te lo vuelve a preguntar la próxima vez. Si co
 
 Hablas después del sonido y se detiene solo tras una pausa. Te contesta y el Atajo se cierra. Si su respuesta termina en pregunta, te sigue escuchando: contéstale, o di "no", "listo", "gracias", "es todo" o "adiós" para terminar. Si no dices nada, se cierra (y si fue lo primero, te dice "No te escuché"). Son hasta 10 turnos por vez.
 
-Quien decide si sigue escuchando es el servidor: manda `seguir: true` solo cuando la respuesta termina en "?". Las instrucciones de la IA le piden no cerrar con ofrecimientos como "¿algo más?".
+Quien decide si sigue escuchando es el servidor: manda `seguir: true` solo cuando la respuesta pregunta algo (lleva "?", al final o en medio). Las instrucciones de la IA le piden no cerrar con ofrecimientos como "¿algo más?".
 
 ## Sin conexión
 
@@ -54,7 +54,7 @@ Un dictado sale de la cola cuando el servidor lo recibió, aunque no lo haya pod
 
 Las versiones anteriores del Atajo guardaban en `Finanzas/pendientes/`; si quedó algo ahí, ya no se usa y se puede borrar desde Archivos.
 
-El iPhone espera a la IA como máximo 5 segundos al registrar y 30 al preguntar. Si la Mac tarda más, contesta "Anotado" y lo termina sola; en las preguntas el Atajo espera la respuesta hasta 45 segundos más.
+El iPhone espera a la IA como máximo 5 segundos al registrar algo con monto, y 30 al preguntar o dar una orden sin monto ("borra el café", "gasté en el súper"), porque ahí la respuesta puede ser una pregunta. Si la Mac tarda más, contesta "Anotado" y lo termina sola; en las preguntas el Atajo espera la respuesta hasta 45 segundos más.
 
 Para dictar sin internet el iPhone necesita el dictado en el dispositivo para Español (México); si no lo tiene, el dictado mismo falla y no se guarda nada.
 

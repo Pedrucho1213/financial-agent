@@ -16,7 +16,7 @@ Descarga el modelo que ganó la prueba (ver el paso 5):
 ollama pull gemma4:12b-it-qat   # unos 8 GB de memoria mientras se usa
 ```
 
-El modelo solo ocupa memoria mientras se usa: se libera a los 5 minutos sin dictados. Con Ollama 0.32.5 ese tiempo lo fija el servicio de Ollama (`OLLAMA_KEEP_ALIVE`), porque su API compatible con OpenAI todavía no lee el `IA_MANTENER_CARGADO` que manda el servidor. Por eso el primer dictado después de un rato tarda 15 a 18 segundos mientras el modelo vuelve a cargar; luego responde en 2 a 3. Los registros no esperan tanto: a los 5 segundos el Atajo contesta "Anotado" y la Mac termina sola.
+El modelo solo ocupa memoria mientras se usa: se libera a los 5 minutos sin dictados. Con Ollama 0.32.5 ese tiempo lo fija el servicio de Ollama (`OLLAMA_KEEP_ALIVE`), porque su API compatible con OpenAI todavía no lee el `IA_MANTENER_CARGADO` que manda el servidor. Por eso el primer dictado después de un rato tarda 15 a 18 segundos mientras el modelo vuelve a cargar; luego responde en 2 a 3. Los registros con monto no esperan tanto: a los 5 segundos el Atajo contesta "Anotado" y la Mac termina sola.
 
 Si prefieres LM Studio u Osaurus en lugar de Ollama, apunta `IA_URL` a su API compatible con OpenAI y pon el nombre del modelo en `IA_MODELO`.
 
