@@ -2,7 +2,7 @@
 
 Le hablas a tu iPhone ("gasté 85 en café", "¿cómo voy este mes?") y una IA que corre en tu Mac registra, corrige y responde sobre tus finanzas. Todo se guarda en una base de datos local.
 
-El plan completo está en el documento de investigación del proyecto. Este repositorio va por la **etapa 0**: el servidor, la base de datos, la IA con sus herramientas y la prueba para elegir el modelo.
+El plan completo está en el documento de investigación del proyecto. Ya están el servidor con la IA y sus herramientas (etapa 0), el Atajo "Finanzas" para dictar (etapa 1) y la app para ver y editar tus finanzas desde el iPhone (etapa 2, una PWA).
 
 ## Qué hay
 
@@ -11,10 +11,12 @@ apps/server/          Servidor (Bun + Hono + SQLite con Drizzle + AI SDK)
   src/ai/             Asistente: instrucciones, herramientas y conexión al modelo
   src/finanzas/       Registrar, buscar, editar, eliminar, deshacer, resumir, recurrentes
   src/db/             Esquema de la base y migraciones (drizzle/)
+  src/atajo/          Genera y firma el Atajo "Finanzas" para cada iPhone
   eval/               Prueba de frases reales para elegir el modelo
   test/               Pruebas automáticas (sin IA real)
-ops/                  Arranque automático en macOS (launchd)
-docs/                 Instalación y el Atajo de iPhone
+apps/web/             App para el iPhone (PWA: React + Vite), la sirve el mismo servidor
+ops/                  Arranque automático en macOS (launchd), Tailscale y actualizar
+docs/                 Instalación, API y el Atajo de iPhone
 ```
 
 ## Empezar en tu Mac
@@ -23,11 +25,12 @@ docs/                 Instalación y el Atajo de iPhone
 bun install
 cp apps/server/.env.example apps/server/.env
 ollama pull gemma4:12b-it-qat
-bun run setup -- --nombre Pedro --dispositivo "iPhone"   # imprime el token del iPhone
+bun run web:build
+bun run invitar -- --nombre Pedro       # código para entrar desde el iPhone
 bun run dev
 ```
 
-Prueba que responde:
+Para probar la API con `curl`, saca un token con `bun run setup -- --nombre Pedro --dispositivo "Pruebas"`:
 
 ```bash
 curl -s localhost:8787/v1/hablar \
@@ -55,10 +58,10 @@ Con esta prueba se eligió `gemma4:12b-it-qat` con razonamiento `none`: en una M
 | `POST /v1/hablar` | Registrar o preguntar: `{texto, client_id, conversacion_id?, lat?, lon?, lugar?, capturado_en?, espera_ms?}` |
 | `GET /v1/entradas/:client_id?esperar_ms=` | Estado de un dictado y su respuesta cuando termina |
 | `POST /v1/despertar` | Cargar el modelo mientras dictas |
-| `GET /v1/movimientos?periodo=este_mes` | Lista de movimientos |
-| `GET /v1/resumen?periodo=este_mes` | Totales por categoría |
+| `GET /v1/tablero?mes=2026-10` | Todo lo de la pantalla de inicio de la app |
+| `GET /v1/movimientos?periodo=este_mes` | Lista de movimientos, con filtros |
 
-Todas las rutas `/v1` piden `Authorization: Bearer <token>`. `client_id` lo genera el iPhone: si el mismo dictado llega dos veces, se responde lo mismo sin registrar nada de nuevo. Si la IA no responde, la API devuelve 503 y el Atajo deja el dictado en su cola.
+La lista completa (registro con código, editar, deshacer, recurrentes, instalar el Atajo) está en [docs/api.md](docs/api.md). Las rutas `/v1` piden `Authorization: Bearer <token>`, salvo las de entrar con un código. `client_id` lo genera el iPhone: si el mismo dictado llega dos veces, se responde lo mismo sin registrar nada de nuevo. Si la IA no responde, la API devuelve 503 y el Atajo deja el dictado en su cola.
 
 La IA corre en una sola Mac, así que los dictados se procesan de uno en uno y en orden de llegada. Si la IA tarda más de `ESPERA_REGISTRO_MS` (5 s) en un registro o `ESPERA_PREGUNTA_MS` (30 s) en una pregunta, `/v1/hablar` responde 202 con `pendiente: true` y la Mac lo termina sola. Si falla en segundo plano, lo reintenta a los 30 s, 2 min y 10 min, y al reiniciarse retoma lo que quedó a medias.
 
@@ -66,7 +69,8 @@ La IA corre en una sola Mac, así que los dictados se procesan de uno en uno y e
 
 ```bash
 bun run test        # no necesitan Ollama
-bun run typecheck
+bun run typecheck   # servidor y app
+bun run --cwd apps/web e2e   # la app en un navegador, con la API simulada
 ```
 
-Las dos corren solas en GitHub en cada PR y en cada cambio a `main` (`.github/workflows/ci.yml`).
+Las tres corren solas en GitHub en cada PR y en cada cambio a `main` (`.github/workflows/ci.yml`). Para recorrer la app contra un servidor de verdad: `API_REAL=http://127.0.0.1:8787 INVITACION=<código> bun run --cwd apps/web e2e servidor-real`.

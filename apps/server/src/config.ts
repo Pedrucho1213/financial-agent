@@ -1,4 +1,6 @@
 // Configuración desde variables de entorno. Bun carga .env automáticamente.
+import { join } from "node:path";
+
 const env = (nombre: string, porDefecto: string) => process.env[nombre]?.trim() || porDefecto;
 
 export const config = {
@@ -7,6 +9,8 @@ export const config = {
   baseDatos: env("BASE_DATOS", "./datos/finanzas.db"),
   zonaHoraria: env("ZONA_HORARIA", "America/Mexico_City"),
   moneda: env("MONEDA", "MXN"),
+  // La PWA compilada (bun run web:build), servida en la misma dirección que la API.
+  carpetaWeb: env("CARPETA_WEB", join(import.meta.dir, "../../web/dist")),
   // Cuánto espera el iPhone a la IA. Si tarda más, la Mac contesta "anotado" y lo termina sola.
   // A una pregunta se le da más tiempo porque la respuesta es lo que importa.
   espera: {

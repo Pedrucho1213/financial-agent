@@ -153,7 +153,12 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         cambios: datosMovimiento.partial().describe("Solo los campos que cambian, con su valor nuevo."),
       }),
       execute: ejecutar("editar_movimiento", ({ id, buscar, cambios }) => ({
-        editado: editarMovimiento(ctx, idDelMovimiento(ctx, id, buscar), cambios),
+        // Un "" del modelo no borra nada: para la IA, vacío es lo mismo que no mandarlo.
+        editado: editarMovimiento(
+          ctx,
+          idDelMovimiento(ctx, id, buscar),
+          Object.fromEntries(Object.entries(cambios).filter(([, v]) => v !== "")),
+        ),
       })),
     }),
 

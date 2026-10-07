@@ -42,6 +42,24 @@ export const dispositivos = sqliteTable(
   (t) => [uniqueIndex("dispositivos_token_hash").on(t.tokenHash)],
 );
 
+// Código de 6 caracteres para entrar desde un dispositivo nuevo. Sin usuario_id es para
+// alguien nuevo; con usuario_id agrega otro dispositivo a esa cuenta. Sirve una sola vez.
+export const invitaciones = sqliteTable(
+  "invitaciones",
+  {
+    id: id(),
+    codigo: text("codigo").notNull(),
+    usuarioId: text("usuario_id").references(() => usuarios.id),
+    // Quién la generó (vacío si salió de la terminal de la Mac).
+    creadaPor: text("creada_por").references(() => usuarios.id),
+    expiraEn: text("expira_en").notNull(),
+    usadaEn: text("usada_en"),
+    dispositivoId: text("dispositivo_id"),
+    creadoEn: creadoEn(),
+  },
+  (t) => [uniqueIndex("invitaciones_codigo").on(t.codigo)],
+);
+
 export const TIPOS_CUENTA = [
   "efectivo",
   "debito",

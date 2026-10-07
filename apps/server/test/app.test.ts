@@ -49,8 +49,35 @@ describe("API", () => {
     expect(cuerpo.acciones).toHaveLength(1);
     // Solo registró: la confirmación sale de lo guardado, sin otra vuelta del modelo.
     expect(modelo.doGenerateCalls).toHaveLength(1);
-    const lista = (await (await get("/v1/movimientos")).json()) as { encontrados: number };
-    expect(lista.encontrados).toBe(2);
+    const lista = (await (await get("/v1/movimientos")).json()) as { total: number };
+    expect(lista.total).toBe(2);
+  });
+
+  test("coordenadas con coma y fechas raras del iPhone no rechazan el dictado", async () => {
+    const { hablar, db } = montar([
+      llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 85, categoria: "Café" }] }),
+      llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 85, categoria: "Café" }] }),
+    ]);
+    const r = await hablar({
+      texto: "gasté 85 en café",
+      client_id: "dictado-coma-01",
+      lat: "19,4326",
+      lon: "-99,1332",
+      capturado_en: "6 de octubre de 2026, 17:20",
+    });
+    expect(r.status).toBe(200);
+    const entrada = db.select().from(entradas).get()!;
+    expect(entrada.lat).toBeCloseTo(19.4326);
+    expect(entrada.lon).toBeCloseTo(-99.1332);
+    const r2 = await hablar({ texto: "gasté 85 en café", client_id: "dictado-coma-02", lat: "norte", capturado_en: "2026-10-06T17:20:13-0600" });
+    expect(r2.status).toBe(200);
+  });
+
+  test("un dictado vacío contesta algo para leer en voz alta en vez de un error", async () => {
+    const { hablar } = montar([]);
+    const r = await hablar({ texto: "  ", client_id: "dictado-vacio-01", conversacion_id: "c1" });
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ respuesta: "No te escuché. ¿Me lo repites?", conversacion_id: "c1", acciones: [] });
   });
 
   test("el mismo dictado reenviado por la cola no se registra dos veces", async () => {
@@ -62,7 +89,7 @@ describe("API", () => {
     const segunda = (await (await hablar(cuerpo)).json()) as { duplicado?: boolean };
     expect(segunda.duplicado).toBe(true);
     expect(modelo.doGenerateCalls).toHaveLength(1);
-    expect(((await (await get("/v1/movimientos")).json()) as { encontrados: number }).encontrados).toBe(1);
+    expect(((await (await get("/v1/movimientos")).json()) as { total: number }).total).toBe(1);
   });
 
   test("si la IA falla responde 503, no deja registros a medias y el reintento funciona", async () => {
@@ -87,10 +114,10 @@ describe("API", () => {
       });
     expect((await pedir()).status).toBe(503);
     const vacia = await app.request("/v1/movimientos", { headers: { authorization: `Bearer ${token}` } });
-    expect(((await vacia.json()) as { encontrados: number }).encontrados).toBe(0);
+    expect(((await vacia.json()) as { total: number }).total).toBe(0);
     expect((await pedir()).status).toBe(200);
     const llena = await app.request("/v1/movimientos", { headers: { authorization: `Bearer ${token}` } });
-    expect(((await llena.json()) as { encontrados: number }).encontrados).toBe(2);
+    expect(((await llena.json()) as { total: number }).total).toBe(2);
   });
 
   test("precalentar manda las mismas instrucciones y herramientas sin ejecutar nada", async () => {
@@ -108,7 +135,7 @@ describe("API", () => {
     const app = crearApp(deps);
     const token = crearDispositivo(db, usuario.id, "iPhone");
     const lista = await app.request("/v1/movimientos", { headers: { authorization: `Bearer ${token}` } });
-    expect(((await lista.json()) as { encontrados: number }).encontrados).toBe(0);
+    expect(((await lista.json()) as { total: number }).total).toBe(0);
   });
 
   test("la conversación recuerda lo anterior", async () => {
@@ -145,7 +172,7 @@ describe("API", () => {
     const r = (await (await hablar({ texto: "Netflix me cobró 219", client_id: "dictado-0007" })).json()) as { respuesta: string };
     expect(r.respuesta).toStartWith("Listo, Netflix de $219");
     expect(JSON.stringify(modelo.doGenerateCalls[1]?.prompt)).toContain("no se guardó ni se consultó nada");
-    expect(((await (await get("/v1/movimientos")).json()) as { encontrados: number }).encontrados).toBe(1);
+    expect(((await (await get("/v1/movimientos")).json()) as { total: number }).total).toBe(1);
   });
 
   test("si insiste en confirmar sin guardar, avisa que no guardó nada", async () => {
@@ -153,7 +180,7 @@ describe("API", () => {
     const r = (await (await hablar({ texto: "gasté 300 en tacos", client_id: "dictado-0008" })).json()) as { respuesta: string };
     expect(r.respuesta).toBe("No alcancé a guardar nada. ¿Me lo repites?");
     expect(modelo.doGenerateCalls).toHaveLength(2);
-    expect(((await (await get("/v1/movimientos")).json()) as { encontrados: number }).encontrados).toBe(0);
+    expect(((await (await get("/v1/movimientos")).json()) as { total: number }).total).toBe(0);
   });
 
   test("la charla sin montos no se reintenta", async () => {
@@ -164,6 +191,7 @@ describe("API", () => {
 
   test("valida la petición", async () => {
     const { hablar } = montar([]);
-    expect((await hablar({ texto: "", client_id: "x" })).status).toBe(400);
+    expect((await hablar({ texto: "café 50", client_id: "x" })).status).toBe(400);
+    expect((await hablar({ texto: "café 50" })).status).toBe(400);
   });
 });

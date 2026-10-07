@@ -1,13 +1,20 @@
 {
   "name": "financial-agent",
   "private": true,
-  "workspaces": ["apps/*"],
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
     "dev": "bun run --cwd apps/server dev",
     "start": "bun run --cwd apps/server start",
     "test": "bun run --cwd apps/server test",
-    "typecheck": "bun run --cwd apps/server typecheck",
+    "typecheck": "bun run --cwd apps/server typecheck && bun run --cwd apps/web typecheck",
     "setup": "bun run --cwd apps/server setup",
-    "eval": "bun run --cwd apps/server eval"
+    "eval": "bun run --cwd apps/server eval",
+    "invitar": "bun run --cwd apps/server invitar",
+    "web:build": "bun run --cwd apps/web build",
+    "web:dev": "bun run --cwd apps/web dev",
+    "web:typecheck": "bun run --cwd apps/web typecheck",
+    "web:e2e": "bun run --cwd apps/web e2e"
   }
 }
