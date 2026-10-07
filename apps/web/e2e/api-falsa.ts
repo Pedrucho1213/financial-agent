@@ -565,10 +565,11 @@ export async function comoAppDeInicio(page: Page) {
 
 /**
  * Un navegador que sí recibe notificaciones (las pruebas bloquean el service worker): permiso y
- * suscripción falsos. Lo que se suscribe queda en window.__suscripciones.
+ * suscripción falsos. Lo que se suscribe queda en window.__suscripciones. Con `colgado`, iOS nunca
+ * contesta al suscribir.
  */
-export async function conPushFalso(page: Page, decision: NotificationPermission = "granted") {
-  await page.addInitScript((d) => {
+export async function conPushFalso(page: Page, decision: NotificationPermission = "granted", colgado = false) {
+  await page.addInitScript(([d, colgado]) => {
     const w = window as unknown as Record<string, unknown>;
     let actual: NotificationPermission = "default";
     const suscripciones: unknown[] = [];
@@ -579,6 +580,7 @@ export async function conPushFalso(page: Page, decision: NotificationPermission 
     const pushManager = {
       getSubscription: async () => sub,
       subscribe: async (o: { applicationServerKey: Uint8Array }) => {
+        if (colgado) await new Promise(() => {});
         suscripciones.push(Array.from(o.applicationServerKey));
         sub = {
           options: { applicationServerKey: o.applicationServerKey.buffer as ArrayBuffer },
@@ -593,5 +595,5 @@ export async function conPushFalso(page: Page, decision: NotificationPermission 
       configurable: true,
       value: { getRegistration: async () => registro, ready: Promise.resolve(registro), addEventListener() {}, removeEventListener() {} },
     });
-  }, decision);
+  }, [decision, colgado] as const);
 }

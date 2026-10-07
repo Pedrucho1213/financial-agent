@@ -37,6 +37,21 @@ const enIphone = () => /iPhone|iPod/i.test(navigator.userAgent);
 
 const iguales = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
 
+/** Cuánto se espera a que iOS conteste al suscribir antes de rendirse. */
+const LIMITE_SUSCRIBIR_MS = 15_000;
+
+/** A veces iOS nunca contesta (webpushd caído): sin límite, el interruptor giraría para siempre. */
+function conLimite<T>(promesa: Promise<T>): Promise<T> {
+  let reloj: ReturnType<typeof setTimeout> | undefined;
+  const limite = new Promise<never>((_, falla) => {
+    reloj = setTimeout(() => falla(new Error("No se pudieron activar las notificaciones. Inténtalo de nuevo.")), LIMITE_SUSCRIBIR_MS);
+  });
+  return Promise.race([promesa, limite]).finally(() => clearTimeout(reloj));
+}
+
+const suscribir = (r: ServiceWorkerRegistration, clave: string) =>
+  conLimite(r.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes(clave) }));
+
 /** La suscripción de este navegador, si ya existe. */
 export async function suscripcionActual(): Promise<PushSubscription | null> {
   if (motivoSinPush()) return null;
@@ -59,21 +74,21 @@ export async function activarPush(permisoPedido: Promise<NotificationPermission>
         : "No diste permiso para las notificaciones.",
     );
   }
-  const [{ clave }, r] = await Promise.all([api<EstadoPushServidor>("/v1/push"), registro()]);
-  let sub = await r.pushManager.getSubscription();
+  const [{ clave }, r] = await Promise.all([api<EstadoPushServidor>("/v1/push"), conLimite(registro())]);
+  let sub = await conLimite(r.pushManager.getSubscription());
   const llave = sub?.options.applicationServerKey;
   if (sub && llave && !iguales(new Uint8Array(llave), bytes(clave))) {
-    await sub.unsubscribe();
+    await conLimite(sub.unsubscribe());
     sub = null;
   }
-  sub ??= await r.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes(clave) });
+  sub ??= await suscribir(r, clave);
   try {
     return await mandar(sub);
   } catch (error) {
     // Quedó de otra cuenta que usó este navegador: se pide una suscripción nueva.
     if (!(error instanceof ErrorApi) || error.estado !== 409) throw error;
-    await sub.unsubscribe();
-    return mandar(await r.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes(clave) }));
+    await conLimite(sub.unsubscribe());
+    return mandar(await suscribir(r, clave));
   }
 }
 

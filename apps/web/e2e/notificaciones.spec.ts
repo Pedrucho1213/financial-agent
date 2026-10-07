@@ -66,6 +66,21 @@ test.describe("Notificaciones en Ajustes", () => {
     expect(api.de("POST", "/v1/push/suscripcion")).toHaveLength(0);
   });
 
+  test("si iOS nunca contesta al suscribir, se rinde a los 15 s y deja reintentar", async ({ page }) => {
+    const api = await prepararSesion(page);
+    await comoAppDeInicio(page);
+    await conPushFalso(page, "granted", true);
+    await page.clock.install();
+    await page.goto("/#ajustes");
+    const interruptor = page.getByRole("switch", { name: "Notificaciones" });
+    await interruptor.click();
+    await page.clock.fastForward(15_000);
+    await expect(page.getByText("No se pudieron activar las notificaciones. Inténtalo de nuevo.")).toBeVisible();
+    await expect(interruptor).not.toBeChecked();
+    await expect(interruptor).toBeEnabled();
+    expect(api.de("POST", "/v1/push/suscripcion")).toHaveLength(0);
+  });
+
   test("el Atajo de Apple Pay se pide con su tipo y muestra cómo crear la automatización", async ({ page }) => {
     const api = await prepararSesion(page);
     await page.goto("/#ajustes");
