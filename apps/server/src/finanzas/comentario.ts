@@ -127,7 +127,7 @@ export function costumbreParaLaIA(ctx: Contexto, texto: string): string | undefi
   if (unaCompra && lugar && enLaSemana >= 4 && enLaSemana >= 1.5 * porSemana) notas.push(`Es tu vez número ${enLaSemana} en ${lugar} esta semana.`);
 
   if (!notas.length) return undefined;
-  return `Para comentar al registrar este gasto (dilo tal cual si de verdad le sirve oírlo):\n${notas.map((n) => `- ${n}`).join("\n")}`;
+  return `Para comentar al registrar este gasto:\n${notas.map((n) => `- ${n}`).join("\n")}`;
 }
 
 // Una cifra en palabras ("diez veces", "el triple", "tu quinta vez") no se puede comparar con las fuentes.
