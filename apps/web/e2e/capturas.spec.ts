@@ -33,6 +33,17 @@ for (const esquema of ["light", "dark"] as const) {
       await expect(page.getByRole("heading", { name: /Octubre/ })).toBeVisible();
       await expect(page.locator("[data-grafica] svg").first()).toBeVisible();
       await capturar(page, `inicio-${sufijo}`);
+      // Pasar el dedo por la gráfica de ritmo cambia el número grande.
+      const ritmo = page.getByRole("img", { name: /Ritmo de gasto/ });
+      const caja0 = await ritmo.boundingBox();
+      if (caja0) {
+        await page.mouse.move(caja0.x + caja0.width * 0.1, caja0.y + caja0.height / 2);
+        await page.waitForTimeout(150);
+        await page.screenshot({ path: `${DIR}/inicio-ritmo-${sufijo}.png` });
+        await page.mouse.move(2, 2);
+      }
+      await page.getByRole("region", { name: "Destacados" }).scrollIntoViewIfNeeded();
+      await capturar(page, `inicio-destacados-${sufijo}`);
       await page.evaluate(() => window.scrollTo(0, 820));
       await capturar(page, `inicio-graficas-${sufijo}`);
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));

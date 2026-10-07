@@ -83,7 +83,7 @@ export function Ajustes() {
   return (
     <Pantalla titulo="Ajustes" alRefrescar={() => yo.refetch()}>
       <div className="space-y-8 pt-2 pb-4">
-        <section className="flex items-center gap-4 rounded-xl bg-card p-4">
+        <section className="flex items-center gap-4 rounded-[20px] bg-card p-4">
           <span
             aria-hidden
             className="flex size-[60px] shrink-0 items-center justify-center rounded-full bg-linear-to-b from-[#a5a5ab] to-[#86868b] text-[24px] font-semibold text-white"

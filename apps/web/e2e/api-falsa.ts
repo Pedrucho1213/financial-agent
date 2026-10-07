@@ -150,8 +150,21 @@ export function movimientosIniciales(): MovimientoApp[] {
     mov("2026-10-01", "gasto", 12500, "Renta", null, { descripcion: "Renta de octubre", origen: "app" }),
     mov("2026-10-01", "ingreso", 18750, "Sueldo", null, { descripcion: "Quincena", textoOriginal: "me cayó la quincena, 18750" }),
     mov("2026-09-28", "gasto", 640, "Salidas", "Bar El Depósito", { textoOriginal: "640 en el depósito" }),
+    mov("2026-09-27", "gasto", 750, "Farmacia", "Farmacia Guadalajara"),
     mov("2026-09-26", "gasto", 1890.4, "Súper", "Costco"),
+    mov("2026-09-24", "gasto", 645.5, "Luz", "CFE"),
+    mov("2026-09-21", "gasto", 310, "Cine", "Cinemex"),
+    mov("2026-09-18", "gasto", 1105.6, "Súper", "Soriana"),
     mov("2026-09-15", "ingreso", 18750, "Sueldo", null, { descripcion: "Quincena" }),
+    mov("2026-09-15", "gasto", 499, "Gimnasio", "Sports World"),
+    mov("2026-09-12", "gasto", 1240, "Restaurantes", "Contramar"),
+    mov("2026-09-10", "gasto", 900, "Gasolina", "Shell"),
+    mov("2026-09-08", "gasto", 2350, "Ropa y calzado", "Liverpool"),
+    // Hasta el 6 de septiembre suman $13,980 (gastadoMesAnteriorMismaFechaCentavos); el mes, $24,310.50.
+    mov("2026-09-05", "gasto", 201, "Taxi y apps", "DiDi"),
+    mov("2026-09-03", "gasto", 980, "Súper", "Soriana"),
+    mov("2026-09-02", "gasto", 299, "Streaming", "Netflix", { origen: "importacion" }),
+    mov("2026-09-01", "gasto", 12500, "Renta", null, { descripcion: "Renta de septiembre", origen: "app" }),
   ];
 }
 

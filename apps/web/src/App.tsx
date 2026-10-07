@@ -1,4 +1,4 @@
-import { Plus, WifiOff } from "lucide-react";
+import { WifiOff } from "lucide-react";
 import { type CSSProperties, lazy, Suspense, useEffect, useLayoutEffect, useRef } from "react";
 import { Toaster } from "sonner";
 import { TabBar } from "./components/TabBar";
@@ -8,7 +8,6 @@ import { abrirEditor } from "./lib/editor";
 import { type Pestana, useRuta } from "./lib/ruta";
 import { useToken } from "./lib/sesion";
 import { useTeclado } from "./lib/teclado";
-import { cn } from "./lib/utils";
 import { Inicio } from "./pantallas/Inicio";
 import { Movimientos } from "./pantallas/Movimientos";
 
@@ -119,18 +118,13 @@ function Aplicacion() {
   const conBoton = pestana === "inicio" || pestana === "movimientos";
 
   return (
-    <div
-      className={cn(
-        "min-h-dvh",
-        conBoton ? "pb-[calc(49px+env(safe-area-inset-bottom)+88px)]" : "pb-[calc(49px+env(safe-area-inset-bottom)+28px)]",
-      )}
-    >
+    <div className="min-h-dvh pb-[calc(var(--barra-inferior)+28px)]">
       {!enLinea ? (
         <div
           role="status"
           className="pointer-events-none fixed inset-x-0 top-[calc(env(safe-area-inset-top)+50px)] z-40 flex justify-center px-4"
         >
-          <span className="material flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[13px] font-semibold shadow-lg ring-[0.5px] ring-separator">
+          <span className="vidrio flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[13px] font-semibold">
             <WifiOff className="size-4 text-muted-foreground" />
             Sin conexión. Ves lo último guardado.
           </span>
@@ -146,20 +140,13 @@ function Aplicacion() {
         </Suspense>
       </main>
 
-      <button
-        type="button"
-        aria-label="Agregar movimiento"
-        disabled={!enLinea}
-        onClick={() => abrirEditor(null)}
-        className={cn(
-          "fixed right-[max(1rem,env(safe-area-inset-right))] bottom-[calc(49px+env(safe-area-inset-bottom)+16px)] z-20 flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-[0_8px_24px_color-mix(in_srgb,var(--primary)_45%,transparent)] transition-[transform,opacity] duration-300 ease-ios active:scale-90 disabled:opacity-40",
-          conBoton && !teclado ? "scale-100 opacity-100" : "pointer-events-none scale-50 opacity-0",
-        )}
-      >
-        <Plus className="size-7" strokeWidth={2.4} />
-      </button>
-
-      <TabBar actual={pestana} oculta={teclado} />
+      <TabBar
+        actual={pestana}
+        oculta={teclado}
+        conBoton={conBoton}
+        alAgregar={() => abrirEditor(null)}
+        agregarDeshabilitado={!enLinea}
+      />
       <Suspense fallback={null}>
         <EditorMovimiento />
       </Suspense>

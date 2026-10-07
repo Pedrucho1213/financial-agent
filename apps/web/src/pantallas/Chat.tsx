@@ -17,7 +17,12 @@ import { useEnLinea } from "../lib/conexion";
 import { useTeclado } from "../lib/teclado";
 import { cn } from "../lib/utils";
 
-const SUGERENCIAS = ["¿Cuánto gasté esta semana?", "Gasté 85 en café", "¿Qué suscripciones tengo?"];
+const SUGERENCIAS = [
+  "¿Cómo voy este mes?",
+  "¿En qué puedo ahorrar?",
+  "Gasté 85 en café con débito",
+  "¿Qué pagos fijos tengo?",
+];
 
 // Web Speech API: solo existe en algunos navegadores (Safari y Chrome la tienen con prefijo).
 type ResultadoVoz = { isFinal: boolean; 0: { transcript: string } };
@@ -81,7 +86,7 @@ export function Chat() {
         ) : null
       }
     >
-      <div className="pb-20">
+      <div className="pb-24">
         {mensajes.length === 0 ? (
           <div className="flex flex-col items-center pt-10 text-center animate-entrar">
             <span
@@ -123,17 +128,17 @@ export function Chat() {
           enviar();
         }}
         className={cn(
-          "material hairline-t fixed inset-x-0 z-30 transition-[bottom] duration-200",
-          teclado ? "bottom-[var(--teclado,0px)]" : "bottom-[calc(49px+env(safe-area-inset-bottom))]",
+          "pointer-events-none fixed inset-x-0 z-30 transition-[bottom] duration-300 ease-ios",
+          teclado ? "bottom-[calc(var(--teclado,0px)+8px)]" : "bottom-[calc(var(--barra-inferior)+10px)]",
         )}
       >
-        <div className="mx-auto flex max-w-3xl items-end gap-2 px-safe py-2">
+        <div className="pointer-events-auto mx-auto flex max-w-3xl items-end gap-2 px-safe">
           <BotonMicrofono
             deshabilitado={!enLinea || ocupado}
             alTexto={setTexto}
             alTerminar={(t) => enviar(t)}
           />
-          <div className="relative flex min-h-9 min-w-0 flex-1 items-end rounded-[20px] bg-card ring-[0.5px] ring-input">
+          <div className={cn("vidrio relative flex min-h-11 min-w-0 flex-1 items-end rounded-[22px]", ocupado && "brillo-ia")}>
             <label htmlFor="mensaje" className="sr-only">
               Mensaje
             </label>
@@ -150,17 +155,17 @@ export function Chat() {
                 }
               }}
               enterKeyHint="send"
-              placeholder={enLinea ? "Escribe o dicta" : "Sin conexión"}
+              placeholder={enLinea ? "Pregunta o dime un gasto" : "Sin conexión"}
               disabled={!enLinea}
-              className="block max-h-[124px] min-h-9 w-full resize-none bg-transparent py-[7px] pr-11 pl-3.5 text-[17px] leading-[22px] outline-none placeholder:text-placeholder"
+              className="block max-h-[124px] min-h-11 w-full resize-none bg-transparent py-[11px] pr-12 pl-4 text-[17px] leading-[22px] outline-none placeholder:text-placeholder"
             />
             <button
               type="submit"
               aria-label="Enviar"
               disabled={!texto.trim() || !enLinea || ocupado}
-              className="absolute right-[3px] bottom-[3px] flex size-[30px] items-center justify-center rounded-full bg-primary text-white transition-[transform,opacity] duration-200 ease-ios active:scale-90 disabled:scale-90 disabled:opacity-0"
+              className="absolute right-[5px] bottom-[5px] flex size-[34px] items-center justify-center rounded-full bg-primary text-white transition-[transform,opacity] duration-200 ease-ios active:scale-90 disabled:scale-75 disabled:opacity-0"
             >
-              <ArrowUp className="size-[18px]" strokeWidth={3} />
+              <ArrowUp className="size-[19px]" strokeWidth={3} />
             </button>
           </div>
         </div>
@@ -310,8 +315,8 @@ function BotonMicrofono({
       aria-label={escuchando ? "Dejar de escuchar" : "Dictar"}
       aria-pressed={escuchando}
       className={cn(
-        "relative flex size-9 shrink-0 items-center justify-center rounded-full transition-[transform,background-color] duration-200 ease-ios active:scale-90 disabled:opacity-40",
-        escuchando ? "bg-destructive text-white" : "bg-fill text-foreground",
+        "relative flex size-11 shrink-0 items-center justify-center rounded-full transition-[transform,background-color] duration-200 ease-ios active:scale-90 disabled:opacity-40",
+        escuchando ? "bg-destructive text-white" : "vidrio text-tint",
       )}
     >
       {escuchando ? (
@@ -320,7 +325,7 @@ function BotonMicrofono({
           <Square className="relative size-3.5" fill="currentColor" />
         </>
       ) : (
-        <Mic className="size-5" />
+        <Mic className="size-[22px]" />
       )}
     </button>
   );

@@ -106,6 +106,36 @@ export function useMovimientos(f: FiltrosMovimientos) {
   });
 }
 
+/**
+ * Gasto de cada día del mes, por moneda (índice 0 = día 1), para la gráfica de ritmo.
+ * Guarda solo las sumas, no los movimientos: pesa poco en el caché sin conexión.
+ * La clave empieza con "movimientos" para que se refresque con cualquier cambio.
+ */
+export function useGastoPorDia(mes: string, activo = true) {
+  return useQuery({
+    queryKey: ["movimientos", "por-dia", mes] as const,
+    enabled: activo,
+    staleTime: 60_000,
+    queryFn: async ({ signal }) => {
+      const { desde, hasta } = rangoDelMes(mes);
+      const dias = Number(hasta.slice(8, 10));
+      const porMoneda: Record<string, number[]> = {};
+      // El servidor da hasta 500 por página; un mes rara vez pasa de una.
+      for (let offset = 0; offset < 5000; offset += 500) {
+        const p = new URLSearchParams({ desde, hasta, tipo: "gasto", limite: "500", offset: String(offset) });
+        const pagina = await api<PaginaMovimientos>(`/v1/movimientos?${p}`, { signal });
+        for (const m of pagina.movimientos) {
+          const dia = Number(m.fecha.slice(8, 10));
+          const lista = (porMoneda[m.moneda] ??= Array.from({ length: dias }, () => 0));
+          if (dia >= 1 && dia <= dias) lista[dia - 1] = (lista[dia - 1] ?? 0) + m.montoCentavos;
+        }
+        if (pagina.movimientos.length < 500 || offset + 500 >= pagina.total) break;
+      }
+      return { mes, dias, porMoneda };
+    },
+  });
+}
+
 /** Después de cualquier cambio: tablero y listas se vuelven a pedir. */
 export function useRefrescarDatos() {
   const qc = useQueryClient();

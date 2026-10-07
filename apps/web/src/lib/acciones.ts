@@ -45,7 +45,8 @@ export async function eliminarConDeshacer(m: MovimientoApp, alTerminar?: () => v
   await clienteConsultas.cancelQueries(clave);
   const previos = clienteConsultas.getQueriesData<Infinito>(clave);
   clienteConsultas.setQueriesData<Infinito>(clave, (d) => {
-    if (!d) return d;
+    // Bajo "movimientos" también viven las sumas por día de Inicio, que no son páginas.
+    if (!d || !Array.isArray(d.pages)) return d;
     const quitados = d.pages.reduce((n, p) => n + p.movimientos.filter((x) => x.id === m.id).length, 0);
     return { ...d, pages: d.pages.map((p) => ({ total: p.total - quitados, movimientos: p.movimientos.filter((x) => x.id !== m.id) })) };
   });

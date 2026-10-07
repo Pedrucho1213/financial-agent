@@ -87,6 +87,7 @@ export type Tablero = {
   recurrentesProximos: {
     id: string;
     nombre: string;
+    tipo?: string;
     montoCentavos: number;
     moneda: string;
     proximoCobro: string;
