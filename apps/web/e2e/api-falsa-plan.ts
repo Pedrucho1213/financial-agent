@@ -69,6 +69,7 @@ export function planInicial() {
           totalCentavos: 32_999_00,
           meses: 12,
           mensualidadCentavos: 2_749_92,
+          proximoMontoCentavos: 2_749_92,
           primerCargo: "2026-07-15",
           pagadas: 3,
           restanteCentavos: 24_749_25,

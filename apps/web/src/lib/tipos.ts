@@ -199,6 +199,8 @@ export type CompraMsi = {
   totalCentavos: number;
   meses: number;
   mensualidadCentavos: number;
+  /** El próximo cargo: la última mensualidad absorbe el redondeo. Viejos servidores no lo mandan. */
+  proximoMontoCentavos?: number | null;
   primerCargo: string;
   pagadas: number;
   restanteCentavos: number;

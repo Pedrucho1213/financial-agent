@@ -314,7 +314,7 @@ function Msi({ datos, moneda }: { datos: ComprasMsi | undefined; moneda: string 
             }
             valor={
               <span className="text-right">
-                <span className="block font-medium text-foreground tabular">{dinero(c.mensualidadCentavos, moneda)}</span>
+                <span className="block font-medium text-foreground tabular">{dinero(c.proximoMontoCentavos ?? c.mensualidadCentavos, moneda)}</span>
                 <span className="block text-[13px] tabular">faltan {dinero(c.restanteCentavos, moneda)}</span>
               </span>
             }

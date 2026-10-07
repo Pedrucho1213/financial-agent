@@ -34,9 +34,47 @@ export function normalizarUsuario(texto: string) {
 /** Qué le falta al usuario (ya normalizado), o null si sirve. */
 export function problemaUsuario(usuario: string): string | null {
   if (/[^a-z0-9._-]/.test(usuario)) return "Solo letras, números, punto, guion o guion bajo.";
+  if (/^[._-]/.test(usuario)) return "Empieza con una letra o un número.";
   if (usuario.length < USUARIO_MIN) return `Mínimo ${USUARIO_MIN} caracteres.`;
   if (usuario.length > USUARIO_MAX) return `Máximo ${USUARIO_MAX} caracteres.`;
   return null;
+}
+
+/** Qué le falta al nombre de saludo, o null si sirve. Las mismas reglas que el servidor (validarNombre). */
+export function problemaNombre(texto: string): string | null {
+  const nombre = texto.normalize("NFC").trim().replace(/\s+/g, " ");
+  if (!nombre) return "Escribe tu nombre.";
+  if ([...nombre].length > NOMBRE_MAX) return `El nombre puede tener hasta ${NOMBRE_MAX} caracteres.`;
+  if (!/^[\p{L}\p{M}][\p{L}\p{M} .'’-]*$/u.test(nombre)) return "El nombre solo puede llevar letras, espacios, punto, apóstrofo o guion.";
+  return null;
+}
+
+/** El código como lo compara el servidor: sin espacios de más y sin distinguir mayúsculas. */
+function normalizarCodigo(codigo: string) {
+  return codigo.normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/**
+ * Lo que se puede revisar del código nuevo antes de mandarlo: el largo y que no lleve el usuario
+ * ni el nombre (como llevaSuNombre en el servidor). Lo "muy fácil de adivinar" lo dice el servidor.
+ */
+export function problemaCodigo(codigo: string, cuenta: { usuario?: string; nombre?: string }): string | null {
+  const limpio = normalizarCodigo(codigo);
+  if (!limpio) return null;
+  if ([...limpio].length < CODIGO_MIN) return `Mínimo ${CODIGO_MIN} caracteres.`;
+  if ([...limpio].length > CODIGO_MAX) return `Máximo ${CODIGO_MAX} caracteres.`;
+  const plano = normalizarUsuario(limpio).replace(/ /g, "");
+  const usuario = cuenta.usuario ?? "";
+  const piezas = [usuario, ...usuario.split(/[._-]/), ...(cuenta.nombre ?? "").split(/\s+/)].map(normalizarUsuario);
+  if (piezas.some((pieza) => pieza.length >= 3 && plano.includes(pieza))) {
+    return "El código no puede llevar tu usuario ni tu nombre. Elige otro.";
+  }
+  return null;
+}
+
+/** El error es del campo "Código actual": falta (400 con ese texto) o no coincide (403, que no cierra la sesión). */
+export function esDelCodigoActual(error: unknown) {
+  return error instanceof ErrorApi && (error.estado === 403 || (error.estado === 400 && /código actual/i.test(error.message)));
 }
 
 /** Mensaje del servidor para 401 y 429 al entrar; lo demás, el de siempre. */
@@ -79,29 +117,38 @@ function useActualizarYo() {
   };
 }
 
-/** PATCH /v1/yo: nombre de saludo o usuario. 409 si el usuario ya es de alguien. */
+/**
+ * PATCH /v1/yo: nombre de saludo o usuario. Cambiar el usuario de una cuenta con código pide `actual`
+ * (400 si falta, 403 si no es). 409 si el usuario ya es de alguien.
+ */
 export function useCambiarCuenta() {
   const actualizar = useActualizarYo();
   return useMutation({
-    mutationFn: (cambios: { nombre?: string; usuario?: string }) =>
+    mutationFn: (cambios: { nombre?: string; usuario?: string; actual?: string }) =>
       api<{ usuario: UsuarioCuenta }>("/v1/yo", { method: "PATCH", body: cambios }),
     onSuccess: (r) => actualizar(r.usuario),
   });
 }
 
-/** PUT /v1/yo/codigo: crea o cambia el código. El servidor lo guarda cifrado; nunca se vuelve a leer. */
+/**
+ * PUT /v1/yo/codigo: crea o cambia el código. El servidor lo guarda cifrado; nunca se vuelve a leer.
+ * Para cambiarlo hace falta `actual`; `cerrarOtros` revoca los demás dispositivos (`cerrados` dice cuántos).
+ * Al terminar se vuelve a pedir /v1/yo, así la lista de dispositivos ya no los muestra.
+ */
 export function useGuardarCodigo() {
   const actualizar = useActualizarYo();
   return useMutation({
-    mutationFn: (codigo: string) => api<{ ok: true }>("/v1/yo/codigo", { method: "PUT", body: { codigo } }),
+    mutationFn: (datos: { codigo: string; actual?: string; cerrarOtros?: boolean }) =>
+      api<{ ok: true; cerrados?: number }>("/v1/yo/codigo", { method: "PUT", body: datos }),
     onSuccess: () => actualizar({ tieneCodigo: true }),
   });
 }
 
+/** DELETE /v1/yo/codigo con el código actual. */
 export function useQuitarCodigo() {
   const actualizar = useActualizarYo();
   return useMutation({
-    mutationFn: () => api<{ ok: true }>("/v1/yo/codigo", { method: "DELETE" }),
+    mutationFn: (actual: string) => api<{ ok: true }>("/v1/yo/codigo", { method: "DELETE", body: { actual } }),
     onSuccess: () => actualizar({ tieneCodigo: false }),
   });
 }

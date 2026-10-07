@@ -32,6 +32,7 @@ import { CampoFila } from "../components/ui/input";
 import { Fila, FilaBoton, Grupo, IconoAjuste } from "../components/ui/lista";
 import { Sheet, SheetContent } from "../components/ui/sheet";
 import { Skeleton } from "../components/ui/skeleton";
+import { Switch } from "../components/ui/switch";
 import { api, ErrorApi, mensajeDeError } from "../lib/api";
 import { abrirAtajo } from "../lib/atajo";
 import { useEnLinea } from "../lib/conexion";
@@ -39,8 +40,11 @@ import { claves, useYo } from "../lib/consultas";
 import {
   CODIGO_MAX,
   CODIGO_MIN,
+  esDelCodigoActual,
   NOMBRE_MAX,
   normalizarUsuario,
+  problemaCodigo,
+  problemaNombre,
   problemaUsuario,
   USUARIO_MAX,
   useCambiarCuenta,
@@ -51,6 +55,7 @@ import {
 import { fechaHora, haceCuanto } from "../lib/formato";
 import { cerrarSesion } from "../lib/sesion";
 import type { AtajoPreparado, Dispositivo, InvitacionCreada } from "../lib/tipos";
+import { CampoSecreto } from "./Entrar";
 
 function iconoDispositivo(nombre: string) {
   const n = nombre.toLowerCase();
@@ -80,8 +85,7 @@ export function Ajustes() {
   const [quitar, setQuitar] = useState<Dispositivo | null>(null);
   const [salir, setSalir] = useState(false);
   const [atajoListo, setAtajoListo] = useState<AtajoPreparado | null>(null);
-  const [hoja, setHoja] = useState<"nombre" | "usuario" | "codigo" | null>(null);
-  const [quitarCodigo, setQuitarCodigo] = useState(false);
+  const [hoja, setHoja] = useState<"nombre" | "usuario" | "codigo" | "quitarCodigo" | null>(null);
   const estado = useEstadoSistema();
 
   const atajo = useMutation({
@@ -112,8 +116,6 @@ export function Ajustes() {
     },
     onError: (e) => toast.error(mensajeDeError(e)),
   });
-
-  const sinCodigo = useQuitarCodigo();
 
   const d = yo.data;
   // Servidores anteriores a "entrar con usuario y código" no mandan estos campos: sus filas no se muestran.
@@ -200,9 +202,8 @@ export function Ajustes() {
                   sangria="3.75rem"
                   className="pl-[3.75rem] text-destructive"
                   titulo="Quitar código"
-                  valor={sinCodigo.isPending ? <Spinner className="size-4" /> : undefined}
-                  disabled={!enLinea || sinCodigo.isPending}
-                  onClick={() => setQuitarCodigo(true)}
+                  disabled={!enLinea}
+                  onClick={() => setHoja("quitarCodigo")}
                 />
               ) : null}
             </>
@@ -329,8 +330,15 @@ export function Ajustes() {
       <HojaInvitacion invitacion={invitacion} alCerrar={() => setInvitacion(null)} />
       <HojaAtajo atajo={atajoListo} alCerrar={() => setAtajoListo(null)} />
       <HojaNombre abierta={hoja === "nombre"} actual={d?.usuario.nombre ?? ""} alCerrar={() => setHoja(null)} />
-      <HojaUsuario abierta={hoja === "usuario"} actual={usuario ?? ""} alCerrar={() => setHoja(null)} />
-      <HojaCodigo abierta={hoja === "codigo"} cambiar={!!tieneCodigo} usuario={usuario ?? ""} alCerrar={() => setHoja(null)} />
+      <HojaUsuario abierta={hoja === "usuario"} actual={usuario ?? ""} tieneCodigo={!!tieneCodigo} alCerrar={() => setHoja(null)} />
+      <HojaCodigo
+        abierta={hoja === "codigo"}
+        cambiar={!!tieneCodigo}
+        usuario={usuario ?? ""}
+        nombre={d?.usuario.nombre ?? ""}
+        alCerrar={() => setHoja(null)}
+      />
+      <HojaQuitarCodigo abierta={hoja === "quitarCodigo"} alCerrar={() => setHoja(null)} />
 
       <Confirmar
         abierto={!!quitar}
@@ -351,19 +359,6 @@ export function Ajustes() {
         }
         confirmar="Cerrar sesión"
         onConfirmar={cerrarSesion}
-      />
-      <Confirmar
-        abierto={quitarCodigo}
-        onAbiertoChange={setQuitarCodigo}
-        titulo="¿Quitar tu código?"
-        descripcion="Ya no podrás entrar con tu usuario y código. Para entrar en otro iPhone necesitarás una invitación."
-        confirmar="Quitar"
-        onConfirmar={() =>
-          sinCodigo.mutate(undefined, {
-            onSuccess: () => toast.success("Código quitado"),
-            onError: (e) => toast.error(mensajeDeError(e)),
-          })
-        }
       />
     </Pantalla>
   );
@@ -617,6 +612,56 @@ function HojaFormulario({
   );
 }
 
+/** Pie de un grupo: el error (en rojo) arriba de la explicación de siempre. */
+function PieConError({ error, children }: { error: string | null; children?: ReactNode }) {
+  return (
+    <>
+      {error ? (
+        <span role="alert" className="block text-negative">
+          {error}
+        </span>
+      ) : null}
+      {children}
+    </>
+  );
+}
+
+/** "Código actual": lo piden cambiar el usuario y cambiar o quitar el código (con solo el token no basta). */
+function GrupoCodigoActual({
+  valor,
+  alCambiar,
+  error,
+  pie,
+  enfocar,
+}: {
+  valor: string;
+  alCambiar: (v: string) => void;
+  error: string | null;
+  pie: ReactNode;
+  enfocar?: boolean;
+}) {
+  return (
+    <Grupo pie={<PieConError error={error}>{pie}</PieConError>}>
+      <Fila>
+        <label htmlFor="codigo-actual" className="w-32 shrink-0">
+          Código actual
+        </label>
+        <CampoSecreto
+          id="codigo-actual"
+          value={valor}
+          onChange={(e) => alCambiar(e.target.value)}
+          aria-invalid={!!error}
+          autoComplete="current-password"
+          placeholder="Requerido"
+          enterKeyHint="next"
+          maxLength={256}
+          autoFocus={enfocar}
+        />
+      </Fila>
+    </Grupo>
+  );
+}
+
 function HojaNombre({ abierta, actual, alCerrar }: { abierta: boolean; actual: string; alCerrar: () => void }) {
   return (
     <Sheet open={abierta} onOpenChange={(v) => !v && alCerrar()}>
@@ -628,7 +673,10 @@ function HojaNombre({ abierta, actual, alCerrar }: { abierta: boolean; actual: s
 function EditarNombre({ actual, alCerrar }: { actual: string; alCerrar: () => void }) {
   const [nombre, setNombre] = useState(actual);
   const cambiar = useCambiarCuenta();
-  const limpio = nombre.trim();
+  const limpio = nombre.trim().replace(/\s+/g, " ");
+  const problema = nombre !== actual ? problemaNombre(nombre) : null;
+  // El del servidor manda sobre la pista local.
+  const error = cambiar.isError ? mensajeDeError(cambiar.error) : problema;
   const guardar = () =>
     cambiar.mutate(
       { nombre: limpio },
@@ -644,20 +692,16 @@ function EditarNombre({ actual, alCerrar }: { actual: string; alCerrar: () => vo
     <HojaFormulario
       titulo="Cómo te saludo"
       descripcion="Cambia el nombre con el que te saludo"
-      puedeGuardar={limpio.length > 0 && limpio.length <= NOMBRE_MAX && limpio !== actual}
+      puedeGuardar={!problemaNombre(nombre) && limpio !== actual}
       guardando={cambiar.isPending}
       alGuardar={guardar}
       alCerrar={alCerrar}
     >
       <Grupo
         pie={
-          cambiar.isError ? (
-            <span role="alert" className="text-negative">
-              {mensajeDeError(cambiar.error)}
-            </span>
-          ) : (
-            "Así te llamo cuando hablas conmigo por voz y en la app."
-          )
+          <PieConError error={error}>
+            Así te llamo cuando hablas conmigo por voz y en la app. Letras, espacios, punto, apóstrofo o guion.
+          </PieConError>
         }
       >
         <Fila>
@@ -671,6 +715,7 @@ function EditarNombre({ actual, alCerrar }: { actual: string; alCerrar: () => vo
               cambiar.reset();
               setNombre(e.target.value);
             }}
+            aria-invalid={!!error}
             placeholder="Pedro"
             autoComplete="given-name"
             autoCapitalize="words"
@@ -684,24 +729,38 @@ function EditarNombre({ actual, alCerrar }: { actual: string; alCerrar: () => vo
   );
 }
 
-function HojaUsuario({ abierta, actual, alCerrar }: { abierta: boolean; actual: string; alCerrar: () => void }) {
+function HojaUsuario({
+  abierta,
+  actual,
+  tieneCodigo,
+  alCerrar,
+}: {
+  abierta: boolean;
+  actual: string;
+  tieneCodigo: boolean;
+  alCerrar: () => void;
+}) {
   return (
     <Sheet open={abierta} onOpenChange={(v) => !v && alCerrar()}>
-      {abierta ? <EditarUsuario actual={actual} alCerrar={alCerrar} /> : null}
+      {abierta ? <EditarUsuario actual={actual} tieneCodigo={tieneCodigo} alCerrar={alCerrar} /> : null}
     </Sheet>
   );
 }
 
-function EditarUsuario({ actual, alCerrar }: { actual: string; alCerrar: () => void }) {
+function EditarUsuario({ actual, tieneCodigo, alCerrar }: { actual: string; tieneCodigo: boolean; alCerrar: () => void }) {
   const [texto, setTexto] = useState(actual);
+  const [codigoActual, setCodigoActual] = useState("");
   const cambiar = useCambiarCuenta();
   const usuario = normalizarUsuario(texto);
   const problema = usuario ? problemaUsuario(usuario) : null;
+  // Con código, cambiar el usuario pide el código actual (el usuario es la mitad de lo que se necesita para entrar).
+  const pideActual = tieneCodigo && !!usuario && usuario !== actual;
+  const delActual = cambiar.isError && esDelCodigoActual(cambiar.error);
   // El del servidor (409: ya es de alguien; 400: no es válido) manda sobre la pista local.
-  const error = cambiar.isError ? mensajeDeError(cambiar.error) : problema;
+  const error = cambiar.isError && !delActual ? mensajeDeError(cambiar.error) : problema;
   const guardar = () =>
     cambiar.mutate(
-      { usuario },
+      { usuario, ...(pideActual ? { actual: codigoActual } : {}) },
       {
         onSuccess: () => {
           toast.success("Usuario guardado");
@@ -714,23 +773,17 @@ function EditarUsuario({ actual, alCerrar }: { actual: string; alCerrar: () => v
     <HojaFormulario
       titulo="Usuario"
       descripcion="Cambia tu usuario para entrar"
-      puedeGuardar={!!usuario && !problema && usuario !== actual}
+      puedeGuardar={!!usuario && !problema && usuario !== actual && (!pideActual || codigoActual.trim().length > 0)}
       guardando={cambiar.isPending}
       alGuardar={guardar}
       alCerrar={alCerrar}
     >
       <Grupo
         pie={
-          <>
-            {error ? (
-              <span role="alert" className="block text-negative">
-                {error}
-              </span>
-            ) : usuario && usuario !== texto.trim() ? (
-              <span className="block">Quedará como «{usuario}».</span>
-            ) : null}
+          <PieConError error={error}>
+            {!error && usuario && usuario !== texto.trim() ? <span className="block">Quedará como «{usuario}».</span> : null}
             De 3 a {USUARIO_MAX} caracteres: letras, números, punto, guion o guion bajo. Es con lo que entras en otro iPhone.
-          </>
+          </PieConError>
         }
       >
         <Fila>
@@ -749,12 +802,23 @@ function EditarUsuario({ actual, alCerrar }: { actual: string; alCerrar: () => v
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
-            enterKeyHint="done"
+            enterKeyHint={pideActual ? "next" : "done"}
             maxLength={64}
             autoFocus
           />
         </Fila>
       </Grupo>
+      {pideActual ? (
+        <GrupoCodigoActual
+          valor={codigoActual}
+          alCambiar={(v) => {
+            cambiar.reset();
+            setCodigoActual(v);
+          }}
+          error={delActual ? mensajeDeError(cambiar.error) : null}
+          pie="Para cambiar tu usuario escribe tu código para entrar."
+        />
+      ) : null}
     </HojaFormulario>
   );
 }
@@ -763,43 +827,67 @@ function HojaCodigo({
   abierta,
   cambiar,
   usuario,
+  nombre,
   alCerrar,
 }: {
   abierta: boolean;
   cambiar: boolean;
   usuario: string;
+  nombre: string;
   alCerrar: () => void;
 }) {
   return (
     <Sheet open={abierta} onOpenChange={(v) => !v && alCerrar()}>
-      {abierta ? <EditarCodigo cambiar={cambiar} usuario={usuario} alCerrar={alCerrar} /> : null}
+      {abierta ? <EditarCodigo cambiar={cambiar} usuario={usuario} nombre={nombre} alCerrar={alCerrar} /> : null}
     </Sheet>
   );
 }
 
-/** Crear o cambiar el código. Después de guardarlo no se vuelve a mostrar: el servidor solo guarda su huella. */
-function EditarCodigo({ cambiar, usuario, alCerrar }: { cambiar: boolean; usuario: string; alCerrar: () => void }) {
+/**
+ * Crear o cambiar el código. Cambiarlo pide el actual y puede cerrar la sesión en los demás dispositivos.
+ * Después de guardarlo no se vuelve a mostrar: el servidor solo guarda su huella.
+ */
+function EditarCodigo({
+  cambiar,
+  usuario,
+  nombre,
+  alCerrar,
+}: {
+  cambiar: boolean;
+  usuario: string;
+  nombre: string;
+  alCerrar: () => void;
+}) {
+  const [codigoActual, setCodigoActual] = useState("");
   const [codigo, setCodigo] = useState("");
   const [otraVez, setOtraVez] = useState("");
   const [ver, setVer] = useState(false);
+  const [cerrarOtros, setCerrarOtros] = useState(false);
   const guardarCodigo = useGuardarCodigo();
-  const corto = codigo.length > 0 && codigo.length < CODIGO_MIN;
+  const problema = problemaCodigo(codigo, { usuario, nombre });
   // Se avisa cuando la confirmación ya no puede coincidir, no a la mitad de escribirla.
   const noCoinciden = otraVez.length > 0 && otraVez !== codigo && (otraVez.length >= codigo.length || !codigo.startsWith(otraVez));
-  const error = guardarCodigo.isError
-    ? mensajeDeError(guardarCodigo.error)
-    : noCoinciden
-      ? "Los códigos no coinciden."
-      : corto
-        ? `Mínimo ${CODIGO_MIN} caracteres.`
-        : null;
+  const delActual = guardarCodigo.isError && esDelCodigoActual(guardarCodigo.error);
+  const error =
+    guardarCodigo.isError && !delActual
+      ? mensajeDeError(guardarCodigo.error)
+      : (problema ?? (noCoinciden ? "Los códigos no coinciden." : null));
+  const cambio = (fn: (v: string) => void) => (v: string) => {
+    guardarCodigo.reset();
+    fn(v);
+  };
   const guardar = () =>
-    guardarCodigo.mutate(codigo, {
-      onSuccess: () => {
-        toast.success(cambiar ? "Código cambiado" : "Código creado");
-        alCerrar();
+    guardarCodigo.mutate(
+      { codigo, ...(cambiar ? { actual: codigoActual, cerrarOtros } : {}) },
+      {
+        onSuccess: (r) => {
+          const n = r.cerrados ?? 0;
+          const titulo = cambiar ? "Código cambiado" : "Código creado";
+          toast.success(n > 0 ? `${titulo}. Cerraste la sesión en ${n} ${n === 1 ? "dispositivo" : "dispositivos"}.` : titulo);
+          alCerrar();
+        },
       },
-    });
+    );
   const campo = {
     type: ver ? "text" : "password",
     autoComplete: "new-password",
@@ -813,7 +901,9 @@ function EditarCodigo({ cambiar, usuario, alCerrar }: { cambiar: boolean; usuari
     <HojaFormulario
       titulo={cambiar ? "Cambiar código" : "Crear código"}
       descripcion="Código para entrar con tu usuario"
-      puedeGuardar={codigo.length >= CODIGO_MIN && codigo === otraVez}
+      puedeGuardar={
+        codigo.trim().length >= CODIGO_MIN && !problema && codigo === otraVez && (!cambiar || codigoActual.trim().length > 0)
+      }
       guardando={guardarCodigo.isPending}
       alGuardar={guardar}
       alCerrar={alCerrar}
@@ -824,31 +914,34 @@ function EditarCodigo({ cambiar, usuario, alCerrar }: { cambiar: boolean; usuari
       </p>
       {/* Para que el llavero de iOS guarde el código junto al usuario. */}
       <input type="text" name="username" autoComplete="username" value={usuario} readOnly tabIndex={-1} aria-hidden className="sr-only" />
+      {cambiar ? (
+        <GrupoCodigoActual
+          valor={codigoActual}
+          alCambiar={cambio(setCodigoActual)}
+          error={delActual ? mensajeDeError(guardarCodigo.error) : null}
+          pie="El que usas hoy para entrar."
+          enfocar
+        />
+      ) : null}
       <Grupo
         pie={
-          <>
-            {error ? (
-              <span role="alert" className="block text-negative">
-                {error}
-              </span>
-            ) : null}
-            Mínimo {CODIGO_MIN} caracteres; mejor una frase que solo tú sepas. Después de guardarlo no se vuelve a mostrar.
-          </>
+          <PieConError error={error}>
+            Mínimo {CODIGO_MIN} caracteres, sin tu usuario ni tu nombre; mejor una frase que solo tú sepas. Después de
+            guardarlo no se vuelve a mostrar.
+          </PieConError>
         }
       >
         <Fila>
           <label htmlFor="codigo-nuevo" className="w-24 shrink-0">
-            Código
+            {cambiar ? "Nuevo" : "Código"}
           </label>
           <CampoFila
             id="codigo-nuevo"
             value={codigo}
-            onChange={(e) => {
-              guardarCodigo.reset();
-              setCodigo(e.target.value);
-            }}
+            onChange={(e) => cambio(setCodigo)(e.target.value)}
+            aria-invalid={!!problema}
             enterKeyHint="next"
-            autoFocus
+            autoFocus={!cambiar}
             {...campo}
           />
           <Button
@@ -868,10 +961,8 @@ function EditarCodigo({ cambiar, usuario, alCerrar }: { cambiar: boolean; usuari
           <CampoFila
             id="codigo-confirmar"
             value={otraVez}
-            onChange={(e) => {
-              guardarCodigo.reset();
-              setOtraVez(e.target.value);
-            }}
+            onChange={(e) => cambio(setOtraVez)(e.target.value)}
+            aria-invalid={noCoinciden}
             placeholder="Otra vez"
             enterKeyHint="done"
             className="mr-9"
@@ -879,6 +970,76 @@ function EditarCodigo({ cambiar, usuario, alCerrar }: { cambiar: boolean; usuari
           />
         </Fila>
       </Grupo>
+      {cambiar ? (
+        <Grupo pie="Si alguien más pudo usar tu cuenta. Este dispositivo sigue con la sesión abierta.">
+          <Fila>
+            <label htmlFor="cerrar-otros" className="min-w-0 flex-1 py-2.5 leading-snug">
+              Cerrar sesión en los demás dispositivos
+            </label>
+            <Switch id="cerrar-otros" checked={cerrarOtros} onCheckedChange={setCerrarOtros} />
+          </Fila>
+        </Grupo>
+      ) : null}
     </HojaFormulario>
+  );
+}
+
+function HojaQuitarCodigo({ abierta, alCerrar }: { abierta: boolean; alCerrar: () => void }) {
+  return (
+    <Sheet open={abierta} onOpenChange={(v) => !v && alCerrar()}>
+      {abierta ? <QuitarCodigo alCerrar={alCerrar} /> : null}
+    </Sheet>
+  );
+}
+
+/** Quitar el código también pide el actual: con solo el token no se le quita a nadie. */
+function QuitarCodigo({ alCerrar }: { alCerrar: () => void }) {
+  const enLinea = useEnLinea();
+  const [codigoActual, setCodigoActual] = useState("");
+  const quitar = useQuitarCodigo();
+  const listo = enLinea && codigoActual.trim().length > 0 && !quitar.isPending;
+  const enviar = () =>
+    quitar.mutate(codigoActual, {
+      onSuccess: () => {
+        toast.success("Código quitado");
+        alCerrar();
+      },
+    });
+
+  return (
+    <SheetContent
+      titulo="Quitar código"
+      descripcion="Quita tu código para entrar"
+      izquierda={
+        <Button variant="plain" size="text" onClick={alCerrar}>
+          Cancelar
+        </Button>
+      }
+    >
+      <form
+        className="space-y-6 pt-2 pb-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (listo) enviar();
+        }}
+      >
+        <p className="px-4 text-center text-[15px] leading-snug text-balance text-muted-foreground">
+          Ya no podrás entrar con tu usuario y código. Para entrar en otro iPhone necesitarás una invitación.
+        </p>
+        <GrupoCodigoActual
+          valor={codigoActual}
+          alCambiar={(v) => {
+            quitar.reset();
+            setCodigoActual(v);
+          }}
+          error={quitar.isError ? mensajeDeError(quitar.error) : null}
+          pie="Escríbelo para confirmar."
+          enfocar
+        />
+        <Button type="submit" variant="destructive" size="lg" disabled={!listo}>
+          {quitar.isPending ? <Spinner className="size-5" etiqueta="Quitando" /> : "Quitar código"}
+        </Button>
+      </form>
+    </SheetContent>
   );
 }

@@ -167,9 +167,19 @@ for (const esquema of ["light", "dark"] as const) {
       await page.getByRole("dialog").getByRole("button", { name: "Cancelar" }).click();
 
       await page.getByRole("button", { name: "Cambiar código para entrar" }).click();
-      await page.getByRole("dialog").getByLabel("Código", { exact: true }).fill("otra-clave-larga");
-      await page.getByRole("dialog").getByLabel("Confirmar").fill("otra-clave-larga-2");
+      const hoja = page.getByRole("dialog");
+      await hoja.getByLabel("Código actual", { exact: true }).fill("clave-segura-1");
+      await hoja.getByLabel("Nuevo", { exact: true }).fill("otra-clave-larga");
+      await hoja.getByLabel("Confirmar").fill("otra-clave-larga-2");
+      await hoja.getByRole("switch").click();
       await capturar(page, `ajustes-codigo-${sufijo}`);
+      await hoja.getByRole("button", { name: "Cancelar" }).click();
+
+      await page.getByRole("button", { name: "Quitar código" }).click();
+      await page.getByRole("dialog").getByLabel("Código actual", { exact: true }).fill("no-es-el-mio");
+      await page.getByRole("dialog").getByRole("button", { name: "Quitar código" }).click();
+      await expect(page.getByRole("dialog").getByRole("alert")).toBeVisible();
+      await capturar(page, `ajustes-quitar-codigo-${sufijo}`);
     });
 
     test(`entrar e instalar con usuario (${sufijo})`, async ({ page }) => {

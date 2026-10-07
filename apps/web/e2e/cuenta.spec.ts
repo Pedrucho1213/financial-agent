@@ -1,6 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import { ApiFalsa, prepararSesion, TOKEN } from "./api-falsa";
-import { ponerEstado } from "./api-falsa-cuenta";
+import { ACTUAL_CON_429, ponerEstado } from "./api-falsa-cuenta";
 
 // Cuenta (nombre de saludo, usuario y código para entrar), entrar e instalar el Atajo con ellos, y Sistema.
 
@@ -31,7 +31,18 @@ test.describe("Cuenta en Ajustes", () => {
     const guardar = hoja.getByRole("button", { name: "Guardar" });
     await expect(guardar).toBeDisabled(); // sin cambios
     await campo.fill("   ");
+    await expect(hoja.getByRole("alert")).toHaveText("Escribe tu nombre.");
     await expect(guardar).toBeDisabled();
+    // Solo letras, espacios, punto, apóstrofo o guion, y empieza con letra (como el servidor).
+    const reglas = "El nombre solo puede llevar letras, espacios, punto, apóstrofo o guion.";
+    for (const malo of ["Pedro2", "-Pedro", "Pedro 😀"]) {
+      await campo.fill(malo);
+      await expect(hoja.getByRole("alert")).toHaveText(reglas);
+      await expect(guardar).toBeDisabled();
+    }
+    await campo.fill("María-José O’Neil Jr.");
+    await expect(hoja.getByRole("alert")).toHaveCount(0);
+    await expect(guardar).toBeEnabled();
     await campo.fill(" Pedrito ");
     await guardar.click();
 
@@ -61,6 +72,8 @@ test.describe("Cuenta en Ajustes", () => {
     await expect(guardar).toBeDisabled();
     await campo.fill("pedro ramírez");
     await expect(hoja.getByRole("alert")).toHaveText("Solo letras, números, punto, guion o guion bajo.");
+    await campo.fill("_pedro");
+    await expect(hoja.getByRole("alert")).toHaveText("Empieza con una letra o un número.");
     await campo.fill("p".repeat(25));
     await expect(hoja.getByRole("alert")).toHaveText("Máximo 24 caracteres.");
     await expect(guardar).toBeDisabled();
@@ -86,7 +99,7 @@ test.describe("Cuenta en Ajustes", () => {
     expect(api.cuenta.usuario).toBe("jose.perez");
   });
 
-  test("crear, cambiar y quitar el código para entrar", async ({ page }) => {
+  test("crear el código: pistas, 400 del servidor y sin tu usuario ni tu nombre", async ({ page }) => {
     const api = await prepararSesion(page);
     await page.goto("/#ajustes");
     await expect(page.getByText("puedes entrar desde cualquier iPhone o reinstalar el Atajo")).toBeVisible();
@@ -95,6 +108,9 @@ test.describe("Cuenta en Ajustes", () => {
 
     const hoja = page.getByRole("dialog", { name: "Crear código" });
     await expect(hoja.getByText("Con tu usuario pedro y este código")).toBeVisible();
+    // Sin código todavía: no se pide el actual ni se ofrece cerrar los demás.
+    await expect(hoja.getByLabel("Código actual")).toHaveCount(0);
+    await expect(hoja.getByRole("switch")).toHaveCount(0);
     const codigo = hoja.getByLabel("Código", { exact: true });
     const otraVez = hoja.getByLabel("Confirmar");
     const guardar = hoja.getByRole("button", { name: "Guardar" });
@@ -120,7 +136,15 @@ test.describe("Cuenta en Ajustes", () => {
     await expect(hoja.getByRole("alert")).toHaveText("Los códigos no coinciden.");
     await expect(guardar).toBeDisabled();
 
-    // Uno obvio: lo rechaza el servidor (400).
+    // Ni el usuario ni el nombre (sin acentos), como pide el servidor.
+    const lleva = "El código no puede llevar tu usuario ni tu nombre. Elige otro.";
+    await codigo.fill("Pedro2026!!");
+    await expect(hoja.getByRole("alert")).toHaveText(lleva);
+    await codigo.fill("mi-RAMIREZ-99");
+    await expect(hoja.getByRole("alert")).toHaveText(lleva);
+    await expect(guardar).toBeDisabled();
+
+    // Uno obvio: lo rechaza el servidor (400) y se muestra tal cual.
     await codigo.fill("12345678");
     await otraVez.fill("12345678");
     await guardar.click();
@@ -136,30 +160,132 @@ test.describe("Cuenta en Ajustes", () => {
     expect(api.cuenta.codigo).toBe(CODIGO);
     // Nunca se vuelve a mostrar.
     expect(await page.content()).not.toContain(CODIGO);
+    await expect(page.getByRole("button", { name: "Cambiar código para entrar" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Quitar código" })).toBeVisible();
+  });
 
-    // Cambiarlo.
+  test("cambiar el código pide el actual (403 no cierra la sesión) y puede cerrar los demás dispositivos", async ({ page }) => {
+    const api = await prepararSesion(page, conCodigo());
+    await page.goto("/#ajustes");
+    await expect(page.getByText("MacBook Pro")).toBeVisible();
     await page.getByRole("button", { name: "Cambiar código para entrar" }).click();
-    const cambiar = page.getByRole("dialog", { name: "Cambiar código" });
-    await expect(cambiar.getByLabel("Código", { exact: true })).toHaveValue("");
-    await cambiar.getByLabel("Código", { exact: true }).fill("otra-clave-larga");
-    await cambiar.getByLabel("Confirmar").fill("otra-clave-larga");
-    await cambiar.getByRole("button", { name: "Guardar" }).click();
-    await expect(page.getByText("Código cambiado")).toBeVisible();
-    expect(api.cuenta.codigo).toBe("otra-clave-larga");
 
-    // Quitarlo pide confirmación.
+    const hoja = page.getByRole("dialog", { name: "Cambiar código" });
+    const actual = hoja.getByLabel("Código actual", { exact: true });
+    const guardar = hoja.getByRole("button", { name: "Guardar" });
+    await expect(actual).toHaveAttribute("type", "password");
+    await expect(actual).toHaveAttribute("autocomplete", "current-password");
+    await expect(actual).toBeFocused();
+    await hoja.getByLabel("Nuevo", { exact: true }).fill("otra-clave-larga");
+    await hoja.getByLabel("Confirmar").fill("otra-clave-larga");
+    await expect(guardar).toBeDisabled(); // falta el actual
+
+    await actual.fill("no-es-el-mio");
+    await guardar.click();
+    await expect(hoja.getByRole("alert")).toHaveText("Ese no es tu código actual.");
+    // 403, no 401: la sesión sigue.
+    await expect(hoja).toBeVisible();
+    expect(await page.evaluate(() => localStorage.getItem("fa_token"))).toBe(TOKEN);
+    expect(api.cuenta.codigo).toBe(CODIGO);
+
+    // Sin distinguir mayúsculas ni espacios de más; y cerrar la sesión en los demás.
+    await actual.fill("  CLAVE-segura-1 ");
+    await expect(hoja.getByRole("alert")).toHaveCount(0);
+    const cerrarOtros = hoja.getByRole("switch", { name: "Cerrar sesión en los demás dispositivos" });
+    await expect(cerrarOtros).not.toBeChecked();
+    await cerrarOtros.click();
+    await expect(cerrarOtros).toBeChecked();
+    await guardar.click();
+
+    await expect(hoja).toHaveCount(0);
+    await expect(page.getByText("Código cambiado. Cerraste la sesión en 2 dispositivos.")).toBeVisible();
+    await expect(page.getByText("MacBook Pro")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Quitar Atajo" })).toHaveCount(0);
+    await expect(page.getByText("Este dispositivo", { exact: true })).toBeVisible();
+    expect(api.de("PUT", "/v1/yo/codigo").map((p) => p.cuerpo)).toEqual([
+      { codigo: "otra-clave-larga", actual: "no-es-el-mio", cerrarOtros: false },
+      { codigo: "otra-clave-larga", actual: "  CLAVE-segura-1 ", cerrarOtros: true },
+    ]);
+    expect(api.cuenta.codigo).toBe("otra-clave-larga");
+    expect(await page.evaluate(() => localStorage.getItem("fa_token"))).toBe(TOKEN);
+  });
+
+  test("quitar el código pide el actual; 403 y 429 se muestran tal cual", async ({ page }) => {
+    const api = await prepararSesion(page, conCodigo());
+    await page.goto("/#ajustes");
     await page.getByRole("button", { name: "Quitar código" }).click();
-    const alerta = page.getByRole("alertdialog");
-    await expect(alerta).toContainText("¿Quitar tu código?");
-    await alerta.getByRole("button", { name: "Cancelar" }).click();
-    expect(api.de("DELETE", "/v1/yo/codigo")).toHaveLength(0);
+
+    const hoja = page.getByRole("dialog", { name: "Quitar código" });
+    await expect(hoja.getByText("Ya no podrás entrar con tu usuario y código.")).toBeVisible();
+    const actual = hoja.getByLabel("Código actual", { exact: true });
+    const quitar = hoja.getByRole("button", { name: "Quitar código" });
+    await expect(quitar).toBeDisabled();
+
+    await actual.fill("no-es-el-mio");
+    await quitar.click();
+    await expect(hoja.getByRole("alert")).toHaveText("Ese no es tu código actual.");
+    expect(await page.evaluate(() => localStorage.getItem("fa_token"))).toBe(TOKEN);
+
+    await actual.fill(ACTUAL_CON_429);
+    await quitar.click();
+    await expect(hoja.getByRole("alert")).toHaveText("Hay muchos intentos a la vez. Espera un momento.");
+    expect(api.cuenta.tieneCodigo).toBe(true);
+
+    // Cancelar no quita nada.
+    await hoja.getByRole("button", { name: "Cancelar" }).click();
+    await expect(hoja).toHaveCount(0);
+
     await page.getByRole("button", { name: "Quitar código" }).click();
-    await page.getByRole("alertdialog").getByRole("button", { name: "Quitar" }).click();
+    await expect(hoja.getByLabel("Código actual", { exact: true })).toHaveValue("");
+    await hoja.getByLabel("Código actual", { exact: true }).fill(CODIGO);
+    await hoja.getByLabel("Código actual", { exact: true }).press("Enter");
     await expect(page.getByText("Código quitado")).toBeVisible();
     await expect(page.getByRole("button", { name: "Crear código para entrar" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Quitar código" })).toHaveCount(0);
-    expect(api.de("DELETE", "/v1/yo/codigo")).toHaveLength(1);
+    expect(api.de("DELETE", "/v1/yo/codigo").map((p) => p.cuerpo)).toEqual([
+      { actual: "no-es-el-mio" },
+      { actual: ACTUAL_CON_429 },
+      { actual: CODIGO },
+    ]);
     expect(api.cuenta.tieneCodigo).toBe(false);
+  });
+
+  test("con código, cambiar el usuario pide el actual", async ({ page }) => {
+    const api = await prepararSesion(page, conCodigo());
+    await page.goto("/#ajustes");
+    await page.getByRole("button", { name: /^Usuario/ }).click();
+    const hoja = page.getByRole("dialog", { name: "Usuario" });
+    const actual = hoja.getByLabel("Código actual", { exact: true });
+    const guardar = hoja.getByRole("button", { name: "Guardar" });
+
+    // Solo cuando el usuario cambia.
+    await expect(actual).toHaveCount(0);
+    await hoja.getByLabel("Usuario").fill("pedro.r");
+    await expect(actual).toBeVisible();
+    await expect(hoja.getByText("Para cambiar tu usuario escribe tu código para entrar.")).toBeVisible();
+    await expect(guardar).toBeDisabled();
+
+    await actual.fill("no-es-el-mio");
+    await guardar.click();
+    await expect(hoja.getByRole("alert")).toHaveText("Ese no es tu código actual.");
+    expect(await page.evaluate(() => localStorage.getItem("fa_token"))).toBe(TOKEN);
+    expect(api.cuenta.usuario).toBe("pedro");
+
+    await actual.fill(CODIGO);
+    await guardar.click();
+    await expect(hoja).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^Usuario/ })).toContainText("pedro.r");
+    expect(api.de("PATCH", "/v1/yo").map((p) => p.cuerpo)).toEqual([
+      { usuario: "pedro.r", actual: "no-es-el-mio" },
+      { usuario: "pedro.r", actual: CODIGO },
+    ]);
+
+    // El nombre se cambia sin el código.
+    await page.getByRole("button", { name: "Cómo te saludo" }).click();
+    await page.getByRole("dialog").getByLabel("Nombre").fill("Pedro");
+    await page.getByRole("dialog").getByRole("button", { name: "Guardar" }).click();
+    await expect(page.getByRole("heading", { name: "Pedro", exact: true })).toBeVisible();
+    expect(api.de("PATCH", "/v1/yo")[2]?.cuerpo).toEqual({ nombre: "Pedro" });
   });
 
   test("con código, cerrar sesión recuerda que se puede volver con usuario y código", async ({ page }) => {

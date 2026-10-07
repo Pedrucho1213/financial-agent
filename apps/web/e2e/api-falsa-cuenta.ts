@@ -61,12 +61,52 @@ function sinAcentos(texto: string) {
     .trim();
 }
 
+/** Como lo compara el servidor: sin espacios de más y sin distinguir mayúsculas. */
+function normalizarCodigo(codigo: string) {
+  return codigo.normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+const coincide = (api: ApiFalsa, codigo: unknown) =>
+  api.cuenta.codigo !== null && typeof codigo === "string" && normalizarCodigo(codigo) === normalizarCodigo(api.cuenta.codigo);
+
+/** Código actual "muchos-intentos": 429 (el servidor verifica pocos a la vez). */
+export const ACTUAL_CON_429 = "muchos-intentos";
+
+/**
+ * Lo que piden cambiar el usuario y cambiar o quitar el código cuando ya hay uno: el código actual.
+ * null si se puede seguir.
+ */
+function revisarActual(api: ApiFalsa, actual: unknown): [number, { error: string }] | null {
+  if (!api.cuenta.tieneCodigo) return null;
+  if (typeof actual !== "string" || !actual.trim()) return [400, { error: "Escribe tu código actual." }];
+  if (actual === ACTUAL_CON_429) return [429, { error: "Hay muchos intentos a la vez. Espera un momento." }];
+  if (!coincide(api, actual)) return [403, { error: "Ese no es tu código actual." }];
+  return null;
+}
+
+/** Las mismas reglas que validarCodigoPersonal en el servidor (versión corta). */
+function problemaCodigo(api: ApiFalsa, codigo: string): string | null {
+  const limpio = normalizarCodigo(codigo);
+  if ([...limpio].length < 8) return "El código necesita al menos 8 caracteres.";
+  if ([...limpio].length > 64) return "El código puede tener hasta 64 caracteres.";
+  const sinEspacios = limpio.replace(/ /g, "");
+  if (/^(.)\1+$/.test(sinEspacios) || "0123456789".includes(sinEspacios) || "9876543210".includes(sinEspacios)) {
+    return "Ese código es muy fácil de adivinar. Elige otro.";
+  }
+  const plano = sinAcentos(sinEspacios);
+  const piezas = [api.cuenta.usuario, ...api.cuenta.usuario.split(/[._-]/), ...api.cuenta.nombre.split(/\s+/)].map(sinAcentos);
+  if (piezas.some((pieza) => pieza.length >= 3 && plano.includes(pieza))) {
+    return "El código no puede llevar tu usuario ni tu nombre. Elige otro.";
+  }
+  return null;
+}
+
 /** Usuario "muchos": 429. El de la cuenta con su código: entra. Lo demás: 401. */
 function revisarEntrada(api: ApiFalsa, cuerpo: unknown): [number, { error: string }] | null {
   const b = (cuerpo ?? {}) as { usuario?: string; codigo?: string };
   const usuario = sinAcentos(String(b.usuario ?? ""));
   if (usuario === "muchos") return [429, { error: "Demasiados intentos. Espera unos minutos." }];
-  if (!usuario || !b.codigo || usuario !== api.cuenta.usuario || api.cuenta.codigo === null || b.codigo !== api.cuenta.codigo) {
+  if (!usuario || usuario !== api.cuenta.usuario || !coincide(api, b.codigo)) {
     return [401, { error: "Usuario o código incorrectos." }];
   }
   return null;
@@ -113,35 +153,53 @@ export async function atenderCuenta(api: ApiFalsa, p: Peticion): Promise<void | 
   if (!p.autorizado) return json(401, { error: "Token inválido." });
 
   if (metodo === "PATCH" && ruta === "/v1/yo") {
-    const b = (cuerpo ?? {}) as { nombre?: string; usuario?: string };
+    const b = (cuerpo ?? {}) as { nombre?: string; usuario?: string; actual?: string };
+    let nombre: string | undefined;
     if (b.nombre !== undefined) {
-      const nombre = String(b.nombre).trim();
-      if (nombre.length < 1 || nombre.length > 40) return json(400, { error: "El nombre debe tener de 1 a 40 caracteres." });
-      api.cuenta.nombre = nombre;
+      nombre = String(b.nombre).normalize("NFC").trim().replace(/\s+/g, " ");
+      if (!nombre) return json(400, { error: "Escribe tu nombre." });
+      if ([...nombre].length > 40) return json(400, { error: "El nombre puede tener hasta 40 caracteres." });
+      if (!/^[\p{L}\p{M}][\p{L}\p{M} .'’-]*$/u.test(nombre)) {
+        return json(400, { error: "El nombre solo puede llevar letras, espacios, punto, apóstrofo o guion." });
+      }
     }
+    let usuario: string | undefined;
     if (b.usuario !== undefined) {
-      const usuario = sinAcentos(String(b.usuario));
-      if (!/^[a-z0-9._-]{3,24}$/.test(usuario)) {
+      usuario = sinAcentos(String(b.usuario));
+      if (!/^[a-z0-9][a-z0-9._-]{2,23}$/.test(usuario)) {
         return json(400, { error: "El usuario debe tener de 3 a 24 letras, números, punto, guion o guion bajo." });
       }
+      // Cambiar el usuario de una cuenta con código pide el actual; el nombre se cambia sin él.
+      if (usuario !== api.cuenta.usuario) {
+        const falla = revisarActual(api, b.actual);
+        if (falla) return json(...falla);
+      }
       if (usuario === "ocupado") return json(409, { error: "Ese usuario ya lo tiene alguien más." });
-      api.cuenta.usuario = usuario;
     }
-    const { nombre, usuario, tieneCodigo } = api.cuenta;
-    return json(200, { usuario: { id: "usr-1", nombre, usuario, tieneCodigo } });
+    if (nombre !== undefined) api.cuenta.nombre = nombre;
+    if (usuario !== undefined) api.cuenta.usuario = usuario;
+    const c = api.cuenta;
+    return json(200, { usuario: { id: "usr-1", nombre: c.nombre, usuario: c.usuario, tieneCodigo: c.tieneCodigo } });
   }
 
   if (metodo === "PUT" && ruta === "/v1/yo/codigo") {
-    const codigo = String((cuerpo as { codigo?: string } | null)?.codigo ?? "");
-    if (codigo.length < 8 || codigo.length > 64) return json(400, { error: "El código debe tener de 8 a 64 caracteres." });
-    if (/^(.)\1+$/.test(codigo) || "0123456789".includes(codigo) || "9876543210".includes(codigo)) {
-      return json(400, { error: "Ese código es muy fácil de adivinar. Elige otro." });
-    }
+    const b = (cuerpo ?? {}) as { codigo?: string; actual?: string; cerrarOtros?: boolean };
+    const codigo = String(b.codigo ?? "");
+    // Como el servidor: primero el código nuevo, luego el actual.
+    const problema = problemaCodigo(api, codigo);
+    if (problema) return json(400, { error: problema });
+    const falla = revisarActual(api, b.actual);
+    if (falla) return json(...falla);
     api.cuenta.codigo = codigo;
     api.cuenta.tieneCodigo = true;
-    return json(200, { ok: true });
+    // cerrarOtros: fuera todos los dispositivos menos este.
+    const antes = api.dispositivos.length;
+    if (b.cerrarOtros) api.dispositivos = api.dispositivos.filter((d) => d.actual);
+    return json(200, { ok: true, cerrados: antes - api.dispositivos.length });
   }
   if (metodo === "DELETE" && ruta === "/v1/yo/codigo") {
+    const falla = revisarActual(api, (cuerpo as { actual?: string } | null)?.actual);
+    if (falla) return json(...falla);
     api.cuenta.codigo = null;
     api.cuenta.tieneCodigo = false;
     return json(200, { ok: true });
