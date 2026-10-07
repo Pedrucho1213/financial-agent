@@ -263,6 +263,16 @@ describe("preguntas de más", () => {
     expect(todos(ctx)).toHaveLength(2);
   });
 
+  test("una pregunta anterior que no pide elegir tampoco basta", async () => {
+    const borrar = llamada("eliminar_movimiento", { buscar: { texto: "café", mas_reciente: true } });
+    const { ctx, hablar } = montar([texto("¿De cuánto fue el súper?"), borrar, texto("¿Cuál café, el de $60 o el de $85?")]);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café", fecha: "ayer" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 60, categoria: "Café" });
+    const pregunta = await hablar("Fui al súper");
+    expect((await hablar("Borra el café", pregunta.conversacion_id)).respuesta).toBe("¿Cuál café, el de 60 pesos o el de 85 pesos?");
+    expect(todos(ctx)).toHaveLength(2);
+  });
+
   test("al editar, \"el café\" con varios pregunta cuál; \"fueron 70\" a secas es lo último (QA-035)", async () => {
     const editar = (buscar: unknown, monto: number) => llamada("editar_movimiento", { buscar, cambios: { monto } });
     const { ctx, hablar } = montar([
@@ -335,6 +345,13 @@ describe("frases que fallaron con la IA real", () => {
       expect(r.eliminado).toBeDefined();
     }
     expect(todos(ctx)).toHaveLength(0);
+    // Sin sustantivo también: "borra los dos de hoy".
+    crearMovimiento(ctx, { tipo: "gasto", monto: 30, categoria: "Café" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 40, categoria: "Café" });
+    const hoy = dictado(ctx, "Borra los dos de hoy");
+    for (let i = 0; i < 2; i++) {
+      expect((await llamar(hoy, "eliminar_movimiento", { buscar: { texto: "café", periodo: "hoy", mas_reciente: true } })).eliminado).toBeDefined();
+    }
   });
 });
 

@@ -386,6 +386,9 @@ function loQuePago(acciones: Accion[]): string[] {
   });
 }
 
+// La respuesta pide elegir entre varios: "¿Cuál café?", "¿El de Oxxo o el de Starbucks?".
+const PIDE_ELEGIR = /\b(cual|cuales)\b|\bo (el|la|los|las) de\b/;
+
 // El modelo pregunta cuánto fue: "¿De cuánto fue?", "¿Qué monto?".
 const PREGUNTA_EL_MONTO = /\b(cuanto|cuanta|monto|cantidad)\b/;
 
@@ -436,9 +439,11 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   const mensajeUsuario: ModelMessage = { role: "user", content: entrada.texto };
   const historial = cargarHistorial(db, usuarioId, conversacionId);
   ctx.enConversacion = historial.length > 0;
-  // Si la respuesta anterior preguntaba algo ("¿cuál café?"), lo que se dice ahora la contesta y el modelo
-  // ya sabe de cuál se habla. Una conversación sin pregunta (el chat de la app) no basta.
-  ctx.confiarEnMasReciente = textoDe(historial.findLast((m) => m.role === "assistant" && textoDe(m) !== "")).includes("?");
+  // Si la respuesta anterior pedía elegir ("¿cuál café, el de 60 o el de 85?"), lo que se dice ahora la
+  // contesta y el modelo ya sabe de cuál se habla. Otra pregunta ("¿de cuánto fue?") o una conversación
+  // sin pregunta (el chat de la app) no bastan.
+  const anterior = textoDe(historial.findLast((m) => m.role === "assistant" && textoDe(m) !== ""));
+  ctx.confiarEnMasReciente = anterior.includes("?") && PIDE_ELEGIR.test(normalizar(anterior));
   // Si un paso solo guardó, corrigió o borró, la confirmación se arma aquí y el modelo no da otra vuelta.
   let confirmacion: string | undefined;
   const generar = (aviso = "") => {
