@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Copy, Globe, Laptop, LogOut, Share, Smartphone, Tablet, UserPlus, Workflow } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { AjustesNotificaciones } from "../components/AjustesNotificaciones";
 import { CodigoGrande } from "../components/CasillasCodigo";
 import { Pantalla } from "../components/Pantalla";
 import { PasosDescarga, ReintentarDescarga } from "../components/PasosAtajo";
@@ -135,6 +136,8 @@ export function Ajustes() {
             onClick={() => atajo.mutate()}
           />
         </Grupo>
+
+        <AjustesNotificaciones />
 
         <Grupo titulo="Invitaciones" pie="El código sirve una vez y vence en 24 horas.">
           <FilaBoton

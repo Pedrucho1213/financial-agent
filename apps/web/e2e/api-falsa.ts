@@ -4,6 +4,8 @@ import type { Page, Route } from "@playwright/test";
 
 export const HOY = "2026-10-06";
 export const TOKEN = "fa_prueba_123";
+/** Llave VAPID pública (65 bytes) del servidor falso. */
+export const CLAVE_PUSH = "BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8";
 
 type Tipo = "gasto" | "ingreso" | "transferencia" | "pago_tarjeta";
 type Origen = "voz" | "app" | "apple_pay" | "importacion";
@@ -201,6 +203,7 @@ export class ApiFalsa {
   /** Cuántas de las próximas firmas del Atajo fallan con 501 (el código sigue sirviendo). */
   fallasFirma = 0;
   private atajos = 0;
+  pushActivo = false;
 
   async instalar(page: Page) {
     await page.route(/\/v1\//, (route) => this.atender(route));
@@ -275,6 +278,22 @@ export class ApiFalsa {
 
     if (metodo === "POST" && ruta === "/v1/atajo") {
       return json(201, { url: `/atajo/${this.nuevoAtajo()}.shortcut`, expiraEn: ATAJO_EXPIRA });
+    }
+
+    if (ruta === "/v1/push" || ruta.startsWith("/v1/push/")) {
+      const estado = () => ({ clave: CLAVE_PUSH, activo: this.pushActivo, endpoint: this.pushActivo ? "https://web.push.apple.com/x" : null, otros: 0, ultimoError: null });
+      if (metodo === "GET" && ruta === "/v1/push") return json(200, estado());
+      if (metodo === "POST" && ruta === "/v1/push/suscripcion") {
+        this.pushActivo = true;
+        return json(201, estado());
+      }
+      if (metodo === "DELETE" && ruta === "/v1/push/suscripcion") {
+        this.pushActivo = false;
+        return json(200, { ok: true });
+      }
+      if (metodo === "POST" && ruta === "/v1/push/prueba") {
+        return this.pushActivo ? json(200, { enviadas: 1 }) : json(502, { error: "No llegó a ningún dispositivo." });
+      }
     }
 
     if (metodo === "GET" && ruta === "/v1/yo") {
@@ -512,4 +531,37 @@ export async function portapapelesFalso(page: Page, inicial = "") {
 /** Como si se abriera desde la pantalla de inicio (app web instalada en iOS). */
 export async function comoAppDeInicio(page: Page) {
   await page.addInitScript(() => Object.defineProperty(navigator, "standalone", { configurable: true, value: true }));
+}
+
+/**
+ * Un navegador que sí recibe notificaciones (las pruebas bloquean el service worker): permiso y
+ * suscripción falsos. Lo que se suscribe queda en window.__suscripciones.
+ */
+export async function conPushFalso(page: Page, decision: NotificationPermission = "granted") {
+  await page.addInitScript((d) => {
+    const w = window as unknown as Record<string, unknown>;
+    let actual: NotificationPermission = "default";
+    const suscripciones: unknown[] = [];
+    w.__suscripciones = suscripciones;
+    Object.defineProperty(Notification, "permission", { configurable: true, get: () => actual });
+    Notification.requestPermission = async () => (actual = d);
+    let sub: { options: { applicationServerKey: ArrayBuffer }; toJSON: () => unknown; unsubscribe: () => Promise<boolean> } | null = null;
+    const pushManager = {
+      getSubscription: async () => sub,
+      subscribe: async (o: { applicationServerKey: Uint8Array }) => {
+        suscripciones.push(Array.from(o.applicationServerKey));
+        sub = {
+          options: { applicationServerKey: o.applicationServerKey.buffer as ArrayBuffer },
+          toJSON: () => ({ endpoint: "https://web.push.apple.com/abc", keys: { p256dh: "B".repeat(87), auth: "a".repeat(22) } }),
+          unsubscribe: async () => ((sub = null), true),
+        };
+        return sub;
+      },
+    };
+    const registro = { pushManager };
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: { getRegistration: async () => registro, ready: Promise.resolve(registro), addEventListener() {}, removeEventListener() {} },
+    });
+  }, decision);
 }

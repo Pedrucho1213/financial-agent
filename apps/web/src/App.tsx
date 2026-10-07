@@ -5,7 +5,8 @@ import { TabBar } from "./components/TabBar";
 import { retomarPendientes } from "./lib/chat";
 import { useEnLinea } from "./lib/conexion";
 import { abrirEditor } from "./lib/editor";
-import { type Pestana, useRuta } from "./lib/ruta";
+import { escucharNotificaciones } from "./lib/push";
+import { navegar, type Pestana, useRuta } from "./lib/ruta";
 import { useToken } from "./lib/sesion";
 import { useTeclado } from "./lib/teclado";
 import { Inicio } from "./pantallas/Inicio";
@@ -85,6 +86,8 @@ function Aplicacion() {
     };
     document.addEventListener("visibilitychange", alVolver);
     window.addEventListener("online", alVolver);
+    // Tocar una notificación con la app abierta lleva a su pantalla (el detalle de lo anotado).
+    const dejarDeEscuchar = escucharNotificaciones((hash) => navegar(hash));
     // Precarga las otras pantallas cuando la app ya está quieta.
     const id = window.setTimeout(() => {
       void cargas.chat();
@@ -94,6 +97,7 @@ function Aplicacion() {
       window.clearTimeout(id);
       document.removeEventListener("visibilitychange", alVolver);
       window.removeEventListener("online", alVolver);
+      dejarDeEscuchar();
     };
   }, []);
 
