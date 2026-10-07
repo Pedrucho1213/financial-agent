@@ -236,6 +236,11 @@ describe("API", () => {
     crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Restaurantes", comercio: "Starbucks" });
     const r2 = (await (await conDatos.hablar({ texto: "cuánto he gastado", client_id: "dictado-0014" })).json()) as { respuesta: string };
     expect(r2.respuesta).toBe("No alcancé a revisar tus movimientos. ¿Me lo preguntas otra vez?");
+
+    // Una cifra sin consultar no se cree ni con la base vacía.
+    const inventa = montar([texto("Llevas $1,200 este mes."), texto("Llevas $1,200 este mes.")]);
+    const r3 = (await (await inventa.hablar({ texto: "cuánto he gastado", client_id: "dictado-0015" })).json()) as { respuesta: string };
+    expect(r3.respuesta).toBe("No alcancé a revisar tus movimientos. ¿Me lo preguntas otra vez?");
   });
 
   test("la charla sin montos no se reintenta", async () => {

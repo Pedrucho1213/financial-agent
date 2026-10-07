@@ -36,8 +36,9 @@ function modeloFalso(
         }
         await dormir(opciones.retrasoMs?.(dictado) ?? 0);
         if (opciones.falla?.(dictado, intentos.get(dictado) ?? 0)) throw new Error("Ollama se cayó");
+        // Como el modelo de verdad: una pregunta se contesta después de consultar.
+        if (dictado.includes("?")) return primerPaso ? llamada("consultar_gastos", { periodo: "este_mes" }) : texto("Llevas $100.");
         if (!primerPaso) return texto("Listo.");
-        if (dictado.includes("?")) return texto("Llevas $100.");
         const monto = Number(dictado.match(/\d+/)?.[0] ?? 1);
         return llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto, descripcion: dictado }] });
       } finally {

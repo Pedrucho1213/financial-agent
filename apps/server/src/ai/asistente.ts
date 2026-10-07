@@ -692,8 +692,14 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
       }
       mensajesRespuesta = resultado.response.messages;
       if (confirmacion) mensajesRespuesta = [...mensajesRespuesta, { role: "assistant", content: confirmacion }];
-      // Una pregunta que ni en el reintento consultó nada: "no tienes gastos" solo es cierto si de verdad no hay registros.
-      if (!yaEstaba && esPregunta(entrada.texto) && respuestaSinSustento(entrada.texto, texto, acciones) && tieneMovimientos(ctx)) {
+      // Una pregunta que ni en el reintento consultó nada: "no tienes gastos" solo es cierto si de verdad no hay
+      // registros, y una cifra sin consultar nunca lo es.
+      if (
+        !yaEstaba &&
+        esPregunta(entrada.texto) &&
+        respuestaSinSustento(entrada.texto, texto, acciones) &&
+        (/\d/.test(texto) || tieneMovimientos(ctx))
+      ) {
         texto = RESPUESTA_NO_CONSULTADA;
         mensajesRespuesta = [{ role: "assistant", content: texto }];
       }
