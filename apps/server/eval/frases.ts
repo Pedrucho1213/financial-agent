@@ -658,6 +658,18 @@ export const CASOS: Caso[] = [
       return motivo(r.movimientos.length === 4 && cafes.length === 1 && cafes[0]?.monto === "$30", r.movimientos);
     },
   },
+  {
+    grupo: "edicion",
+    frase: "Borra los tacos",
+    preparar: (ctx) => {
+      const c = previa(ctx);
+      crearMovimiento(c, { tipo: "gasto", monto: 120, categoria: "Antojos", descripcion: "tacos", fecha: "ayer" });
+      crearMovimiento(c, { tipo: "gasto", monto: 95, categoria: "Antojos", descripcion: "tacos" });
+      crearMovimiento(c, { tipo: "gasto", monto: 300, categoria: "Súper" });
+    },
+    // Los dos, no solo el más reciente.
+    verificar: (r) => motivo(r.movimientos.length === 1 && r.movimientos[0]?.monto === "$300", r.movimientos),
+  },
 
   // Conversaciones de varios pasos: lo anterior da el contexto.
   {
