@@ -3,6 +3,7 @@ import { crearModelo } from "./ai/modelo";
 import { crearApp } from "./app";
 import { config } from "./config";
 import { abrirBaseDatos } from "./db/client";
+import { programarRevisor, revisarPendientes } from "./finanzas/revisor";
 
 const db = abrirBaseDatos(config.baseDatos);
 const deps = {
@@ -23,6 +24,12 @@ const servidor = Bun.serve({ hostname: config.host, port: config.puerto, fetch: 
 const retomados = reanudarPendientes(deps);
 if (retomados) console.log(`Retomando ${retomados} dictado(s) que quedaron a medias.`);
 console.log(`Asistente financiero escuchando en http://${config.host}:${config.puerto} con el modelo ${config.ia.modelo}`);
+
+// Una vez al día, desde las 3 de la mañana y con la Mac sin uso, busca fugas y cobros que vienen.
+// No usa el modelo de IA: no lo carga ni lo mantiene en memoria.
+const revisor = { db, zonaHoraria: config.zonaHoraria, monedaBase: config.moneda };
+revisarPendientes(revisor);
+programarRevisor(revisor);
 
 // Una actualización reinicia el servidor (launchd manda SIGTERM): deja de aceptar conexiones, termina
 // las peticiones abiertas y los dictados en curso, y se apaga. Lo que no alcance se retoma al arrancar.
