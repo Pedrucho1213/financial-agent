@@ -19,7 +19,7 @@ export function Grupo({
           {accion}
         </div>
       ) : null}
-      <div className="overflow-hidden rounded-xl bg-card">{children}</div>
+      <div className="overflow-hidden rounded-[20px] bg-card">{children}</div>
       {pie ? <div className="px-4 pt-1.5 text-[13px] leading-snug text-muted-foreground">{pie}</div> : null}
     </section>
   );

@@ -34,6 +34,16 @@
   --bar: rgb(249 249 249 / 0.82);
   --gray-icon: #8e8e93;
 
+  /* Vidrio teñido (la opción "Teñido" de Liquid Glass en iOS 26+): casi opaco, con un toque
+     del color de la app; se lee mejor que el vidrio transparente. */
+  --vidrio: color-mix(in srgb, #f7f8fc 88%, transparent);
+  --vidrio-brillo: rgb(255 255 255 / 0.95);
+  --vidrio-borde: color-mix(in srgb, var(--primary) 10%, rgb(0 0 0 / 0.05));
+  --vidrio-sombra: 0 10px 30px rgb(0 0 0 / 0.1), 0 1px 3px rgb(0 0 0 / 0.05);
+  --lente: color-mix(in srgb, var(--primary) 13%, transparent);
+  /* Espacio que ocupa la barra de pestañas flotante (para no tapar contenido). */
+  --barra-inferior: calc(62px + max(calc(env(safe-area-inset-bottom) - 12px), 12px));
+
   /* Gráficas (paleta validada para daltonismo, ver Graficas.tsx) */
   --chart-surface: #ffffff;
   --chart-ink: #000000;
@@ -83,6 +93,12 @@
     --bubble-in: #26252a;
     --bar: rgb(22 22 23 / 0.8);
     --gray-icon: #8e8e93;
+
+    --vidrio: color-mix(in srgb, #23252b 90%, transparent);
+    --vidrio-brillo: rgb(255 255 255 / 0.12);
+    --vidrio-borde: color-mix(in srgb, var(--primary) 14%, rgb(255 255 255 / 0.04));
+    --vidrio-sombra: 0 10px 30px rgb(0 0 0 / 0.55), 0 1px 3px rgb(0 0 0 / 0.3);
+    --lente: color-mix(in srgb, var(--primary) 24%, transparent);
 
     --chart-surface: #1c1c1e;
     --chart-ink: #ffffff;
@@ -147,6 +163,9 @@
   --animate-sacudir: sacudir 420ms cubic-bezier(0.36, 0.07, 0.19, 0.97);
   --animate-girar: girar 0.9s steps(8) infinite;
   --animate-rebote: rebote 420ms cubic-bezier(0.32, 0.72, 0, 1);
+  --animate-latido: latido 2s ease-out infinite;
+  --animate-trazo: trazo 900ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  --animate-lente: lente 460ms cubic-bezier(0.32, 0.72, 0, 1);
 
   @keyframes subir {
     from { transform: translateY(100%); }
@@ -187,6 +206,21 @@
     30% { transform: scale(0.82); }
     65% { transform: scale(1.12); }
     100% { transform: scale(1); }
+  }
+  @keyframes latido {
+    0% { transform: scale(1); opacity: 0.55; }
+    70%, 100% { transform: scale(2.6); opacity: 0; }
+  }
+  @keyframes trazo {
+    from { stroke-dashoffset: 1; }
+    to { stroke-dashoffset: 0; }
+  }
+  /* La lente de la pestaña se estira al moverse y vuelve a su forma (Liquid Glass). */
+  @keyframes lente {
+    0% { scale: 1 1; }
+    35% { scale: 1.18 0.9; }
+    70% { scale: 0.97 1.03; }
+    100% { scale: 1 1; }
   }
   @keyframes girar {
     to { transform: rotate(360deg); }
@@ -281,6 +315,66 @@
   background-color: var(--bar);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
+}
+/* Vidrio teñido: barras y botones flotantes de iOS 26+. */
+@utility vidrio {
+  background-color: var(--vidrio);
+  -webkit-backdrop-filter: blur(30px) saturate(160%);
+  backdrop-filter: blur(30px) saturate(160%);
+  box-shadow:
+    inset 0 0.5px 0 var(--vidrio-brillo),
+    inset 0 0 0 0.5px var(--vidrio-borde),
+    var(--vidrio-sombra);
+}
+/* Borde de colores que gira mientras la IA piensa (como el brillo de Siri). */
+@property --giro {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+@keyframes giro {
+  to {
+    --giro: 360deg;
+  }
+}
+@utility brillo-ia {
+  &::before,
+  &::after {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    padding: 2px;
+    pointer-events: none;
+    background: conic-gradient(from var(--giro), #ff9f0a, #ff375f, #bf5af2, #0a84ff, #64d2ff, #ff9f0a);
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    animation: giro 2.4s linear infinite;
+  }
+  &::after {
+    inset: -4px;
+    padding: 4px;
+    filter: blur(8px);
+    opacity: 0.6;
+  }
+}
+/* Desliza contenido horizontal con paradas (carruseles de Salud o Wallet). */
+@utility carrusel {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+  & > * {
+    scroll-snap-align: start;
+  }
 }
 /* Separador de un pixel físico. */
 @utility hairline-b {

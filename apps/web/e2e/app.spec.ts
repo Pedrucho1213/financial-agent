@@ -319,13 +319,13 @@ test.describe("Chat", () => {
     ];
     await prepararSesion(page, api);
     await page.goto("/#chat");
-    await page.getByRole("button", { name: "¿Cuánto gasté esta semana?" }).click();
+    await page.getByRole("button", { name: "¿Cómo voy este mes?" }).click();
 
     await expect(page.getByText("Esta semana llevas $1,234.50")).toBeVisible();
     await expect(page.getByText("Revisó tus gastos")).toBeVisible();
 
     const hablar = api.de("POST", "/v1/hablar")[0]?.cuerpo as Record<string, unknown>;
-    expect(hablar.texto).toBe("¿Cuánto gasté esta semana?");
+    expect(hablar.texto).toBe("¿Cómo voy este mes?");
     expect(hablar.espera_ms).toBe(60000);
     expect(String(hablar.client_id)).toMatch(/^[0-9a-f-]{36}$/);
     expect(hablar.conversacion_id).toBeUndefined();
@@ -670,5 +670,60 @@ test.describe("Service worker", () => {
       expect(delServiceWorker.get("/favicon.svg")).toBe(true); // control: sí sale de la caché
       expect(delServiceWorker.get("/atajo/prueba.shortcut")).toBe(false);
     });
+  });
+});
+
+test.describe("Ritmo y Destacados", () => {
+  test("pasar el dedo por la gráfica muestra lo gastado a ese día", async ({ page }) => {
+    await prepararSesion(page);
+    await page.goto("/");
+    const gastado = page.getByRole("region", { name: "Gastado" });
+    await expect(gastado).toContainText("$16,754.70");
+    const ritmo = page.getByRole("img", { name: /Ritmo de gasto/ });
+    const caja = await ritmo.boundingBox();
+    if (!caja) throw new Error("sin caja");
+    // Día 1 de 31: el principio de la gráfica. El 1 de octubre se gastaron $12,500 (renta).
+    await page.mouse.move(caja.x + 2, caja.y + caja.height / 2);
+    await expect(gastado).toContainText("Gastado al 1 de octubre");
+    await expect(gastado).toContainText("$12,500.00");
+    await expect(gastado).toContainText("$12,500.00 al 1 de septiembre");
+    // Más allá de hoy no hay datos: se queda en el 6.
+    await page.mouse.move(caja.x + caja.width - 2, caja.y + caja.height / 2);
+    await expect(gastado).toContainText("Gastado al 6 de octubre");
+    await page.mouse.move(1, 1);
+    await expect(gastado).toContainText("Gastado en octubre");
+    await expect(gastado).toContainText("20% más que al 6 de septiembre");
+  });
+
+  test("los destacados llevan a Movimientos o le preguntan al chat", async ({ page }) => {
+    const api = new ApiFalsa();
+    api.hablar = [200, { respuesta: "Guarda $500 por semana.", conversacion_id: "conv-9", acciones: [] }];
+    await prepararSesion(page, api);
+    await page.goto("/");
+    const destacados = page.getByRole("region", { name: "Destacados" });
+    await expect(destacados).toContainText("cerrarás octubre en unos $27,100");
+    await expect(destacados).toContainText("3 compras en Oxxo este mes: $136");
+    await expect(destacados).toContainText("Te queda el 11% de lo que te entró en octubre");
+
+    await destacados.getByRole("button", { name: "Ver compras" }).click();
+    await expect(page).toHaveURL(/#movimientos\?.*q=Oxxo/);
+    await expect(page.getByText("3 movimientos")).toBeVisible();
+
+    await page.goBack();
+    await page.getByRole("region", { name: "Destacados" }).getByRole("button", { name: "Pedir un plan" }).click();
+    await expect(page).toHaveURL(/#chat$/);
+    await expect(page.getByText("Guarda $500 por semana.")).toBeVisible();
+    const hablar = api.de("POST", "/v1/hablar")[0]?.cuerpo as Record<string, unknown>;
+    expect(hablar.texto).toMatch(/plan sencillo para ahorrar/);
+  });
+
+  test("el + vive junto a las pestañas y se esconde en Chat", async ({ page }) => {
+    await prepararSesion(page);
+    await page.goto("/");
+    const agregar = page.getByRole("button", { name: "Agregar movimiento" });
+    await expect(agregar).toBeVisible();
+    await page.getByRole("link", { name: "Chat" }).click();
+    await expect(page.getByRole("link", { name: "Chat" })).toHaveAttribute("aria-current", "page");
+    await expect(agregar).toBeHidden();
   });
 });

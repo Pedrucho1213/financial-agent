@@ -27,7 +27,7 @@ export function NumeroAnimado({
     const hasta = valor;
     anterior.current = valor;
     const reducido = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reducido || desde === hasta) {
+    if (reducido || desde === hasta || duracion <= 0) {
       el.textContent = fmt.current(hasta);
       return;
     }

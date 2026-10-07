@@ -274,3 +274,10 @@ export function etiquetaAccion(a: Accion) {
 export function accionCambiaDatos(a: Accion) {
   return /^(registrar|editar|eliminar|deshacer)/.test(a.herramienta);
 }
+
+/** Desde otra pantalla (Destacados): manda la pregunta y abre el chat. Si hay una respuesta en camino, solo abre el chat. */
+export function preguntarAlChat(texto: string) {
+  const ocupado = estado.mensajes.some((m) => m.estado === "pensando");
+  if (!ocupado) void enviarMensaje(texto);
+  return !ocupado;
+}

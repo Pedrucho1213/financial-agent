@@ -267,7 +267,7 @@ function ListaPorDia({
               <h2 className="text-[15px] font-semibold">{nombreDia(fecha)}</h2>
               {gastado ? <span className="text-[13px] text-muted-foreground tabular">{dinero(gastado, lista[0]?.moneda)}</span> : null}
             </div>
-            <div className="overflow-hidden rounded-xl bg-card">
+            <div className="overflow-hidden rounded-[20px] bg-card">
               {lista.map((m) => (
                 <FilaDeslizable
                   key={m.id}
@@ -303,7 +303,7 @@ function ListaPorDia({
 
 function Tabla({ movimientos }: { movimientos: MovimientoApp[] }) {
   return (
-    <div className="mt-3 overflow-hidden rounded-xl bg-card">
+    <div className="mt-3 overflow-hidden rounded-[20px] bg-card">
       <table className="w-full table-fixed text-left text-[15px]">
         <thead className="text-[13px] text-muted-foreground">
           <tr className="hairline-b">
@@ -363,7 +363,7 @@ function EsqueletoLista() {
       {[3, 2].map((n, i) => (
         <div key={i}>
           <Skeleton className="mb-2 ml-1 h-4 w-24" />
-          <div className="overflow-hidden rounded-xl bg-card">
+          <div className="overflow-hidden rounded-[20px] bg-card">
             {Array.from({ length: n }, (_, j) => (
               <div key={j} className="flex items-center gap-3 px-4 py-3">
                 <Skeleton className="size-9 rounded-full" />
