@@ -56,7 +56,7 @@ describe("superficie pública", () => {
     const r = await pedir("/v1/atajo", { cuerpo: { servidor: HOST }, token });
     expect(r.status).toBe(201);
     const { url } = (await r.json()) as { url: string };
-    for (let i = 0; i < 3; i++) expect((await app.request(url)).status).toBe(200);
+    for (let i = 0; i < 5; i++) expect((await app.request(url)).status).toBe(200);
     expect((await app.request(url)).status).toBe(410);
   });
 

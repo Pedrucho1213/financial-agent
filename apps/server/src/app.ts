@@ -117,7 +117,7 @@ const MAX_INTENTOS_POR_IP = 20;
 const MAX_INTENTOS_TOTAL = 200;
 const ATAJO_VIGENCIA_MS = 10 * 60_000;
 // iOS puede pedir el archivo más de una vez al abrirlo; después de eso el enlace ya no sirve.
-const ATAJO_MAX_DESCARGAS = 3;
+const ATAJO_MAX_DESCARGAS = 5;
 // Códigos que una cuenta puede crear al día.
 const MAX_INVITACIONES_DIA = { usuario: 5, dispositivo: 20 };
 // Los cuerpos válidos son de unos cientos de bytes (un dictado, a lo más 2,000 caracteres); esto frena
@@ -144,7 +144,11 @@ const cuerpoMuyGrande = (c: Context) => c.json({ error: "La petición es demasia
 
 /** La dirección del Atajo tiene que ser este mismo servidor, como lo ve quien la pide. */
 function servidorPropio(c: Context, servidor: string): boolean {
-  return hostsDeLaPeticion(c).includes(new URL(servidor).host.toLowerCase());
+  const hosts = hostsDeLaPeticion(c);
+  const pedido = new URL(servidor).host.toLowerCase();
+  if (hosts.includes(pedido)) return true;
+  console.warn(`Atajo rechazado: servidor ${pedido}, Host ${c.req.header("host")}, X-Forwarded-Host ${c.req.header("x-forwarded-host")}`);
+  return false;
 }
 const NOMBRE_ATAJO = "Atajo Finanzas";
 
