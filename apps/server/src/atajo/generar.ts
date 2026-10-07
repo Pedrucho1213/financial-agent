@@ -371,7 +371,6 @@ export function construirAtajo(opciones: OpcionesAtajo): Record<string, ValorPli
       ["client_id", clientId],
       ["conversacion_id", conversacion],
       ["capturado_en", capturado],
-      ["equipo", variable("Equipo")],
     ];
 
     // Primer turno: el dictado queda guardado antes de pedir la ubicación, que puede necesitar internet.
@@ -447,8 +446,6 @@ export function construirAtajo(opciones: OpcionesAtajo): Record<string, ValorPli
       "antes de enviarse y sale de ahí cuando el servidor lo recibe. Contesta y termina; solo sigue escuchando si te pregunta algo.",
   });
   a.establecer("Conversación", a.texto("Sin conversación", ""));
-  // En el Apple Watch el servidor contesta completo en voz: sin el iPhone cerca, la notificación no le llega.
-  a.establecer("Equipo", a.conSalida("getdevicedetails", "Modelo del dispositivo", { WFDeviceDetail: "Device Model" }));
 
   // La primera vez se presenta y, si le dicen que sí, explica cómo usarlo. El saludo lo da el servidor con el
   // nombre que tenga la cuenta (se puede cambiar en Ajustes sin reinstalar). Si no contesta JSON (un token

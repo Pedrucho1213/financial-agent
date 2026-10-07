@@ -93,7 +93,7 @@ const esquemaHablar = z.object({
     .optional()
     .transform((lugar) => (lugar && !LUGAR_GENERICO.test(lugar) ? lugar : undefined)),
   capturado_en: fechaOpcional,
-  // El modelo que manda el Atajo ("iPhone", "Apple Watch").
+  // El modelo del dispositivo ("iPhone", "Apple Watch"), para un Atajo que lo mande.
   equipo: z.string().trim().max(60).optional(),
   // Para clientes que prefieren esperar otra cantidad (la prueba de modelos espera todo).
   espera_ms: z.coerce.number().int().min(0).max(MAX_ESPERA_MS).optional(),
@@ -382,7 +382,11 @@ export function crearApp(opciones: OpcionesApp) {
     // Con notificaciones, un registro no espera a la IA: el Atajo dice "Anotado" y termina, y lo que
     // anotó llega en una notificación. Las preguntas se siguen contestando en voz.
     // En el reloj no: la notificación va a la app del iPhone y, si no está cerca, nunca le llega.
-    const rapida = delAtajo && !pregunta && !/watch/i.test(p.equipo ?? "") && tienePush(db, usuarioId);
+    // Se reconoce por `equipo` o por el User-Agent; el del Atajo queda en el registro para comprobarlo.
+    const agente = c.req.header("user-agent") ?? "";
+    if (delAtajo && process.env.NODE_ENV !== "test") console.log(`Atajo desde: ${agente.slice(0, 160)}`);
+    const enReloj = /watch/i.test(p.equipo ?? "") || /watch/i.test(agente);
+    const rapida = delAtajo && !pregunta && !enReloj && tienePush(db, usuarioId);
     const esperaMs = p.espera_ms ?? (rapida ? 0 : pregunta ? opciones.espera?.preguntaMs : opciones.espera?.registroMs);
     try {
       let respuesta = await hablar(

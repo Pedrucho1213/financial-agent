@@ -136,7 +136,7 @@ const PERMITIDAS = new Set([
   "dictatetext", "text.match", "text.replace", "date", "format.date", "number.random",
   "dictionary", "setitemname", "documentpicker.save", "documentpicker.open", "detect.text", "text.split",
   "text.combine", "appendvariable", "getcurrentlocation", "properties.locations", "downloadurl", "getvalueforkey",
-  "speaktext", "getdevicedetails",
+  "speaktext",
 ]);
 const BLOQUES = new Set(["conditional", "repeat.count", "repeat.each"]);
 
@@ -419,7 +419,7 @@ describe("comportamiento", () => {
     const campos = (((parametros(peticion).WFItems as Dict).Value as Dict).WFDictionaryFieldValueItems as Dict[]).map(
       (c) => ((c.WFKey as Dict).Value as Dict).string,
     );
-    expect(campos.sort()).toEqual(["capturado_en", "client_id", "conversacion_id", "equipo", "lat", "lon", "lugar", "texto"]);
+    expect(campos.sort()).toEqual(["capturado_en", "client_id", "conversacion_id", "lat", "lon", "lugar", "texto"]);
   });
 
   test("la cola solo se reescribe si el servidor contestó JSON sin pedir reintentar", () => {
