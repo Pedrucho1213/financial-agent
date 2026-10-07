@@ -1,7 +1,9 @@
 // Frases difíciles de QA contra el modelo real (Ollama). Corre desde apps/server:
-//   bun qa/eval-qa.ts [--modelo gemma4:12b-it-qat@none] [--frase "texto"]
+//   bun qa/eval-qa.ts [--modelo gemma4:12b-it-qat@none] [--frase "texto"] [--traza]
+// --traza muestra cada llamada al modelo de la frase final: ms, tokens y qué hizo (herramienta o texto).
 // Cada caso arranca con una base vacía en memoria; no toca la base de Pedro.
 import { parseArgs } from "node:util";
+import { wrapLanguageModel } from "ai";
 import { hablar } from "../src/ai/asistente";
 import { crearModelo, despertarModelo } from "../src/ai/modelo";
 import { crearUsuario } from "../src/auth";
@@ -15,7 +17,7 @@ import { esPregunta } from "../src/lib/texto";
 
 const { values } = parseArgs({
   args: Bun.argv.slice(2),
-  options: { modelo: { type: "string", default: `${config.ia.modelo}@${config.ia.razonamiento}` }, frase: { type: "string" } },
+  options: { modelo: { type: "string", default: `${config.ia.modelo}@${config.ia.razonamiento}` }, frase: { type: "string" }, traza: { type: "boolean", default: false } },
 });
 
 type Mov = ReturnType<typeof buscarMovimientos>["movimientos"][number];
@@ -103,7 +105,28 @@ const casos = CASOS.filter((c) => !values.frase || c.frase.includes(values.frase
 const [nombre, razonamiento] = values.modelo!.split("@") as [string, string | undefined];
 const ia = { ...config.ia, razonamiento: razonamiento ?? config.ia.razonamiento };
 await despertarModelo(ia, nombre);
-const modelo = crearModelo(ia, nombre);
+let trazando = false;
+let paso = 0;
+const corto = (v: unknown) => JSON.stringify(v ?? null).replace(/\s+/g, " ").slice(0, 160);
+const modelo = !values.traza
+  ? crearModelo(ia, nombre)
+  : wrapLanguageModel({
+      model: crearModelo(ia, nombre) as Parameters<typeof wrapLanguageModel>[0]["model"],
+      middleware: {
+        specificationVersion: "v3",
+        wrapGenerate: async ({ doGenerate }) => {
+          const t0 = performance.now();
+          const r = await doGenerate();
+          if (trazando) {
+            const hizo = r.content
+              .map((c: any) => (c.type === "tool-call" ? `${c.toolName}(${corto(c.input)})` : c.type === "text" ? `texto ${corto(c.text)}` : c.type))
+              .join(" + ");
+            console.log(`           paso ${++paso}: ${Math.round(performance.now() - t0)} ms, tokens ${(r.usage as any)?.inputTokens?.total ?? "?"}+${(r.usage as any)?.outputTokens?.total ?? "?"} → ${hizo || "nada"}`);
+          }
+          return r;
+        },
+      },
+    });
 let pasan = 0;
 const tiempos: number[] = [];
 for (const caso of casos) {
@@ -122,7 +145,9 @@ for (const caso of casos) {
     let conversacionId: string | undefined;
     for (const p of caso.previos ?? []) conversacionId = (await hablar(deps, u.id, { texto: p, clientId: crypto.randomUUID(), conversacionId })).conversacion_id;
     const t0 = performance.now();
-    const r = await hablar(deps, u.id, { texto: caso.frase, clientId: crypto.randomUUID(), conversacionId });
+    trazando = true;
+    paso = 0;
+    const r = await hablar(deps, u.id, { texto: caso.frase, clientId: crypto.randomUUID(), conversacionId }).finally(() => (trazando = false));
     ms = Math.round(performance.now() - t0);
     respuesta = r.respuesta;
     herramientas = r.acciones.map((a) => `${a.herramienta} ${JSON.stringify(a.argumentos)} => ${JSON.stringify(a.resultado)}`.slice(0, 300));
