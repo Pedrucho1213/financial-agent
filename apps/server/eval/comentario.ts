@@ -1,5 +1,6 @@
 // Cuándo comenta la IA al registrar un gasto, con el modelo real y un mes de historial.
 // Uso: bun eval/comentario.ts [--repeticiones 3]
+// "con nota" = el servidor vio algo raro y le pasó "Para comentar"; solo entonces el Atajo espera a la IA.
 // Mide cuántas veces comenta en gastos normales (debería ser casi nunca) y en gastos fuera de lo normal,
 // si el comentario pasa el filtro de cifras y cuánto tarda contra el mismo dictado sin costumbre.
 import { parseArgs } from "node:util";
@@ -9,7 +10,7 @@ import { crearUsuario } from "../src/auth";
 import { config } from "../src/config";
 import { abrirBaseDatos } from "../src/db/client";
 import { sembrarCategorias } from "../src/finanzas/catalogos";
-import { marcarComentario } from "../src/finanzas/comentario";
+import { costumbreParaLaIA, marcarComentario } from "../src/finanzas/comentario";
 import { crearContexto } from "../src/finanzas/contexto";
 import { crearMovimiento } from "../src/finanzas/movimientos";
 import { fijarPresupuesto } from "../src/finanzas/planes";
@@ -53,11 +54,12 @@ async function dictar(frase: string, conCostumbre: boolean) {
   const { datos, ctx } = base();
   // Con el tope del día alcanzado, la IA no ve la costumbre: es el mismo dictado de antes de este cambio.
   if (!conCostumbre) for (let i = 0; i < 2; i++) marcarComentario(ctx);
+  const nota = conCostumbre ? costumbreParaLaIA(ctx, frase) : undefined;
   const inicio = performance.now();
   const r = await hablar({ ...datos, modelo }, datos.usuarioId, { texto: frase, clientId: crypto.randomUUID() });
   const ms = Math.round(performance.now() - inicio);
   const propuesto = r.acciones.map((a) => (a.argumentos as { comentario?: string } | undefined)?.comentario).find(Boolean);
-  return { ms, r, propuesto };
+  return { ms, r, propuesto, nota };
 }
 
 for (let rep = 0; rep < repeticiones; rep++) {
@@ -69,7 +71,7 @@ for (let rep = 0; rep < repeticiones; rep++) {
       tiempos.con.push(con.ms);
       if (con.propuesto) propuestos[grupo]++;
       if (con.r.comentario) comentados[grupo]++;
-      const nota = con.propuesto ? (con.r.comentario ? "dice" : "descartado") : "sin comentario";
+      const nota = `${con.nota ? "con nota" : "sin nota"}, ${con.propuesto ? (con.r.comentario ? "dice" : "descartado") : "sin comentario"}`;
       console.log(`${grupo.padEnd(8)} ${String(con.ms).padStart(5)} ms (sin costumbre ${String(sin.ms).padStart(5)} ms)  ${frase}  →  ${con.r.respuesta}  [${nota}${con.propuesto && !con.r.comentario ? `: ${con.propuesto}` : ""}]`);
     }
   }
