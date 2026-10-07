@@ -34,7 +34,7 @@ test("202 pendiente no sigue; /v1/entradas con la respuesta final sí", async ()
   const { pedir } = montar(async () => { await dormir(120); return "¿Cuál de los dos?"; });
   const r = await pedir("/v1/hablar", { texto: "borra el café", client_id: "seg-pend-0001" });
   console.log("hablar:", r.status, "seguir=", r.cuerpo.seguir, "esperar=", r.cuerpo.esperar);
-  expect(r.cuerpo.seguir).toBeUndefined();
+  expect(r.cuerpo.seguir).toBeUndefined(); expect(r.cuerpo.esperar).toBe(true);
   const e = await pedir("/v1/entradas/seg-pend-0001?esperar_ms=2000");
   console.log("entradas:", e.status, e.cuerpo.estado, "seguir=", e.cuerpo.seguir);
   expect(e.cuerpo.seguir).toBe(true);
