@@ -4,15 +4,21 @@ Un solo Atajo para registrar y preguntar. Le dices lo que sea ("gasté 85 en el 
 
 ## Instalarlo
 
-1. En el iPhone, abre la app de Finanzas (la que agregaste a la pantalla de inicio).
-2. Ve a **Ajustes** y toca **Instalar el Atajo en este iPhone**.
-3. Se abre la app Atajos con "Finanzas". Toca **Añadir atajo**.
+Con el enlace que imprime `bun run invitar -- --nombre Pedro --url https://TU-MAC --atajo` (`/instalar?codigo=...`), o desde la app en **Ajustes > Instalar el Atajo en este iPhone**:
 
-El enlace sirve una sola vez y dura 10 minutos; si se vence, vuelve a tocar el botón. Cada instalación crea un dispositivo "Atajo Finanzas" con su token, que puedes quitar desde Ajustes. Para cambiar de Mac o de dirección, instálalo de nuevo y borra el anterior.
+1. Toca **Instalar el Atajo** y luego **Descargar**.
+2. Abre la descarga desde el botón de descargas de Safari o desde **Archivos > Descargas**.
+3. Se abre Atajos con "Finanzas": toca **Agregar atajo**.
+
+Safari no le pasa el archivo a Atajos por su cuenta; por eso el paso 2. El archivo descargado dura 10 minutos en la Mac; si se vence, vuelve a tocar el botón. El código del enlace sirve una vez y, si la Mac no pudo firmar, sigue sirviendo. Cada instalación crea un dispositivo "Atajo Finanzas" con su token, que puedes quitar desde Ajustes; los que se prepararon y nunca se usaron se quitan solos al preparar uno nuevo.
 
 Necesita iCloud Drive encendido para Atajos (Ajustes > tu nombre > iCloud > iCloud Drive), porque ahí guarda los dictados antes de enviarlos.
 
 ## La primera vez
+
+Al abrirlo por primera vez te saluda por tu nombre y te pregunta si quieres que te cuente cómo funciona; si dices "sí", te explica en voz cómo registrar, preguntar y corregir. Luego guarda `Finanzas/bienvenida.txt` en iCloud Drive para no repetirlo, aunque reinstales el Atajo. Para volver a oír la bienvenida, borra ese archivo.
+
+Lee con la voz que tenga el iPhone para español de México. La más natural es la de Siri: Ajustes > Accesibilidad > Contenido leído > Voces > Español (México) > Siri. Sirve en cualquier iPhone con iOS 17 o más reciente, tenga o no Apple Intelligence. El Atajo no fija una voz porque, si no está descargada en ese iPhone, se quedaría callado.
 
 Córrelo una vez a mano desde la app Atajos para contestar los permisos. Aparecen al llegar a cada paso:
 

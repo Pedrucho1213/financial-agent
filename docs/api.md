@@ -79,5 +79,6 @@ Solo los movimientos en la moneda base entran en las sumas.
 
 | Método y ruta | Cuerpo | Respuesta |
 |---|---|---|
-| `POST /v1/atajo` | `{ servidor }` (la dirección con la que el iPhone llega a la Mac, por ejemplo `location.origin`) | 201 `{ url, expiraEn }`. Crea un dispositivo "Atajo" con su propio token y prepara el Atajo firmado. 501 si la Mac no puede firmar |
+| `POST /v1/atajo` | `{ servidor }` (la dirección con la que el iPhone llega a la Mac, por ejemplo `location.origin`) | 201 `{ url, expiraEn, nombre }`. Crea un dispositivo "Atajo Finanzas" con su propio token (y quita los anteriores que nunca se usaron) y prepara el Atajo firmado. 501 si la Mac no puede firmar |
+| `POST /v1/atajo/canjear` (pública) | `{ codigo, servidor }` con un código de dispositivo de una cuenta | 201 `{ url, expiraEn, nombre }`, igual que `POST /v1/atajo` pero sin token: es el enlace `/instalar?codigo=...`. 400 si el código es de cuenta nueva, 404, 410, 429; 501 si la Mac no puede firmar (el código sigue sirviendo) |
 | `GET /atajo/:id.shortcut` (pública, vale 10 minutos) | | El archivo `Finanzas.shortcut` firmado; el id es aleatorio y solo lo conoce quien pidió el Atajo |

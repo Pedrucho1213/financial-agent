@@ -261,6 +261,13 @@ describe("el Atajo", () => {
     expect(descarga.headers.get("content-disposition")).toContain("Finanzas.shortcut");
     expect(await descarga.text()).toBe("firmado");
     expect((await app.request("/atajo/no-existe.shortcut")).status).toBe(410);
+
+    // Pedirlo otra vez reemplaza al anterior que nunca se usó; el que ya se usó se queda.
+    await pedir("/v1/atajo", { cuerpo: { servidor: "https://mac.tu-red.ts.net" }, token });
+    await pedir("/v1/atajo", { cuerpo: { servidor: "https://mac.tu-red.ts.net" }, token });
+    const nombres = ((await pedir("/v1/yo", { token })).cuerpo.dispositivos as Json[]).map((d) => d.nombre).sort();
+    expect(nombres).toEqual(["Atajo Finanzas", "Atajo Finanzas", "iPhone"]);
+    expect((await pedir("/v1/yo", { token: tokenAtajo })).estado).toBe(200);
   });
 
   test("si la Mac no puede firmar, avisa y no deja un token suelto", async () => {
@@ -275,6 +282,62 @@ describe("el Atajo", () => {
     expect(r.estado).toBe(501);
     const yo = await pedir("/v1/yo", { token });
     expect(yo.cuerpo.dispositivos).toHaveLength(1);
+  });
+});
+
+describe("el enlace para instalar el Atajo", () => {
+  test("un código de dispositivo se vuelve el Atajo de esa cuenta, una sola vez", async () => {
+    let xmlRecibido = "";
+    const { db, pedir, app } = montar({
+      firmarAtajo: async (xml) => {
+        xmlRecibido = xml;
+        return new TextEncoder().encode("firmado");
+      },
+    });
+    const { token, usuario } = await entrar(pedir, db);
+    const { codigo } = crearInvitacion(db, { usuarioId: usuario.id });
+    const servidor = "https://mac.tu-red.ts.net";
+
+    const r = await pedir("/v1/atajo/canjear", { cuerpo: { codigo: codigo.toLowerCase(), servidor } });
+    expect(r.estado).toBe(201);
+    expect(r.cuerpo.nombre).toBe("Pedro");
+    expect(r.cuerpo.url).toMatch(/^\/atajo\/[0-9a-f-]+\.shortcut$/);
+    expect(xmlRecibido).toContain("¡Hola, Pedro!");
+    expect((await app.request(r.cuerpo.url)).status).toBe(200);
+    const dispositivos = (await pedir("/v1/yo", { token })).cuerpo.dispositivos as Json[];
+    expect(dispositivos.map((d) => d.nombre).sort()).toEqual(["Atajo Finanzas", "iPhone"]);
+
+    expect((await pedir("/v1/atajo/canjear", { cuerpo: { codigo, servidor } })).estado).toBe(410);
+    expect((await pedir("/v1/atajo/canjear", { cuerpo: { codigo: "ZZZZZZ", servidor } })).estado).toBe(404);
+    expect((await pedir("/v1/atajo/canjear", { cuerpo: { codigo } })).estado).toBe(400);
+  });
+
+  test("un código de cuenta nueva no instala el Atajo ni se gasta", async () => {
+    const { db, pedir } = montar({ firmarAtajo: async () => new TextEncoder().encode("firmado") });
+    const { codigo } = crearInvitacion(db);
+    const r = await pedir("/v1/atajo/canjear", { cuerpo: { codigo, servidor: "https://mac.tu-red.ts.net" } });
+    expect(r.estado).toBe(400);
+    expect(r.cuerpo.error).toContain("crear una cuenta");
+    expect((await pedir(`/v1/invitaciones/${codigo}`)).cuerpo).toEqual({ para: "usuario" });
+  });
+
+  test("si la Mac no puede firmar, el código sigue sirviendo y no queda un token suelto", async () => {
+    const { ErrorFirma } = await import("../src/atajo/generar");
+    let falla = true;
+    const { db, pedir } = montar({
+      firmarAtajo: async () => {
+        if (falla) throw new ErrorFirma("shortcuts no existe");
+        return new TextEncoder().encode("firmado");
+      },
+    });
+    const { token, usuario } = await entrar(pedir, db);
+    const { codigo } = crearInvitacion(db, { usuarioId: usuario.id });
+    const servidor = "https://mac.tu-red.ts.net";
+    expect((await pedir("/v1/atajo/canjear", { cuerpo: { codigo, servidor } })).estado).toBe(501);
+    expect((await pedir("/v1/yo", { token })).cuerpo.dispositivos).toHaveLength(1);
+    falla = false;
+    expect((await pedir("/v1/atajo/canjear", { cuerpo: { codigo, servidor } })).estado).toBe(201);
+    expect((await pedir("/v1/yo", { token })).cuerpo.dispositivos).toHaveLength(2);
   });
 });
 

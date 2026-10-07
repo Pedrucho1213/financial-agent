@@ -33,12 +33,12 @@ Revisa `apps/server/.env`. Por omisión el servidor escucha solo en `127.0.0.1:8
 
 ```bash
 bun run web:build                                   # compila la app (PWA) en apps/web/dist
-bun run invitar -- --nombre Pedro --url https://finanzas.tu-red.ts.net
+bun run invitar -- --nombre Pedro --url https://finanzas.tu-red.ts.net --atajo
 ```
 
-`invitar` crea tu cuenta si no existe e imprime un código de 6 caracteres y un enlace. Abre el enlace en Safari del iPhone: la app entra sola con el código y guarda su propio acceso. El código vence en 24 horas y sirve una sola vez; para otro iPhone o navegador corre el mismo comando, o genera un código desde Ajustes en la app.
+`invitar` crea tu cuenta si no existe e imprime un código de 6 caracteres y un enlace; con `--atajo`, también el enlace que instala el Atajo. Abre el enlace en Safari del iPhone: la app entra sola con el código y guarda su propio acceso. El código vence en 24 horas y sirve una sola vez; para otro iPhone o navegador corre el mismo comando, o genera un código desde Ajustes en la app.
 
-El Atajo "Finanzas" se instala desde la app (Ajustes > Instalar el Atajo en este iPhone): la Mac lo genera con su propio acceso y lo firma. Detalles en [atajo-finanzas.md](atajo-finanzas.md).
+El Atajo "Finanzas" se instala con ese enlace o desde la app (Ajustes > Instalar el Atajo en este iPhone): la Mac lo genera con su propio acceso y lo firma. Detalles en [atajo-finanzas.md](atajo-finanzas.md).
 
 Si solo quieres un token para probar con `curl`: `bun run setup -- --nombre Pedro --dispositivo "Pruebas"`.
 
