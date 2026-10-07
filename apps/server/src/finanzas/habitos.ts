@@ -123,9 +123,10 @@ export function habitos(ctx: Contexto, cats = listarCategorias(ctx.db, ctx.usuar
       const nombre = normalizar(r.nombre);
       const esCategoria = SIN_COMERCIO.test(nombre) || cats.some((c) => normalizar(c.nombre) === nombre);
       // Si después de darlo de alta se cobró otro monto (subió de precio), ese se propone en vez de anotarse.
+      // >=: los dos pueden quedar en el mismo milisegundo (un dictado que da de alta y cobra a la vez).
       const ultimo = ultimoDelComercio.get(normalizar(r.nombre));
       const cambio =
-        !!ultimo && ultimo.creadoEn > r.creadoEn && (ultimo.montoCentavos !== r.montoCentavos || ultimo.moneda !== r.moneda);
+        !!ultimo && ultimo.creadoEn >= r.creadoEn && (ultimo.montoCentavos !== r.montoCentavos || ultimo.moneda !== r.moneda);
       return {
         nombre: r.nombre,
         tipo,
