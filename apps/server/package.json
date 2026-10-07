@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "setup": "bun scripts/setup.ts",
     "eval": "bun eval/run.ts",
+    "eval:arranque": "bun eval/arranque.ts",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {

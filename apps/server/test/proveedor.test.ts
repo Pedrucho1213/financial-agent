@@ -7,7 +7,7 @@ import { buscarMovimientos } from "../src/finanzas/movimientos";
 import { preparar } from "./ayuda";
 
 // Servidor falso con el formato de /v1/chat/completions que exponen Ollama, LM Studio y Osaurus.
-const peticiones: { tools?: unknown[]; messages: { role: string }[]; reasoning_effort?: string }[] = [];
+const peticiones: { tools?: unknown[]; messages: { role: string }[]; reasoning_effort?: string; keep_alive?: string }[] = [];
 const servidor = Bun.serve({
   port: 0,
   async fetch(req) {
@@ -48,10 +48,24 @@ test("funciona con una API compatible con OpenAI", async () => {
   const deps = { db, modelo, zonaHoraria: "America/Mexico_City", monedaBase: "MXN" };
   const r = await hablar(deps, usuario.id, { texto: "gasté 85 en café", clientId: "dictado-proveedor" });
 
+  // Solo registró: la confirmación se arma con lo guardado, sin otra vuelta del modelo.
   expect(r.respuesta).toBe("Listo, café de $85.");
-  expect(peticiones).toHaveLength(2);
+  expect(peticiones).toHaveLength(1);
   expect(peticiones[0]?.tools).toHaveLength(9);
   expect(peticiones[0]?.reasoning_effort).toBe(config.ia.razonamiento);
+  // No es Ollama: no se le manda keep_alive.
+  expect(peticiones[0]?.keep_alive).toBeUndefined();
   const ctx = crearContexto({ ...deps, usuarioId: usuario.id });
   expect(buscarMovimientos(ctx, { periodo: "todo" }).movimientos[0]).toMatchObject({ monto: "$85", categoria: "Comida > Café" });
+});
+
+test("a Ollama le pide mantener cargado el modelo", async () => {
+  const { db, usuario } = preparar();
+  const ollamaUrl = `http://localhost:${servidor.port}`;
+  const modelo = crearModelo({ ...config.ia, url: `${ollamaUrl}/v1`, ollamaUrl, mantenerCargado: "7m" }, "falso");
+  await hablar({ db, modelo, zonaHoraria: "America/Mexico_City", monedaBase: "MXN" }, usuario.id, {
+    texto: "gasté 85 en café",
+    clientId: "dictado-keep-alive",
+  });
+  expect(peticiones.at(-1)?.keep_alive).toBe("7m");
 });

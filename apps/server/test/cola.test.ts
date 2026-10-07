@@ -35,8 +35,7 @@ function modeloFalso(
           intentos.set(dictado, (intentos.get(dictado) ?? 0) + 1);
         }
         await dormir(opciones.retrasoMs?.(dictado) ?? 0);
-        // Falla después de registrar, para comprobar que no quedan registros a medias.
-        if (!primerPaso && opciones.falla?.(dictado, intentos.get(dictado) ?? 0)) throw new Error("Ollama se cayó");
+        if (opciones.falla?.(dictado, intentos.get(dictado) ?? 0)) throw new Error("Ollama se cayó");
         if (!primerPaso) return texto("Listo.");
         if (dictado.includes("?")) return texto("Llevas $100.");
         const monto = Number(dictado.match(/\d+/)?.[0] ?? 1);
@@ -99,7 +98,7 @@ describe("cola de dictados", () => {
     const cuerpo = { texto: "café 60", client_id: "dictado-1001" };
     const respuestas = await Promise.all([hablar(cuerpo), hablar(cuerpo), hablar(cuerpo)]);
     expect(respuestas.map((r) => r.status)).toEqual([200, 200, 200]);
-    expect(new Set(respuestas.map((r) => r.cuerpo.respuesta))).toEqual(new Set(["Listo."]));
+    expect(new Set(respuestas.map((r) => r.cuerpo.respuesta))).toEqual(new Set(["Listo, café 60 de $60 en Café."]));
     expect(intentos.get("café 60")).toBe(1);
     expect(await montos()).toEqual([60]);
   });
@@ -127,7 +126,7 @@ describe("cola de dictados", () => {
     // El Atajo lo reenvía mientras sigue en proceso: otra vez 202, sin procesarlo de nuevo.
     expect((await hablar(cuerpo)).status).toBe(202);
     const final = await get(`/v1/entradas/dictado-3001?esperar_ms=2000`);
-    expect(final.cuerpo).toMatchObject({ estado: "listo", respuesta: "Listo." });
+    expect(final.cuerpo).toMatchObject({ estado: "listo", respuesta: "Listo, gasolina 800 de $800 en Gasolina." });
     expect(intentos.get("gasolina 800")).toBe(1);
     expect(await montos()).toEqual([800]);
     expect((await hablar(cuerpo)).cuerpo.duplicado).toBe(true);
@@ -163,7 +162,7 @@ describe("cola de dictados", () => {
     const final = await esperarFin("dictado-6001");
     // Entre el fallo y el reintento la entrada queda en "error" un momento.
     const definitivo = final.estado === "error" ? await (async () => (await dormir(40), esperarFin("dictado-6001")))() : final;
-    expect(definitivo).toMatchObject({ estado: "listo", respuesta: "Listo." });
+    expect(definitivo).toMatchObject({ estado: "listo", respuesta: "Listo, luz 450 de $450 en Luz." });
     expect(intentos.get("luz 450")).toBe(2);
     expect(await montos()).toEqual([450]);
   });
