@@ -70,19 +70,23 @@ La primera vez, macOS pregunta si `bun` puede acceder a la carpeta Documentos (a
 
 El actualizador (`ops/auto-actualizar.sh`) instala lo nuevo de `main` sin que tengas que dejar de usar el asistente:
 
-1. Prueba la versión nueva en una copia aparte (`bun install`, tipos y pruebas). Si falla, se queda con la actual y no vuelve a intentar esa versión.
-2. Espera a que pasen 2 minutos sin dictados y sin nada a medias. Si en una hora no hay un rato así, instala de todos modos: al reiniciarse, el servidor termina lo que tiene en curso y retoma al arrancar lo que no alcanzó. Los enlaces para descargar el Atajo se guardan en la base, así que tampoco se pierden.
-3. Respalda la base en `apps/server/datos/respaldos/` (guarda los últimos 10).
-4. Instala con `ops/actualizar.sh`. Si el servidor no responde, regresa a la versión anterior.
+1. Espera a que la CI de GitHub esté en verde para esa versión (tipos, pruebas y la app en un navegador). Si está en rojo, no la instala y lo vuelve a revisar cada 5 minutos, por si se corrige. Si GitHub no contesta, o la versión no tiene CI después de 15 minutos, sigue con el paso 2.
+2. Prueba la versión nueva en una copia aparte (`bun install`, tipos y pruebas). Si fallan los tipos o las pruebas, se queda con la actual y no vuelve a intentar esa versión; si lo que falla es descargar las dependencias (por ejemplo, sin red), lo reintenta en la siguiente vuelta.
+3. Espera a que pasen 2 minutos sin dictados y sin nada a medias. Si en una hora no hay un rato así, instala de todos modos: al reiniciarse, el servidor termina lo que tiene en curso y retoma al arrancar lo que no alcanzó. Los enlaces para descargar el Atajo se guardan en la base, así que tampoco se pierden.
+4. Instala exactamente la versión que probó con `ops/actualizar.sh`. Si la versión trae migraciones, el servidor respalda la base al arrancar, justo antes de migrar (ver Respaldo).
+5. Si la app no compila o el servidor no responde, regresa el código a la versión anterior (sin pisar cambios hechos a mano) y no vuelve a intentar esa versión. La base solo se regresa al respaldo si la versión nueva la migró y la anterior ya no arranca con ella; la base que dejó la versión nueva no se borra, queda en `respaldos/despues-de-<versión>-<fecha>/`.
 
 Solo actualiza si el repositorio está en `main` y sin cambios locales; si no, lo anota una vez en `logs/actualizador.log` y espera. Para instalar ya, sin esperar el rato sin uso: `./ops/auto-actualizar.sh --ya`.
 
 Para instalar a mano lo último de una rama, con pruebas, compilación de la app y reinicio incluidos:
 
 ```bash
-./ops/actualizar.sh          # main
+./ops/actualizar.sh               # main
 ./ops/actualizar.sh otra-rama
+./ops/actualizar.sh main abc1234  # solo hasta ese commit
 ```
+
+Si algo falla, sale con 10 (git), 11 (dependencias), 12 (pruebas), 13 (compilar la app) o 14 (el servidor no respondió con la versión nueva).
 
 ## 7. Acceso desde el iPhone con Tailscale
 
@@ -102,7 +106,7 @@ En el iPhone, con Tailscale encendido, abre esa dirección agregando `/salud`: s
 
 ## Respaldo
 
-La base es un solo archivo. El actualizador la respalda antes de cada instalación en `apps/server/datos/respaldos/`. Para un respaldo a mano:
+La base es un solo archivo. Cada vez que el servidor arranca con migraciones pendientes, primero la copia a `apps/server/datos/respaldos/antes-migrar-<fecha>.db` (junto a la base, si `BASE_DATOS` apunta a otro lado) y guarda las últimas 10; si no puede copiarla, no migra ni arranca. Para un respaldo a mano:
 
 ```bash
 sqlite3 apps/server/datos/finanzas.db ".backup '$HOME/Documents/finanzas-respaldo.db'"

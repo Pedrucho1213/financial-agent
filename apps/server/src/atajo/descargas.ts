@@ -41,6 +41,7 @@ export async function guardarDescarga(db: Db, usuarioId: string, archivo: Uint8A
  * última, el enlace se borra. Sin `contar` (un HEAD) solo revisa que exista.
  */
 export async function tomarDescarga(db: Db, id: string, maximo: number, contar: boolean): Promise<Uint8Array | undefined> {
+  limpiarDescargas(db);
   const idHash = hashToken(id);
   const vigente = and(eq(descargasAtajo.idHash, idHash), gt(descargasAtajo.expiraEn, ahora()), lt(descargasAtajo.descargas, maximo));
   const fila = contar
