@@ -44,7 +44,7 @@ export const NOMBRE_MAX = 40;
 export class ErrorCuenta extends Error {
   constructor(
     message: string,
-    readonly estado: 400 | 401 | 409,
+    readonly estado: 400 | 401 | 403 | 409,
   ) {
     super(message);
   }
@@ -91,16 +91,26 @@ function esObvio(codigo: string): boolean {
   return ["contrasena", "contraseña", "password", "qwertyui", "asdfghjk", "finanzas"].some((p) => sinEspacios.includes(p));
 }
 
-export function validarCodigoPersonal(codigo: string): string {
+/** Lo primero que alguien prueba sabiendo de quién es la cuenta: "pedro2026", "pedropedro". */
+function llevaSuNombre(codigo: string, cuenta: { usuario?: string | null; nombre?: string }): boolean {
+  const plano = sinAcentos(codigo).replace(/ /g, "");
+  const piezas = [cuenta.usuario ?? "", ...(cuenta.usuario ?? "").split(/[._-]/), ...(cuenta.nombre ?? "").split(/\s+/)];
+  return piezas.map(normalizarUsuario).some((pieza) => pieza.length >= 3 && plano.includes(pieza));
+}
+
+/** El código listo para guardar, o ErrorCuenta 400 si es corto, largo o fácil de adivinar para esa cuenta. */
+export function validarCodigoPersonal(codigo: string, cuenta: { usuario?: string | null; nombre?: string } = {}): string {
   const limpio = normalizarCodigoPersonal(codigo);
   if ([...limpio].length < CODIGO_MIN) throw new ErrorCuenta(`El código necesita al menos ${CODIGO_MIN} caracteres.`, 400);
   if ([...limpio].length > CODIGO_MAX) throw new ErrorCuenta(`El código puede tener hasta ${CODIGO_MAX} caracteres.`, 400);
   if (esObvio(limpio)) throw new ErrorCuenta("Ese código es muy fácil de adivinar. Elige otro.", 400);
+  if (llevaSuNombre(limpio, cuenta)) throw new ErrorCuenta("El código no puede llevar tu usuario ni tu nombre. Elige otro.", 400);
   return limpio;
 }
 
-export async function ponerCodigo(db: Db, usuarioId: string, codigo: string) {
-  const hash = await Bun.password.hash(validarCodigoPersonal(codigo), { algorithm: "argon2id" });
+/** Guarda un código ya validado con validarCodigoPersonal. */
+export async function ponerCodigo(db: Db, usuarioId: string, codigoValidado: string) {
+  const hash = await Bun.password.hash(codigoValidado, { algorithm: "argon2id" });
   db.update(usuarios).set({ codigoHash: hash }).where(eq(usuarios.id, usuarioId)).run();
 }
 
@@ -108,15 +118,59 @@ export function quitarCodigo(db: Db, usuarioId: string) {
   db.update(usuarios).set({ codigoHash: null }).where(eq(usuarios.id, usuarioId)).run();
 }
 
+/**
+ * Para cambiar o quitar el código, o cambiar el usuario, hace falta el código actual: con solo un token
+ * (que pudo salir de un Atajo compartido) no se puede tomar la cuenta. ErrorCuenta 403 si no coincide
+ * (no 401, que en la app cierra la sesión).
+ */
+export async function comprobarCodigoActual(cuenta: { codigoHash: string | null }, actual: string) {
+  const coincide = cuenta.codigoHash
+    ? await Bun.password.verify(normalizarCodigoPersonal(actual), cuenta.codigoHash).catch(() => false)
+    : true;
+  if (!coincide) throw new ErrorCuenta("Ese no es tu código actual.", 403);
+}
+
+/** Revoca todos los dispositivos de la cuenta menos este. Devuelve cuántos. */
+export function cerrarOtrosDispositivos(db: Db, usuarioId: string, excepto: string): number {
+  return db
+    .update(dispositivos)
+    .set({ revocadoEn: new Date().toISOString() })
+    .where(and(eq(dispositivos.usuarioId, usuarioId), isNull(dispositivos.revocadoEn), ne(dispositivos.id, excepto)))
+    .returning({ id: dispositivos.id })
+    .all().length;
+}
+
+/**
+ * El nombre con el que lo saludan la voz, la IA y la app: letras, espacios, punto, apóstrofo y guion.
+ * Entra al prompt de la IA, así que nada de caracteres de control ni de dirección del texto.
+ */
+export function validarNombre(texto: string): string {
+  const nombre = texto.normalize("NFC").trim().replace(/\s+/g, " ");
+  if (!nombre) throw new ErrorCuenta("Escribe tu nombre.", 400);
+  if ([...nombre].length > NOMBRE_MAX) throw new ErrorCuenta(`El nombre puede tener hasta ${NOMBRE_MAX} caracteres.`, 400);
+  if (!/^[\p{L}\p{M}][\p{L}\p{M} .'’-]*$/u.test(nombre)) {
+    throw new ErrorCuenta("El nombre solo puede llevar letras, espacios, punto, apóstrofo o guion.", 400);
+  }
+  return nombre;
+}
+
+/** Un nombre guardado antes de validarlos, listo para el prompt: sin lo que validarNombre no deja. */
+export const nombreSeguro = (texto: string) =>
+  [
+    ...texto
+      .normalize("NFC")
+      .replace(/[^\p{L}\p{M} .'’-]/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim(),
+  ]
+    .slice(0, NOMBRE_MAX)
+    .join("")
+    .trim();
+
 /** Cambia el nombre de saludo o el usuario para entrar. */
 export function cambiarCuenta(db: Db, usuarioId: string, cambios: { nombre?: string; usuario?: string }) {
   const nuevo: { nombre?: string; usuario?: string } = {};
-  if (cambios.nombre !== undefined) {
-    const nombre = cambios.nombre.trim().replace(/\s+/g, " ");
-    if (!nombre) throw new ErrorCuenta("Escribe tu nombre.", 400);
-    if ([...nombre].length > NOMBRE_MAX) throw new ErrorCuenta(`El nombre puede tener hasta ${NOMBRE_MAX} caracteres.`, 400);
-    nuevo.nombre = nombre;
-  }
+  if (cambios.nombre !== undefined) nuevo.nombre = validarNombre(cambios.nombre);
   if (cambios.usuario !== undefined) {
     const usuario = normalizarUsuario(cambios.usuario);
     if (usuario.length < USUARIO_MIN || usuario.length > USUARIO_MAX || !/^[a-z0-9]/.test(usuario)) {
@@ -254,8 +308,12 @@ export function canjearInvitacion(
     }
     let usuario = fila.usuarioId ? tx.select().from(usuarios).where(eq(usuarios.id, fila.usuarioId)).get() : undefined;
     if (!usuario) {
-      const nombre = datos.nombre?.trim();
-      if (!nombre) throw new ErrorInvitacion("Escribe tu nombre.", 400);
+      let nombre: string;
+      try {
+        nombre = validarNombre(datos.nombre ?? "");
+      } catch (error) {
+        throw new ErrorInvitacion((error as Error).message, 400);
+      }
       usuario = crearUsuario(tx as unknown as Db, nombre);
       sembrarCategorias(tx as unknown as Db, usuario.id);
     }
