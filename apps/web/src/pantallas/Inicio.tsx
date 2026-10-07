@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { agruparCategorias } from "../components/graficas/colores";
+import { Accesos } from "../components/Accesos";
+import { Avisos } from "../components/Avisos";
 import { construirDestacados, Destacados } from "../components/Destacados";
 import { NumeroAnimado } from "../components/NumeroAnimado";
 import { Pantalla } from "../components/Pantalla";
@@ -20,7 +22,7 @@ import { Skeleton } from "../components/ui/skeleton";
 import { mensajeDeError } from "../lib/api";
 import { IconoCategoria } from "../lib/categorias";
 import { useEnLinea } from "../lib/conexion";
-import { useGastoPorDia, useTablero, useYo } from "../lib/consultas";
+import { abrirDetalle, useGastoPorDia, useTablero, useYo } from "../lib/consultas";
 import { abrirEditor } from "../lib/editor";
 import {
   aFecha,
@@ -133,6 +135,8 @@ function Tablero({ t, esMesActual }: { t: Tablero; esMesActual: boolean }) {
           </Grupo>
         ) : null}
 
+        {esMesActual ? <Avisos /> : null}
+
         <Gastado t={t} esMesActual={esMesActual} ritmo={ritmo} />
 
         <div className="grid grid-cols-2 gap-3">
@@ -158,6 +162,8 @@ function Tablero({ t, esMesActual }: { t: Tablero; esMesActual: boolean }) {
           </section>
         </div>
       </div>
+
+      {esMesActual ? <Accesos mes={t.mes} moneda={moneda} /> : null}
 
       <Destacados key={`d-${t.mes}`} items={destacados} enLinea={enLinea} />
 
@@ -185,7 +191,7 @@ function Tablero({ t, esMesActual }: { t: Tablero; esMesActual: boolean }) {
                 titulo={m.comercio ?? m.descripcion ?? m.categoria ?? "Gasto"}
                 subtitulo={`${diaCorto(m.fecha)}${m.categoria ? ` · ${m.categoria.split(">").pop()?.trim()}` : ""}`}
                 valor={<span className="font-medium text-foreground tabular">{dinero(m.montoCentavos, m.moneda)}</span>}
-                onClick={() => abrirEditor(m)}
+                onClick={() => abrirDetalle(m)}
               />
             ))}
           </Grupo>

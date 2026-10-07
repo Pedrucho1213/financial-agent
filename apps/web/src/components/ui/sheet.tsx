@@ -145,7 +145,7 @@ export function SheetContent({
         ref={hoja}
         data-slot="sheet"
         className={cn(
-          "fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[calc(100dvh-env(safe-area-inset-top)-12px)] w-full max-w-lg flex-col rounded-t-[14px] bg-background shadow-[0_-8px_40px_rgb(0_0_0/0.18)] outline-none will-change-transform",
+          "fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[calc(100dvh-env(safe-area-inset-top)-12px)] w-full max-w-lg flex-col rounded-t-[26px] bg-background shadow-[0_-8px_40px_rgb(0_0_0/0.18)] outline-none will-change-transform",
           "data-[state=closed]:animate-bajar data-[state=open]:animate-subir",
           className,
         )}

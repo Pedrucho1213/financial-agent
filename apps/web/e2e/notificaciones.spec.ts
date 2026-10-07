@@ -3,6 +3,21 @@ import { runInNewContext } from "node:vm";
 import { expect, test } from "@playwright/test";
 import { CLAVE_PUSH, comoAppDeInicio, conPushFalso, prepararSesion } from "./api-falsa";
 
+test.describe("Tocar una notificación con la app abierta", () => {
+  test("el aviso del service worker lleva al editor del pago de Apple Pay", async ({ page }) => {
+    const api = await prepararSesion(page);
+    const pemex = api.movimientos.find((m) => m.comercio === "Pemex")!;
+    await page.goto("/#ajustes");
+    await expect(page.getByRole("switch", { name: "Notificaciones" })).toBeVisible();
+    // Lo que manda public/sw-push.js en notificationclick cuando la app ya está abierta.
+    await page.evaluate((url) => {
+      navigator.serviceWorker.dispatchEvent(new MessageEvent("message", { data: { tipo: "fa:abrir", url } }));
+    }, `${new URL(page.url()).origin}/#movimientos?detalle=${pemex.id}&editar=1`);
+    await expect(page).toHaveURL(new RegExp(`#movimientos\\?detalle=${pemex.id}&editar=1$`));
+    await expect(page.getByRole("dialog").getByRole("heading", { name: "Movimiento" })).toBeVisible();
+  });
+});
+
 test.describe("Notificaciones en Ajustes", () => {
   test("en una pestaña de Safari pide abrir la app desde la pantalla de inicio", async ({ page }) => {
     await prepararSesion(page);

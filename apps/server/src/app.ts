@@ -49,11 +49,12 @@ import { montosParaVoz } from "./lib/dinero";
 import { hostsDeLaPeticion, ipDelCliente, LimiteIntentos } from "./lib/limites";
 import { montosDelTexto } from "./lib/numeros";
 import { esOrdenSobreLoAnotado, esPregunta } from "./lib/texto";
-import { and, eq, gte } from "drizzle-orm";
+import { and, count, eq, gte } from "drizzle-orm";
 import { avisoDeDictado, conversacionPorContestar } from "./push/dictados";
 import { desuscribir, type EnviarPush, ErrorSuscripcion, estadoPush, notificar, suscribir, tienePush } from "./push/notificaciones";
 import { rutasPlanes } from "./rutas-planes";
 import { servirApp } from "./web";
+import type { EstadoIa } from "./ai/modelo";
 
 export type OpcionesApp = Dependencias & {
   /** Precarga el modelo de IA con las instrucciones del usuario; en pruebas no hace nada. */
@@ -71,6 +72,10 @@ export type OpcionesApp = Dependencias & {
   enviarPush?: EnviarPush;
   /** mailto: o https: que se le da al servicio de push. Sin valor, la dirección pública del servidor. */
   contactoPush?: string;
+  /** Para "Estado del sistema" en Ajustes: cómo está la IA. Sin esto se reporta como no disponible. */
+  estadoIa?: () => Promise<EstadoIa>;
+  /** Qué versión del código corre (commit y su fecha), para saber qué está desplegado. */
+  version?: { commit: string | null; commitEn: string | null };
   /** Límites del código personal; las pruebas los bajan para no verificar cien veces con argon2. */
   limitesCodigo?: Partial<{ fallosPorUsuarioIp: number; fallosPorUsuario: number; verificandoALaVez: number }>;
 };
@@ -210,7 +215,9 @@ const POLITICA_CONTENIDO = {
   defaultSrc: ["'self'"],
   scriptSrc: ["'self'"],
   styleSrc: ["'self'", "'unsafe-inline'"],
-  imgSrc: ["'self'", "data:", "blob:"],
+  // Mosaicos del mapa de dónde gastas (CARTO), solo si el usuario enciende "Mostrar calles": CARTO
+  // ve qué zonas del mapa se miran (no los gastos). Apagado por omisión.
+  imgSrc: ["'self'", "data:", "blob:", "https://*.basemaps.cartocdn.com"],
   fontSrc: ["'self'", "data:"],
   connectSrc: ["'self'"],
   manifestSrc: ["'self'"],
@@ -258,6 +265,7 @@ const datosDeCuenta = (u: typeof usuarios.$inferSelect) => ({
 
 export function crearApp(opciones: OpcionesApp) {
   const { db } = opciones;
+  const arrancadoEn = new Date().toISOString();
   limpiarDescargas(db);
   const app = new Hono<{ Variables: VariablesAuth }>();
   const intentos = new LimiteIntentos(VENTANA_INTENTOS_MS, MAX_INTENTOS_POR_IP, MAX_INTENTOS_TOTAL);
@@ -844,6 +852,17 @@ export function crearApp(opciones: OpcionesApp) {
     return c.json(movimientoApp(ctx, obtenerPropio(ctx, creado.id)), 201);
   });
 
+  // Detalle de un registro (la PWA lo abre al tocar una notificación).
+  v1.get("/movimientos/:id", (c) => {
+    const ctx = contexto(c.get("usuarioId"));
+    try {
+      return c.json(movimientoApp(ctx, obtenerPropio(ctx, c.req.param("id"))));
+    } catch (error) {
+      if (error instanceof ErrorFinanzas) return c.json({ error: "No existe ese movimiento." }, 404);
+      throw error;
+    }
+  });
+
   v1.patch("/movimientos/:id", async (c) => {
     const cuerpo = esquemaEdicion.safeParse(await c.req.json().catch(() => null));
     if (!cuerpo.success) {
@@ -870,6 +889,25 @@ export function crearApp(opciones: OpcionesApp) {
   });
 
   v1.post("/deshacer", (c) => c.json(deshacer(contexto(c.get("usuarioId")))));
+
+  // Ajustes > Sistema: qué versión corre, desde cuándo, si la IA está lista y si hay dictados atorados.
+  v1.get("/estado", async (c) => {
+    const usuarioId = c.get("usuarioId");
+    // Solo la última semana: un error viejo ya no dice nada del estado de hoy.
+    const desde = new Date(Date.now() - 7 * 86_400_000).toISOString();
+    const contar = (estado: "procesando" | "error") =>
+      db
+        .select({ n: count() })
+        .from(entradas)
+        .where(and(eq(entradas.usuarioId, usuarioId), eq(entradas.estado, estado), gte(entradas.creadoEn, desde)))
+        .get()?.n ?? 0;
+    const ia = (await opciones.estadoIa?.().catch(() => null)) ?? { modelo: "", disponible: false, cargada: false };
+    return c.json({
+      servidor: { commit: opciones.version?.commit ?? null, commitEn: opciones.version?.commitEn ?? null, arrancadoEn },
+      ia,
+      cola: { pendientes: contar("procesando"), conError: contar("error") },
+    });
+  });
 
   v1.get("/tablero", (c) => c.json(tablero(contexto(c.get("usuarioId")), c.req.query("mes") || undefined)));
 

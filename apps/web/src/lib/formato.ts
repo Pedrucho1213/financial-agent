@@ -154,3 +154,14 @@ export const TIPOS: Record<string, string> = {
   transferencia: "Traspaso",
   pago_tarjeta: "Pago de tarjeta",
 };
+
+/** "1,234.5" o "85,50" -> 1234.5 / 85.5; null si no es un monto mayor que cero. */
+export function leerMonto(texto: string): number | null {
+  let t = texto.replace(/[^\d.,]/g, "");
+  if (!t) return null;
+  // Una coma seguida de 1 o 2 dígitos al final es decimal; si no, separa miles.
+  if (/,\d{1,2}$/.test(t) && !t.includes(".")) t = t.replace(",", ".");
+  t = t.replace(/,/g, "");
+  const n = Number(t);
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+}

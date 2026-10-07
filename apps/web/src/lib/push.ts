@@ -112,19 +112,3 @@ export async function soltarPush(): Promise<void> {
   ]);
   await (await suscripcionActual().catch(() => null))?.unsubscribe().catch(() => false);
 }
-
-/**
- * Al tocar una notificación con la app ya abierta, el service worker manda la ruta (public/sw-push.js)
- * y la app cambia de pantalla sin recargarse.
- */
-export function escucharNotificaciones(abrir: (hash: string) => void): () => void {
-  if (!("serviceWorker" in navigator)) return () => {};
-  const alMensaje = (e: MessageEvent) => {
-    const datos = e.data as { tipo?: string; url?: string } | null;
-    if (datos?.tipo !== "fa:abrir" || typeof datos.url !== "string") return;
-    const url = new URL(datos.url, window.location.origin);
-    if (url.origin === window.location.origin) abrir(url.hash || "#inicio");
-  };
-  navigator.serviceWorker.addEventListener("message", alMensaje);
-  return () => navigator.serviceWorker.removeEventListener("message", alMensaje);
-}
