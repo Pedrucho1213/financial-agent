@@ -44,6 +44,8 @@ export type Dependencias = {
   monedaBase: string;
   /** Pausas entre reintentos de un dictado que falló en segundo plano. */
   reintentosMs?: number[];
+  /** Cuántos usuarios atiende la IA a la vez (OLLAMA_NUM_PARALLEL). Por omisión, uno. */
+  paralelo?: number;
 };
 
 export type OpcionesHablar = {
@@ -134,12 +136,34 @@ function limpiarParaVoz(texto: string): string {
     .trim();
 }
 
-// La IA corre en una sola Mac: los dictados se procesan de uno en uno y en orden de llegada.
-// Así "deshaz eso" siempre va después de lo que deshace y nunca hay dos modelos cargados a la vez.
-let cola: Promise<unknown> = Promise.resolve();
-function enCola<T>(trabajo: () => Promise<T>): Promise<T> {
-  const resultado = cola.then(trabajo, trabajo);
-  cola = resultado.catch(() => {});
+// Los dictados de cada usuario se procesan de uno en uno y en orden de llegada: así "deshaz eso"
+// siempre va después de lo que deshace. Los de usuarios distintos (o un pago de Apple Pay mientras
+// dictas) pueden ir a la vez, hasta `paralelo`, que debe coincidir con OLLAMA_NUM_PARALLEL.
+const colasPorUsuario = new Map<string, Promise<unknown>>();
+let ocupados = 0;
+const esperandoLugar: (() => void)[] = [];
+
+async function conLugar<T>(paralelo: number, trabajo: () => Promise<T>): Promise<T> {
+  // Al terminar, el lugar pasa directo al siguiente que espera: nadie que llegue después se le adelanta.
+  if (ocupados >= paralelo) await new Promise<void>((listo) => esperandoLugar.push(listo));
+  else ocupados++;
+  try {
+    return await trabajo();
+  } finally {
+    const siguiente = esperandoLugar.shift();
+    if (siguiente) siguiente();
+    else ocupados--;
+  }
+}
+
+function enCola<T>(deps: Dependencias, usuarioId: string, trabajo: () => Promise<T>): Promise<T> {
+  const enLugar = () => conLugar(Math.max(1, deps.paralelo ?? 1), trabajo);
+  const resultado = (colasPorUsuario.get(usuarioId) ?? Promise.resolve()).then(enLugar, enLugar);
+  const fin = resultado.catch(() => {});
+  colasPorUsuario.set(usuarioId, fin);
+  fin.then(() => {
+    if (colasPorUsuario.get(usuarioId) === fin) colasPorUsuario.delete(usuarioId);
+  });
   return resultado;
 }
 
@@ -233,7 +257,7 @@ const exitosPorBase = new WeakMap<Db, number>();
 const exitos = (db: Db) => exitosPorBase.get(db) ?? 0;
 
 function encolar(deps: Dependencias, entrada: Entrada, intento = 0, exitosAlFallar?: number): Promise<Respuesta> {
-  const trabajo = enCola(() => procesar(deps, entrada));
+  const trabajo = enCola(deps, entrada.usuarioId, () => procesar(deps, entrada));
   enCurso.set(entrada.id, trabajo);
   trabajo.then(
     () => {
@@ -297,13 +321,13 @@ const precalentados = new Map<string, { desde: number; trabajo: Promise<unknown>
 /**
  * Carga el modelo y deja procesadas las instrucciones y herramientas del usuario, que son iguales
  * en cada dictado: Ollama reutiliza ese prefijo y el primer dictado solo procesa la frase nueva.
- * Va por la misma cola para no competir con un dictado que ya está en curso.
+ * Va por la cola del usuario para no competir con un dictado suyo que ya está en curso.
  */
 export function precalentar(deps: Dependencias, usuarioId: string): Promise<unknown> {
   // Si el Atajo se abre varias veces seguidas, basta con un precalentado.
   const previo = precalentados.get(usuarioId);
   if (previo && Date.now() - previo.desde < PRECALENTADO_VIGENTE_MS) return previo.trabajo;
-  const trabajo = enCola(async () => {
+  const trabajo = enCola(deps, usuarioId, async () => {
     const ctx = crearContexto({ db: deps.db, usuarioId, zonaHoraria: deps.zonaHoraria, monedaBase: deps.monedaBase });
     // Las mismas definiciones, pero sin poder ejecutar nada.
     const herramientas = Object.fromEntries(
