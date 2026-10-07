@@ -209,11 +209,33 @@ describe("API", () => {
   });
 
   test("si insiste en confirmar sin guardar, avisa que no guardó nada", async () => {
-    const { hablar, get, modelo } = montar([texto("Listo, anotado."), texto("Listo, guardado.")]);
+    const { hablar, get, modelo } = montar([texto("Listo, anotado."), texto("Listo, no te preocupes, ya quedó guardado.")]);
     const r = (await (await hablar({ texto: "gasté 300 en tacos", client_id: "dictado-0008" })).json()) as { respuesta: string };
     expect(r.respuesta).toBe("No alcancé a guardar nada. ¿Me lo repites?");
     expect(modelo.doGenerateCalls).toHaveLength(2);
     expect(((await (await get("/v1/movimientos")).json()) as { total: number }).total).toBe(0);
+  });
+
+  test("sin registros, '¿cuánto he gastado?' contesta lo que encontró y no 'no alcancé a guardar'", async () => {
+    for (const frase of ["Cuánto he gastado hasta el momento", "¿Cuánto llevo gastado este mes?"]) {
+      const { hablar, modelo } = montar([llamada("consultar_gastos", { periodo: "este_mes" }), texto("Aún no tienes gastos registrados.")]);
+      const r = (await (await hablar({ texto: frase, client_id: "dictado-0012" })).json()) as { respuesta: string };
+      expect(r.respuesta).toBe("Aún no tienes gastos registrados.");
+      expect(modelo.doGenerateCalls).toHaveLength(2);
+    }
+  });
+
+  test("una pregunta que el modelo contesta sin consultar solo se cree si no hay registros", async () => {
+    const vacio = montar([texto("No tienes gastos registrados."), texto("No tienes gastos registrados.")]);
+    const r = (await (await vacio.hablar({ texto: "cuánto he gastado", client_id: "dictado-0013" })).json()) as { respuesta: string };
+    expect(r.respuesta).toBe("No tienes gastos registrados.");
+
+    const conDatos = montar([texto("No tienes gastos registrados."), texto("No tienes gastos registrados.")]);
+    const usuarioId = conDatos.db.select().from(usuarios).get()!.id;
+    const ctx = crearContexto({ db: conDatos.db, usuarioId, zonaHoraria: "America/Mexico_City", monedaBase: "MXN" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Restaurantes", comercio: "Starbucks" });
+    const r2 = (await (await conDatos.hablar({ texto: "cuánto he gastado", client_id: "dictado-0014" })).json()) as { respuesta: string };
+    expect(r2.respuesta).toBe("No alcancé a revisar tus movimientos. ¿Me lo preguntas otra vez?");
   });
 
   test("la charla sin montos no se reintenta", async () => {
