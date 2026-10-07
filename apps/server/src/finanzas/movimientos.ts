@@ -214,7 +214,7 @@ export function crearMovimiento(ctx: Contexto, datos: DatosMovimiento) {
       lat: ctx.ubicacion?.lat,
       lon: ctx.ubicacion?.lon,
       lugar: ctx.ubicacion?.lugar,
-      origen: datos.origen,
+      origen: datos.origen ?? ctx.origen,
       textoOriginal: ctx.textoOriginal,
       entradaId: ctx.entradaId,
       // Una fecha que no entendimos o que aún no llega ("20 de octubre" dicho el 6) se marca para revisar.

@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
+import { AjustesNotificaciones } from "../components/AjustesNotificaciones";
 import { CodigoGrande } from "../components/CasillasCodigo";
 import { Pantalla } from "../components/Pantalla";
 import { PasosDescarga, ReintentarDescarga } from "../components/PasosAtajo";
@@ -53,6 +54,7 @@ import {
   useQuitarCodigo,
 } from "../lib/cuenta";
 import { fechaHora, haceCuanto } from "../lib/formato";
+import { soltarPush } from "../lib/push";
 import { cerrarSesion } from "../lib/sesion";
 import type { AtajoPreparado, Dispositivo, InvitacionCreada } from "../lib/tipos";
 import { CampoSecreto } from "./Entrar";
@@ -314,7 +316,7 @@ export function Ajustes() {
           )}
         </Grupo>
 
-        {/* Aquí va <AjustesNotificaciones /> (lo agrega otro hilo). */}
+        <AjustesNotificaciones />
 
         <Sistema estado={estado} />
 
@@ -363,7 +365,10 @@ export function Ajustes() {
             : "Para volver a entrar en este dispositivo necesitarás un código de invitación."
         }
         confirmar="Cerrar sesión"
-        onConfirmar={cerrarSesion}
+        onConfirmar={async () => {
+          await soltarPush();
+          cerrarSesion();
+        }}
       />
     </Pantalla>
   );

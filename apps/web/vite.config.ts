@@ -41,6 +41,8 @@ export default defineConfig({
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [SOLO_RED, /^\/salud$/],
         cleanupOutdatedCaches: true,
+        // Recibe las notificaciones push y abre la pantalla de cada una (public/sw-push.js).
+        importScripts: ["/sw-push.js"],
         // /atajo/* no tiene ninguna ruta a propósito: si el service worker responde la descarga
         // (aunque sea con NetworkOnly), Safari la guarda como "Finanzas.shortcut.html" y iOS
         // ya no la abre en Atajos. Sin ruta, el navegador la descarga por su cuenta.

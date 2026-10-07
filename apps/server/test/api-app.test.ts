@@ -301,6 +301,25 @@ describe("el Atajo", () => {
     expect((await otra.request("/atajo/00000000-0000-4000-8000-000000000000.shortcut")).status).toBe(410);
   });
 
+  test("el de Apple Pay baja con su nombre y su propio dispositivo", async () => {
+    let xmlRecibido = "";
+    const { db, pedir, app } = montar({
+      firmarAtajo: async (xml) => ((xmlRecibido = xml), new TextEncoder().encode("firmado")),
+    });
+    const { token } = await entrar(pedir, db);
+    const r = await pedir("/v1/atajo", { cuerpo: { servidor: "https://mac.tu-red.ts.net", tipo: "apple_pay" }, token });
+    expect(r.estado).toBe(201);
+    expect(r.cuerpo.url).toMatch(/^\/atajo\/[0-9a-f-]+\.applepay\.shortcut$/);
+    expect(xmlRecibido).toContain("apple_pay");
+    const descarga = await app.request(r.cuerpo.url);
+    expect(descarga.status).toBe(200);
+    expect(descarga.headers.get("content-disposition")).toContain("filename*=UTF-8''Finanzas%20Apple%20Pay.shortcut");
+    // Sin el sufijo es el mismo enlace, con el nombre del otro Atajo: el id es lo que cuenta.
+    expect((await app.request(r.cuerpo.url.replace(".applepay", ""))).status).toBe(200);
+    const nombres = ((await pedir("/v1/yo", { token })).cuerpo.dispositivos as Json[]).map((d) => d.nombre).sort();
+    expect(nombres).toEqual(["Atajo Apple Pay", "iPhone"]);
+  });
+
   test("si la Mac no puede firmar, avisa y no deja un token suelto", async () => {
     const { ErrorFirma } = await import("../src/atajo/generar");
     const { db, pedir } = montar({

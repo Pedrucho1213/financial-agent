@@ -1,6 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { FRECUENCIAS, TIPOS_RECURRENTE } from "../db/schema";
+import { and, eq, isNull } from "drizzle-orm";
+import { FRECUENCIAS, movimientos as tablaMovimientos, TIPOS_RECURRENTE } from "../db/schema";
 import type { Contexto } from "../finanzas/contexto";
 import {
   buscarMovimientos,
@@ -12,6 +13,7 @@ import {
   idDelMovimiento,
   resumir,
 } from "../finanzas/movimientos";
+import { pagoDeFrase } from "../finanzas/applepay";
 import { listarCategorias } from "../finanzas/catalogos";
 import {
   cuentaHabitual,
@@ -103,6 +105,15 @@ const CORRIGE_REGISTRO =
 const SE_REPITE = /\b(cada|al mes|por mes|a la semana|por semana|al ano|mensual|mensualmente|semanal|quincenal|anual|diario)\b/;
 
 /** Las herramientas que la IA puede usar. Cada una solo toca datos del usuario del contexto. */
+/** Cuántos movimientos vigentes dejó ya esta entrada. */
+function movimientosDeEntrada(ctx: Contexto, entradaId: string): number {
+  return ctx.db
+    .select({ id: tablaMovimientos.id })
+    .from(tablaMovimientos)
+    .where(and(eq(tablaMovimientos.entradaId, entradaId), isNull(tablaMovimientos.eliminadoEn)))
+    .all().length;
+}
+
 export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
   // Una frase que parece préstamo, meta o compra a meses se desvía a su herramienta una sola vez: si el
   // modelo insiste en que es un gasto, se registra (la regla puede equivocarse con "me prestaron el coche").
@@ -155,9 +166,19 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
       inputSchema: z.object({ movimientos: z.array(datosMovimiento).min(1) }),
       execute: ejecutar("registrar_movimientos", ({ movimientos }) => {
         const texto = ctx.textoOriginal;
+        // Un pago de Apple Pay es un gasto, uno solo, con el monto y la moneda que dio la Cartera.
+        const pago = ctx.origen === "apple_pay" ? pagoDeFrase(texto) : undefined;
+        if (pago) {
+          // Aunque el modelo llame dos veces, el pago se anota una.
+          if (ctx.entradaId && movimientosDeEntrada(ctx, ctx.entradaId) > 0) {
+            throw new ErrorFinanzas("Ese pago ya quedó anotado; no lo registres otra vez.");
+          }
+          movimientos = [{ ...movimientos[0]!, tipo: "gasto", monto: pago.monto, moneda: pago.moneda }];
+        }
         // Préstamos, metas y meses sin intereses tienen su herramienta. Con varios montos en la frase
         // ("200 de tacos y le presté 100 a Juan") puede haber gastos de verdad: ahí no se frena.
-        if (texto && montosDelTexto(texto).length <= 1) {
+        // En un pago de Apple Pay la frase la armó el servidor: "MSI STORE" o "TACOS EL LUNES" son el comercio.
+        if (texto && !pago && montosDelTexto(texto).length <= 1) {
           const plano = normalizar(texto);
           const planes = nombresDePlanes(ctx);
           const compra = PAGA_MENSUALIDAD.test(plano) ? mensualidadDe(texto, planes.msi) : undefined;
@@ -177,12 +198,14 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         // Si la frase dice una sola fecha ("ayer", "el viernes"), esa manda sobre una fecha que el
         // modelo calculó u omitió; los modelos chicos se equivocan al calcularla. Si la frase no
         // habla de ningún momento, una fecha calculada por el modelo es inventada.
-        const fechaDicha = fechaDelTexto(texto, ctx.hoy);
+        const fechaDicha = pago ? undefined : fechaDelTexto(texto, ctx.hoy);
         const esIso = (fecha?: string) => !!fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha.trim());
         // "El lunes gasté 80 en café y el martes 120 en el súper": una fecha por movimiento, en orden.
-        const fechasDichas = fechasDelTexto(texto, ctx.hoy);
+        const fechasDichas = pago ? [] : fechasDelTexto(texto, ctx.hoy);
         const enOrden = movimientos.length > 1 && fechasDichas.length === movimientos.length;
         const conFecha = (fecha: string | undefined, i: number) => {
+          // El pago es de cuando lo capturó el Atajo (capturado_en), no de una fecha que diga el comercio.
+          if (pago) return undefined;
           if (fechaDicha && (!fecha || !resolverFecha(fecha, ctx.hoy) || esIso(fecha))) return fechaDicha;
           if (enOrden && (!fecha || !resolverFecha(fecha, ctx.hoy))) return fechasDichas[i];
           if (texto && esIso(fecha) && !mencionaFecha(texto)) return undefined;

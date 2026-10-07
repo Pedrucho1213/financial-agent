@@ -21,6 +21,8 @@ export type Contexto = {
   confiarEnMasReciente?: boolean;
   /** Hay mensajes anteriores en esta conversación: el modelo puede traer datos de turnos pasados. */
   enConversacion?: boolean;
+  /** De dónde salen los movimientos que se registren (un dictado o un pago con Apple Pay). */
+  origen?: "voz" | "apple_pay";
 };
 
 export function crearContexto(

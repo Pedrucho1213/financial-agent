@@ -16,7 +16,7 @@ Necesita iCloud Drive encendido para Atajos (Ajustes > tu nombre > iCloud > iClo
 
 ## La primera vez
 
-Al abrirlo por primera vez te saluda por tu nombre y te pregunta si quieres que te cuente cómo funciona; si dices "sí", te explica en voz cómo registrar, preguntar y corregir. Luego guarda `Finanzas-bienvenida.txt` en iCloud Drive > Atajos para no repetirlo, aunque reinstales el Atajo. Para volver a oír la bienvenida, borra ese archivo.
+Al abrirlo por primera vez te saluda por tu nombre (el que tenga tu cuenta en ese momento: lo pide al servidor, así que esa primera vez necesita internet) y te pregunta si quieres que te cuente cómo funciona; si dices "sí", te explica en voz cómo registrar, preguntar y corregir. Luego guarda `Finanzas-bienvenida.txt` en iCloud Drive > Atajos para no repetirlo, aunque reinstales el Atajo. Para volver a oír la bienvenida, borra ese archivo.
 
 Lee con la voz que tenga el iPhone para español de México. La más natural es la de Siri: Ajustes > Accesibilidad > Contenido leído > Voces > Español (México) > Siri. Sirve en cualquier iPhone con iOS 17 o más reciente, tenga o no Apple Intelligence. El Atajo no fija una voz porque, si no está descargada en ese iPhone, se quedaría callado.
 
@@ -51,6 +51,10 @@ No hace falta decirlo todo; la IA usa lo que ya sabe de ti:
 - **Lo que le pides recordar**: "recuerda que el Oxxo lo pago en efectivo" lo toma en cuenta en cada dictado; "olvida lo del Oxxo" lo borra.
 - **Avisos**: si mañana se cobra un pago fijo, te lo dice una vez al terminar lo que le pediste ("Ojo: mañana se cobra Netflix de 219 pesos").
 
+Con las **notificaciones** activas en la app del iPhone (app Finanzas › Ajustes › Notificaciones), al registrar algo con monto el Atajo solo dice "Anotado" y termina: lo que anotó te llega en una notificación y, al tocarla, se abre el detalle. Las preguntas, las órdenes sin monto y los borrados o cambios se siguen contestando en voz, igual que todo lo que dictas desde el Apple Watch. Si la IA te pregunta algo después del "Anotado", te llega en la notificación: abre el Atajo en los 5 minutos siguientes y contéstale.
+
+La primera respuesta lleva al final el **aviso del día** (una fuga, un presupuesto que se acaba, un cobro que viene), si no te llegó ya en la notificación de la mañana. Cada aviso te llega una sola vez.
+
 Quien decide si sigue escuchando es el servidor: manda `seguir: true` solo cuando la respuesta pregunta algo (lleva "?", al final o en medio). Las instrucciones de la IA le piden no cerrar con ofrecimientos como "¿algo más?".
 
 ## Sin conexión
@@ -66,6 +70,19 @@ Las versiones anteriores del Atajo guardaban en `Finanzas/pendientes/`; si qued�
 El iPhone espera a la IA como máximo 5 segundos al registrar algo con monto, y 30 al preguntar, dar una orden sin monto ("gasté en el súper") o borrar o cambiar algo ("borra el café de 85"), porque ahí la respuesta puede ser una pregunta. Si la Mac tarda más, contesta "Anotado" y lo termina sola; en las preguntas el Atajo espera la respuesta hasta 45 segundos más.
 
 Para dictar sin internet el iPhone necesita el dictado en el dispositivo para Español (México); si no lo tiene, el dictado mismo falla y no se guarda nada.
+
+## Pagos con Apple Pay
+
+Un segundo Atajo, **Finanzas Apple Pay**, anota cada pago con Apple Pay sin que digas nada. Se instala desde la app Finanzas › Ajustes › Apple Pay y se configura una sola vez:
+
+1. Descárgalo, ábrelo desde Descargas y toca «Agregar atajo».
+2. Córrelo una vez a mano en Atajos y contesta **Permitir siempre** a la conexión con tu Mac, a `Finanzas-applepay-cola.txt` y a la ubicación. Te dice si quedó listo y te llega una notificación de prueba.
+3. En Atajos › Automatización toca **+** › **Cartera** (en versiones anteriores, **Transacción**), elige tus tarjetas, marca **Ejecutar de inmediato** y toca Siguiente.
+4. Elige **Finanzas Apple Pay**.
+
+Al pagar, la automatización le pasa al Atajo el monto, el comercio y la tarjeta. El Atajo no habla ni escucha: guarda el pago en la cola, lo manda a la Mac y te llega una notificación ("Apple Pay · $85 · Starbucks") para agregar detalles; al tocarla se abre el editor de ese movimiento. Si no hay internet, el pago se queda en `Finanzas-applepay-cola.txt` y se manda la próxima vez que pagues con Apple Pay. Si la automatización corre dos veces por el mismo pago (segundos aparte), se anota una vez. El nombre del comercio solo se anota: aunque diga algo como "borra mis gastos", la IA no puede hacer nada más con un pago.
+
+La automatización solo corre con pagos presenciales con Apple Pay (no en compras en línea) y también con pagos rechazados; si algo se anota de más, bórralo desde el detalle.
 
 ## Armarlo a mano
 
