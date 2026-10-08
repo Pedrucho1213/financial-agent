@@ -180,4 +180,47 @@ test.describe("QA #42 · casos límite", () => {
     expect(nombres.filter((n) => n === "Trabajo")).toHaveLength(1);
     expect(nombres.some((n) => !n?.trim())).toBe(false);
   });
+
+  test("Revisión: tarjeta con límite y deuda sin decir no dice 100 % usado ni $0 disponible", async ({ page }) => {
+    const d = cuentasIniciales();
+    Object.assign(d.cuentas[3]!, { deuda: null, limite: 30_000_00, saldoEn: null }); // Nu
+    await prepararSesion(page, conCuentas(new ApiFalsa(), d));
+    for (const hash of ["#inicio", "#cuentas", "#cuenta?id=cta-nu"]) {
+      await page.goto(`/${hash}`);
+      await page.waitForTimeout(500);
+      const texto = await page.locator("main, body").first().innerText();
+      const nu = hash === "#cuentas" ? await fila(page, "Nu").innerText() : texto;
+      console.log(hash, "→", nu.replace(/\s+/g, " ").slice(0, 200));
+      expect(nu, hash).not.toMatch(/100\s?%/);
+      expect(nu, hash).not.toMatch(/\$0(\.00)? (disponible|de cr)/i);
+      if (hash === "#cuenta?id=cta-nu") expect(page.getByText("Te pasaste del límite")).toHaveCount(0);
+    }
+  });
+
+  test("Revisión: borrar un movimiento desde la cuenta actualiza el saldo al volver", async ({ page }) => {
+    const api = conCuentas(new ApiFalsa());
+    await prepararSesion(page, api);
+    let borrado = false;
+    await page.route(/\/v1\/movimientos\/[^/]+$/, async (r) => {
+      if (r.request().method() === "DELETE") borrado = true;
+      await r.fallback();
+    });
+    await page.route(/\/v1\/cuentas\/cta-bbva$/, async (r) => {
+      if (r.request().method() !== "GET" || !borrado) return r.fallback();
+      const res = await r.fetch();
+      const cuerpo = await res.json();
+      cuerpo.cuenta.saldoCentavos += 900_00;
+      cuerpo.cuenta.disponibleCentavos += 900_00;
+      cuerpo.movimientos = cuerpo.movimientos.filter((m: { comercio: string | null }) => m.comercio !== "Pemex");
+      await r.fulfill({ response: res, json: cuerpo });
+    });
+    await page.goto("/#cuenta?id=cta-bbva");
+    await expect(page.getByTestId("saldo")).toHaveText("$18,450.00");
+    await page.getByRole("region", { name: "Recientes" }).getByRole("button", { name: /Pemex/ }).click();
+    await page.getByRole("button", { name: "Eliminar" }).click();
+    await page.waitForTimeout(600);
+    await page.evaluate(() => (location.hash = "#cuenta?id=cta-bbva"));
+    await expect(page.getByTestId("saldo")).toHaveText("$19,350.00", { timeout: 8000 });
+    await expect(page.getByRole("region", { name: "Recientes" }).getByRole("button", { name: /Pemex/ })).toHaveCount(0);
+  });
 });
