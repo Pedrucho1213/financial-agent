@@ -5,7 +5,7 @@ import { armarFecha, diaSemana, partes, sumarDias, sumarMeses, ultimoDiaDelMes }
 import { normalizar } from "../lib/texto";
 import { type Categoria, listarCategorias } from "./catalogos";
 import type { Contexto } from "./contexto";
-import { disponible, estadoPresupuestos } from "./planes";
+import { disponible, estadoPresupuestos, porPagarEsteMes } from "./planes";
 import { listarRecurrentes } from "./recurrentes";
 import { gastosHormiga, suscripcionesDuplicadas, textoHormiga } from "./revisor";
 
@@ -70,7 +70,9 @@ function primerGasto(ctx: Contexto): string | undefined {
   return ctx.db
     .select({ fecha: movimientos.fecha })
     .from(movimientos)
-    .where(and(eq(movimientos.usuarioId, ctx.usuarioId), isNull(movimientos.eliminadoEn), eq(movimientos.tipo, "gasto")))
+    .where(
+      and(eq(movimientos.usuarioId, ctx.usuarioId), isNull(movimientos.eliminadoEn), eq(movimientos.tipo, "gasto"), eq(movimientos.moneda, ctx.monedaBase)),
+    )
     .orderBy(asc(movimientos.fecha))
     .limit(1)
     .get()?.fecha;
@@ -174,13 +176,14 @@ export function proyeccionDelMes(ctx: Contexto, cats = listarCategorias(ctx.db, 
   if (diasCon(inicio) >= 7) ritmo = suma(variables(delMes)) / diasCon(inicio);
   else if (diasCon(desde28) >= 7) ritmo = suma(variables(gastosEntre(ctx, desde28, ctx.hoy))) / diasCon(desde28);
   else return undefined;
-  const d = disponible(ctx);
-  const cierre = suma(delMes) + ritmo * (diasDelMes - dia) + d.comprometidoCentavos;
+  // Lo que falta pagar va aparte: disponible() no lo aparta cuando hay presupuestos por categoría.
+  const porPagar = porPagarEsteMes(ctx);
+  const cierre = suma(delMes) + ritmo * (diasDelMes - dia) + porPagar;
   return {
     cierreCentavos: redondear(cierre),
     ritmoDiarioCentavos: Math.round(ritmo),
-    porPagarCentavos: d.comprometidoCentavos,
-    ingresosCentavos: d.ingresosCentavos,
+    porPagarCentavos: porPagar,
+    ingresosCentavos: disponible(ctx).ingresosCentavos,
   };
 }
 

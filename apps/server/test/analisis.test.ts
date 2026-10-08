@@ -120,6 +120,18 @@ describe("análisis por voz", () => {
     );
   });
 
+  test("proyección: los pagos fijos que faltan cuentan aunque haya presupuestos por categoría", () => {
+    const { ctx } = preparar();
+    for (let dia = 1; dia <= 7; dia++) gasto(ctx, 100, "Café", `2026-10-0${dia}`);
+    crearRecurrente(ctx, { nombre: "Renta", tipo: "renta", monto: 8000, frecuencia: "mensual", dia: 25 });
+    const sin = proyeccionDelMes(ctx)!;
+    fijarPresupuesto(ctx, { categoria: "Restaurantes", monto: 2000 });
+    const con = proyeccionDelMes(ctx)!;
+    expect(sin.porPagarCentavos).toBe(800_000);
+    expect(con.porPagarCentavos).toBe(800_000);
+    expect(con.cierreCentavos).toBe(sin.cierreCentavos);
+  });
+
   test("proyección que no alcanza", () => {
     const { ctx } = preparar();
     for (let dia = 1; dia <= 7; dia++) gasto(ctx, 1000, "Restaurantes", `2026-10-0${dia}`);

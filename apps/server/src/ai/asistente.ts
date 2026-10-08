@@ -666,8 +666,13 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   // Lo que cambia mientras se usa va en un mensaje aparte, antes del dictado, y se guarda con la
   // conversación: el turno siguiente empieza igual que este y Ollama reutiliza lo ya procesado
   // (instrucciones, herramientas, datos y lo dicho). Si no cambiaron desde el último turno, no se repiten.
+  // Solo los datos vigentes llegan al modelo: los de turnos anteriores que ya cambiaron (una memoria
+  // olvidada, otra cuenta) se quitan del historial para que no anote con algo que ya no existe.
   const datosActuales = datosDelUsuario(ctx);
-  const datosNuevos = datosActuales && datosActuales !== ultimosDatos(historial) ? datosActuales : undefined;
+  const vigentes = datosActuales !== undefined && datosActuales === ultimosDatos(historial);
+  const ultimoSistema = historial.findLastIndex((m) => m.role === "system");
+  const historialVigente = historial.filter((m, i) => m.role !== "system" || (vigentes && i === ultimoSistema));
+  const datosNuevos = vigentes ? undefined : datosActuales;
   // Lo que tiene de raro el gasto dictado, antes de que la IA lo anote (es lo que hace esperar al Atajo).
   const nota =
     montosDelTexto(entrada.texto).length > 0 && !esPregunta(entrada.texto) && !esOrdenSobreLoAnotado(entrada.texto)
@@ -680,7 +685,7 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
     return generateText({
       model: deps.modelo,
       instructions: construirInstrucciones(ctx),
-      messages: [...historial, ...(datos ? [{ role: "system" as const, content: datos }] : []), mensajeUsuario],
+      messages: [...historialVigente, ...(datos ? [{ role: "system" as const, content: datos }] : []), mensajeUsuario],
       allowSystemInMessages: true,
       tools: herramientasPara(entrada, crearHerramientas(ctx, acciones)),
       stopWhen: [
