@@ -137,7 +137,7 @@ const PERMITIDAS = new Set([
   "dictatetext", "text.match", "text.replace", "date", "format.date", "number.random",
   "dictionary", "setitemname", "documentpicker.save", "documentpicker.open", "detect.text", "text.split",
   "text.combine", "appendvariable", "getcurrentlocation", "properties.locations", "downloadurl", "getvalueforkey",
-  "speaktext",
+  "speaktext", "getitemtype",
 ]);
 const BLOQUES = new Set(["conditional", "repeat.count", "repeat.each"]);
 
@@ -632,9 +632,11 @@ describe("Atajo de Apple Pay", () => {
     for (const a of pasos) {
       for (const [, v] of recorrer(parametros(a))) {
         if (v && typeof v === "object" && (v as Dict).Type === "ExtensionInput") {
-          const [agr] = (v as Dict).Aggrandizements as Dict[];
-          expect(agr!.Type).toBe("WFPropertyVariableAggrandizement");
-          propiedades.add(agr!.PropertyName as string);
+          // Sin propiedad: la transacción completa (como texto y su tipo).
+          const [agr] = ((v as Dict).Aggrandizements as Dict[] | undefined) ?? [];
+          if (!agr) continue;
+          expect(agr.Type).toBe("WFPropertyVariableAggrandizement");
+          propiedades.add(agr.PropertyName as string);
         }
       }
     }
@@ -675,7 +677,7 @@ describe("Atajo de Apple Pay", () => {
       ((c.WFValue as Dict).Value as Dict).string,
     ]);
     expect(Object.fromEntries(campos).origen).toBe("apple_pay");
-    expect(campos.map(([k]) => k).sort()).toEqual(["capturado_en", "client_id", "comercio", "lat", "lon", "monto", "nombre", "origen", "tarjeta"]);
+    expect(campos.map(([k]) => k).sort()).toEqual(["capturado_en", "client_id", "comercio", "entrada", "lat", "lon", "monto", "nombre", "origen", "tarjeta", "tipo"]);
   });
 
   test("con red reenvía los pagos que quedaron y reescribe su cola solo con los que no llegaron", () => {
@@ -693,7 +695,7 @@ describe("Atajo de Apple Pay", () => {
     expect(donde("dictatetext")).toBe(-1);
     const habla = donde("speaktext");
     const si = pasos.slice(0, habla).findLast((a) => id(a) === "conditional" && parametros(a).WFControlFlowMode === 0)!;
-    expect(parametros(si).WFCondition).toBe(101); // "Trae monto" no tiene valor
+    expect(parametros(si).WFCondition).toBe(101); // "Trae el pago" no tiene valor
     expect(habla).toBeGreaterThan(donde("downloadurl"));
   });
 });

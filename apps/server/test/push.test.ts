@@ -5,7 +5,7 @@ import { crearApp, RESPUESTA_RAPIDA } from "../src/app";
 import { crearDispositivo, crearUsuario, revocarDispositivo } from "../src/auth";
 import type { Db } from "../src/db/client";
 import { avisos, dispositivos, movimientos, suscripcionesPush } from "../src/db/schema";
-import { fraseDePago, montoDeWallet, pagoDeFrase } from "../src/finanzas/applepay";
+import { fraseDePago, montoDeWallet, pagoDeFrase, pagoDeTransaccion } from "../src/finanzas/applepay";
 import { enviarAvisosDelDia } from "../src/push/avisos-manana";
 import { notificacionDeDictado } from "../src/push/dictados";
 import { clavesVapid, type EnviarPush, ErrorSuscripcion, espera, notificar, suscribir } from "../src/push/notificaciones";
@@ -522,6 +522,45 @@ describe("Apple Pay", () => {
     expect(((await tarde.json()) as { duplicado?: boolean }).duplicado).toBeUndefined();
     await hasta(() => enviadas.length > 1);
     expect(db.select().from(movimientos).all()).toHaveLength(2);
+  });
+
+  test("del texto de la transacción solo toma un monto con moneda", () => {
+    expect(pagoDeTransaccion("GATORADE OXXO $41.00 Revolut ••1234")).toEqual({ monto: "$41.00", nombre: "GATORADE OXXO Revolut ••1234" });
+    expect(pagoDeTransaccion("Uber 12,50 € Visa")).toEqual({ monto: "12,50 €", nombre: "Uber Visa" });
+    expect(pagoDeTransaccion("41 MXN")).toEqual({ monto: "41 MXN" });
+    expect(montoDeWallet(pagoDeTransaccion("Reembolso -$41.00")!.monto)).toBeUndefined();
+    for (const sin of [undefined, "", "OXXO 1234 Revolut ••1234"]) expect(pagoDeTransaccion(sin)).toBeUndefined();
+  });
+
+  test("si las propiedades no llegan, se anota con el monto del texto de la transacción", async () => {
+    const { pedir, activar, enviadas, db } = montar([texto("Ok."), texto("Ok.")]);
+    await activar();
+    const r = await pedir("/v1/hablar", "POST", {
+      origen: "apple_pay",
+      client_id: "applepay-texto-0001",
+      monto: "",
+      comercio: "",
+      entrada: "GATORADE OXXO $41.00",
+      tipo: "Transacción",
+    });
+    expect([200, 202]).toContain(r.status);
+    await hasta(() => enviadas.length > 0);
+    const m = db.select().from(movimientos).get()!;
+    expect(m).toMatchObject({ tipo: "gasto", montoCentavos: 4100, origen: "apple_pay" });
+    expect(m.textoOriginal).toBe('Pagué 41 pesos en "GATORADE OXXO" (Apple Pay)');
+  });
+
+  test("un pago de verdad sin monto legible no es una prueba: avisa para anotarlo a mano", async () => {
+    const { pedir, activar, enviadas, db } = montar([]);
+    await activar();
+    const r = (await (
+      await pedir("/v1/hablar", "POST", { origen: "apple_pay", client_id: "applepay-sinmonto-1", entrada: "Revolut", tipo: "Transacción" })
+    ).json()) as { prueba: boolean; respuesta: string };
+    expect(r.prueba).toBe(false);
+    expect(r.respuesta).toContain("no trae monto");
+    await hasta(() => enviadas.length > 0);
+    expect(enviadas[0]!.titulo).toBe("Pago con Apple Pay");
+    expect(db.select().from(movimientos).all()).toHaveLength(0);
   });
 
   test("corrido a mano (sin pago) es una prueba que avisa por push", async () => {

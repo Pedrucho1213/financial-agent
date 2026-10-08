@@ -578,6 +578,11 @@ export function construirAtajoApplePay(opciones: Omit<OpcionesAtajo, "nombre">):
   const azar = a.conSalida("number.random", "Número aleatorio", { WFRandomNumberMinimum: 100000, WFRandomNumberMaximum: 999999 });
   const folio = a.texto("Folio", "applepay-", sello, "-", azar);
 
+  // La transacción completa como texto y su tipo: si la Cartera cambia el nombre de una propiedad, el servidor
+  // todavía saca el monto de aquí y la Mac registra qué llegó.
+  const transaccion = a.texto("Transacción como texto", { entrada: null });
+  const tipo = a.conSalida("getitemtype", "Tipo de la entrada", { WFInput: adjunto({ entrada: null }) });
+
   const basicos: [string, Parte][] = [
     ["origen", "apple_pay"],
     ["client_id", folio],
@@ -586,6 +591,8 @@ export function construirAtajoApplePay(opciones: Omit<OpcionesAtajo, "nombre">):
     ["comercio", pago("comercio")],
     ["nombre", pago("nombre")],
     ["tarjeta", pago("tarjeta")],
+    ["entrada", transaccion],
+    ["tipo", tipo],
   ];
   const comoLinea = (nombre: string, campos: [string, Parte][]) =>
     a.conSalida("text.replace", `JSON${nombre}`, {
@@ -641,10 +648,10 @@ export function construirAtajoApplePay(opciones: Omit<OpcionesAtajo, "nombre">):
   });
   const colaPrevia = a.conSalida("detect.text", "Pendientes anteriores", { WFInput: adjunto(archivoCola) });
 
-  // Solo un pago de verdad (con monto) va a la cola; la prueba a mano no.
-  const monto = a.texto("Monto del pago", pago("monto"));
-  const conMonto = a.conSalida("text.match", "Trae monto", { WFMatchTextPattern: "\\d", text: texto(monto) });
-  a.si(conMonto, TIENE_VALOR, () => {
+  // Solo un pago de verdad va a la cola; la prueba a mano no trae nada de la Cartera.
+  const delPago = a.texto("Datos del pago", pago("monto"), transaccion);
+  const conPago = a.conSalida("text.match", "Trae el pago", { WFMatchTextPattern: "\\S", text: texto(delPago) });
+  a.si(conPago, TIENE_VALOR, () => {
     const linea = comoLinea(" para la cola", basicos);
     guardarCola(a.texto("Cola con el pago", colaPrevia, "\n", linea), " con el pago");
   });
@@ -680,7 +687,7 @@ export function construirAtajoApplePay(opciones: Omit<OpcionesAtajo, "nombre">):
     guardarCola(a.texto("Cola sin lo enviado", restantes, "\n"), " sin lo enviado");
   });
   // Corrido a mano: dice si quedó listo.
-  a.si(conMonto, SIN_VALOR, () => {
+  a.si(conPago, SIN_VALOR, () => {
     const respuesta = a.valor("respuesta", contestacion, "respuesta");
     a.accion("speaktext", { WFText: texto(respuesta), WFSpeakTextLanguage: IDIOMA, WFSpeakTextWait: true });
   });
