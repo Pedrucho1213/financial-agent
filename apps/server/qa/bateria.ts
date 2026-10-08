@@ -99,6 +99,13 @@ const plano = (s: string) =>
     .replace(/[,\s$]/g, "")
     .replace(/pesos?/g, "");
 
+/** Renta 12,500 con BBVA, Uber 300 y Walmart 900 con Nu, hoy. */
+const MES_TIPICO = (ctx: Contexto) => {
+  crearMovimiento(ctx, { tipo: "gasto", monto: 12500, categoria: "Renta", descripcion: "Renta", cuenta: "BBVA" } as never);
+  crearMovimiento(ctx, { tipo: "gasto", monto: 300, categoria: "Taxi y apps", comercio: "Uber", cuenta: "Nu" } as never);
+  crearMovimiento(ctx, { tipo: "gasto", monto: 900, categoria: "Súper", comercio: "Walmart", cuenta: "Nu" } as never);
+};
+
 type Caso = {
   grupo: string;
   frase: string;
@@ -205,6 +212,16 @@ const CASOS: Caso[] = [
   { grupo: "feedback", frase: "Ese gasto fue con Revolut, no con Bancomer", previos: [...DOS_CUENTAS, "Gasté 300 en tacos con Bancomer"], verificar: (r) => no(cerca(r.saldo("revolut"), 19700) && cerca(r.saldo("bancomer"), 10000), { rev: r.saldo("revolut"), ban: r.saldo("bancomer") }), nota: "mover el gasto de cuenta corrige los dos saldos" },
   { grupo: "feedback", frase: "Borra la transferencia", previos: [...DOS_CUENTAS, "Transferí 5 mil de Bancomer a Revolut"], verificar: (r) => no(cerca(r.saldo("bancomer"), 10000) && cerca(r.saldo("revolut"), 20000), { ban: r.saldo("bancomer"), rev: r.saldo("revolut") }), nota: "borrar regresa los dos saldos" },
   { grupo: "feedback", frase: "Deshaz eso", previos: [...CUENTAS_Y_NU, "Pagué 3 mil a la Nu desde Bancomer"], verificar: (r) => no(cerca(r.saldo("bancomer"), 10000) && cerca(r.usado("nu"), 12000), { ban: r.saldo("bancomer"), u: r.usado("nu") }) },
+
+  // ── Análisis por voz (PR #39: herramienta analizar y respuestas de consulta armadas en código) ──
+  { grupo: "analisis", frase: "¿Cómo voy?", preparar: MES_TIPICO, verificar: (r) => no((r.usoHerramienta("analizar") || r.usoHerramienta("consultar_gastos")) && /\d/.test(r.respuesta) && r.nuevos().length === 0, { h: r.herramientas, resp: r.respuesta }) },
+  { grupo: "analisis", frase: "¿En qué puedo ahorrar?", preparar: MES_TIPICO, verificar: (r) => no(r.usoHerramienta("analizar") && r.nuevos().length === 0, { h: r.herramientas, resp: r.respuesta }) },
+  { grupo: "analisis", frase: "¿Cómo voy a cerrar el mes?", preparar: MES_TIPICO, verificar: (r) => no(r.usoHerramienta("analizar") && /\d/.test(r.respuesta), { h: r.herramientas, resp: r.respuesta }) },
+  { grupo: "analisis", frase: "¿Cómo voy con mi presupuesto de comida?", previos: ["Pon un presupuesto de comida de 3000 al mes"], preparar: MES_TIPICO, verificar: (r) => no(r.usoHerramienta("consultar_planes"), r.herramientas), nota: "presupuesto: consultar_planes, no analizar" },
+  { grupo: "analisis", frase: "¿Cuánto gasté con la Nu?", preparar: MES_TIPICO, verificar: (r) => no(!r.dice("13700") && !r.dice("13,700"), r.respuesta), nota: "QA-085: no dar el total de todas las cuentas" },
+  { grupo: "analisis", frase: "¿Cuánto gasté este mes sin contar la renta?", preparar: MES_TIPICO, verificar: (r) => no(r.dice("1200") && !r.dice("13700"), r.respuesta), nota: "QA-085" },
+  { grupo: "analisis", frase: "¿En qué gasté menos este mes?", preparar: MES_TIPICO, verificar: (r) => no(!/gastaste mas en (vivienda|renta)/.test(normalizar(r.respuesta)), r.respuesta), nota: "QA-085: no contestar al revés" },
+  { grupo: "analisis", frase: "¿Cuánto gasté en Uber este mes?", preparar: MES_TIPICO, verificar: (r) => no(r.dice("300") && !r.dice("13700"), r.respuesta) },
 
   // ── Regresiones de lo que ya funciona ──────────────────────────────────────────────────────
   { grupo: "regresion", frase: "Gasté 120 en tacos", verificar: (r) => no(r.nuevos("gasto").length === 1 && r.nuevos("gasto")[0]!.montoCentavos === 12000, r.nuevos()) },
