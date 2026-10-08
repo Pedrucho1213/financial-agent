@@ -1,5 +1,6 @@
 import { precalentar, reanudarPendientes, terminarEnCurso } from "./ai/asistente";
-import { crearModelo, estadoModelo } from "./ai/modelo";
+import { crearControlIa, ollamaControl } from "./ai/encendido";
+import { crearModelo, esOllama, estadoModelo } from "./ai/modelo";
 import { crearApp } from "./app";
 import { config } from "./config";
 import { abrirBaseDatos } from "./db/client";
@@ -9,9 +10,14 @@ import { tienePush } from "./push/notificaciones";
 import { programarRevisor, revisarPendientes } from "./finanzas/revisor";
 
 const db = abrirBaseDatos(config.baseDatos);
+// Interruptor de la IA (desarrollo): solo con Ollama, que es al que se le puede decir cuánto mantenerla.
+const controlIa =
+  config.ia.interruptor && esOllama(config.ia)
+    ? crearControlIa({ db, modelo: config.ia.modelo, ollama: ollamaControl(config.ia.ollamaUrl, config.ia.modelo) })
+    : undefined;
 const deps = {
   db,
-  modelo: crearModelo(config.ia),
+  modelo: crearModelo(config.ia, config.ia.modelo, controlIa?.trasUsar),
   zonaHoraria: config.zonaHoraria,
   monedaBase: config.moneda,
   // Lo que se termina sin que nadie lo espere (también lo retomado al arrancar) llega por notificación.
@@ -26,8 +32,16 @@ const app = crearApp({
   carpetaWeb: config.carpetaWeb,
   contactoPush: config.contactoPush,
   estadoIa: () => estadoModelo(config.ia),
+  controlIa,
   version: versionDelCodigo(),
 });
+
+// En modo "siempre encendida", revisa cada minuto que siga en memoria (Ollama pudo reiniciarse).
+const dejarDeVigilar = controlIa?.vigilar();
+if (controlIa) {
+  const m = controlIa.modo();
+  console.log(`IA: ${m.siempre ? "siempre encendida" : `se apaga tras ${m.minutos} min sin uso`} (se cambia en Ajustes › Sistema).`);
+}
 
 const servidor = Bun.serve({ hostname: config.host, port: config.puerto, fetch: app.fetch, idleTimeout: 120 });
 const retomados = reanudarPendientes(deps);
@@ -53,6 +67,7 @@ async function apagar(senal: string) {
   // Una segunda señal (otro Ctrl-C) apaga sin esperar.
   if (apagando) process.exit(1);
   apagando = true;
+  dejarDeVigilar?.();
   console.log(`${senal}: termino lo que está en curso y me apago.`);
   await Promise.race([servidor.stop(), Bun.sleep(30_000)]);
   const quedan = await terminarEnCurso(10_000);

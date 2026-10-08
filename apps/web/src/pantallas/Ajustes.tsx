@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
+import { AjustesIa } from "../components/AjustesIa";
 import { AjustesNotificaciones } from "../components/AjustesNotificaciones";
 import { CodigoGrande } from "../components/CasillasCodigo";
 import { Pantalla } from "../components/Pantalla";
@@ -319,6 +320,9 @@ export function Ajustes() {
         <AjustesNotificaciones />
 
         <Sistema estado={estado} />
+
+        {/* Desarrollo: solo la cuenta dueña (la única a la que le llega `servidor`). */}
+        <AjustesIa habilitado={!!estado.data?.servidor} />
 
         <Grupo>
           <FilaBoton className="justify-center text-destructive" onClick={() => setSalir(true)}>
