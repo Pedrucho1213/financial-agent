@@ -52,9 +52,31 @@ export function esPregunta(texto: string): boolean {
 const ORDEN_SOBRE_LO_ANOTADO =
   /\b((borra|elimina|quita|cambia|cancela|edita)(r|lo|la|los|las|me|le|les|melo|mela|rlo|rla)?|pasa(r|lo|la|los|las|me|le|les|melo|mela|rlo|rla)|corrige(lo|la|los|las|me)?|corregir(lo|la)?|mueve(lo|la|los|las|me)?|mover(lo|la)?|deshaz|deshacer)\b/;
 
-/** Si el dictado pide borrar, cambiar o deshacer algo ya registrado. */
+// Correcciones que no dicen "cambia" ni "borra": "no eran 85, eran 95", "me equivoqué, fueron 120",
+// "en realidad fue con la BBVA", "lo anotaste dos veces". Con monto parecen un registro nuevo y, con
+// notificaciones, el Atajo diría "Anotado" sin que nadie oyera qué cambió.
+const CORRECCION = new RegExp(
+  [
+    /\b(actualiza|modifica|ajusta|arregla|reemplaza|sustituye|tacha)(r|lo|la|los|las|me|le|les|rlo|rla)?\b/,
+    /\b(agregale|anadele|subele|bajale|quitale)\b/,
+    /\bme (equivoque|confundi)\b/,
+    /\ben realidad (fue|fueron|era|eran|es|son|pague|gaste)\b/,
+    /\bno (eran|fueron|era|fue)\b.*\b(eran|fueron|era|fue|sino)\b/,
+    /\b(eran|fueron|era|fue|son|es) \d[\d ]*( pesos)? no \d/,
+    /\b(lo|la|los|las|me lo|me la) (anotaste|registraste|apuntaste|pusiste|cobraste) (dos veces|doble|mal)\b/,
+    /\b(esta|quedo|salio) (repetido|duplicado|doble)\b/,
+    /\bno (lo|la|los|las) (anotes|registres|apuntes|cuentes)\b/,
+    /\b(el|lo) (ultimo|anterior) (era|eran|fue|fueron|no)\b/,
+    /(?<!se me )\bolvida(lo|la|los|las)?\b/,
+  ]
+    .map((r) => r.source)
+    .join("|"),
+);
+
+/** Si el dictado pide borrar, cambiar, corregir o deshacer algo ya registrado. */
 export function esOrdenSobreLoAnotado(texto: string): boolean {
-  return ORDEN_SOBRE_LO_ANOTADO.test(normalizar(texto));
+  const plano = normalizar(texto);
+  return ORDEN_SOBRE_LO_ANOTADO.test(plano) || CORRECCION.test(plano);
 }
 
 const MONEDAS: [RegExp, string][] = [

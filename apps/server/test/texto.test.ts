@@ -85,3 +85,40 @@ test("reconoce órdenes de borrar o cambiar algo ya anotado (QA-029)", () => {
     expect(esOrdenSobreLoAnotado(frase)).toBe(false);
   }
 });
+
+test("reconoce correcciones que no dicen borra ni cambia, aunque traigan monto", () => {
+  for (const frase of [
+    "no eran 85, eran 95",
+    "No, fueron 120, no 85",
+    "eran 95 no 85",
+    "me equivoqué, el café fue de 95",
+    "perdón, me confundí, fueron 300",
+    "en realidad fue con la BBVA",
+    "en realidad pagué 450",
+    "no fue en efectivo, fue con la Nu",
+    "el Uber lo anotaste dos veces",
+    "el súper está repetido",
+    "actualiza el súper a 1,250",
+    "modifícalo a 300",
+    "ajusta la renta a 9 mil",
+    "agrégale 20 de propina al café",
+    "el último era de 150",
+    "ese de 85 no lo anotes",
+    "olvídalo",
+  ]) {
+    expect(esOrdenSobreLoAnotado(frase)).toBe(true);
+  }
+  for (const frase of [
+    "gasolina 700",
+    "tele de 8 mil",
+    "me pagaron 5000",
+    "no fue mucho, solo 50 de café",
+    "fue 85 de café",
+    "tacos 120 y eran para 3",
+    "se me olvida decirte que gasté 50 en café",
+    "se me olvidó anotar 200 de Uber",
+    "compré un arreglo de flores de 400",
+  ]) {
+    expect(esOrdenSobreLoAnotado(frase)).toBe(false);
+  }
+});
