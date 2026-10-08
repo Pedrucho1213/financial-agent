@@ -45,12 +45,24 @@ function conMesPasado() {
 }
 
 describe("análisis por voz", () => {
-  test("sin suficientes gastos lo dice en vez de inventar", () => {
+  test("sin gastos lo dice en vez de inventar", () => {
     const { ctx } = preparar();
-    gasto(ctx, 100, "Café", "2026-10-06");
     const a = analizar(ctx, { enfoque: "como_voy" });
-    expect(a.respuesta).toStartWith("Todavía tengo pocos gastos tuyos");
+    expect(a.respuesta).toStartWith("Todavía no tengo gastos tuyos");
     expect(a.hallazgos).toEqual([]);
+  });
+
+  test("con pocos gastos dice cuánto lleva y en qué, pero no proyecta", () => {
+    const { ctx } = preparar();
+    gasto(ctx, 12500, "Renta", "2026-10-01");
+    gasto(ctx, 900, "Súper", "2026-10-03");
+    gasto(ctx, 300, "Taxi y apps", "2026-10-06");
+    const a = analizar(ctx, { enfoque: "como_voy" });
+    expect(a.respuesta).toStartWith("Este mes llevas $13,700 en gastos.");
+    expect(a.respuesta).toContain("Lo que más pesa es Vivienda");
+    expect(a.proyeccion).toBeUndefined();
+    const p = analizar(ctx, { enfoque: "proyeccion" });
+    expect(p.respuesta).toBe("Este mes llevas $13,700 en gastos. Todavía no tengo suficientes gastos tuyos para calcular cómo cerrarías el mes.");
   });
 
   test("cómo voy: compara con el mes pasado a estas alturas y dice qué subió", () => {

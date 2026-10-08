@@ -344,6 +344,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         tipo: z.enum(["gasto", "ingreso"]).optional().describe("gasto por omisión"),
         categoria: z.string().optional(),
         texto: z.string().optional().describe("Comercio o palabra: Uber, café."),
+        excluir: z.string().optional().describe('Lo que no cuenta: "sin contar la renta" es renta.'),
         agrupar_por: z.enum(["ninguno", "categoria", "subcategoria", "comercio", "dia"]).optional(),
       }),
       execute: ejecutar("consultar_gastos", (args) => {

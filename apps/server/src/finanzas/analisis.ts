@@ -26,7 +26,7 @@ export type Hallazgo = {
   ahorroMensualCentavos?: number;
 };
 
-// Con menos que esto no hay nada que analizar.
+// Con menos que esto se dice cuánto lleva, pero no se proyecta el cierre del mes.
 const MINIMO_GASTOS = 5;
 // Para comparar dos periodos, cada uno debe tener al menos esto gastado.
 const MINIMO_COMPARABLE = 20_000;
@@ -294,8 +294,8 @@ export type Analisis = {
   proyeccion?: Proyeccion;
 };
 
-const POCOS_DATOS =
-  "Todavía tengo pocos gastos tuyos para analizar. Sigue dictándome lo que gastas y en unos días te digo cómo vas.";
+const SIN_DATOS =
+  "Todavía no tengo gastos tuyos para analizar. Sigue dictándome lo que gastas y en unos días te digo cómo vas.";
 
 /** El análisis que pidió, con la respuesta ya redactada para decirse. */
 export function analizar(ctx: Contexto, opciones: { enfoque: Enfoque; periodo?: PeriodoAnalisis }): Analisis {
@@ -305,9 +305,11 @@ export function analizar(ctx: Contexto, opciones: { enfoque: Enfoque; periodo?: 
   const cats = listarCategorias(ctx.db, ctx.usuarioId);
   const primero = primerGasto(ctx);
   const recientes = gastosEntre(ctx, sumarDias(ctx.hoy, -59), ctx.hoy);
-  if (!primero || recientes.length < MINIMO_GASTOS) {
-    return { enfoque, periodo, respuesta: POCOS_DATOS, hallazgos: [], gastadoCentavos: suma(recientes) };
+  if (!primero || recientes.length === 0) {
+    return { enfoque, periodo, respuesta: SIN_DATOS, hallazgos: [], gastadoCentavos: 0 };
   }
+  // Pocos gastos (la renta y dos más) sí dicen cuánto lleva y en qué, pero no dan un ritmo.
+  const pocos = recientes.length < MINIMO_GASTOS;
 
   const v = ventanas(ctx, periodo, primero);
   const actual = gastosEntre(ctx, v.actual.desde, v.actual.hasta);
@@ -338,7 +340,7 @@ export function analizar(ctx: Contexto, opciones: { enfoque: Enfoque; periodo?: 
   if (mayor && gastado > 0) {
     hallazgos.push({ tipo: "mayor", texto: `Lo que más pesa es ${mayor[0]}, con ${$(mayor[1])}, el ${Math.round((mayor[1] / gastado) * 100)}%.` });
   }
-  const proyeccion = periodo === "mes" ? proyeccionDelMes(ctx, cats) : undefined;
+  const proyeccion = periodo === "mes" && !pocos ? proyeccionDelMes(ctx, cats) : undefined;
   if (proyeccion) hallazgos.push({ tipo: "proyeccion", texto: fraseProyeccion(ctx, proyeccion) });
   hallazgos.push(...alertasDePresupuesto(ctx));
 
@@ -357,7 +359,7 @@ export function analizar(ctx: Contexto, opciones: { enfoque: Enfoque; periodo?: 
     case "proyeccion":
       frases = proyeccion
         ? [de("proyeccion"), `Gastas unos ${$(redondear(proyeccion.ritmoDiarioCentavos, 1_000))} en un día normal${proyeccion.porPagarCentavos > 0 ? ` y te faltan ${$(proyeccion.porPagarCentavos)} de pagos fijos` : ""}.`]
-        : [de("comparacion"), "Todavía no tengo suficientes días para calcular cómo cerrarías el mes."];
+        : [de("comparacion"), "Todavía no tengo suficientes gastos tuyos para calcular cómo cerrarías el mes."];
       break;
     case "ahorrar": {
       const ideas = ideasDeAhorro(ctx, cats);

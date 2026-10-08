@@ -51,3 +51,22 @@ describe("PR #39: respuesta de consultar_gastos armada en código", () => {
     });
   }
 });
+
+describe("sin contar algo", () => {
+  test("consultar_gastos con excluir deja fuera la renta y lo redacta el modelo", async () => {
+    const { db, usuario, ctx } = preparar({ ahora: new Date() });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 12500, categoria: "Renta", descripcion: "Renta" } as never);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 300, categoria: "Taxi y apps", comercio: "Uber" } as never);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 900, categoria: "Súper", comercio: "Walmart" } as never);
+    const resp = [llamada("consultar_gastos", { periodo: "este_mes", excluir: "renta" }), texto(MODELO)];
+    const modelo = new MockLanguageModelV4({ doGenerate: async () => resp.shift() as never });
+    const r = await hablar({ db, modelo, zonaHoraria: "America/Mexico_City", monedaBase: "MXN" }, usuario.id, {
+      texto: "¿Cuánto gasté este mes sin contar la renta?",
+      clientId: crypto.randomUUID(),
+    });
+    expect(r.respuesta).toBe(MODELO);
+    const resultado = JSON.stringify(modelo.doGenerateCalls[1]!.prompt);
+    expect(resultado).toContain("$1,200");
+    expect(resultado).not.toContain("$13,700");
+  });
+});

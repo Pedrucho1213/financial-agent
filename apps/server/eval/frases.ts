@@ -669,6 +669,17 @@ export const CASOS: Caso[] = [
   },
   {
     grupo: "consulta",
+    // QA-085: buscaba la renta en los pagos fijos y no la restaba.
+    frase: "¿Cuánto gasté este mes sin contar la renta?",
+    preparar: (ctx) => {
+      crearMovimiento(previa(ctx), { tipo: "gasto", monto: 8500, categoria: "Renta", descripcion: "Renta" });
+      crearMovimiento(previa(ctx), { tipo: "gasto", monto: 900, categoria: "Súper", comercio: "Walmart" });
+      crearMovimiento(previa(ctx), { tipo: "gasto", monto: 300, categoria: "Taxi y apps", comercio: "Uber" });
+    },
+    verificar: (r) => motivo(dice(r, "1,200") && !dice(r, "9,700"), r.respuesta),
+  },
+  {
+    grupo: "consulta",
     frase: "¿Cuál fue mi gasto más grande?",
     preparar: gastosDeEjemplo,
     verificar: (r) => motivo(dice(r, "1,850"), r.respuesta),

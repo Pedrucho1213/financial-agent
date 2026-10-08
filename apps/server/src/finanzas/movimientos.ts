@@ -238,6 +238,8 @@ export function obtenerPropio(ctx: Contexto, id: string): Movimiento {
 
 export type FiltroMovimientos = {
   texto?: string;
+  /** Lo que no cuenta: "sin contar la renta". Comercio, palabra o categoría. */
+  excluir?: string;
   categoria?: string;
   periodo?: string;
   tipo?: TipoMovimiento;
@@ -270,10 +272,13 @@ function filtrar(ctx: Contexto, filtro: FiltroMovimientos, cats: Categoria[]) {
     const ids = new Set(idsConHijas(cats, cat.id));
     filas = filas.filter((m) => m.categoriaId && ids.has(m.categoriaId));
   }
-  const palabras = normalizar(filtro.texto ?? "")
-    .split(" ")
-    .filter((p) => p && !PALABRAS_VACIAS.has(p));
-  if (palabras.length) {
+  const palabrasDe = (t?: string) =>
+    normalizar(t ?? "")
+      .split(" ")
+      .filter((p) => p && !PALABRAS_VACIAS.has(p));
+  const palabras = palabrasDe(filtro.texto);
+  const fuera = palabrasDe(filtro.excluir);
+  if (palabras.length || fuera.length) {
     const nombresComercio = new Map(
       ctx.db
         .select()
@@ -282,15 +287,15 @@ function filtrar(ctx: Contexto, filtro: FiltroMovimientos, cats: Categoria[]) {
         .all()
         .map((c) => [c.id, c.nombreNormalizado]),
     );
+    const planoDe = (m: Movimiento) =>
+      normalizar(
+        [m.comercioId ? nombresComercio.get(m.comercioId) : undefined, m.descripcion, m.textoOriginal, nombreCompleto(cats, m.categoriaId)]
+          .filter(Boolean)
+          .join(" "),
+      );
     filas = filas.filter((m) => {
-      const textos = [
-        m.comercioId ? nombresComercio.get(m.comercioId) : undefined,
-        m.descripcion,
-        m.textoOriginal,
-        nombreCompleto(cats, m.categoriaId),
-      ];
-      const plano = normalizar(textos.filter(Boolean).join(" "));
-      return palabras.every((p) => plano.includes(p));
+      const plano = planoDe(m);
+      return palabras.every((p) => plano.includes(p)) && !(fuera.length && fuera.every((p) => plano.includes(p)));
     });
   }
   return { filas, periodo };
