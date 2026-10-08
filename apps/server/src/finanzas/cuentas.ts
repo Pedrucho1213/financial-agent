@@ -105,12 +105,12 @@ function estadoDe(c: Cuenta, movido: number): EstadoCuenta {
     disponible = c.saldoCentavos! + movido;
     if (c.limiteCentavos !== null) {
       deuda = c.limiteCentavos - disponible;
-      saldo = -deuda;
+      saldo = -deuda || 0;
     }
   } else if (conocido) {
     saldo = c.saldoCentavos! + movido;
     if (esCredito) {
-      deuda = -saldo;
+      deuda = -saldo || 0;
       disponible = c.limiteCentavos !== null ? c.limiteCentavos + saldo : null;
     } else {
       disponible = saldo;
@@ -423,9 +423,12 @@ function confirmarMovimiento(
         ? `retiro de ${monto}${desde ? ` de ${desde.nombre}` : ""} a efectivo`
         : `pasaste ${monto}${desde ? ` de ${desde.nombre}` : ""}${hacia ? ` a ${hacia.nombre}` : ""}`;
   // Cómo quedaron las que se conocen; la tarjeta primero, que es lo que importa al pagarla.
-  const conocidas = estados.filter((e) => e.conocido).sort((a, b) => Number(b.esCredito) - Number(a.esCredito));
+  // Sacó más de lo que había: seguro el saldo cambió y no lo sabemos; no se dice "tiene menos 40 mil".
+  const origen = estados.find((e) => e.conocido && e.id === desde?.id && !e.esCredito && e.saldoCentavos! < 0);
+  const conocidas = estados.filter((e) => e.conocido && e !== origen).sort((a, b) => Number(b.esCredito) - Number(a.esCredito));
   const quedan = conocidas.length ? ` Ahora ${enLista(conocidas.map((e) => describirSaldo(ctx, e)))}.` : "";
-  return `Listo, ${que}.${quedan}`;
+  const ojo = origen ? ` Ojo, es más de lo que tenías en ${origen.nombre}; si no es así, dime cuánto tienes ahí.` : "";
+  return `Listo, ${que}.${quedan}${ojo}`;
 }
 
 // ------------------------------------------------------------------ Lo que se dice después de un gasto
@@ -466,42 +469,70 @@ export function datoDeCuentas(ctx: Contexto, gastos: { cuentaId: string | null; 
 
 // ------------------------------------------------------------------ Reconocer frases de cuentas
 
-// "Tengo 20 mil en Revolut", "me quedan 3 mil en la BBVA", "mi saldo en Nu es de 500".
+// "Tengo 20 mil en Revolut", "me quedan 3 mil en la BBVA", "mi saldo en Nu es de 500", "en BBVA tengo 4 mil",
+// "mi cuenta de ahorro en Nu tiene 45 mil".
 const DICE_SALDO =
-  /\b(tengo|traigo|me quedan|me queda|cuento con|hay|quedan|queda)\b.{0,40}\b(en|de) (la |el |mi |mis |tu )?(cuenta|tarjeta|\w+)|\b(mi )?saldo (de|en|del)\b|\bdisponibles?\b|\blimite\b|\b(tengo )?(ocupad[oa]s?|usad[oa]s?)\b.{0,30}\btarjeta\b|\b(debo|adeudo)\b.{0,40}\b(tarjeta|credito|tdc)\b/;
+  /\b(tengo|traigo|me quedan|me queda|cuento con|hay|quedan|queda)\b.{0,40}\b(en|de) (la |el |mi |mis |tu )?(cuenta|tarjeta|\w+)|\ben (la |el |mi |mis )?\S+( \S+)? (tengo|traigo|me quedan?|hay)\b|\b(cuenta|tarjeta|tdc|debito|ahorro|ahorros|nomina)\b.{0,30}\b(tiene|trae)\b|\b(mi )?saldo (de|en|del)\b|\bdisponibles?\b|\blimite\b|\b(tengo )?(ocupad[oa]s?|usad[oa]s?)\b.{0,30}\btarjeta\b|\b(debo|adeudo)\b.{0,40}\b(tarjeta|credito|tdc)\b/;
+// "Tengo 5 mil", "ahora traigo 800 pesos": un saldo sin decir dónde (se pregunta en cuál).
+const SALDO_SIN_CUENTA =
+  /^(?:(?:te aviso que|oye|ahora|ya|solo|nada mas|ahorita)\s+)*(tengo|traigo|me quedan?)\s+(como\s+|unos\s+)?\$?[\d.,]+(\s*(mil|k))?(\s*(pesos|varos|mxn))?(\s+(nada mas|en total|ahorita|disponibles?))?$/;
 // Pagar o abonar a una tarjeta, no pagar con ella: "le pagué 5 mil a la Nu", "abono a la tarjeta".
-const PAGA_TARJETA = /\b(pague|pagar|pagamos|pagando|abone|abonar|abonando|liquide|liquidar|deposite|depositar|meti|cubri)\b.{0,40}\b(a|para|de) (la |mi )?(tarjeta|tdc|credito)\b|\b(pago|abono) (de |a |para )?(la |mi )?(tarjeta|tdc)\b|\bpague (la|mi) (tarjeta|tdc)\b/;
+const PAGA = "pague|pagar|pagamos|pagando|abone|abonar|abonando|abono|liquide|liquidar|deposite|depositar|meti|cubri";
+const PAGA_TARJETA = new RegExp(
+  `\\b(${PAGA})\\b.{0,40}\\b(a|para|de) (la |mi )?(tarjeta|tdc|credito)\\b|\\b(pago|abono) (de |a |para )?(la |mi )?(tarjeta|tdc)\\b|\\bpague (la|mi) (tarjeta|tdc)\\b`,
+);
 const CON_TARJETA = /\bcon (la |mi )?(tarjeta|tdc)( de credito| de debito)?\b/g;
-// Mover dinero entre cuentas: "transferí 2 mil de BBVA a Revolut", "retiré mil del cajero".
+// Mover dinero entre cuentas: "transferí 2 mil de BBVA a Revolut", "pasé mil del efectivo a Bancomer",
+// "transferí 5 mil a Revolut", "retiré mil del cajero".
 const MUEVE =
-  /\b(transferi|transferir|traspase|pase|movi|mande|envie|meti)\b.{0,40}\b(de|desde) (la |el |mi )?\S+.{0,30}\b(a|para) (la |el |mi )?\S+|\b(retire|retirar|saque|sacar)\b.{0,30}\b(cajero|efectivo)\b|\bdisposicion de efectivo\b|\badelanto de efectivo\b/;
+  /\b(transferi|transferir|traspase|pase|movi|mande|envie|meti)\b.{0,40}\b(de|desde|del) (la |el |mi )?\S+.{0,30}\b(a|para) (la |el |mi )?\S+|\b(transferi|transferir|transfiere|traspase)\b.{0,30}\b(a|para) (la |el |mi )?\S+|\b(retire|retirar|saque|sacar)\b.{0,30}\b(cajero|efectivo)\b|\bdisposicion de efectivo\b|\badelanto de efectivo\b/;
+
+/** El pago a una tarjeta que nombra por su nombre: "le pagué 3 mil a la Nu", "ya pagué la Nu", "abono de 1500 a la Nu". */
+function pagaATarjetaNombrada(plano: string, tarjetas: string[]): boolean {
+  for (const tarjeta of tarjetas) {
+    const nombre = normalizar(tarjeta).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (!nombre) continue;
+    // "Pagué la cena con la Nu" es un gasto con ella.
+    const sinCon = plano.replace(new RegExp(`\\bcon (la |el |mi )?(tarjeta )?${nombre}\\b`, "g"), " ");
+    if (new RegExp(`\\b(${PAGA})\\b.{0,40}\\b(a |para |de )?(la |el |mi )?(total de (la |el |mi )?)?(tarjeta )?${nombre}\\b`).test(sinCon)) return true;
+  }
+  return false;
+}
 
 /**
  * Si la frase habla de cuánto hay en una cuenta, del límite o la deuda de una tarjeta, de pagarle a una
  * tarjeta o de mover dinero entre cuentas. Son actualizaciones, no gastos: el Atajo espera a la IA para
- * decir cómo quedaron y el comentario de gasto raro no aplica.
+ * decir cómo quedaron y el comentario de gasto raro no aplica. `tarjetas`: los nombres de sus tarjetas de
+ * crédito, para reconocer "le pagué 3 mil a la Nu".
  */
-export function hablaDeCuentas(texto: string): boolean {
+export function hablaDeCuentas(texto: string, tarjetas: string[] = []): boolean {
   const plano = normalizar(texto);
   if (!montosDelTexto(texto).length && !/\b(disponible|limite|saldo)\b/.test(plano)) return false;
-  // "Gasté 300 con la tarjeta de crédito" no es un pago a la tarjeta.
-  const sinCon = plano.replace(CON_TARJETA, " ");
-  return esSaldoDicho(plano) || PAGA_TARJETA.test(sinCon) || MUEVE.test(plano);
+  return esSaldoDicho(plano) || esPagoDeTarjeta(plano, tarjetas) || MUEVE.test(plano);
 }
 
 // "Tengo que pagar 500", "tengo 3 tacos": "tengo" sin "en/de la cuenta" no es un saldo.
 const NO_ES_SALDO = /\btengo que\b|\bhay que\b|\bgaste\b|\bcompre\b|\bme cobraron\b/;
 
-/** "Tengo 20 mil en Revolut", "la Nu tiene un límite de 30 mil", "debo 5 mil de la tarjeta". */
+/** "Tengo 20 mil en Revolut", "la Nu tiene un límite de 30 mil", "debo 5 mil de la tarjeta", "tengo 5 mil". */
 export function esSaldoDicho(texto: string): boolean {
   const plano = normalizar(texto);
   if (NO_ES_SALDO.test(plano)) return false;
+  if (SALDO_SIN_CUENTA.test(plano.replace(/[,.!]+$/, "").trim())) return true;
   return DICE_SALDO.test(plano) && (montosDelTexto(texto).length > 0 || /\b(disponible|limite|saldo)\b/.test(plano));
 }
 
 /** Si la frase es un pago o abono a una tarjeta (no un gasto con ella). */
-export function esPagoDeTarjeta(texto: string): boolean {
-  return PAGA_TARJETA.test(normalizar(texto).replace(CON_TARJETA, " "));
+export function esPagoDeTarjeta(texto: string, tarjetas: string[] = []): boolean {
+  const plano = normalizar(texto);
+  return PAGA_TARJETA.test(plano.replace(CON_TARJETA, " ")) || pagaATarjetaNombrada(plano, tarjetas);
+}
+
+/** Los nombres (y alias) de sus tarjetas de crédito, para reconocer "le pagué a la Nu". */
+export function nombresDeTarjetas(ctx: Contexto): string[] {
+  return cuentasDelUsuario(ctx)
+    .filter((c) => c.tipo === "credito" && !c.archivada)
+    .flatMap((c) => [c.nombre, ...(c.alias ?? [])]);
 }
 
 // ------------------------------------------------------------------ Lo que vale la pena notar

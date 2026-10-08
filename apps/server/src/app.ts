@@ -34,7 +34,7 @@ import { esDevolucion, fraseDePago, pagoDeTransaccion } from "./finanzas/applepa
 import { avisoDelDia } from "./finanzas/avisos";
 import { listarCategorias, nombreCompleto } from "./finanzas/catalogos";
 import { crearContexto } from "./finanzas/contexto";
-import { hablaDeCuentas } from "./finanzas/cuentas";
+import { hablaDeCuentas, nombresDeTarjetas } from "./finanzas/cuentas";
 import {
   crearMovimiento,
   deshacer,
@@ -546,7 +546,7 @@ export function crearApp(opciones: OpcionesApp) {
     const enReloj = /watch/i.test(p.equipo ?? "") || /watch/i.test(agente);
     // "Tengo 20 mil en Revolut", "le pagué 3 mil a la Nu": no es un gasto sino cómo quedan sus cuentas,
     // y eso se oye al momento en vez de un "Anotado".
-    const actualizaCuentas = hablaDeCuentas(p.texto);
+    const actualizaCuentas = hablaDeCuentas(p.texto, nombresDeTarjetas(contexto(usuarioId)));
     const rapida = delAtajo && !pregunta && !actualizaCuentas && !enReloj && tienePush(db, usuarioId);
     // Sin nada que comentar (nada raro en el gasto, poco historial, ya comentó lo del día), no la espera.
     const esperaMs =

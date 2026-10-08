@@ -5,7 +5,7 @@ import { montosDelTexto } from "../lib/numeros";
 import { monedaDelTexto, normalizar } from "../lib/texto";
 import { sumarDias } from "../lib/fechas";
 import type { Contexto } from "./contexto";
-import { hablaDeCuentas } from "./cuentas";
+import { hablaDeCuentas, nombresDeTarjetas } from "./cuentas";
 
 /**
  * Comentario al registrar. Con notificaciones, un registro termina con "Anotado" sin esperar a la IA. De
@@ -78,7 +78,7 @@ const redondo = (centavos: number) => {
 export function notaDelGasto(ctx: Contexto, texto: string): string | undefined {
   if (!puedeComentar(ctx)) return undefined;
   // "Tengo 20 mil en Revolut" no es un gasto alto: es cuánto hay en la cuenta.
-  if (hablaDeCuentas(texto)) return undefined;
+  if (hablaDeCuentas(texto, nombresDeTarjetas(ctx))) return undefined;
   const moneda = monedaDelTexto(texto);
   if (moneda && moneda !== ctx.monedaBase) return undefined;
   const montos = montosDelTexto(texto);

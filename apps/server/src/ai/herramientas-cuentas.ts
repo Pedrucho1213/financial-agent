@@ -23,7 +23,8 @@ import {
   resumenEtiquetas,
 } from "../finanzas/etiquetas";
 import { ErrorFinanzas, idDelMovimiento, idsQueCoinciden } from "../finanzas/movimientos";
-import { encontrarOCrearCuenta } from "../finanzas/catalogos";
+import { cuentaMencionada, encontrarOCrearCuenta, inferirTipoCuenta } from "../finanzas/catalogos";
+import { montosDelTexto } from "../lib/numeros";
 import { formatearMonto } from "../lib/dinero";
 import { resolverPeriodo } from "../lib/fechas";
 import { normalizar } from "../lib/texto";
@@ -36,6 +37,9 @@ export const CONSULTAS_CUENTAS = new Set(["consultar_cuentas"]);
 export const ESCRITURAS_CUENTAS = new Set(["cuentas", "mover_dinero", "etiqueta"]);
 
 const monto = (que: string) => z.number().describe(`${que}, en números: 20 mil = 20000.`);
+
+// Sin cifra en la frase vale si pagó todo ("pagué el total de la Nu") o confirma lo que se le preguntó.
+const SIN_CIFRA_VALE = /\b(total|completo|completa|todo lo que debo|todo)\b|^(si|correcto|exacto|eso|asi es|andale|va|ok|okay|claro)\b/;
 
 /** Cuentas y tarjetas con su saldo, dinero que se mueve entre ellas y etiquetas, por voz. */
 export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
@@ -63,6 +67,18 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
           .min(1),
       }),
       execute: ejecutar("cuentas", ({ cuentas }) => {
+        // "Tengo 5 mil": si dijo la cifra pero no la cuenta, el modelo no la elige por él.
+        const texto = ctx.textoOriginal;
+        if (texto && montosDelTexto(texto).length) {
+          // "Mi tarjeta de crédito" con una sola tarjeta: el modelo puede llamarla por su nombre.
+          const unicaDelTipo = (nombre: string) => {
+            const tipo = inferirTipoCuenta(texto);
+            const cuenta = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, nombre, { soloExistente: true, siAmbigua: "ninguna" });
+            return tipo !== "otra" && cuenta?.tipo === tipo && estadosDeCuentas(ctx).filter((e) => e.tipo === tipo).length === 1;
+          };
+          const sinNombrar = cuentas.find((c) => !cuentaMencionada(texto, c.cuenta) && !unicaDelTipo(c.cuenta));
+          if (sinNombrar) throw new ErrorFinanzas(`No dijo en qué cuenta o tarjeta: pregúntale dónde (no la elijas tú, no era "${sinNombrar.cuenta}").`);
+        }
         const resultados = cuentas.map((c) =>
           fijarCuenta(ctx, {
             cuenta: c.cuenta,
@@ -101,6 +117,11 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
         descripcion: z.string().optional(),
       }),
       execute: ejecutar("mover_dinero", (datos) => {
+        // "Pagué la tarjeta" sin cifra: se pregunta, no se toma lo que debe ni otra cifra.
+        const texto = ctx.textoOriginal;
+        if (texto && !montosDelTexto(texto).length && !SIN_CIFRA_VALE.test(normalizar(texto))) {
+          throw new ErrorFinanzas("No dijo cuánto: pregúntale de cuánto fue (no uses lo que debe ni otra cifra).");
+        }
         const r = moverDinero(ctx, datos);
         return { movimiento: r.movimiento, confirmacion: r.confirmacion };
       }),

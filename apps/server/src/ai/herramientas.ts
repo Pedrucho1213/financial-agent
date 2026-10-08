@@ -28,7 +28,7 @@ import { cancelarRecurrente, crearRecurrente, editarRecurrente, listarRecurrente
 import { fechaDelTexto, fechasDelTexto, mencionaFecha, resolverFecha } from "../lib/fechas";
 import { montoConPalabras, montosDelTexto } from "../lib/numeros";
 import { herramientasCuentas } from "./herramientas-cuentas";
-import { esPagoDeTarjeta, esSaldoDicho, moverDinero } from "../finanzas/cuentas";
+import { esPagoDeTarjeta, esSaldoDicho, moverDinero, nombresDeTarjetas } from "../finanzas/cuentas";
 import { apartaParaMeta, herramientasPlanes, mensualidadDe, nombresDePlanes, pagaPrestamo, prestaDinero } from "./herramientas-planes";
 import { monedaDelTexto, normalizar, tipoDelTexto } from "../lib/texto";
 
@@ -185,7 +185,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         // "Tengo 20 mil en Revolut" dice cuánto hay, no es un ingreso; "le pagué 5 mil a la Nu" mueve dinero.
         if (texto && !pago && movimientos.every((m) => m.tipo === "gasto" || m.tipo === "ingreso")) {
           if (esSaldoDicho(texto)) desviar("cuentas", "Eso dice cuánto tiene en una cuenta o tarjeta, no es un gasto ni un ingreso: usa cuentas.");
-          if (esPagoDeTarjeta(texto)) desviar("tarjeta", "Pagar o abonar a una tarjeta de crédito no es un gasto: usa mover_dinero con tipo pago_tarjeta.");
+          if (esPagoDeTarjeta(texto, nombresDeTarjetas(ctx))) desviar("tarjeta", "Pagar o abonar a una tarjeta de crédito no es un gasto: usa mover_dinero con tipo pago_tarjeta.");
         }
         if (texto && !pago && montosDelTexto(texto).length <= 1) {
           const plano = normalizar(texto);

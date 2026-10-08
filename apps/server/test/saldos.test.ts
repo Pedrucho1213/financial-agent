@@ -280,6 +280,74 @@ describe("la IA no confunde un saldo con un ingreso", () => {
     expect(esPagoDeTarjeta("le pagué 5 mil a la tarjeta")).toBe(true);
     expect(esPagoDeTarjeta("pagué 300 con la tarjeta de crédito")).toBe(false);
   });
+
+  test("las frases de la batería de QA: otro orden, 'tiene', sin cuenta, y pagos a una tarjeta por su nombre", () => {
+    for (const f of [
+      "En Bancomer tengo mil 500",
+      "En BBVA tengo 4 mil",
+      "Mi cuenta de ahorro en Nu tiene 45 mil y la de débito 3 mil",
+      "Tengo 5 mil",
+      "Ahora traigo 800 pesos",
+      "Transferí 5 mil a Revolut",
+      "Pasé mil del efectivo a Bancomer",
+    ]) {
+      expect([f, hablaDeCuentas(f)]).toEqual([f, true]);
+    }
+    expect(esSaldoDicho("Tengo 5 mil")).toBe(true);
+    expect(esSaldoDicho("tengo 5 hijos y gasté 300")).toBe(false);
+    const tarjetas = ["Nu"];
+    for (const f of ["Te aviso que acabo de pagar 3 mil a la Nu desde Bancomer", "Abono de 1500 a la Nu", "Ya pagué la Nu", "Pagué el total de la Nu con Revolut"]) {
+      expect([f, esPagoDeTarjeta(f, tarjetas)]).toEqual([f, true]);
+    }
+    for (const f of ["Pagué la cena con la Nu", "Pagué 300 de Uber con la Nu", "Le pagué 200 a Nubia", "Gasté 1,500 en el súper con la Nu"]) {
+      expect([f, esPagoDeTarjeta(f, tarjetas)]).toEqual([f, false]);
+    }
+    // Sin saber que la Nu es tarjeta, "pagar a la Nu" no se reconoce.
+    expect(esPagoDeTarjeta("Abono de 1500 a la Nu")).toBe(false);
+  });
+
+  test("'tengo 5 mil' sin decir dónde: no se guarda en una cuenta que eligió el modelo", async () => {
+    const { ctx } = preparar();
+    fijarCuenta(dictado(ctx), { cuenta: "Revolut", tipo: "debito", saldo: 1000 });
+    const r = await llamar(dictado(ctx, "Tengo 5 mil"), "cuentas", { cuentas: [{ cuenta: "Revolut", saldo: 5000 }] });
+    expect(r.error).toContain("No dijo en qué cuenta");
+    expect(pesos(estado(ctx, "Revolut").saldoCentavos)).toBe(1000);
+    // Al contestar "en Revolut" ya la nombró.
+    const ok = await llamar(dictado(ctx, "en Revolut"), "cuentas", { cuentas: [{ cuenta: "Revolut", saldo: 5000 }] });
+    expect(ok.confirmacion).toBe("Listo, Revolut tiene $5,000.");
+    // "En BBVA tengo 4 mil" con Bancomer: es la misma cuenta, no otra.
+    fijarCuenta(dictado(ctx), { cuenta: "Bancomer", tipo: "debito", saldo: 10000 });
+    await llamar(dictado(ctx, "En BBVA tengo 4 mil"), "cuentas", { cuentas: [{ cuenta: "BBVA", saldo: 4000 }] });
+    expect(estadosDeCuentas(ctx).map((e) => [e.nombre, pesos(e.saldoCentavos)])).toEqual([
+      ["Revolut", 5000],
+      ["Bancomer", 4000],
+    ]);
+    // "Mi tarjeta de crédito" con una sola tarjeta: el modelo la llama por su nombre y vale.
+    fijarCuenta(dictado(ctx), { cuenta: "Nu", tipo: "credito", limite: 30000, deuda: 0 });
+    const nu = await llamar(dictado(ctx, "tengo 7000 disponibles en mi tarjeta de crédito"), "cuentas", { cuentas: [{ cuenta: "Nu", disponible: 7000 }] });
+    expect(nu.error).toBeUndefined();
+    expect(pesos(estado(ctx, "Nu").deudaCentavos)).toBe(23000);
+  });
+
+  test("'pagué la tarjeta' sin cifra pregunta cuánto; 'el total' sí vale", async () => {
+    const { ctx } = preparar();
+    fijarCuenta(dictado(ctx), { cuenta: "Nu", tipo: "credito", limite: 30000, deuda: 12000 });
+    const r = await llamar(dictado(ctx, "Pagué la tarjeta"), "mover_dinero", { tipo: "pago_tarjeta", monto: 12000, hacia: "Nu" });
+    expect(r.error).toContain("No dijo cuánto");
+    expect(pesos(estado(ctx, "Nu").deudaCentavos)).toBe(12000);
+    await llamar(dictado(ctx, "Pagué el total de la Nu con Revolut"), "mover_dinero", { tipo: "pago_tarjeta", monto: 12000, desde: "Revolut", hacia: "Nu" });
+    expect(pesos(estado(ctx, "Nu").deudaCentavos)).toBe(0);
+  });
+
+  test("transferir más de lo que había lo dice en vez de dejar un saldo negativo callado", async () => {
+    const { ctx } = preparar();
+    fijarCuenta(dictado(ctx), { cuenta: "Bancomer", tipo: "debito", saldo: 10000 });
+    fijarCuenta(dictado(ctx), { cuenta: "Revolut", tipo: "debito", saldo: 20000 });
+    const r = await llamar(dictado(ctx, "Transferí 50 mil de Bancomer a Revolut"), "mover_dinero", { tipo: "transferencia", monto: 50000, desde: "Bancomer", hacia: "Revolut" });
+    expect(r.confirmacion).toBe(
+      "Listo, pasaste $50,000 de Bancomer a Revolut. Ahora Revolut tiene $70,000. Ojo, es más de lo que tenías en Bancomer; si no es así, dime cuánto tienes ahí.",
+    );
+  });
 });
 
 describe("nombres de cuentas", () => {

@@ -252,6 +252,20 @@ const RELLENO_CUENTA = /^(con|la|el|en|mi|mis|tu|tarjeta|tarjetas|cuenta|cuentas
 // Lo que queda si solo dijo el tipo: "la tarjeta de crédito", "mi débito".
 const SOLO_TIPO = /^(credito|debito|tarjeta|cuenta|banco|tdc|tdd|nomina)$/;
 
+/**
+ * Si la frase nombra esa cuenta: "en Bancomer tengo…" nombra a BBVA, "revo lut" a Revolut, "mi tarjeta de
+ * crédito" a una cuenta que solo se llama por su tipo. Sirve para no guardar un saldo en una cuenta que el
+ * modelo eligió solo ("tengo 5 mil" → ¿en cuál?).
+ */
+export function cuentaMencionada(texto: string, nombre: string): boolean {
+  const buscado = nombreBuscado(nombre);
+  let plano = normalizar(texto);
+  for (const [otro, banco] of Object.entries(MISMO_BANCO)) plano = plano.replace(new RegExp(`\\b${otro}\\b`, "g"), banco);
+  if (!buscado || SOLO_TIPO.test(buscado)) return /\b(tarjeta|cuenta|credito|debito|tdc|tdd|banco|nomina)\b/.test(plano);
+  if (plano.replace(/\s+/g, "").includes(buscado.replace(/\s+/g, ""))) return true;
+  return buscado.split(" ").some((palabra) => palabra.length >= 3 && new RegExp(`\\b${palabra}\\b`).test(plano));
+}
+
 /** "Con la tarjeta de crédito Nu" → "nu"; "mi tarjeta de crédito" → "credito". */
 function nombreBuscado(texto: string): string {
   let buscado = normalizar(texto);
