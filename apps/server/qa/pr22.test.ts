@@ -8,7 +8,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { MockLanguageModelV4 } from "ai/test";
-import { crearApp, RESPUESTA_RAPIDA } from "../src/app";
+import * as servidor from "../src/app";
 import { crearDispositivo, crearUsuario } from "../src/auth";
 import { generarAtajoApplePay } from "../src/atajo/generar";
 import { dispositivos, entradas, movimientos, suscripcionesPush } from "../src/db/schema";
@@ -18,6 +18,10 @@ import { notificacionDeDictado } from "../src/push/dictados";
 import { type EnviarPush, espera, notificar, suscribir, tienePush } from "../src/push/notificaciones";
 import { enviarPush } from "../src/push/webpush";
 import { llamada, preparar, texto } from "../test/ayuda";
+
+const { crearApp } = servidor;
+// Desde el PR #36 la confirmación rápida rota entre varias; antes era una sola.
+const RAPIDAS: string[] = [...((servidor as any).RESPUESTAS_RAPIDAS ?? [(servidor as any).RESPUESTA_RAPIDA])];
 
 const ENDPOINT = "https://web.push.apple.com/QGuQyavXutnMtsHJWSeD1h4ztT4fjpQ";
 const LLAVES = {
@@ -152,7 +156,7 @@ describe("superficie pública de push", () => {
     await activar(ENDPOINT);
     await activar(`${ENDPOINT}-ana`, tokenAna);
     const r = await pedir("/v1/hablar", "POST", { texto: "gasté 85 en Starbucks", client_id: "pedro-000001" });
-    expect(r.cuerpo.respuesta).toBe(RESPUESTA_RAPIDA);
+    expect(r.cuerpo.respuesta).toBeOneOf(RAPIDAS);
     soltar();
     await hasta(() => enviadas.length > 0);
     await Bun.sleep(20);
@@ -190,7 +194,7 @@ describe("envío y limpieza", () => {
     expect(a.status).toBe(202);
     await hasta(() => colgados >= 1);
     const b = await pedir("/v1/hablar", "POST", { texto: "gasté 40 en café", client_id: "colgado-0002" });
-    expect(b.cuerpo.respuesta).toBe(RESPUESTA_RAPIDA);
+    expect(b.cuerpo.respuesta).toBeOneOf(RAPIDAS);
     await hasta(() => db.select().from(movimientos).all().length === 2);
     expect(performance.now() - t0).toBeLessThan(1500);
   });
@@ -257,7 +261,7 @@ describe("envío y limpieza", () => {
     suscribir(db, usuario.id, idDe(db, "Chrome en la Mac"), { endpoint: "https://fcm.googleapis.com/fcm/send/mac", ...LLAVES, contacto: "mailto:a@b.mx" });
     expect(tienePush(db, usuario.id)).toBe(false);
     const r = await pedir("/v1/hablar", "POST", { texto: "gasté 85 en Starbucks", client_id: "mac-push-0001" });
-    expect(r.cuerpo.respuesta).not.toBe(RESPUESTA_RAPIDA);
+    expect(r.cuerpo.respuesta).not.toBeOneOf(RAPIDAS);
     expect(r.cuerpo.respuesta).toContain("Starbucks");
     // La app activada sin en_iphone (p. ej. iPad o Mac) tampoco cuenta; con en_iphone sí.
     await activar(ENDPOINT, undefined, false);
@@ -307,7 +311,7 @@ describe("envío y limpieza", () => {
     let intentos = 0;
     ponerEnviar(async () => (intentos++, { ok: false, estado: 503, vencida: false }));
     const a = await pedir("/v1/hablar", "POST", { texto: "gasté 85 en Starbucks", client_id: "reint-rapida-1" });
-    expect(a.cuerpo.respuesta).toBe(RESPUESTA_RAPIDA);
+    expect(a.cuerpo.respuesta).toBeOneOf(RAPIDAS);
     expect(a.ms).toBeLessThan(300);
     const b = await pedir("/v1/hablar", "POST", { ...PAGO, client_id: "applepay-reint-0001" });
     expect(b.ms).toBeLessThan(300);
@@ -616,7 +620,7 @@ describe("Atajo y PWA", () => {
     expect((await pedir("/v1/push/suscripcion", "DELETE")).status).toBe(200);
     expect(db.select().from(suscripcionesPush).all()).toHaveLength(0);
     const r = await pedir("/v1/hablar", "POST", { texto: "gasté 85 en Starbucks", client_id: "tras-salir-01" });
-    expect(r.cuerpo.respuesta).not.toBe(RESPUESTA_RAPIDA);
+    expect(r.cuerpo.respuesta).not.toBeOneOf(RAPIDAS);
     await Bun.sleep(50);
     expect(enviadas).toHaveLength(0);
   });
@@ -633,14 +637,14 @@ describe("Atajo y PWA", () => {
     try {
       const ua = "Shortcuts/2210.0.1 CFNetwork/1568.100.1 Darwin/24.0.0";
       const r = await pedir("/v1/hablar", "POST", { texto: "gasté 85 en Starbucks", client_id: "reloj-ua-0001" }, undefined, { "user-agent": ua });
-      expect(r.cuerpo.respuesta).toBe(RESPUESTA_RAPIDA);
+      expect(r.cuerpo.respuesta).toBeOneOf(RAPIDAS);
       expect(lineas).toContain(`Atajo desde un User-Agent nuevo: ${ua}`);
       const reloj = await pedir("/v1/hablar", "POST", { texto: "gasté 40 en Starbucks", client_id: "reloj-ua-0002" }, undefined, {
         "user-agent": "Shortcuts/2210 CFNetwork Darwin/24.0.0 Watch7,1",
       });
-      expect(reloj.cuerpo.respuesta).not.toBe(RESPUESTA_RAPIDA);
+      expect(reloj.cuerpo.respuesta).not.toBeOneOf(RAPIDAS);
       const equipo = await pedir("/v1/hablar", "POST", { texto: "gasté 30 en Starbucks", client_id: "reloj-ua-0003", equipo: "Apple Watch" });
-      expect(equipo.cuerpo.respuesta).not.toBe(RESPUESTA_RAPIDA);
+      expect(equipo.cuerpo.respuesta).not.toBeOneOf(RAPIDAS);
     } finally {
       console.log = log;
       process.env.NODE_ENV = entorno;
