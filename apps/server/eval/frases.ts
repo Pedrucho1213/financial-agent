@@ -318,6 +318,12 @@ export const CASOS: Caso[] = [
   },
   {
     grupo: "edicion",
+    // QA-097: sin monto ni quincena guardada inventaba $20,000.
+    frase: "Me llegó la quincena",
+    verificar: (r) => motivo(r.movimientos.length === 0 && pregunta(r), { movimientos: r.movimientos, respuesta: r.respuesta }),
+  },
+  {
+    grupo: "edicion",
     // Visto en el eval del #36: con dos cafés idénticos preguntaba "¿cuál de los dos?".
     frase: "El café de 85 lo anotaste dos veces",
     preparar: (ctx) => {
