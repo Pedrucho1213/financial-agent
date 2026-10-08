@@ -94,7 +94,10 @@ describe("PR #40: quién puede tocar la IA", () => {
     expect((await pedir("/v1/ia/apagar", "POST", undefined, tokenDueno)).cuerpo).toMatchObject({ cargada: false, apagadaAMano: true });
     expect((await pedir("/v1/ia", "PUT", { siempre: false, minutos: 15 }, tokenDueno)).cuerpo).toMatchObject({ siempre: false, minutos: 15 });
     expect((await pedir("/v1/ia", "PUT", { siempre: true }, tokenDueno)).cuerpo).toMatchObject({ siempre: true, cargada: true, apagadaAMano: false });
-    expect(pedidos).toEqual([-1, 0, -1]);
+    // "Siempre" se pide como -1 o, desde 7ff32fd, como "8760h" (Ollama no cambia el plazo con -1 numérico).
+    const siempre = (k: number | string) => k === -1 || k === "8760h";
+    expect(pedidos.length).toBe(3);
+    expect(siempre(pedidos[0]!) && pedidos[1] === 0 && siempre(pedidos[2]!)).toBe(true);
   });
 });
 
