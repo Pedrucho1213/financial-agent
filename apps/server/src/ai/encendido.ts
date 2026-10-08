@@ -124,16 +124,14 @@ export function crearControlIa(opciones: {
 
   let pendiente: ReturnType<typeof setTimeout> | null = null;
   const trasUsar = () => {
+    // Un dictado ya la volvió a cargar: deja de estar "apagada a mano" en ese momento, no tras la espera.
+    const actual = leer();
+    if (actual.apagadaAMano) guardar({ ...actual, apagadaAMano: false });
     if (pendiente) clearTimeout(pendiente);
     // Varias llamadas seguidas (un dictado con herramientas) cuentan como un solo uso.
     pendiente = setTimeout(() => {
       pendiente = null;
-      void enFila(async () => {
-        const m = leer();
-        // Un dictado la volvió a cargar: ya no está "apagada a mano".
-        if (m.apagadaAMano) guardar({ ...m, apagadaAMano: false });
-        await ollama.cargar(keepAlive(m));
-      });
+      void enFila(() => ollama.cargar(keepAlive()));
     }, opciones.esperaTrasUsoMs ?? 1_000);
   };
 

@@ -97,8 +97,9 @@ describe("interruptor de la IA", () => {
     await Bun.sleep(30);
     parar();
     expect(pedidos).toEqual([0]);
-    // Un dictado la carga de nuevo y quita el "apagada a mano".
+    // Un dictado la carga de nuevo y quita el "apagada a mano" en ese momento (Ajustes lo ve sin esperar).
     control.trasUsar();
+    expect(control.modo().apagadaAMano).toBe(false);
     await Bun.sleep(30);
     expect(pedidos).toEqual([0, SIEMPRE]);
     expect(control.modo().apagadaAMano).toBe(false);
