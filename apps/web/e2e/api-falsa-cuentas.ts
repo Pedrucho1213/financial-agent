@@ -115,12 +115,14 @@ function totales(cuentas: CuentaFalsa[]) {
   const estados = cuentas.filter((c) => !c.archivada).map(estadoDe);
   const debito = estados.filter((e) => !e.esCredito && e.saldoCentavos !== null);
   const credito = estados.filter((e) => e.esCredito);
+  // Como totalesDeCuentas del servidor (#41): límite y disponible solo de las tarjetas con los dos.
+  const conLimite = credito.filter((e) => e.limiteCentavos !== null && e.disponibleCentavos !== null);
   const suma = (xs: (number | null)[]) => xs.reduce<number>((s, x) => s + (x ?? 0), 0);
   return {
     dineroCentavos: suma(debito.map((e) => e.saldoCentavos)),
     deudaCentavos: suma(credito.map((e) => (e.deudaCentavos !== null && e.deudaCentavos > 0 ? e.deudaCentavos : 0))),
-    disponibleCreditoCentavos: suma(credito.map((e) => e.disponibleCentavos)),
-    limiteCreditoCentavos: suma(credito.map((e) => e.limiteCentavos)),
+    disponibleCreditoCentavos: suma(conLimite.map((e) => e.disponibleCentavos)),
+    limiteCreditoCentavos: suma(conLimite.map((e) => e.limiteCentavos)),
     netoCentavos: suma(debito.map((e) => e.saldoCentavos)) - suma(credito.map((e) => e.deudaCentavos)),
     cuentasConSaldo: debito.length,
     tarjetasConDeuda: credito.filter((e) => e.deudaCentavos !== null).length,

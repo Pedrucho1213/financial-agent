@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { mensajeDeError } from "../../lib/api";
 import { useEnLinea } from "../../lib/conexion";
+import { useUnaVez } from "../../lib/una-vez";
 import { useCuentas, useMoverDinero } from "../../lib/cuentas";
 import { aFecha, dinero, hoyIso, leerMonto } from "../../lib/formato";
 import { haptico } from "../../lib/haptico";
@@ -73,7 +74,8 @@ export function HojaMover({ valor, moneda, alCerrar }: { valor: InicioMover | nu
   const misma = !!desde && desde === hacia && tipo !== "retiro";
   const listo = n !== null && !faltaDesde && !faltaHacia && !misma && enLinea && !mover.isPending;
 
-  const enviar = async () => {
+  const unaVez = useUnaVez();
+  const enviar = () => unaVez(async () => {
     if (!listo || n === null) return;
     const datos: DatosMover = { tipo, monto: n, fecha };
     if (desde) datos.desde_id = desde;
@@ -91,7 +93,7 @@ export function HojaMover({ valor, moneda, alCerrar }: { valor: InicioMover | nu
     } catch (error) {
       toast.error(mensajeDeError(error));
     }
-  };
+  });
 
   const sinCuentas = cuentas.isSuccess && lista.length === 0;
 

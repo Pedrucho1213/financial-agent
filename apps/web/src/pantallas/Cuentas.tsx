@@ -195,7 +195,11 @@ function Resumen({ datos, moneda }: { datos: CuentasApi; moneda: string }) {
       {conocido ? (
         <p
           data-testid="neto"
-          className={cn("mt-0.5 truncate text-[40px] leading-[1.15] font-bold tracking-[-0.025em] tabular max-[379px]:text-[32px]", t.netoCentavos < 0 && "text-negative")}
+          className={cn(
+            "mt-0.5 truncate text-[40px] leading-[1.15] font-bold tracking-[-0.025em] tabular max-[379px]:text-[32px]",
+            achicarSiNoCabe(dinero(t.netoCentavos, moneda)),
+            t.netoCentavos < 0 && "text-negative",
+          )}
         >
           {dinero(t.netoCentavos, moneda)}
         </p>
@@ -267,6 +271,9 @@ function Resumen({ datos, moneda }: { datos: CuentasApi; moneda: string }) {
     </section>
   );
 }
+
+/** Decenas de millones ("$99,000,000.00") no caben a 320 con la letra de 32. */
+const achicarSiNoCabe = (texto: string) => texto.length >= 14 && "max-[379px]:text-[26px]";
 
 function enLista(nombres: string[]) {
   if (nombres.length <= 1) return nombres.join("");
@@ -474,7 +481,11 @@ function HeroCuenta({
         <>
           <p
             data-testid="saldo"
-            className={cn("mt-0.5 truncate text-[40px] leading-[1.15] font-bold tracking-[-0.025em] tabular max-[379px]:text-[32px]", c.saldoCentavos < 0 && "text-negative")}
+            className={cn(
+              "mt-0.5 truncate text-[40px] leading-[1.15] font-bold tracking-[-0.025em] tabular max-[379px]:text-[32px]",
+              achicarSiNoCabe(dinero(c.saldoCentavos, moneda)),
+              c.saldoCentavos < 0 && "text-negative",
+            )}
           >
             {dinero(c.saldoCentavos, moneda)}
           </p>

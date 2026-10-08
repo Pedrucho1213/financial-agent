@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { mensajeDeError } from "../../lib/api";
 import { useEnLinea } from "../../lib/conexion";
 import { useGuardarCuenta } from "../../lib/cuentas";
+import { useUnaVez } from "../../lib/una-vez";
 import { dinero } from "../../lib/formato";
 import { haptico } from "../../lib/haptico";
 import { aTextoPesos, leerCantidad, limpiarPesos, nombreTipo } from "../../lib/saldos";
@@ -101,7 +102,8 @@ export function HojaCuenta({
 
   const listo = f.nombre.trim().length > 0 && !limiteInvalido && enLinea && !guardar.isPending;
 
-  const enviar = async () => {
+  const unaVez = useUnaVez();
+  const enviar = () => unaVez(async () => {
     if (!listo) return;
     const cuerpo = datos();
     if (editando && Object.keys(cuerpo).length === 0) {
@@ -117,7 +119,7 @@ export function HojaCuenta({
     } catch (error) {
       toast.error(mensajeDeError(error));
     }
-  };
+  });
 
   return (
     <Sheet open={!!valor} onOpenChange={(v) => !v && alCerrar()}>

@@ -546,4 +546,29 @@ test.describe("Lo que encontró la revisión del #42", () => {
     const pedido = api.de("GET", "/v1/movimientos").at(-1)!.consulta;
     expect([pedido.get("desde"), pedido.get("hasta"), pedido.get("tipo")]).toEqual(["2026-10-05", "2026-10-11", "gasto"]);
   });
+
+  test("doble toque: una sola transferencia y una sola cuenta nueva (QA-093)", async ({ page }) => {
+    const api = conCuentas(new ApiFalsa());
+    await prepararSesion(page, api);
+    // Con un servidor lento, el segundo toque llega antes de que el botón se desactive.
+    await page.route(/\/v1\/(transferencias|cuentas)$/, async (r) => {
+      if (r.request().method() === "POST") await new Promise((ok) => setTimeout(ok, 400));
+      await r.fallback();
+    });
+    await page.goto("/#cuentas");
+    await page.getByRole("button", { name: "Mover dinero" }).first().click();
+    const hoja = page.getByRole("dialog");
+    await hoja.locator("#monto-mover").fill("100");
+    await hoja.getByLabel("Desde").selectOption("cta-bbva");
+    await hoja.getByLabel("Hacia").selectOption("cta-revolut");
+    await hoja.getByRole("button", { name: "Listo" }).dblclick();
+    await expect(hoja).toBeHidden();
+    await page.getByRole("button", { name: "Agregar cuenta o tarjeta" }).click();
+    await hoja.getByLabel("Nombre").fill("Hey Banco");
+    await hoja.getByRole("button", { name: "Agregar" }).dblclick();
+    await expect(hoja).toBeHidden();
+    await page.waitForTimeout(600);
+    expect(api.de("POST", "/v1/transferencias")).toHaveLength(1);
+    expect(api.de("POST", "/v1/cuentas")).toHaveLength(1);
+  });
 });

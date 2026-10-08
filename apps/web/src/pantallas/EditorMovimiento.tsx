@@ -14,6 +14,7 @@ import { OpcionesCategorias } from "../lib/categorias";
 import { useEnLinea } from "../lib/conexion";
 import { useCategorias, useGuardarMovimiento } from "../lib/consultas";
 import { useCuentas, useEtiquetas, useGuardarEtiqueta } from "../lib/cuentas";
+import { useUnaVez } from "../lib/una-vez";
 import { avisarCambiosSinGuardar, cerrarEditor, useEditor } from "../lib/editor";
 import { aFecha, fechaHora, hoyIso, leerMonto } from "../lib/formato";
 import type { DatosMovimiento, MovimientoApp, TipoMovimiento } from "../lib/tipos";
@@ -138,25 +139,24 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
     return cambios;
   };
 
-  const enviar = () => {
-    if (!valido || guardar.isPending) return;
-    const cuerpo = datos();
-    if (editando && Object.keys(cuerpo).length === 0) {
-      cerrarEditor();
-      return;
-    }
-    guardar.mutate(
-      { id: movimiento?.id, datos: cuerpo },
-      {
-        onSuccess: () => {
-          olvidarDeshacer(); // este cambio es ahora el último: un Deshacer viejo lo desharía a él
-          toast.success(editando ? "Cambios guardados" : "Movimiento agregado");
-          cerrarEditor();
-        },
-        onError: (e) => toast.error(mensajeDeError(e)),
-      },
-    );
-  };
+  const unaVez = useUnaVez();
+  const enviar = () =>
+    unaVez(async () => {
+      if (!valido || guardar.isPending) return;
+      const cuerpo = datos();
+      if (editando && Object.keys(cuerpo).length === 0) {
+        cerrarEditor();
+        return;
+      }
+      try {
+        await guardar.mutateAsync({ id: movimiento?.id, datos: cuerpo });
+        olvidarDeshacer(); // este cambio es ahora el último: un Deshacer viejo lo desharía a él
+        toast.success(editando ? "Cambios guardados" : "Movimiento agregado");
+        cerrarEditor();
+      } catch (e) {
+        toast.error(mensajeDeError(e));
+      }
+    });
 
   return (
     <SheetContent
@@ -182,7 +182,7 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          enviar();
+          void enviar();
         }}
         className="space-y-6 pb-2"
       >

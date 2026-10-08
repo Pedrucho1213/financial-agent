@@ -14,6 +14,7 @@ import { ErrorApi, mensajeDeError } from "../lib/api";
 import { useEnLinea } from "../lib/conexion";
 import { useYo } from "../lib/consultas";
 import { type DatosEtiqueta, useBorrarEtiqueta, useEtiquetas, useGuardarEtiqueta } from "../lib/cuentas";
+import { useUnaVez } from "../lib/una-vez";
 import { aFecha, diaCorto, dinero, hoyIso } from "../lib/formato";
 import { haptico } from "../lib/haptico";
 import { hashDe, navegar, volver } from "../lib/ruta";
@@ -222,7 +223,8 @@ function HojaEtiqueta({ valor, hoy, alCerrar }: { valor: Etiqueta | "nueva" | nu
   const fechasMal = activa && (dias < 0 || dias > MAX_DIAS);
   const listo = nombre.trim().length > 0 && !fechasMal && enLinea && !guardar.isPending;
 
-  const enviar = async () => {
+  const unaVez = useUnaVez();
+  const enviar = () => unaVez(async () => {
     if (!listo) return;
     const datos: DatosEtiqueta = {};
     if (!editando || nombre.trim() !== editando.nombre) datos.nombre = nombre.trim();
@@ -242,7 +244,7 @@ function HojaEtiqueta({ valor, hoy, alCerrar }: { valor: Etiqueta | "nueva" | nu
     } catch (error) {
       toast.error(mensajeDeError(error));
     }
-  };
+  });
 
   const eliminar = async () => {
     if (!editando) return;
