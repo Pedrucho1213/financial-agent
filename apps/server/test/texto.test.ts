@@ -143,6 +143,7 @@ test("reconoce correcciones que no dicen borra ni cambia, aunque traigan monto",
     "Ponle 50 de gasolina al coche",
     "Dije que iba a ahorrar pero gasté 500 en ropa",
     "Perdón, fue un día caro, gasté 800 en ropa",
+    "gasté 1500 en la tele, no fue barata pero fue necesaria",
   ]) {
     expect(esOrdenSobreLoAnotado(frase)).toBe(false);
   }
