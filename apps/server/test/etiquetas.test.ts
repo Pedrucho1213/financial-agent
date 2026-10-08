@@ -71,8 +71,10 @@ describe("etiquetas", () => {
     const { ctx } = preparar();
     for (let i = 0; i < 4; i++) crearMovimiento(dictado(ctx), { tipo: "gasto", monto: 10 + i, descripcion: `cosa ${i}` });
     crearMovimiento(dictado(ctx), { tipo: "ingreso", monto: 500, descripcion: "reembolso" });
+    // Lo último fue un ingreso: "a los gastos" es al último gasto.
     const r = await llamar(dictado(ctx, "ponle trabajo a los gastos"), "etiqueta", { accion: "poner", etiqueta: "trabajo", texto: "gastos" });
     expect(r.cambiados).toBe(1);
+    expect(todos(ctx).find((m) => m.etiquetas)!.descripcion).toBe("cosa 3");
     deshacer(dictado(ctx, "deshaz eso"));
     const tres = await llamar(dictado(ctx, "etiqueta los últimos 3 gastos como trabajo"), "etiqueta", { accion: "poner", etiqueta: "trabajo", cantidad: 3 });
     expect(tres.cambiados).toBe(3);

@@ -245,7 +245,7 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
             const ids = cantidad
               ? buscarMovimientos(ctx, { texto, periodo: periodo ?? "todo", tipo, limite: cantidad }).movimientos.map((m) => m.id)
               : mas_reciente || (!periodo && !texto)
-                ? [idDelMovimiento(ctx, undefined, { texto, periodo: periodo ?? "ultimos_30_dias", mas_reciente: true })]
+                ? [idDelMovimiento(ctx, undefined, { texto, periodo: periodo ?? "ultimos_30_dias", mas_reciente: true, tipo: mas_reciente ? undefined : tipo })]
                 : idsQueCoinciden(ctx, { texto, periodo, tipo });
             if (ids.length > MUCHOS_PARA_ETIQUETAR && !confirmado) {
               return { error: `Son ${ids.length} movimientos. Pregúntale si de verdad son todos (y si dice que sí, vuelve a llamar con confirmado: true) o de qué periodo.` };

@@ -182,6 +182,13 @@ function valoresDePlan(
   return valores;
 }
 
+/** Una cuenta sin tipo a la que se le paga es tarjeta de crédito; el cambio queda en la bitácora. */
+function volverCredito(ctx: Contexto, cuenta: typeof cuentas.$inferSelect) {
+  if (cuenta.tipo === "credito") return cuenta;
+  registrarEnBitacora(ctx, "cuentas", cuenta.id, "editar", { tipo: cuenta.tipo }, { tipo: "credito" });
+  return ctx.db.update(cuentas).set({ tipo: "credito" }).where(eq(cuentas.id, cuenta.id)).returning().get()!;
+}
+
 /** Para encontrarOCrearCuenta: si desarchiva una cuenta o le pone tipo, que se pueda deshacer. */
 export const cambioDeCuenta = (ctx: Contexto) => (id: string, antes: Record<string, unknown>, despues: Record<string, unknown>) =>
   registrarEnBitacora(ctx, "cuentas", id, "editar", antes, despues);
@@ -230,7 +237,10 @@ export function crearMovimiento(ctx: Contexto, datos: DatosMovimiento) {
   const mueveEntreCuentas = datos.tipo === "transferencia" || datos.tipo === "pago_tarjeta";
   let destino = mueveEntreCuentas ? encontrarOCrearCuenta(ctx.db, ctx.usuarioId, datos.cuentaDestino, { alCambiar: cambioDeCuenta(ctx) }) : undefined;
   // Un pago de tarjeta con solo la tarjeta (la app manda una cuenta): el dinero llega a ella, no sale de ella.
-  if (datos.tipo === "pago_tarjeta" && !destino && cuenta?.tipo === "credito") [destino, cuenta] = [cuenta, undefined];
+  // Si la cuenta aún no tenía tipo, pagarle dice que es de crédito.
+  if (datos.tipo === "pago_tarjeta" && !destino && cuenta && (cuenta.tipo === "credito" || cuenta.tipo === "otra")) {
+    [destino, cuenta] = [volverCredito(ctx, cuenta), undefined];
+  }
   // Las que dijo, y las que están activas esos días ("todo lo de esta semana es del viaje") si es un gasto.
   const etiquetas = [
     ...new Set([
@@ -492,7 +502,10 @@ export function editarMovimiento(ctx: Contexto, id: string, cambios: Partial<Dat
     const origenId = nuevo.cuentaId !== undefined ? nuevo.cuentaId : antes.cuentaId;
     const destinoId = nuevo.cuentaDestinoId !== undefined ? nuevo.cuentaDestinoId : antes.cuentaDestinoId;
     const origen = origenId ? ctx.db.select().from(cuentas).where(eq(cuentas.id, origenId)).get() : undefined;
-    if (!destinoId && origen?.tipo === "credito") Object.assign(nuevo, { cuentaDestinoId: origen.id, cuentaId: null });
+    if (!destinoId && origen && (origen.tipo === "credito" || origen.tipo === "otra")) {
+      volverCredito(ctx, origen);
+      Object.assign(nuevo, { cuentaDestinoId: origen.id, cuentaId: null });
+    }
   }
   if (nuevo.fecha && nuevo.fecha > ctx.hoy) nuevo.revisar = true;
   if (Object.keys(nuevo).length === 0) throw new ErrorFinanzas("No indicaste qué cambiar.");

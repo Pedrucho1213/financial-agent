@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { eq } from "drizzle-orm";
 import { confirmacionDirecta } from "../src/ai/confirmacion";
 import { crearHerramientas } from "../src/ai/herramientas";
 import { cuentas as tablaCuentas } from "../src/db/schema";
@@ -348,6 +349,12 @@ describe("la IA no confunde un saldo con un ingreso", () => {
     expect(pesos(estado(ctx, "Nu").deudaCentavos)).toBe(4000);
     editarMovimiento(dictado(ctx), g.id, { tipo: "pago_tarjeta" });
     expect(pesos(estado(ctx, "Nu").deudaCentavos)).toBe(2000);
+    // Una cuenta sin tipo a la que se le paga se vuelve tarjeta de crédito y es el destino.
+    const stori = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, "Mi Stori")!;
+    ctx.db.update(tablaCuentas).set({ tipo: "otra" }).where(eq(tablaCuentas.id, stori.id)).run();
+    const pago = crearMovimiento(dictado(ctx), { tipo: "pago_tarjeta", monto: 100, cuenta: "Stori" });
+    expect(pago).toMatchObject({ cuenta: undefined, cuenta_destino: "Stori" });
+    expect(estado(ctx, "Stori").tipo).toBe("credito");
   });
 
   test("una compra a meses anotada tarde ya venía en el saldo que dijo después de comprar", () => {
