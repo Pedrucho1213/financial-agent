@@ -1,4 +1,4 @@
-import { ChevronRight, MapPin, Target } from "lucide-react";
+import { ChartColumnBig, ChevronRight, MapPin, Target } from "lucide-react";
 import type { ReactNode } from "react";
 import { ErrorApi } from "../lib/api";
 import { dinero } from "../lib/formato";
@@ -8,7 +8,7 @@ import { hashDe, navegar } from "../lib/ruta";
 import { cn } from "../lib/utils";
 import { Anillos } from "./Anillos";
 
-/** Dos tarjetas en Inicio: presupuestos y metas (con sus anillos) y el mapa de dónde gastas. */
+/** Tarjetas en Inicio: análisis a lo ancho; abajo, presupuestos y metas (con sus anillos) y el mapa de dónde gastas. */
 export function Accesos({ mes, moneda }: { mes: string; moneda: string }) {
   const presupuestos = usePresupuestos(mes);
   const metas = useMetas();
@@ -28,6 +28,17 @@ export function Accesos({ mes, moneda }: { mes: string; moneda: string }) {
 
   return (
     <div className={cn("grid gap-3", sinPlan ? "grid-cols-1" : "grid-cols-2")}>
+      <Tarjeta
+        ancha={!sinPlan}
+        titulo="Análisis"
+        detalle="Tendencias, calendario y lo que noté"
+        alTocar={() => navegar(hashDe("analisis"))}
+        icono={
+          <span aria-hidden className="flex size-[52px] items-center justify-center rounded-full bg-[var(--serie-6)]/15 text-[var(--serie-6)]">
+            <ChartColumnBig className="size-[22px]" />
+          </span>
+        }
+      />
       {sinPlan ? null : (
         <Tarjeta
           titulo="Presupuestos y metas"
@@ -75,7 +86,20 @@ export function Accesos({ mes, moneda }: { mes: string; moneda: string }) {
   );
 }
 
-function Tarjeta({ titulo, detalle, icono, alTocar }: { titulo: string; detalle: string; icono: ReactNode; alTocar: () => void }) {
+function Tarjeta({
+  titulo,
+  detalle,
+  icono,
+  alTocar,
+  ancha,
+}: {
+  titulo: string;
+  detalle: string;
+  icono: ReactNode;
+  alTocar: () => void;
+  /** A lo ancho de las dos columnas, con el icono a un lado. */
+  ancha?: boolean;
+}) {
   return (
     <button
       type="button"
@@ -83,14 +107,17 @@ function Tarjeta({ titulo, detalle, icono, alTocar }: { titulo: string; detalle:
         haptico();
         alTocar();
       }}
-      className="fila-presionable relative flex min-w-0 flex-col items-start gap-2.5 rounded-[20px] bg-card p-4 text-left"
+      className={cn(
+        "fila-presionable relative flex min-w-0 items-start gap-2.5 rounded-[20px] bg-card p-4 text-left",
+        ancha ? "col-span-2 flex-row items-center gap-3.5 pr-10" : "flex-col",
+      )}
     >
       {icono}
       <span className="min-w-0 self-stretch">
         <span className="block text-[15px] leading-5 font-semibold">{titulo}</span>
         <span className="block truncate text-[13px] text-muted-foreground tabular">{detalle}</span>
       </span>
-      <ChevronRight aria-hidden className="absolute top-4 right-3 size-5 text-muted-foreground/60" />
+      <ChevronRight aria-hidden className={cn("absolute right-3 size-5 text-muted-foreground/60", ancha ? "top-1/2 -translate-y-1/2" : "top-4")} />
     </button>
   );
 }

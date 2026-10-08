@@ -22,6 +22,7 @@ const cargas = {
   detalle: () => import("./pantallas/DetalleMovimiento"),
   mapa: () => import("./pantallas/Mapa"),
   plan: () => import("./pantallas/Plan"),
+  analisis: () => import("./pantallas/Analisis"),
 };
 const Chat = lazy(() => cargas.chat().then((m) => ({ default: m.Chat })));
 const Ajustes = lazy(() => cargas.ajustes().then((m) => ({ default: m.Ajustes })));
@@ -31,6 +32,7 @@ const Instalar = lazy(() => cargas.instalar().then((m) => ({ default: m.Instalar
 const DetalleMovimiento = lazy(() => cargas.detalle().then((m) => ({ default: m.DetalleMovimiento })));
 const Mapa = lazy(() => cargas.mapa().then((m) => ({ default: m.Mapa })));
 const Plan = lazy(() => cargas.plan().then((m) => ({ default: m.Plan })));
+const Analisis = lazy(() => cargas.analisis().then((m) => ({ default: m.Analisis })));
 
 // /instalar?codigo=X instala el Atajo sin sesión: va antes de pedir la entrada y no toca el token.
 const EN_INSTALAR = /^\/instalar\/?$/.test(window.location.pathname);
@@ -115,7 +117,7 @@ function Aplicacion() {
   }, []);
 
   // Cada pestaña recuerda dónde se quedó, como en iOS.
-  // Las páginas (detalle, mapa, plan) siempre abren arriba.
+  // Las páginas (detalle, mapa, plan, análisis) siempre abren arriba.
   const posiciones = useRef(new Map<string, number>());
   const anterior = useRef<string>(vista);
   useLayoutEffect(() => {
@@ -155,6 +157,7 @@ function Aplicacion() {
             {pagina === "movimiento" ? <DetalleMovimiento params={params} /> : null}
             {pagina === "mapa" ? <Mapa /> : null}
             {pagina === "plan" ? <Plan params={params} /> : null}
+            {pagina === "analisis" ? <Analisis params={params} /> : null}
           </Suspense>
         ) : (
           <>
