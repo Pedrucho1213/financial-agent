@@ -1,7 +1,7 @@
 // QA del PR #37 (página Análisis). Playwright de apps/web: copiar a apps/web/e2e/ y borrar después.
 // Complementa e2e/analisis.spec.ts con lo que la tanda de cuentas va a meter (transferencias, pagos de
 // tarjeta), montos extremos, texto roto (NaN, undefined) y la comparación de la semana.
-// Los casos HALLAZGO afirman lo CORRECTO: fallan hasta que se arregle (QA-083, QA-084).
+// QA-083 y QA-084 cerrados en 37c5cf7 y 00781ab.
 import { expect, type Page, test } from "@playwright/test";
 import { ApiFalsa, HOY, mov, prepararSesion } from "./api-falsa";
 import { conHistorial } from "./api-falsa-analisis";
@@ -44,7 +44,7 @@ test.describe("QA #37 · Análisis", () => {
     });
   }
 
-  test("HALLAZGO QA-084: un gasto de 150 mil corta «Por día» y «Promedio» con … a 320", async ({ page }) => {
+  test("FIX QA-084: un gasto de 150 mil no corta «Por día» ni «Promedio» a 320", async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 640 });
     const api = new ApiFalsa();
     api.movimientos.push(mov(HOY, "gasto", Number(process.env.MONTO ?? 150_000), "Eventos", "Concesionaria", { cuenta: "BBVA" }));
@@ -71,7 +71,7 @@ test.describe("QA #37 · Análisis", () => {
     }
   });
 
-  test("HALLAZGO QA-083: semana con meses de historia y sin gastos del 28 al 30 sep dice «empezaste a anotar después»", async ({ page }) => {
+  test("FIX QA-083: semana con meses de historia y sin gastos del 28 al 30 sep no dice «empezaste a anotar después»", async ({ page }) => {
     // Semana actual 5–11 oct; la anterior 28 sep – 4 oct. Se quitan los registros del 28 al 30 de septiembre.
     const api = conHistorial(new ApiFalsa());
     api.movimientos = api.movimientos.filter((m) => !(m.fecha >= "2026-09-28" && m.fecha <= "2026-09-30"));
@@ -83,5 +83,20 @@ test.describe("QA #37 · Análisis", () => {
     console.log("comparación de la semana:", (await comparacion.count()) ? await comparacion.innerText() : "(no hay)");
     await expect(comparacion).toHaveCount(1);
     await expect(comparacion).not.toHaveText(/no hay|sin datos|todavía/i);
+  });
+
+  test("sin conexión, Análisis abre con el caché y no muestra error en la comparación", async ({ page }) => {
+    await prepararSesion(page, conHistorial(new ApiFalsa()));
+    await page.goto("/#analisis?periodo=semana");
+    await expect(page.getByTestId("comparacion")).toBeVisible();
+    const antes = await page.getByTestId("comparacion").innerText();
+    await page.waitForTimeout(1500);
+    await page.unroute(/\/v1\//);
+    await page.route(/\/v1\//, (r) => r.abort("internetdisconnected"));
+    await page.reload();
+    await expect(page.getByTestId("total-periodo")).toBeVisible();
+    const despues = await page.getByTestId("comparacion").innerText().catch(() => "(sin comparación)");
+    console.log({ antes, despues });
+    await expect(page.getByText(/no carg|error|reintentar/i)).toHaveCount(0);
   });
 });
