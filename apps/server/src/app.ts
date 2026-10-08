@@ -30,7 +30,7 @@ import {
   verificarCodigo,
 } from "./auth";
 import { entradas, invitaciones, usuarios } from "./db/schema";
-import { esDevolucion, fraseDePago } from "./finanzas/applepay";
+import { esDevolucion, fraseDePago, pagoDeTransaccion } from "./finanzas/applepay";
 import { avisoDelDia } from "./finanzas/avisos";
 import { listarCategorias, nombreCompleto } from "./finanzas/catalogos";
 import { crearContexto } from "./finanzas/contexto";
@@ -128,6 +128,9 @@ const esquemaApplePay = z.object({
   comercio: z.coerce.string().trim().max(200).optional(),
   nombre: z.coerce.string().trim().max(200).optional(),
   tarjeta: z.coerce.string().trim().max(200).optional(),
+  // La transacción completa como texto y su tipo, por si la Cartera cambia el nombre de una propiedad.
+  entrada: z.coerce.string().transform((t) => t.trim().slice(0, 500)).optional(),
+  tipo: z.coerce.string().transform((t) => t.trim().slice(0, 100)).optional(),
   lat: numeroOpcional(-90, 90),
   lon: numeroOpcional(-180, 180),
   capturado_en: fechaOpcional,
@@ -584,16 +587,45 @@ export function crearApp(opciones: OpcionesApp) {
    * Un pago con Apple Pay: se registra en segundo plano y lo anotado llega por notificación, con el
    * detalle abierto para agregar lo que falte. Sin monto (el Atajo corrido a mano) es una prueba.
    */
+  const registrar = (linea: string) => {
+    if (process.env.NODE_ENV !== "test") console.log(linea);
+  };
   const pagoApplePay = async (c: Context<{ Variables: VariablesAuth }>, crudo: object) => {
     const cuerpo = esquemaApplePay.safeParse(sinVacios(crudo));
     if (!cuerpo.success) {
-      return c.json({ error: "Petición inválida.", detalles: z.flattenError(cuerpo.error).fieldErrors }, 400);
+      const detalles = z.flattenError(cuerpo.error).fieldErrors;
+      registrar(`Apple Pay: petición inválida en ${Object.keys(detalles).join(", ") || "el cuerpo"}`);
+      return c.json({ error: "Petición inválida.", detalles }, 400);
     }
     const p = cuerpo.data;
     const usuarioId = c.get("usuarioId");
-    const texto = fraseDePago(p, opciones.monedaBase);
+    // Si el monto no llegó como propiedad, puede venir en el texto completo de la transacción.
+    const directo = fraseDePago(p, opciones.monedaBase);
+    const respaldo = directo ? undefined : pagoDeTransaccion(p.entrada);
+    const texto = directo ?? (respaldo && fraseDePago({ ...p, monto: respaldo.monto, nombre: p.nombre ?? respaldo.nombre }, opciones.monedaBase));
+    // Una línea por pago en el log de la Mac: qué campos llegaron (sin sus valores) y qué se hizo.
+    const anotar = (resultado: string) =>
+      registrar(
+        `Apple Pay: ${resultado}; llegaron ${
+          (["monto", "comercio", "nombre", "tarjeta", "entrada", "lat"] as const).filter((k) => p[k] !== undefined).join(", ") || "ningún campo"
+        }${p.tipo ? `; tipo ${JSON.stringify(p.tipo)}` : ""}${respaldo ? "; monto sacado del texto de la transacción" : ""}`,
+      );
     if (!texto) {
-      const prueba = !p.monto && !p.comercio && !p.nombre && !p.tarjeta;
+      const prueba = !p.monto && !p.comercio && !p.nombre && !p.tarjeta && !p.entrada;
+      const montoCrudo = p.monto || respaldo?.monto;
+      const devolucion = !prueba && !!montoCrudo && esDevolucion(montoCrudo);
+      anotar(prueba ? "prueba a mano" : devolucion ? "devolución" : "sin monto");
+      if (!prueba && !devolucion) {
+        // Llegó un pago de verdad pero sin monto legible: se avisa para anotarlo a mano, y el log guarda
+        // cómo llegó la transacción para ajustar el Atajo.
+        registrar(`Apple Pay sin monto, texto de la transacción: ${JSON.stringify(p.entrada?.slice(0, 160) ?? "")}`);
+        notificar(
+          db,
+          usuarioId,
+          { titulo: "Pago con Apple Pay", cuerpo: "No pude leer el monto de tu pago. Dímelo con el Atajo para anotarlo.", url: "/#inicio" },
+          opciones.enviarPush,
+        ).catch((error) => console.error("No se pudo avisar del pago sin monto:", error));
+      }
       if (prueba) {
         // Sin esperarla: corrido a mano, el Atajo contesta enseguida aunque Apple tarde.
         notificar(
@@ -606,7 +638,7 @@ export function crearApp(opciones: OpcionesApp) {
       return c.json({
         respuesta: prueba
           ? "Listo. Cuando pagues con Apple Pay lo anoto solo."
-          : p.monto && esDevolucion(p.monto)
+          : devolucion
             ? "Es una devolución; no la anoté como gasto."
             : "Ese pago no trae monto; no anoté nada.",
         prueba,
@@ -622,7 +654,11 @@ export function crearApp(opciones: OpcionesApp) {
       .where(and(eq(entradas.usuarioId, usuarioId), eq(entradas.origen, "apple_pay"), eq(entradas.texto, texto)))
       .all()
       .some((e) => e.clientId !== p.client_id && Math.abs(Date.parse(e.capturadoEn) - momento) <= PAGO_REPETIDO_MS);
-    if (repetido) return c.json({ respuesta: "Ese pago ya estaba anotado.", duplicado: true, acciones: [] });
+    if (repetido) {
+      anotar("repetido");
+      return c.json({ respuesta: "Ese pago ya estaba anotado.", duplicado: true, acciones: [] });
+    }
+    anotar("se anota");
     try {
       const respuesta = await hablar(
         deps,

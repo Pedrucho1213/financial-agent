@@ -38,6 +38,29 @@ export function montoDeWallet(texto: string | undefined, monedaBase = "MXN"): { 
   return Number.isFinite(monto) && monto > 0 ? { monto: Math.round(monto * 100) / 100, moneda } : undefined;
 }
 
+// Un monto con su moneda dentro de un texto libre ("$41.00", "MX$1,234.50", "12,50 €", "41 MXN"). Sin moneda no
+// se toma: el texto puede traer números de tarjeta o de sucursal.
+// El signo de un reembolso solo cuenta pegado al monto ("-$85.00", "($85.00)"), como lo muestra la Cartera: en
+// "Starbucks - $41.00" el guion separa, no resta.
+const MONTO_EN_TEXTO =
+  /(?:(?<=^|\s)[-−–(])?(?:[A-Z]{1,3}\$|\$|€|£|¥)\s?\d[\d.,]*|(?:(?<=^|\s)[-−–(])?\d[\d.,]*\s?(?:€|£|\b(?:MXN|USD|EUR|GBP|CAD|pesos?)\b)/i;
+
+/**
+ * Cuando el Atajo no pudo leer las propiedades de la transacción (la Cartera cambió un nombre), saca el monto
+ * del texto completo de la transacción; el resto del texto queda como nombre para la IA.
+ */
+export function pagoDeTransaccion(entrada: string | undefined): PagoWallet | undefined {
+  const m = entrada?.match(MONTO_EN_TEXTO);
+  if (!entrada || !m) return undefined;
+  // Sin el monto, quedan los guiones que lo separaban: "OXXO – – Nu" queda "OXXO – Nu".
+  const resto = entrada
+    .replace(m[0], " ")
+    .replace(/(?:\s+[-−–·|]+)+\s+/g, " – ")
+    .replace(/^[\s\-−–·|,]+|[\s\-−–·|,]+$/g, "")
+    .replace(/\s+/g, " ");
+  return { monto: m[0].trim(), ...(resto ? { nombre: resto.slice(0, 200) } : {}) };
+}
+
 /** "-$85.00" o "($85.00)": la Cartera muestra así un reembolso; no es un gasto. */
 export const esDevolucion = (texto: string) => /^[^\d]*[-−–(]/.test(texto.trim());
 
