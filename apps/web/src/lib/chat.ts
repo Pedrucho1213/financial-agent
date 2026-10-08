@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { olvidarDeshacer } from "./acciones";
 import { api, ErrorApi, mensajeDeError } from "./api";
-import { clienteConsultas } from "./consultas";
+import { refrescarDatos } from "./consultas";
 import { alCerrarSesion } from "./sesion";
 import type { Accion, EstadoEntrada, RespuestaHablar } from "./tipos";
 
@@ -74,9 +74,7 @@ function refrescarSiHizoAlgo(acciones: Accion[] | undefined) {
   if (!acciones?.length) return;
   // Lo que hizo el chat es ahora "lo último": el Deshacer de un aviso anterior desharía esto.
   if (acciones.some(accionCambiaDatos)) olvidarDeshacer();
-  void clienteConsultas.invalidateQueries({ queryKey: ["tablero"] });
-  void clienteConsultas.invalidateQueries({ queryKey: ["movimientos"] });
-  void clienteConsultas.invalidateQueries({ queryKey: ["plan"] });
+  void refrescarDatos();
 }
 
 export function nuevaConversacion() {

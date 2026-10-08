@@ -223,6 +223,25 @@ describe("analizar: días, horas y naturaleza", () => {
     ]);
   });
 
+  test("por etiqueta: un gasto con dos cuenta en las dos, y se compara con el periodo anterior", () => {
+    const viaje: [string, string] = ["e1", "viaje"];
+    const trabajo: [string, string] = ["e2", "trabajo"];
+    const filas = [
+      f("2026-09-02", 50, { g: [trabajo] }),
+      f("2026-10-01", 100, { g: [viaje, trabajo] }),
+      f("2026-10-02", 30, { g: [viaje] }),
+      f("2026-10-03", 999),
+      // Un ingreso etiquetado no es gasto.
+      f("2026-10-03", 500, { t: "ingreso", g: [trabajo] }),
+    ];
+    const a = analizar(filas, { ...base, periodo: "mes", ref: "2026-10-06" });
+    expect(a.etiquetas.map((e) => [e.id, e.nombre, e.centavos, e.cantidad, e.anterior])).toEqual([
+      ["e1", "viaje", 13_000, 2, 0],
+      ["e2", "trabajo", 10_000, 1, 5_000],
+    ]);
+    expect(analizar([f("2026-10-01", 10)], { ...base, periodo: "mes", ref: "2026-10-06" }).etiquetas).toEqual([]);
+  });
+
   test("sin ningún registro todo queda en cero, sin dividir entre cero", () => {
     const a = analizar([], { ...base, periodo: "anio", ref: "2026-10-06" });
     expect(a.totales.porDia).toBe(0);

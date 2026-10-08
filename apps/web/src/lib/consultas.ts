@@ -86,17 +86,25 @@ export function useTablero(mes: string) {
 export type FiltrosMovimientos = {
   /** YYYY-MM o "todo" */
   mes: string;
+  /** Unas fechas exactas (una semana o 6 meses de Análisis): mandan sobre `mes`. */
+  rango?: { desde: string; hasta: string };
   tipo?: TipoMovimiento;
   categoria?: string;
   texto?: string;
   revisar?: boolean;
+  /** Id de cuenta: lo que salió o llegó a ella. */
+  cuenta?: string;
+  etiqueta?: string;
 };
 
 export const POR_PAGINA = 50;
 
 export function parametrosMovimientos(f: FiltrosMovimientos, offset: number) {
   const p = new URLSearchParams();
-  if (f.mes === "todo") {
+  if (f.rango) {
+    p.set("desde", f.rango.desde);
+    p.set("hasta", f.rango.hasta);
+  } else if (f.mes === "todo") {
     // El contrato no tiene "todo": se pide un rango amplio.
     p.set("desde", "2000-01-01");
     p.set("hasta", "2099-12-31");
@@ -109,6 +117,8 @@ export function parametrosMovimientos(f: FiltrosMovimientos, offset: number) {
   if (f.categoria) p.set("categoria_id", f.categoria);
   if (f.texto) p.set("texto", f.texto);
   if (f.revisar) p.set("revisar", "1");
+  if (f.cuenta) p.set("cuenta_id", f.cuenta);
+  if (f.etiqueta) p.set("etiqueta_id", f.etiqueta);
   p.set("limite", String(POR_PAGINA));
   p.set("offset", String(offset));
   return p;
@@ -250,15 +260,17 @@ export function useFilasAnalisis(desde: string, hasta: string) {
   });
 }
 
-/** Después de cualquier cambio: tablero y listas se vuelven a pedir. */
+/**
+ * Después de cualquier cambio: tablero y listas se vuelven a pedir. Un gasto con cuenta cambia su
+ * saldo, y uno con etiqueta lo que lleva. También para lo que no es hook (deshacer, el chat).
+ */
+export function refrescarDatos(qc: QueryClient = clienteConsultas) {
+  return Promise.all(["tablero", "movimientos", "plan", "cuentas", "etiquetas"].map((k) => qc.invalidateQueries({ queryKey: [k] })));
+}
+
 export function useRefrescarDatos() {
   const qc = useQueryClient();
-  return () =>
-    Promise.all([
-      qc.invalidateQueries({ queryKey: ["tablero"] }),
-      qc.invalidateQueries({ queryKey: ["movimientos"] }),
-      qc.invalidateQueries({ queryKey: ["plan"] }),
-    ]);
+  return () => refrescarDatos(qc);
 }
 
 export function useGuardarMovimiento() {

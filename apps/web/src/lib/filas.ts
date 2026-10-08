@@ -21,6 +21,8 @@ export type Fila = {
   e: string;
   /** Cuenta o método de pago, como lo dijo. */
   a: string | null;
+  /** Etiquetas [id, nombre]; solo si tiene. */
+  g?: [string, string][];
 };
 
 export function aFila(m: MovimientoApp): Fila {
@@ -35,6 +37,7 @@ export function aFila(m: MovimientoApp): Fila {
     n: m.comercio?.trim() || null,
     e: m.comercio?.trim() || m.descripcion?.trim() || m.categoria?.split(">").pop()?.trim() || "Movimiento",
     a: m.cuenta?.trim() || null,
+    ...(m.etiquetas?.length ? { g: m.etiquetas.map((e): [string, string] => [e.id, e.nombre]) } : {}),
   };
 }
 

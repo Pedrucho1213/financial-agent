@@ -14,6 +14,7 @@ import {
   Scale,
   Sparkles,
   Star,
+  Tag,
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
@@ -252,6 +253,7 @@ function Contenido({
           {categoria || (periodo !== "6m" && periodo !== "anio") ? null : <Flujo a={a} />}
           <Lugares a={a} />
           <Pagos a={a} />
+          <PorEtiqueta a={a} categoria={categoria} />
           <PreguntarIA a={a} nombreCategoria={nombreCategoria} />
         </>
       )}
@@ -506,7 +508,7 @@ function Categorias({
               alFiltrar(c.id);
               window.scrollTo({ top: 0, behavior: "smooth" });
             } else if (c.id) {
-              navegar(hashDe("movimientos", { mes: a.periodo === "mes" ? a.rango.desde.slice(0, 7) : "todo", tipo: "gasto", categoria: c.id }));
+              navegar(hashDe("movimientos", { ...delPeriodo(a), tipo: "gasto", categoria: c.id }));
             }
           };
           return (
@@ -785,7 +787,6 @@ function Lugares({ a }: { a: DatosAnalisis }) {
   const lista = a.comercios.filter((c) => c.centavos > 0);
   if (!lista.length) return null;
   const visibles = todos ? lista.slice(0, 20) : lista.slice(0, 5);
-  const mes = a.periodo === "mes" ? a.rango.desde.slice(0, 7) : "todo";
   return (
     <section aria-label="Dónde gastas más">
       <TituloSeccion
@@ -817,8 +818,59 @@ function Lugares({ a }: { a: DatosAnalisis }) {
                 {a.comparable ? <Delta actual={c.centavos} anterior={c.anterior} /> : null}
               </span>
             }
-            onClick={() => navegar(hashDe("movimientos", { mes, q: c.nombre }))}
+            onClick={() => navegar(hashDe("movimientos", { ...delPeriodo(a), q: c.nombre }))}
           />
+        ))}
+      </Grupo>
+    </section>
+  );
+}
+
+/** Los movimientos del periodo que se ve: el mes, o las fechas exactas de una semana o de varios meses. */
+function delPeriodo(a: DatosAnalisis): Record<string, string> {
+  return a.periodo === "mes" ? { mes: a.rango.desde.slice(0, 7) } : { desde: a.rango.desde, hasta: a.rango.hasta };
+}
+
+/** Lo que llevan las etiquetas en el periodo: cruzan categorías ("viaje", "trabajo"). */
+function PorEtiqueta({ a, categoria }: { a: DatosAnalisis; categoria: string | null }) {
+  const lista = a.etiquetas.filter((e) => e.centavos > 0).slice(0, 8);
+  if (!lista.length) return null;
+  const tope = Math.max(1, ...lista.map((e) => e.centavos));
+  return (
+    <section aria-label="Por etiqueta">
+      <TituloSeccion
+        accion={
+          <Button variant="plain" size="text" className="text-[15px]" onClick={() => navegar(hashDe("etiquetas"))}>
+            Ver todas
+          </Button>
+        }
+      >
+        Por etiqueta
+      </TituloSeccion>
+      <Grupo pie="Un gasto con dos etiquetas cuenta en las dos.">
+        {lista.map((e) => (
+          <button
+            key={e.id}
+            type="button"
+            data-etiqueta={e.nombre}
+            onClick={() => navegar(hashDe("movimientos", { ...delPeriodo(a), tipo: "gasto", categoria: categoria ?? undefined, etiqueta: e.id ?? undefined }))}
+            className="fila-presionable relative block w-full px-4 py-3 text-left [&:not(:first-child)]:before:absolute [&:not(:first-child)]:before:top-0 [&:not(:first-child)]:before:right-0 [&:not(:first-child)]:before:left-4 [&:not(:first-child)]:before:h-[0.5px] [&:not(:first-child)]:before:bg-separator [&:not(:first-child)]:before:content-['']"
+          >
+            <div className="flex items-baseline gap-2">
+              <Tag aria-hidden className="size-4 shrink-0 translate-y-[2px] text-tint" />
+              <span className="min-w-0 flex-1 truncate text-[17px]">{e.nombre}</span>
+              <span className="text-[13px] text-muted-foreground tabular">
+                {e.cantidad} {e.cantidad === 1 ? "gasto" : "gastos"}
+              </span>
+              <span className="flex shrink-0 flex-col items-end">
+                <span className="text-[17px] tabular">{dinero(e.centavos, a.moneda)}</span>
+                {a.comparable ? <Delta actual={e.centavos} anterior={e.anterior} /> : null}
+              </span>
+            </div>
+            <div className="mt-2 ml-6 h-[6px] rounded-full bg-fill">
+              <span className="block h-full origin-left animate-crecer-x rounded-full bg-tint" style={{ width: `${(e.centavos / tope) * 100}%` }} />
+            </div>
+          </button>
         ))}
       </Grupo>
     </section>

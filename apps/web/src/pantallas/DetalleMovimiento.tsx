@@ -154,6 +154,8 @@ function Detalle({ m, enLinea }: { m: MovimientoApp; enLinea: boolean }) {
   const signo = m.tipo === "ingreso" ? "+" : m.tipo === "gasto" ? "−" : "";
   const origen = ORIGENES[m.origen];
   const conLugar = m.lat !== null && m.lon !== null;
+  // Transferencias y pagos de tarjeta: dinero que cambia de lugar, sin categoría.
+  const mueve = m.tipo === "transferencia" || m.tipo === "pago_tarjeta";
   const zonaHoraria = useYo().data?.zonaHoraria;
   const formato = useMemo(() => fechaLarga(zonaHoraria), [zonaHoraria]);
   const fecha = formato.format(new Date(m.ocurridoEn));
@@ -202,9 +204,10 @@ function Detalle({ m, enLinea }: { m: MovimientoApp; enLinea: boolean }) {
 
       <Grupo>
         <Fila titulo="Tipo" valor={TIPOS[m.tipo] ?? m.tipo} />
-        <Fila titulo="Categoría" valor={m.categoria?.replace(" > ", " › ") ?? "Sin categoría"} />
-        {m.cuenta ? <Fila titulo={m.cuentaDestino ? "Desde" : "Pagado con"} valor={m.cuenta} /> : null}
-        {m.cuentaDestino ? <Fila titulo={m.tipo === "pago_tarjeta" ? "Tarjeta pagada" : "Hacia"} valor={m.cuentaDestino} /> : null}
+        {mueve ? null : <Fila titulo="Categoría" valor={m.categoria?.replace(" > ", " › ") ?? "Sin categoría"} />}
+        {m.cuenta ? <Fila titulo={mueve ? "Desde" : m.tipo === "ingreso" ? "Llegó a" : "Pagado con"} valor={m.cuenta} /> : null}
+        {m.cuentaDestino ? <Fila titulo={m.tipo === "pago_tarjeta" ? "Tarjeta" : "Hacia"} valor={m.cuentaDestino} /> : null}
+        {m.etiquetas?.length ? <Fila titulo="Etiquetas" valor={m.etiquetas.map((e) => `#${e.nombre}`).join(" ")} /> : null}
         {m.descripcion && m.comercio ? <Fila titulo="Nota" valor={m.descripcion} /> : null}
         {m.lugar ? <Fila titulo="Lugar" valor={m.lugar} /> : null}
         {m.moneda !== "MXN" ? <Fila titulo="Moneda" valor={m.moneda} /> : null}

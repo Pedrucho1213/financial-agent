@@ -5,7 +5,14 @@ export const PESTANAS = ["inicio", "movimientos", "chat", "ajustes"] as const;
 export type Pestana = (typeof PESTANAS)[number];
 
 // Páginas que se abren encima de una pestaña (como un "push" de iOS), con su pestaña madre.
-export const PAGINAS = { plan: "inicio", mapa: "movimientos", analisis: "inicio" } as const satisfies Record<string, Pestana>;
+export const PAGINAS = {
+  plan: "inicio",
+  mapa: "movimientos",
+  analisis: "inicio",
+  cuentas: "inicio",
+  cuenta: "inicio",
+  etiquetas: "inicio",
+} as const satisfies Record<string, Pestana>;
 // El detalle de un registro es #movimientos?detalle=<id> (o <id1>,<id2>): así lo abren las notificaciones,
 // y una app vieja que no lo conoce simplemente muestra Movimientos.
 export type Pagina = keyof typeof PAGINAS | "movimiento";

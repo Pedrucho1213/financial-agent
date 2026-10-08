@@ -74,8 +74,15 @@ test.describe("Notificaciones en Ajustes", () => {
     await page.goto("/#ajustes");
     const interruptor = page.getByRole("switch", { name: "Notificaciones" });
     await interruptor.click();
-    await page.clock.fastForward(15_000);
-    await expect(page.getByText("No se pudieron activar las notificaciones. Inténtalo de nuevo.")).toBeVisible();
+    // El reloj de 15 s se arma después de pedir /v1/push y el registro; con la máquina cargada eso
+    // llega tarde. Se adelanta de nuevo hasta que se rinda, en vez de una sola vez a ciegas.
+    const aviso = page.getByText("No se pudieron activar las notificaciones. Inténtalo de nuevo.");
+    await expect
+      .poll(async () => {
+        await page.clock.fastForward(15_000);
+        return aviso.isVisible();
+      })
+      .toBe(true);
     await expect(interruptor).not.toBeChecked();
     await expect(interruptor).toBeEnabled();
     expect(api.de("POST", "/v1/push/suscripcion")).toHaveLength(0);

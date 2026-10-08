@@ -23,6 +23,8 @@ const cargas = {
   mapa: () => import("./pantallas/Mapa"),
   plan: () => import("./pantallas/Plan"),
   analisis: () => import("./pantallas/Analisis"),
+  cuentas: () => import("./pantallas/Cuentas"),
+  etiquetas: () => import("./pantallas/Etiquetas"),
 };
 const Chat = lazy(() => cargas.chat().then((m) => ({ default: m.Chat })));
 const Ajustes = lazy(() => cargas.ajustes().then((m) => ({ default: m.Ajustes })));
@@ -33,6 +35,9 @@ const DetalleMovimiento = lazy(() => cargas.detalle().then((m) => ({ default: m.
 const Mapa = lazy(() => cargas.mapa().then((m) => ({ default: m.Mapa })));
 const Plan = lazy(() => cargas.plan().then((m) => ({ default: m.Plan })));
 const Analisis = lazy(() => cargas.analisis().then((m) => ({ default: m.Analisis })));
+const Cuentas = lazy(() => cargas.cuentas().then((m) => ({ default: m.Cuentas })));
+const Cuenta = lazy(() => cargas.cuentas().then((m) => ({ default: m.Cuenta })));
+const Etiquetas = lazy(() => cargas.etiquetas().then((m) => ({ default: m.Etiquetas })));
 
 // /instalar?codigo=X instala el Atajo sin sesión: va antes de pedir la entrada y no toca el token.
 const EN_INSTALAR = /^\/instalar\/?$/.test(window.location.pathname);
@@ -117,7 +122,7 @@ function Aplicacion() {
   }, []);
 
   // Cada pestaña recuerda dónde se quedó, como en iOS.
-  // Las páginas (detalle, mapa, plan, análisis) siempre abren arriba.
+  // Las páginas (detalle, mapa, plan, análisis, cuentas…) siempre abren arriba.
   const posiciones = useRef(new Map<string, number>());
   const anterior = useRef<string>(vista);
   useLayoutEffect(() => {
@@ -158,6 +163,9 @@ function Aplicacion() {
             {pagina === "mapa" ? <Mapa /> : null}
             {pagina === "plan" ? <Plan params={params} /> : null}
             {pagina === "analisis" ? <Analisis params={params} /> : null}
+            {pagina === "cuentas" ? <Cuentas params={params} /> : null}
+            {pagina === "cuenta" ? <Cuenta params={params} /> : null}
+            {pagina === "etiquetas" ? <Etiquetas params={params} /> : null}
           </Suspense>
         ) : (
           <>
