@@ -1,9 +1,20 @@
-import { QueryClient, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  defaultShouldDehydrateQuery,
+  type Query,
+  QueryClient,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
+import { removeOldestQuery } from "@tanstack/react-query-persist-client";
 import { api, ErrorApi } from "./api";
 import { alCerrarSesion } from "./sesion";
+import { aFila, type Fila } from "./filas";
 import type { Categoria, DatosMovimiento, MovimientoApp, Tablero, TipoMovimiento, Yo } from "./tipos";
 import { rangoDelMes } from "./formato";
+import { sumarDias } from "./periodos";
 import { hashDetalle, navegar } from "./ruta";
 
 const DIA = 24 * 60 * 60 * 1000;
@@ -22,7 +33,19 @@ export const clienteConsultas = new QueryClient({
 export const persistidor = createSyncStoragePersister({
   storage: typeof window === "undefined" ? undefined : window.localStorage,
   key: "fa_cache",
+  // Si localStorage se llena (~5 MB en iOS), quita la consulta más vieja y reintenta,
+  // en vez de dejar de guardar todo el caché sin avisar.
+  retry: removeOldestQuery,
 });
+
+/**
+ * Qué se guarda para abrir sin conexión. De Análisis, solo el periodo en pantalla: un año son dos años
+ * de movimientos, y cada periodo recorrido sería otra copia en localStorage.
+ */
+export function guardarSinConexion(q: Query) {
+  if (!defaultShouldDehydrateQuery(q)) return false;
+  return q.queryKey[1] !== "analisis" || q.getObserversCount() > 0;
+}
 
 alCerrarSesion(() => {
   clienteConsultas.clear();
@@ -191,6 +214,38 @@ export function useGastosConLugar(desde: string, hasta: string) {
         if (pagina.movimientos.length < 500 || offset + 500 >= pagina.total) break;
       }
       return lista;
+    },
+  });
+}
+
+/**
+ * Todos los movimientos de un rango, reducidos a lo que usa Análisis (el periodo y el anterior juntos).
+ * La clave empieza con "movimientos": se refresca con cualquier cambio, como las demás.
+ */
+/** `antes`: si hay algún registro antes de `desde` (para saber si de verdad hay con qué comparar). */
+export type FilasAnalisis = { desde: string; hasta: string; filas: Fila[]; antes: boolean };
+
+export function useFilasAnalisis(desde: string, hasta: string) {
+  return useQuery<FilasAnalisis>({
+    queryKey: ["movimientos", "analisis", desde, hasta] as const,
+    staleTime: 60_000,
+    // Los periodos que ya no se ven salen pronto de memoria.
+    gcTime: 10 * 60_000,
+    placeholderData: (previo) => previo,
+    queryFn: async ({ signal }) => {
+      // Un solo registro anterior basta: si existe, la app ya se usaba aunque esos días no haya nada.
+      const previo = new URLSearchParams({ hasta: sumarDias(desde, -1), limite: "1" });
+      const antes = api<PaginaMovimientos>(`/v1/movimientos?${previo}`, { signal }).then((p) => p.total > 0)
+        .catch(() => false);
+      const filas: Fila[] = [];
+      // 500 por página (lo más que da el servidor); un tope alto por si acaso.
+      for (let offset = 0; offset < 20_000; offset += 500) {
+        const p = new URLSearchParams({ desde, hasta, limite: "500", offset: String(offset) });
+        const pagina = await api<PaginaMovimientos>(`/v1/movimientos?${p}`, { signal });
+        for (const m of pagina.movimientos) filas.push(aFila(m));
+        if (pagina.movimientos.length < 500 || offset + 500 >= pagina.total) break;
+      }
+      return { desde, hasta, filas, antes: await antes };
     },
   });
 }

@@ -2,7 +2,7 @@ import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
-import { clienteConsultas, persistidor } from "./lib/consultas";
+import { clienteConsultas, guardarSinConexion, persistidor } from "./lib/consultas";
 import "./index.css";
 
 // Sin esto, Safari de iOS no aplica los estilos :active al tocar.
@@ -32,7 +32,12 @@ createRoot(raiz).render(
   <StrictMode>
     <PersistQueryClientProvider
       client={clienteConsultas}
-      persistOptions={{ persister: persistidor, maxAge: 7 * 24 * 60 * 60 * 1000, buster: "1" }}
+      persistOptions={{
+        persister: persistidor,
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        buster: "1",
+        dehydrateOptions: { shouldDehydrateQuery: guardarSinConexion },
+      }}
     >
       <App />
     </PersistQueryClientProvider>
