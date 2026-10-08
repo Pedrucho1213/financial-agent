@@ -1,6 +1,7 @@
 import type { Hono } from "hono";
 import { z } from "zod";
 import type { VariablesAuth } from "./auth";
+import { analizar, type Enfoque, type PeriodoAnalisis } from "./finanzas/analisis";
 import { descartarAviso, listarAvisos, marcarLeido } from "./finanzas/avisos";
 import type { Contexto } from "./finanzas/contexto";
 import {
@@ -36,6 +37,11 @@ const esquemaEdicionMeta = z.object({
   fecha_limite: fecha.nullable().optional(),
 });
 const esquemaAporte = z.object({ monto: z.coerce.number().refine((n) => n !== 0 && Math.abs(n) <= 1e10, "El monto no puede ser cero.") });
+
+const esquemaAnalisis = z.object({
+  enfoque: z.enum(["como_voy", "comparar", "ahorrar", "proyeccion"] satisfies Enfoque[]).default("como_voy"),
+  periodo: z.enum(["mes", "semana"] satisfies PeriodoAnalisis[]).optional(),
+});
 
 type Errores = { error: string; detalles?: unknown };
 // La app elige la fecha en un calendario: una fecha pasada es un error, no "la del año que viene" como en la voz.
@@ -98,6 +104,13 @@ export function rutasPlanes(v1: Hono<{ Variables: VariablesAuth }>, contexto: (u
   v1.get("/msi", (c) => c.json(listarMsi(contexto(c.get("usuarioId")), { todas: c.req.query("todas") === "1" })));
 
   v1.get("/disponible", (c) => c.json(disponible(contexto(c.get("usuarioId")))));
+
+  // Lo mismo que la IA dice a "¿cómo voy?", "¿en qué puedo ahorrar?" o "¿cómo cierro el mes?", con cada hallazgo aparte.
+  v1.get("/analisis", (c) => {
+    const consulta = esquemaAnalisis.safeParse({ enfoque: c.req.query("enfoque") || undefined, periodo: c.req.query("periodo") || undefined });
+    if (!consulta.success) return c.json(invalido(consulta.error), 400);
+    return c.json(analizar(contexto(c.get("usuarioId")), consulta.data));
+  });
 
   v1.get("/avisos", (c) => c.json(listarAvisos(contexto(c.get("usuarioId")), { todos: c.req.query("todos") === "1" })));
 

@@ -307,5 +307,24 @@ describe("consultas sin segunda vuelta", () => {
   });
 });
 
+describe("la app ve el mismo análisis", () => {
+  test("GET /v1/analisis con cada hallazgo aparte; valida el enfoque", async () => {
+    const { db, usuario } = conMesPasado();
+    const token = crearDispositivo(db, usuario.id, "iPhone");
+    const app = crearApp({ db, modelo: new MockLanguageModelV4({ doGenerate: [] as never }), zonaHoraria: "America/Mexico_City", monedaBase: "MXN" });
+    const pedir = (ruta: string) => app.request(ruta, { headers: { authorization: `Bearer ${token}` } });
+    const r = await pedir("/v1/analisis");
+    expect(r.status).toBe(200);
+    const a = (await r.json()) as { enfoque: string; respuesta: string; hallazgos: { tipo: string; texto: string }[] };
+    // La app usa la fecha de hoy: aquí solo importa la forma (las cifras se prueban arriba).
+    expect(a.enfoque).toBe("como_voy");
+    expect(typeof a.respuesta).toBe("string");
+    expect(Array.isArray(a.hallazgos)).toBe(true);
+    expect((await pedir("/v1/analisis?enfoque=ahorrar&periodo=semana")).status).toBe(200);
+    expect((await pedir("/v1/analisis?enfoque=borrar")).status).toBe(400);
+    expect((await app.request("/v1/analisis")).status).toBe(401);
+  });
+});
+
 // Para que `crearContexto` no quede sin usar si cambian las pruebas.
 void crearContexto;
