@@ -36,6 +36,10 @@ export const config = {
     // Cuántos usuarios atiende la IA a la vez. Tiene que coincidir con OLLAMA_NUM_PARALLEL del servicio
     // de Ollama; los dictados de un mismo usuario siempre van de uno en uno.
     paralelo: Math.max(1, Math.floor(Number(env("IA_PARALELO", "1"))) || 1),
+    // Desarrollo: Ajustes › Sistema deja a la cuenta dueña encender, apagar o dejar siempre encendida la IA
+    // (ai/encendido.ts). Mientras está activo, lo que elija en la app manda sobre IA_MANTENER_CARGADO.
+    // Antes de abrir al público: IA_INTERRUPTOR=0 o quitarlo.
+    interruptor: env("IA_INTERRUPTOR", "1") !== "0",
   },
 };
 

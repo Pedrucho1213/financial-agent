@@ -53,9 +53,11 @@ import { and, count, eq, gte, sql } from "drizzle-orm";
 import { avisoDeDictado, conversacionPorContestar } from "./push/dictados";
 import { desuscribir, type EnviarPush, ErrorSuscripcion, estadoPush, notificar, suscribir, tienePush } from "./push/notificaciones";
 import { notaDelGasto } from "./finanzas/comentario";
+import { rutasIa } from "./rutas-ia";
 import { rutasPlanes } from "./rutas-planes";
 import { servirApp } from "./web";
 import type { EstadoIa } from "./ai/modelo";
+import type { ControlIa } from "./ai/encendido";
 
 export type OpcionesApp = Dependencias & {
   /** Precarga el modelo de IA con las instrucciones del usuario; en pruebas no hace nada. */
@@ -75,6 +77,8 @@ export type OpcionesApp = Dependencias & {
   contactoPush?: string;
   /** Para "Estado del sistema" en Ajustes: cómo está la IA. Sin esto se reporta como no disponible. */
   estadoIa?: () => Promise<EstadoIa>;
+  /** Interruptor de la IA para desarrollo (IA_INTERRUPTOR). Sin él, /v1/ia no existe. */
+  controlIa?: ControlIa;
   /** Qué versión del código corre (commit y su fecha), para saber qué está desplegado. */
   version?: { commit: string | null; commitEn: string | null };
   /** Límites del código personal; las pruebas los bajan para no verificar cien veces con argon2. */
@@ -997,6 +1001,8 @@ export function crearApp(opciones: OpcionesApp) {
   });
 
   rutasPlanes(v1, contexto);
+  // Al encender o apagar, Ajustes ve el estado nuevo de la IA sin esperar los 10 s del caché.
+  if (opciones.controlIa) rutasIa(v1, { control: opciones.controlIa, esDueno, alCambiar: () => (iaReciente = null) });
 
   // Prepara el Atajo con un token propio y deja el archivo firmado 10 minutos para descargarlo.
   // tipo "apple_pay" prepara el Atajo que corre la automatización de la Cartera.
