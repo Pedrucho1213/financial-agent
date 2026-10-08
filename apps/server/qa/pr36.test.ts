@@ -1,6 +1,6 @@
 // QA del PR #36: con notificaciones, el Atajo espera a la IA en correcciones y la confirmación rápida rota.
 // Correr desde apps/server: bun test qa/pr36.test.ts
-// "OK" afirma lo pedido; "HALLAZGO" reproduce lo que sigue mal (afirma lo actual para que quede reproducido).
+// "OK" afirma lo pedido; "FIX" afirma lo corregido de QA-081/082 (08790cc).
 // La IA es falsa y lenta (40 ms): un registro rápido no la espera, una corrección sí.
 import { describe, expect, test } from "bun:test";
 import { MockLanguageModelV4 } from "ai/test";
@@ -79,18 +79,19 @@ describe("PR #36: correcciones con monto", () => {
     });
   }
 
-  // Correcciones comunes que la expresión no reconoce: el Atajo dice "Listo"/"Anotado" sin esperar y lo
-  // que cambió solo llega por notificación (lo mismo que antes del PR).
+  // QA-081 (arreglado en 08790cc): correcciones comunes sin "cambia" ni "corrige" también esperan a la IA.
   for (const frase of ["No, fueron 95", "Siempre no, fueron 95", "Error, eran 95", "No, espera, eran 95", "Te dije 85 pero fueron 95", "Perdón, el café fue de 95", "Ponle 95 al café"]) {
-    test(`HALLAZGO: "${frase}" no se reconoce como corrección: confirmación rápida sin oír el cambio`, async () => {
-      expect(esOrdenSobreLoAnotado(frase)).toBe(false);
+    test(`FIX QA-081: "${frase}" se reconoce como corrección y se oye el cambio`, async () => {
+      expect(esOrdenSobreLoAnotado(frase)).toBe(true);
       const { activar, dictar, montos, enviadas } = montar([registro(85), edicion(85, 95)]);
       await activar();
       await dictar("Gasté 85 en Starbucks");
       await hasta(() => enviadas.length === 1);
       const r = await dictar(frase);
-      expect(r.respuesta).toBeOneOf(RAPIDAS);
-      await hasta(() => montos()[0] === 95);
+      expect(r.respuesta).not.toBeOneOf(RAPIDAS);
+      expect(montos()).toEqual([95]);
+      await Bun.sleep(60);
+      expect(enviadas).toHaveLength(1);
     });
   }
 });
@@ -105,14 +106,13 @@ describe("PR #36: registros que no son correcciones", () => {
     });
   }
 
-  // El infinitivo cuenta como orden ("arregla(r)", "actualiza(r)", "modifica(r)"): un gasto en arreglar algo
-  // espera a la IA (más lento) y se salta la pregunta de dictado repetido y la nota del gasto.
+  // QA-082 (arreglado en 08790cc): el infinitivo ya no cuenta como orden; estos gastos siguen rápidos.
   for (const frase of ["Pagué 500 de arreglar el coche", "Pagué 80 de actualizar la app", "Pagué 1,200 de modificar el traje", "El último fue el café de 85", "En realidad fue un buen día, gasté 200 en comida"]) {
-    test(`HALLAZGO: "${frase}" (registro nuevo) se toma como corrección y espera a la IA`, async () => {
-      expect(esOrdenSobreLoAnotado(frase)).toBe(true);
+    test(`FIX QA-082: "${frase}" (registro nuevo) sigue rápido`, async () => {
+      expect(esOrdenSobreLoAnotado(frase)).toBe(false);
       const { activar, dictar } = montar([registro(500, "Taller", "Otros gastos")]);
       await activar();
-      expect((await dictar(frase)).respuesta).not.toBeOneOf(RAPIDAS);
+      expect((await dictar(frase)).respuesta).toBeOneOf(RAPIDAS);
     });
   }
 });
