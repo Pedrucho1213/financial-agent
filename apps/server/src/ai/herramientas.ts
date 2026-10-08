@@ -162,7 +162,10 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
   // nombrar nada, sí es lo último que anotó.
   const pideVarios = !!ctx.textoOriginal && PIDE_VARIOS.test(normalizar(ctx.textoOriginal));
   // "Borra los dos cafés de ayer" o "ambos": si el modelo busca sin mas_reciente y salen justo dos, son esos.
-  const cuantosDice = /\b(ambos|ambas|(los|las) (ultim[oa]s )?(dos|2))\b/.test(normalizar(ctx.textoOriginal ?? "")) ? 2 : undefined;
+  // "Los dos mil del súper" es un monto, no dos movimientos.
+  const cuantosDice = /\b(ambos|ambas|(los|las) (ultim[oa]s )?(dos|2))\b(?! ?(mil|cientos|pesos|dolares|\d))/.test(normalizar(ctx.textoOriginal ?? ""))
+    ? 2
+    : undefined;
   // "Mi último gasto" no es un ingreso que llegó después.
   const tipoDicho = normalizar(ctx.textoOriginal ?? "").match(/\bultimo (gasto|ingreso)\b/)?.[1] as "gasto" | "ingreso" | undefined;
   const comoLoDijo = <B extends { texto?: string; categoria?: string; mas_reciente?: boolean }>(buscar?: B): (B & { tipo?: "gasto" | "ingreso" }) | undefined => {
@@ -287,17 +290,27 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
           );
           if (inventado) throw new ErrorFinanzas("No dijo cuánto y no es un monto de siempre: no registres nada y pregúntale de cuánto fue.");
         }
-        // "El café de hoy fueron 95, no 85": el de 85 ya está anotado; es una corrección, no otro café.
+        // "El café de hoy fueron 95, no 85": el de 85 ya está anotado; es una corrección, no otro café. Se busca
+        // ese mismo (lo que nombra el modelo, del día dicho o de los últimos días), nunca otro con el mismo monto.
         if (unico && !pago && esOrdenSobreLoAnotado(texto!)) {
           const nuevo = movimientos[0]!;
-          const tipo = nuevo.tipo === "ingreso" ? ("ingreso" as const) : ("gasto" as const);
-          const anterior = montosDelTexto(texto!)
-            .filter((x) => x !== nuevo.monto)
-            .map((x) => ({ monto: x, id: idsQueCoinciden(ctx, { monto: x, tipo })[0] }))
-            .find((a) => a.id);
-          if (anterior) {
+          const antes = montosDelTexto(texto!).filter((x) => x !== nuevo.monto);
+          const nombre = nuevo.comercio || nuevo.categoria || nuevo.descripcion;
+          if (antes.length) {
+            const filtro = {
+              tipo: nuevo.tipo === "ingreso" ? ("ingreso" as const) : ("gasto" as const),
+              texto: nombre,
+              periodo: fechaDicha ? `${fechaDicha}..${fechaDicha}` : "ultimos_7_dias",
+            };
+            const ids = antes.flatMap((x) => idsQueCoinciden(ctx, { ...filtro, monto: x }));
+            const de = nombre ? `${nombre} ` : "";
+            if (ids.length === 1) {
+              throw new ErrorFinanzas(`Es una corrección: ya está anotado ${de}de ${antes.join(" o ")} (id ${ids[0]}). Corrígelo con editar_movimiento con ese id; no registres otro.`);
+            }
             throw new ErrorFinanzas(
-              `Es una corrección: ya está anotado uno de ${anterior.monto} (id ${anterior.id}). Corrígelo con editar_movimiento con ese id; no registres otro.`,
+              ids.length
+                ? `Es una corrección y hay ${ids.length} ${de}de ${antes.join(" o ")}: pregúntale cuál corregir; no registres otro.`
+                : `Es una corrección, pero no encuentro ${de}de ${antes.join(" o ")}: pregúntale cuál corregir; no registres otro.`,
             );
           }
         }

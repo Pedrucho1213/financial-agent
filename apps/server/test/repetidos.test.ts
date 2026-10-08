@@ -190,6 +190,29 @@ describe("una corrección que el modelo manda como registro nuevo (M5)", () => {
     expect(todos(ctx)).toHaveLength(2);
   });
 
+  test("no le da el id de otro movimiento con el mismo monto (revisión)", async () => {
+    const { ctx } = preparar();
+    crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Taxi y apps", comercio: "Uber", fecha: "ayer" } as never);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café", fecha: "2026-09-01" } as never);
+    const r = await llamar(dictado(ctx, "El café de hoy fueron 95, no 85"), "registrar_movimientos", {
+      movimientos: [{ tipo: "gasto", monto: 95, categoria: "Café" }],
+    });
+    expect(r.error).toContain("no encuentro Café de 85");
+    expect(r.error).not.toContain("id ");
+    expect(todos(ctx)).toHaveLength(2);
+  });
+
+  test("con dos cafés de 85 hoy pregunta cuál", async () => {
+    const { ctx } = preparar();
+    crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café", comercio: "Starbucks" } as never);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café", comercio: "Oxxo" } as never);
+    const r = await llamar(dictado(ctx, "El café de hoy fueron 95, no 85"), "registrar_movimientos", {
+      movimientos: [{ tipo: "gasto", monto: 95, categoria: "Café" }],
+    });
+    expect(r.error).toContain("hay 2 Café de 85: pregúntale cuál");
+    expect(todos(ctx)).toHaveLength(2);
+  });
+
   test('"me equivoqué, fueron 120" sin otro monto anotado sí se registra', async () => {
     const { ctx } = preparar();
     crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café" } as never);
@@ -214,5 +237,18 @@ describe('"borra los dos cafés" sin mas_reciente (M5)', () => {
     const tres = await llamar(c, "eliminar_movimiento", { buscar: { texto: "café" } });
     expect(tres.error).toContain("Pregunta cuál");
     expect(todos(ctx)).toHaveLength(3);
+  });
+});
+
+describe('"los dos mil" es un monto, no dos movimientos (revisión)', () => {
+  test("cambia los dos mil del súper: con dos súper de 2 mil, pregunta cuál", async () => {
+    const { ctx } = preparar();
+    crearMovimiento(ctx, { tipo: "gasto", monto: 2000, categoria: "Súper", comercio: "Walmart" } as never);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 2000, categoria: "Súper", comercio: "Soriana" } as never);
+    for (const frase of ["Cambia los dos mil del súper a 2,500", "Cambia los 2 mil del súper a 2,500"]) {
+      const r = await llamar(dictado(ctx, frase), "editar_movimiento", { buscar: { texto: "súper", monto: 2000 }, cambios: { monto: 2500 } });
+      expect(r.error).toContain("Pregunta cuál");
+    }
+    expect(todos(ctx).map((m) => m.monto)).toEqual(["$2,000", "$2,000"]);
   });
 });
