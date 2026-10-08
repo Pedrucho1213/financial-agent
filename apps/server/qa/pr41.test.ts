@@ -55,3 +55,59 @@ describe("PR #41: pesos y otra moneda en una frase", () => {
     });
   }
 });
+
+// c640ed0: los totales de crédito solo suman tarjetas con límite y disponible; las archivadas no cuentan.
+import * as Cu from "../src/finanzas/cuentas";
+
+describe("PR #41: totales de crédito", () => {
+  const montar = () => {
+    const { db, usuario } = preparar({ ahora: new Date() });
+    const ctx = crearContexto({ db, usuarioId: usuario.id, zonaHoraria: "America/Mexico_City", monedaBase: "MXN" } as never);
+    return { ctx, totales: () => Cu.totalesDeCuentas(Cu.estadosDeCuentas(ctx, { archivadas: true } as never)) };
+  };
+
+  test("una tarjeta con límite y deuda sin decir no cuenta como 100 % usada ni $0 disponible", () => {
+    const { ctx, totales } = montar();
+    Cu.fijarCuenta(ctx, { cuenta: "Nu", tipo: "credito", limite: 30000 } as never);
+    const t = totales();
+    console.log(t);
+    expect(t.limiteCreditoCentavos).toBe(0);
+    expect(t.disponibleCreditoCentavos).toBe(0);
+    expect(t.tarjetasConDeuda).toBe(0);
+    expect(t.sinSaldo).toContain("Nu");
+  });
+
+  test("mezcla: una con límite y deuda, otra solo con límite, otra solo con disponible", () => {
+    const { ctx, totales } = montar();
+    Cu.fijarCuenta(ctx, { cuenta: "Nu", tipo: "credito", limite: 30000, deuda: 4500 } as never);
+    Cu.fijarCuenta(ctx, { cuenta: "Banamex", tipo: "credito", limite: 20000 } as never);
+    Cu.fijarCuenta(ctx, { cuenta: "Amex", tipo: "credito", disponible: 7000 } as never);
+    const t = totales();
+    console.log(t);
+    expect(t.limiteCreditoCentavos).toBe(30000_00);
+    expect(t.disponibleCreditoCentavos).toBe(25500_00);
+    expect(t.deudaCentavos).toBe(4500_00);
+  });
+
+  test("las archivadas no suman en nada", () => {
+    const { ctx, totales } = montar();
+    Cu.fijarCuenta(ctx, { cuenta: "BBVA", saldo: 1000 } as never);
+    Cu.fijarCuenta(ctx, { cuenta: "Liverpool", tipo: "credito", limite: 15000, deuda: 2000 } as never);
+    Cu.fijarCuenta(ctx, { cuenta: "Vieja", saldo: 500 } as never);
+    const archivar = (Cu as any).archivarCuenta ?? (Cu as any).fijarArchivada;
+    if (archivar) {
+      for (const nombre of ["Liverpool", "Vieja"]) {
+        const e = Cu.estadosDeCuentas(ctx).find((x) => x.nombre === nombre)!;
+        archivar(ctx, e.id, true);
+      }
+    } else {
+      for (const nombre of ["Liverpool", "Vieja"]) Cu.fijarCuenta(ctx, { cuenta: nombre, archivada: true } as never);
+    }
+    const t = totales();
+    console.log(t);
+    expect(t.dineroCentavos).toBe(1000_00);
+    expect(t.deudaCentavos).toBe(0);
+    expect(t.limiteCreditoCentavos).toBe(0);
+    expect(t.netoCentavos).toBe(1000_00);
+  });
+});
