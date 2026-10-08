@@ -169,3 +169,37 @@ describe("c4670ab: corrección contra registro nuevo", () => {
     expect(montos).toEqual([450, 540]);
   });
 });
+
+// Revisión sobre c4670ab (corregido en 01b74e6): la guardia de corrección, acotada al mismo comercio o categoría
+// en los últimos días, y "los dos mil" no son dos movimientos.
+describe("01b74e6: casos de Revisión", () => {
+  test('"El café de hoy fueron 95, no 85" sin café de 85 y con un Uber de 85 de la semana pasada: el Uber no cambia', async () => {
+    const hace = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+    const sembrar = (ctx: any) => crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Taxi y apps", comercio: "Uber", fecha: hace } as never);
+    for (const respuestas of [
+      [llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 95, comercio: "Café", categoria: "Café" }] }), texto("Listo.")],
+      [llamada("editar_movimiento", { buscar: { mas_reciente: true }, cambios: { monto: 95 } }), texto("Listo.")],
+      [llamada("editar_movimiento", { buscar: { monto: 85 }, cambios: { monto: 95 } }), texto("Listo.")],
+    ]) {
+      const { respuesta, movs } = await dictar("El café de hoy fueron 95, no 85", respuestas, sembrar);
+      const montos = movs.map((m: any) => m.montoCentavos / 100);
+      console.log("café sin café →", (respuestas[0] as any).content[0].toolName, respuesta, montos);
+      expect(montos).toContain(85);
+    }
+  });
+
+  test('"Cambia los dos mil del súper a 2,500" con dos súper de 2,000: no edita los dos sin preguntar', async () => {
+    const sembrar = (ctx: any) => {
+      crearMovimiento(ctx, { tipo: "gasto", monto: 2000, categoria: "Súper", comercio: "Walmart" } as never);
+      crearMovimiento(ctx, { tipo: "gasto", monto: 2000, categoria: "Súper", comercio: "Soriana" } as never);
+    };
+    const { respuesta, movs } = await dictar(
+      "Cambia los dos mil del súper a 2,500",
+      [llamada("editar_movimiento", { buscar: { categoria: "Súper", monto: 2000 }, cambios: { monto: 2500 } }), texto("¿Cuál de los dos?")],
+      sembrar,
+    );
+    const montos = movs.map((m: any) => m.montoCentavos / 100).sort((a: number, b: number) => a - b);
+    console.log("los dos mil →", respuesta, montos);
+    expect(montos).not.toEqual([2500, 2500]);
+  });
+});
