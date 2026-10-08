@@ -1,8 +1,8 @@
 // QA del PR #39 (Mejoras a la IA): consultar_gastos redacta en código los totales sencillos.
 // Correr desde apps/server: bun test qa/pr39.test.ts
-// Los casos HALLAZGO QA-085 afirman lo CORRECTO: la pregunta trae un filtro que la herramienta no
+// Los casos FIX QA-085 afirman lo CORRECTO: la pregunta trae un filtro que la herramienta no
 // expresa (método, exclusión, "menos", hora del día), así que la respuesta armada en código contestaría
-// otra cosa con seguridad; debe redactarla el modelo con el resultado. Fallan hasta que se arregle.
+// otra cosa con seguridad; la redacta el modelo con el resultado.
 import { describe, expect, test } from "bun:test";
 import { MockLanguageModelV4 } from "ai/test";
 import { hablar } from "../src/ai/asistente";
@@ -28,6 +28,11 @@ describe("PR #39: respuesta de consultar_gastos armada en código", () => {
     ["¿Y en Uber?", { texto: "Uber" }],
     ["¿Cuánto llevo este mes?", {}],
     ["¿Cuánto gasté en septiembre?", { periodo: "septiembre" }],
+    ["¿Cuánto gasté hoy?", { periodo: "hoy" }],
+    ["¿Cuánto llevo en comida este mes?", { categoria: "Comida" }],
+    ["Oye, ¿cuánto llevo gastado?", {}],
+    ["¿Cuánto me ha entrado este mes?", { tipo: "ingreso" }],
+    ["¿Cuánto gasté en Starbucks la semana pasada?", { periodo: "semana_pasada", texto: "Starbucks" }],
   ] as const) {
     test(`OK: "${frase}" sencilla, la arma el código`, async () => {
       const r = await preguntar(frase, args);
@@ -35,7 +40,7 @@ describe("PR #39: respuesta de consultar_gastos armada en código", () => {
     });
   }
 
-  test("HALLAZGO QA-085: «¿En qué gasté menos?» no contesta «gastaste más en…»", async () => {
+  test("FIX QA-085: «¿En qué gasté menos?» no contesta «gastaste más en…»", async () => {
     const r = await preguntar("¿En qué gasté menos este mes?", { agrupar_por: "categoria" });
     expect(r).not.toMatch(/gastaste mas|gastaste más/i);
   });
@@ -49,7 +54,7 @@ describe("PR #39: respuesta de consultar_gastos armada en código", () => {
     "¿Cuánto gasté en la mañana?",
     "¿Cuánto gasté en comida que no fuera del súper?",
   ]) {
-    test(`HALLAZGO QA-085: "${frase}" trae un filtro que la herramienta no expresa: lo redacta el modelo`, async () => {
+    test(`FIX QA-085: "${frase}" trae un filtro que la herramienta no expresa: lo redacta el modelo`, async () => {
       expect(await preguntar(frase, frase.includes("comida") ? { categoria: "Comida" } : {})).toBe(MODELO);
     });
   }
