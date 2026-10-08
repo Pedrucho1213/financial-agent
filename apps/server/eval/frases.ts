@@ -1084,6 +1084,23 @@ export const CASOS: Caso[] = [
     preparar: historialParaAnalizar,
     verificar: (r) => motivo(dice(r, "1,400"), r.respuesta),
   },
+  {
+    grupo: "analisis",
+    // Con cuentas dadas de alta, "¿cómo voy?" es de gastos, no de saldos.
+    frase: "¿Cómo voy?",
+    preparar: (ctx) => {
+      historialParaAnalizar(ctx);
+      conCuentas(tarjetaNu, debitoBbva)(ctx);
+    },
+    verificar: (r) => analizo(r, "como_voy"),
+  },
+  {
+    grupo: "cuentas",
+    // QA: se iba a consultar_planes.
+    frase: "¿Cuánto puedo usar de mi Nu?",
+    preparar: conCuentas(tarjetaNu),
+    verificar: (r) => motivo(dice(r, "17,000") && r.acciones.some((a) => a.herramienta === "consultar_cuentas"), { respuesta: r.respuesta, herramientas: r.acciones.map((a) => a.herramienta) }),
+  },
   // Cuentas, tarjetas y dinero entre ellas
   {
     grupo: "cuentas",

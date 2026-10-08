@@ -2,6 +2,8 @@ import { tool } from "ai";
 import { z } from "zod";
 import { analizar } from "../finanzas/analisis";
 import type { Contexto } from "../finanzas/contexto";
+import { normalizar } from "../lib/texto";
+import type { Accion } from "./herramientas";
 
 /** Envuelve una herramienta: guarda la acción y devuelve los errores de validación como texto. */
 type Ejecutar = <A, R>(nombre: string, fn: (args: A) => R) => (args: A) => Promise<R | { error: string }>;
@@ -25,4 +27,19 @@ export function herramientasAnalisis(ctx: Contexto, ejecutar: Ejecutar) {
       }),
     }),
   };
+}
+
+// "¿Cómo voy?" a secas no necesita al modelo: siempre es el análisis de cómo va (y así no se confunde
+// con los saldos de consultar_cuentas ni con un presupuesto).
+const COMO_VOY =
+  /^(?:(?:oye|a ver|bueno|y) )*(?:como voy|como vamos|como ando|como van mis (?:gastos|finanzas))(?: (este mes|esta semana|en el mes|en la semana|hasta ahorita|hasta ahora|de gastos))?$/;
+
+/** La respuesta de "¿cómo voy?", sin pasar por el modelo; undefined si la frase pide otra cosa. */
+export function comoVoySinModelo(ctx: Contexto, texto: string, acciones: Accion[]): string | undefined {
+  const m = normalizar(texto).match(COMO_VOY);
+  if (!m) return undefined;
+  const argumentos = { enfoque: "como_voy" as const, ...(/semana/.test(m[1] ?? "") ? { periodo: "semana" as const } : {}) };
+  const a = analizar(ctx, argumentos);
+  acciones.push({ herramienta: "analizar", argumentos, resultado: { respuesta: a.respuesta, hallazgos: a.hallazgos.map((h) => h.texto) } });
+  return a.respuesta;
 }

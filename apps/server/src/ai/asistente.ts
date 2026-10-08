@@ -15,7 +15,7 @@ import { confirmacionDirecta, confirmarRegistro, type Ejecutada, type Movimiento
 import { construirInstrucciones, datosDelUsuario } from "./instrucciones";
 import { pagoDeFrase } from "../finanzas/applepay";
 import { crearHerramientas, type Accion } from "./herramientas";
-import { CONSULTAS_ANALISIS } from "./herramientas-analisis";
+import { comoVoySinModelo, CONSULTAS_ANALISIS } from "./herramientas-analisis";
 import { CONSULTAS_PLANES } from "./herramientas-planes";
 import { CONSULTAS_CUENTAS } from "./herramientas-cuentas";
 import { datoDeCuentas } from "../finanzas/cuentas";
@@ -717,7 +717,8 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   let mensajesRespuesta: ModelMessage[];
   // Lo que se resuelve sin el modelo: el mismo dictado repetido, o "el súper de hoy fue con la Nu"
   // cuando hay un solo súper que corregir (el modelo solía preguntar el monto antes, QA-080).
-  const directo = dictadoRepetido(ctx, entrada) ?? (await cuentaSinModelo(ctx, entrada.texto, acciones));
+  const directo =
+    dictadoRepetido(ctx, entrada) ?? comoVoySinModelo(ctx, entrada.texto, acciones) ?? (await cuentaSinModelo(ctx, entrada.texto, acciones));
   if (directo) {
     texto = directo;
     mensajesRespuesta = [{ role: "assistant", content: directo }];

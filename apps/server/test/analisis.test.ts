@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { hablar } from "../src/ai/asistente";
 import { MockLanguageModelV4 } from "ai/test";
 import { confirmacionDirecta } from "../src/ai/confirmacion";
 import { etiquetaDelPeriodo, respuestaDeConsulta } from "../src/ai/consultas";
@@ -211,7 +212,7 @@ describe("análisis por voz", () => {
 
   test("las instrucciones mandan a analizar las preguntas de cómo va", () => {
     const { ctx } = preparar();
-    expect(construirInstrucciones(ctx)).toContain("se responden con analizar");
+    expect(construirInstrucciones(ctx)).toContain("se responde con analizar");
   });
 });
 
@@ -352,3 +353,41 @@ describe("la app ve el mismo análisis", () => {
 
 // Para que `crearContexto` no quede sin usar si cambian las pruebas.
 void crearContexto;
+
+describe('"¿cómo voy?" sin el modelo', () => {
+  const montar = () => {
+    const p = conMesPasado();
+    const modelo = new MockLanguageModelV4({ doGenerate: async () => texto("<<el modelo>>") as never });
+    const decir = (frase: string) =>
+      hablar({ db: p.db, modelo, zonaHoraria: "America/Mexico_City", monedaBase: "MXN" }, p.usuario.id, {
+        texto: frase,
+        clientId: crypto.randomUUID(),
+        capturadoEn: AHORA.toISOString(),
+      });
+    return { ...p, modelo, decir };
+  };
+
+  for (const [frase, periodo] of [
+    ["¿Cómo voy?", "mes"],
+    ["Oye, ¿cómo voy este mes?", "mes"],
+    ["¿Cómo vamos esta semana?", "semana"],
+    ["¿Y cómo van mis gastos?", "mes"],
+  ] as const) {
+    test(`"${frase}" lo contesta el análisis, sin llamar al modelo`, async () => {
+      const { ctx, modelo, decir } = montar();
+      const r = await decir(frase);
+      expect(modelo.doGenerateCalls).toHaveLength(0);
+      expect(r.acciones.map((a) => a.herramienta)).toEqual(["analizar"]);
+      const esperada = analizar(ctx, { enfoque: "como_voy", periodo }).respuesta;
+      expect([esperada, esperada.replace(/\$([\d,]+)/g, "$1 pesos")]).toContain(r.respuesta);
+    });
+  }
+
+  for (const frase of ["¿Cómo voy con mi presupuesto de comida?", "¿Cómo voy a cerrar el mes?", "¿Cómo voy con la meta del viaje?", "¿Cómo estás?"]) {
+    test(`"${frase}" sí va al modelo`, async () => {
+      const { modelo, decir } = montar();
+      await decir(frase);
+      expect(modelo.doGenerateCalls.length).toBeGreaterThan(0);
+    });
+  }
+});
