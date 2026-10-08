@@ -453,6 +453,31 @@ export function idDelMovimiento(ctx: Contexto, id?: string, buscar?: Busqueda, v
   throw new ErrorFinanzas(`Coinciden ${filas.length}: ${opciones.join("; ")}. ${queHacer}`);
 }
 
+/**
+ * "Ajusta la renta a 9 mil" con solo mas_reciente: si la frase nombra una categoría o un comercio que el
+ * movimiento encontrado no tiene (el último era un café), es otro. Devuelve lo que nombra, o undefined si
+ * cuadra o no nombra nada. `nuevos` son los valores que se van a poner ("cámbialo a Regalos").
+ */
+export function nombraOtroMovimiento(ctx: Contexto, id: string, frase: string, nuevos: (string | undefined)[] = []): string | undefined {
+  const plano = ` ${normalizar(frase)} `;
+  const cats = listarCategorias(ctx.db, ctx.usuarioId);
+  const deComercios = ctx.db
+    .select({ nombre: comercios.nombreNormalizado })
+    .from(comercios)
+    .where(eq(comercios.usuarioId, ctx.usuarioId))
+    .all()
+    .map((c) => c.nombre);
+  const aPoner = nuevos.filter(Boolean).map((n) => normalizar(n!));
+  const nombrados = [...cats.map((c) => normalizar(c.nombre)), ...deComercios].filter(
+    (n) => n.length >= 3 && plano.includes(` ${n} `) && !aPoner.some((p) => p.includes(n)),
+  );
+  if (!nombrados.length) return undefined;
+  const m = obtenerPropio(ctx, id);
+  const comercio = m.comercioId ? ctx.db.select().from(comercios).where(eq(comercios.id, m.comercioId)).get()?.nombreNormalizado : undefined;
+  const delMovimiento = normalizar([comercio, m.descripcion, m.textoOriginal, nombreCompleto(cats, m.categoriaId)].filter(Boolean).join(" "));
+  return nombrados.some((n) => delMovimiento.includes(n)) ? undefined : nombrados[0];
+}
+
 export function editarMovimiento(ctx: Contexto, id: string, cambios: Partial<DatosMovimiento>) {
   const antes = obtenerPropio(ctx, id);
   const cats = listarCategorias(ctx.db, ctx.usuarioId);

@@ -11,6 +11,7 @@ import {
   eliminarMovimiento,
   ErrorFinanzas,
   idDelMovimiento,
+  nombraOtroMovimiento,
   resumir,
 } from "../finanzas/movimientos";
 import { pagoDeFrase } from "../finanzas/applepay";
@@ -167,6 +168,15 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
       !pideVarios && (ctx.confiarEnMasReciente || !ctx.textoOriginal || SENALA_UNO.test(normalizar(ctx.textoOriginal)));
     const conTipo = tipoDicho ? { ...buscar, tipo: tipoDicho } : buscar;
     return buscar.mas_reciente && nombraAlgo && !senala ? { ...conTipo, mas_reciente: false } : conTipo;
+  };
+
+  // "Ajusta la renta a 9 mil" con solo mas_reciente: si el último es un café, no es ese. Que lo busque por nombre.
+  const noEsOtro = (elegido: string, buscar: { texto?: string; categoria?: string } | undefined, nuevos: (string | undefined)[] = []) => {
+    if (!ctx.textoOriginal || buscar?.texto || buscar?.categoria) return;
+    const nombrado = nombraOtroMovimiento(ctx, elegido, ctx.textoOriginal, nuevos);
+    if (nombrado) {
+      throw new ErrorFinanzas(`El último movimiento no es de ${nombrado}. Búscalo por nombre: usa buscar con texto "${nombrado}", no mas_reciente.`);
+    }
   };
 
   // "Spotify me cobra 10 dólares": la moneda de la frase manda si el modelo no dijo otra.
@@ -333,9 +343,11 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
       }),
       execute: ejecutar("editar_movimiento", ({ id, buscar, cambios }) => {
         const { quitar_etiquetas, ...resto } = cambios;
+        const elegido = idDelMovimiento(ctx, id, comoLoDijo(buscar), pideVarios);
+        if (!id) noEsOtro(elegido, buscar, [cambios.categoria, cambios.comercio, cambios.descripcion]);
         return {
           // Un "" del modelo no borra nada: para la IA, vacío es lo mismo que no mandarlo.
-          editado: editarMovimiento(ctx, idDelMovimiento(ctx, id, comoLoDijo(buscar), pideVarios), {
+          editado: editarMovimiento(ctx, elegido, {
             ...Object.fromEntries(Object.entries(resto).filter(([, v]) => v !== "")),
             quitarEtiquetas: quitar_etiquetas,
           }),
@@ -349,9 +361,11 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         id: z.string().optional().describe("id, si ya lo tienes"),
         buscar: busqueda.optional(),
       }),
-      execute: ejecutar("eliminar_movimiento", ({ id, buscar }) => ({
-        eliminado: eliminarMovimiento(ctx, idDelMovimiento(ctx, id, comoLoDijo(buscar), pideVarios)),
-      })),
+      execute: ejecutar("eliminar_movimiento", ({ id, buscar }) => {
+        const elegido = idDelMovimiento(ctx, id, comoLoDijo(buscar), pideVarios);
+        if (!id) noEsOtro(elegido, buscar);
+        return { eliminado: eliminarMovimiento(ctx, elegido) };
+      }),
     }),
 
     deshacer: tool({
