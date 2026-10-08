@@ -43,7 +43,7 @@ import { mensajeDeError } from "../lib/api";
 import { preguntarAlChat } from "../lib/chat";
 import { useEnLinea } from "../lib/conexion";
 import { useCategorias, useFilasAnalisis, useYo } from "../lib/consultas";
-import { dinero, hoyIso, mesCorto, nombreDia, pct } from "../lib/formato";
+import { dinero, dineroCorto, hoyIso, mesCorto, nombreDia, pct } from "../lib/formato";
 import { haptico } from "../lib/haptico";
 import { esPeriodo, moverRef, nombreAnterior, type Periodo, rangoAnterior, rangoDe, tituloRango } from "../lib/periodos";
 import { hashDe, hashDetalle, navegar, volver } from "../lib/ruta";
@@ -295,6 +295,7 @@ function Principal({ a, nombreCategoria }: { a: DatosAnalisis; nombreCategoria: 
   const [sel, setSel] = useState<number | null>(null);
   const cubeta = sel !== null ? a.cubetas[sel] : undefined;
   const fmt = (c: number) => dinero(c, a.moneda);
+  const pesos = (c: number) => dineroCorto(Math.round(c / 100) * 100, a.moneda);
 
   const datos = a.cubetas.map((c, i) => ({
     valor: c.gasto,
@@ -309,7 +310,7 @@ function Principal({ a, nombreCategoria }: { a: DatosAnalisis; nombreCategoria: 
       <h2 className="truncate text-[15px] font-medium text-muted-foreground">
         {cubeta ? cubeta.larga : nombreCategoria ? `Gastado en ${nombreCategoria}` : "Gastado"}
       </h2>
-      <p className="mt-0.5 truncate text-[40px] leading-[1.15] font-bold tracking-[-0.025em] tabular" data-testid="total-periodo">
+      <p className="mt-0.5 truncate text-[40px] leading-[1.15] font-bold max-[379px]:text-[32px] tracking-[-0.025em] tabular" data-testid="total-periodo">
         {fmt(cubeta ? cubeta.gasto : a.totales.gasto)}
       </p>
       {cubeta ? (
@@ -330,18 +331,21 @@ function Principal({ a, nombreCategoria }: { a: DatosAnalisis; nombreCategoria: 
         moneda={a.moneda}
       />
       <div className="mt-3 grid grid-cols-3 gap-3 pt-3 hairline-t">
-        {/* Tres columnas: en un iPhone SE (320) los montos se achican en vez de cortarse. */}
-        <Dato etiqueta="Por día" valor={fmt(a.totales.porDia)} className="max-[379px]:text-[15px]" />
+        {/* Tres columnas: los promedios van en pesos enteros y en un iPhone SE (320) se achican en vez de cortarse. */}
+        <Dato etiqueta="Por día" valor={pesos(a.totales.porDia)} className="max-[379px]:text-[15px]" />
         <Dato etiqueta="Gastos" valor={String(a.totales.cantidad)} className="max-[379px]:text-[15px]" />
-        <Dato etiqueta="Promedio" valor={fmt(a.totales.ticket)} className="max-[379px]:text-[15px]" />
+        <Dato etiqueta="Promedio" valor={pesos(a.totales.ticket)} className="max-[379px]:text-[15px]" />
       </div>
       {a.totales.ingreso > 0 ? (
         <div className="mt-3 grid grid-cols-2 gap-3 pt-3 hairline-t">
-          <Dato etiqueta="Entró" valor={fmt(a.totales.ingreso)} />
+          <Dato etiqueta="Entró" valor={fmt(a.totales.ingreso)} className="max-[379px]:text-[15px]" />
           <Dato
             etiqueta="Te quedó"
             valor={dinero(a.totales.neto, a.moneda, { signo: true })}
-            className={a.totales.neto > 0 ? "text-positive" : a.totales.neto < 0 ? "text-negative" : undefined}
+            className={cn(
+              "max-[379px]:text-[15px]",
+              a.totales.neto > 0 ? "text-positive" : a.totales.neto < 0 ? "text-negative" : undefined,
+            )}
           />
         </div>
       ) : null}

@@ -296,6 +296,8 @@ test.describe("Análisis", () => {
     await prepararSesion(page, conHistorial(new ApiFalsa()));
     for (const periodo of ["semana", "mes", "6m", "anio"]) {
       await page.goto(`/#analisis?periodo=${periodo}`);
+      // La letra más ancha que puede tocar (la de Linux en CI) para que la prueba no dependa de la máquina.
+      await page.addStyleTag({ content: '*{font-family:"DejaVu Sans",Verdana,sans-serif !important}' });
       await expect(total(page)).toBeVisible();
       await page.waitForTimeout(300);
       const ancho = await page.evaluate(() => document.documentElement.scrollWidth);
@@ -304,7 +306,7 @@ test.describe("Análisis", () => {
       const cortados = await page.evaluate(() =>
         [...document.querySelectorAll('[aria-label="Gastado"] .truncate')]
           .filter((el) => el.scrollWidth > el.clientWidth + 1)
-          .map((el) => el.textContent),
+          .map((el) => `${el.textContent} ${el.scrollWidth}/${el.clientWidth} ${getComputedStyle(el).fontSize}`),
       );
       expect(cortados, periodo).toEqual([]);
     }
