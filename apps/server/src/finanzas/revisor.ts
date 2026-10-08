@@ -2,13 +2,14 @@ import { and, desc, eq, gte, isNull, lte } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { comercios, entradas, movimientos, recurrentes, usuarios } from "../db/schema";
 import { formatearMonto } from "../lib/dinero";
-import { diaSemana, fechaLocal, partes, sumarDias, sumarMeses } from "../lib/fechas";
+import { armarFecha, diaSemana, fechaLocal, partes, sumarDias, sumarMeses, ultimoDiaDelMes } from "../lib/fechas";
 import { normalizar } from "../lib/texto";
 import { type AvisoNuevo, guardarAviso } from "./avisos";
 import { listarCategorias, nombreCompleto, type Categoria } from "./catalogos";
 import { type Contexto, crearContexto } from "./contexto";
 import { estadoPresupuestos, limitesDelMes, listarMetas, listarMsi, listarPrestamos, registrarMensualidades } from "./planes";
 import { proximoCobro } from "./recurrentes";
+import { estadosDeCuentas } from "./cuentas";
 
 // El revisor nocturno busca fugas y cosas por venir y las deja como avisos. Es solo SQL y reglas:
 // no usa el modelo de IA, así que no lo carga ni gasta memoria en la Mac.
@@ -341,6 +342,51 @@ function metasYPrestamos(ctx: Contexto): AvisoNuevo[] {
   return [...metas, ...prestamos];
 }
 
+/** La próxima vez que llega ese día del mes (hoy incluido); en meses cortos, su último día. */
+function proximoDiaDelMes(hoy: string, dia: number): string {
+  const { anio, mes, dia: hoyDia } = partes(hoy);
+  const enMes = (a: number, m: number) => armarFecha(a, m, Math.min(dia, ultimoDiaDelMes(a, m)));
+  const este = enMes(anio, mes);
+  if (este >= hoy && hoyDia <= dia) return este;
+  return mes === 12 ? enMes(anio + 1, 1) : enMes(anio, mes + 1);
+}
+
+const DIAS_ANTES_DEL_PAGO = 3;
+const USO_CASI_LLENA = 0.9;
+
+/** Tarjetas de crédito con su pago cerca y deuda, o casi al límite. Solo las que tienen saldo dicho. */
+function tarjetas(ctx: Contexto): AvisoNuevo[] {
+  const avisos: AvisoNuevo[] = [];
+  for (const e of estadosDeCuentas(ctx).filter((x) => x.esCredito && x.deudaCentavos !== null && x.deudaCentavos > 0)) {
+    if (e.diaPago) {
+      const fecha = proximoDiaDelMes(ctx.hoy, e.diaPago);
+      if (fecha <= sumarDias(ctx.hoy, DIAS_ANTES_DEL_PAGO)) {
+        avisos.push({
+          tipo: "tarjeta_pago",
+          clave: `tarjeta_pago:${e.id}:${fecha}`,
+          titulo: `${cuando(fecha)} se paga ${e.nombre}`,
+          texto: `${cuando(fecha)} es el día límite para pagar ${e.nombre}. Debes ${$(ctx, e.deudaCentavos!)}.`,
+          vence: fecha,
+          prioridad: 1,
+          enlace: "#inicio",
+        });
+      }
+    }
+    if (e.limiteCentavos && e.deudaCentavos! / e.limiteCentavos >= USO_CASI_LLENA) {
+      avisos.push({
+        tipo: "tarjeta_limite",
+        clave: `tarjeta_limite:${e.id}:${ctx.hoy.slice(0, 7)}`,
+        titulo: `${e.nombre} casi al límite`,
+        texto: `${e.nombre} va al ${Math.round((e.deudaCentavos! / e.limiteCentavos) * 100)}% de su límite: te quedan ${$(ctx, Math.max(0, e.disponibleCentavos ?? 0))} disponibles.`,
+        vence: null,
+        prioridad: 2,
+        enlace: "#inicio",
+      });
+    }
+  }
+  return avisos;
+}
+
 /** Revisa las finanzas de un usuario y guarda los avisos nuevos. Devuelve cuántos guardó. */
 export function revisar(ctx: Contexto) {
   // Las mensualidades que ya llegaron quedan como gasto antes de revisar.
@@ -348,6 +394,7 @@ export function revisar(ctx: Contexto) {
   const cats = listarCategorias(ctx.db, ctx.usuarioId);
   const hallazgos = [
     ...cobrosProximos(ctx),
+    ...tarjetas(ctx),
     ...presupuestosEnRiesgo(ctx),
     ...hormiga(ctx, cats),
     ...suscripcionesOlvidadas(ctx, cats),

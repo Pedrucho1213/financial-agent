@@ -57,6 +57,13 @@
       "when": 1791355729707,
       "tag": "0007_notificaciones",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1791483980273,
+      "tag": "0008_cuentas_y_etiquetas",
+      "breakpoints": true
     }
   ]
 }

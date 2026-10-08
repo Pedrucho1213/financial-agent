@@ -15,14 +15,17 @@ import {
   listarPrestamos,
   registrarPrestamo,
 } from "../src/finanzas/planes";
+import { estadosDeCuentas, fijarCuenta } from "../src/finanzas/cuentas";
+import { etiquetasActivas, resumenEtiquetas } from "../src/finanzas/etiquetas";
 import { resolverFecha, resolverPeriodo, sumarDias } from "../src/lib/fechas";
+import { normalizar } from "../src/lib/texto";
 
 type Mov = ReturnType<typeof buscarMovimientos>["movimientos"][number];
 
 export type Resultado = Respuesta & { movimientos: Mov[]; recurrentes: ReturnType<typeof listarRecurrentes>["recurrentes"]; ctx: Contexto };
 
 export type Caso = {
-  grupo: "registro" | "dificil" | "charla" | "consulta" | "edicion" | "conversacion" | "recurrentes" | "autonomia" | "planes";
+  grupo: "registro" | "dificil" | "charla" | "consulta" | "edicion" | "conversacion" | "recurrentes" | "autonomia" | "planes" | "cuentas";
   frase: string;
   preparar?: (ctx: Contexto) => void;
   /** Lo que el usuario dijo antes en la misma conversación. */
@@ -52,6 +55,21 @@ const gastosDeEjemplo = (ctx: Contexto) => {
   crearMovimiento(c, { tipo: "gasto", monto: 230, categoria: "Taxi y apps", comercio: "Uber", fecha: "ayer" });
   crearMovimiento(c, { tipo: "ingreso", monto: 12000, categoria: "Sueldo" });
 };
+
+
+// Cuentas y tarjetas: la cuenta cuyo nombre coincide, y lo que se sabe de ella.
+const cuenta = (r: Resultado, patron: RegExp) => estadosDeCuentas(r.ctx).find((c) => patron.test(normalizar(c.nombre)));
+const saldo = (r: Resultado, patron: RegExp) => cuenta(r, patron)?.saldoCentavos;
+const deuda = (r: Resultado, patron: RegExp) => cuenta(r, patron)?.deudaCentavos;
+// Los saldos se dijeron un minuto antes: lo dictado en la prueba cuenta después de ellos, aunque el
+// dictado llegue en el mismo milisegundo en que se preparó la base.
+const conCuentas = (...datos: Parameters<typeof fijarCuenta>[1][]) => (ctx: Contexto) => {
+  const antes = { ...previa(ctx), ahoraIso: new Date(Date.parse(ctx.ahoraIso) - 60_000).toISOString() };
+  for (const d of datos) fijarCuenta(antes, d);
+};
+const tarjetaNu = { cuenta: "Nu", tipo: "credito" as const, limite: 20000, deuda: 3000 };
+const debitoBbva = { cuenta: "BBVA", tipo: "debito" as const, saldo: 10000 };
+const tiposDe = (r: Resultado) => r.movimientos.map((m) => m.tipo).join();
 
 export const CASOS: Caso[] = [
   // Registro
@@ -969,5 +987,227 @@ export const CASOS: Caso[] = [
       const memorias = listarMemorias(r.ctx);
       return motivo(unoSolo(r)?.monto === "$80" && memorias.length === 0, { movimientos: r.movimientos, memorias });
     },
+  },
+  // Cuentas, tarjetas y dinero entre ellas
+  {
+    grupo: "cuentas",
+    frase: "Te aviso que tengo 20 mil pesos en mi cuenta de Revolut y 10 mil pesos en mi cuenta de Bancomer",
+    verificar: (r) =>
+      motivo(saldo(r, /revolut/) === 2_000_000 && saldo(r, /bancomer|bbva/) === 1_000_000 && r.movimientos.length === 0, {
+        cuentas: estadosDeCuentas(r.ctx),
+        movimientos: r.movimientos,
+      }),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Oye te recuerdo que tengo 7000 pesos disponibles en mi tarjeta de crédito",
+    verificar: (r) => {
+      const t = estadosDeCuentas(r.ctx).find((c) => c.esCredito);
+      return motivo(t?.disponibleCentavos === 700_000 && r.movimientos.length === 0, { t, movimientos: r.movimientos });
+    },
+  },
+  {
+    grupo: "cuentas",
+    frase: "Te aviso que acabo de pagar 3 mil a la tarjeta Nu",
+    preparar: conCuentas(tarjetaNu, debitoBbva),
+    verificar: (r) =>
+      motivo(tiposDe(r) === "pago_tarjeta" && deuda(r, /^nu/) === 0 && r.movimientos[0]?.cuenta_destino === "Nu", {
+        movimientos: r.movimientos,
+        nu: cuenta(r, /^nu/),
+      }),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Acabo de abonar 2 mil a la Nu desde BBVA",
+    preparar: conCuentas(tarjetaNu, debitoBbva),
+    verificar: (r) =>
+      motivo(deuda(r, /^nu/) === 100_000 && saldo(r, /bbva/) === 800_000, { movimientos: r.movimientos, cuentas: estadosDeCuentas(r.ctx) }),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Le pagué 2 mil a la tarjeta",
+    preparar: conCuentas(tarjetaNu, debitoBbva),
+    // Una sola tarjeta de crédito: es a esa.
+    verificar: (r) => motivo(tiposDe(r) === "pago_tarjeta" && deuda(r, /^nu/) === 100_000, { movimientos: r.movimientos, nu: cuenta(r, /^nu/) }),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Tengo un límite de 50 mil en la Invex",
+    preparar: conCuentas({ cuenta: "Invex", tipo: "credito" }),
+    verificar: (r) => motivo(cuenta(r, /invex/)?.limiteCentavos === 5_000_000 && r.movimientos.length === 0, cuenta(r, /invex/)),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Tengo ocupados 12 mil de la Nu",
+    preparar: conCuentas(tarjetaNu),
+    verificar: (r) => motivo(deuda(r, /^nu/) === 1_200_000 && cuenta(r, /^nu/)?.disponibleCentavos === 800_000 && r.movimientos.length === 0, cuenta(r, /^nu/)),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Mi tarjeta Nu tiene un límite de 30 mil y tengo disponibles 25 mil",
+    verificar: (r) => {
+      const nu = cuenta(r, /^nu/);
+      return motivo(!!nu?.esCredito && nu.limiteCentavos === 3_000_000 && nu.deudaCentavos === 500_000, nu);
+    },
+  },
+  {
+    grupo: "cuentas",
+    frase: "Mi tarjeta Nu corta el día 5 y se paga el 25",
+    preparar: conCuentas(tarjetaNu),
+    verificar: (r) => motivo(cuenta(r, /^nu/)?.diaCorte === 5 && cuenta(r, /^nu/)?.diaPago === 25, cuenta(r, /^nu/)),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Acabo de realizar una compra a meses sin intereses de 6 mil a 6 meses con la Nu",
+    preparar: conCuentas({ cuenta: "Nu", tipo: "credito", limite: 30000, deuda: 0 }),
+    // La tarjeta se ocupa por el total; como gasto solo queda la primera mensualidad.
+    verificar: (r) => {
+      const c = listarMsi(r.ctx).compras;
+      return motivo(c.length === 1 && c[0]!.meses === 6 && deuda(r, /^nu/) === 600_000 && montos(r).join() === "$1,000", {
+        c,
+        nu: cuenta(r, /^nu/),
+        movimientos: r.movimientos,
+      });
+    },
+  },
+  {
+    grupo: "cuentas",
+    frase: "Acabo de transferir 5 mil de BBVA a Revolut",
+    preparar: conCuentas(debitoBbva, { cuenta: "Revolut", tipo: "debito", saldo: 1000 }),
+    verificar: (r) =>
+      motivo(tiposDe(r) === "transferencia" && saldo(r, /bbva/) === 500_000 && saldo(r, /revolut/) === 600_000, {
+        movimientos: r.movimientos,
+        cuentas: estadosDeCuentas(r.ctx),
+      }),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Saqué mil del cajero de BBVA",
+    preparar: conCuentas(debitoBbva),
+    verificar: (r) => motivo(saldo(r, /bbva/) === 900_000 && !r.movimientos.some((m) => m.tipo === "gasto"), { movimientos: r.movimientos, cuentas: estadosDeCuentas(r.ctx) }),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Gasté 500 en el súper con la BBVA",
+    preparar: conCuentas(debitoBbva),
+    verificar: (r) => motivo(tiposDe(r) === "gasto" && saldo(r, /bbva/) === 950_000, { movimientos: r.movimientos, bbva: cuenta(r, /bbva/) }),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Compré un café de 60 con la tarjeta de crédito",
+    preparar: conCuentas(tarjetaNu),
+    // Es un gasto con la tarjeta, no un pago a la tarjeta.
+    verificar: (r) => motivo(tiposDe(r) === "gasto" && deuda(r, /^nu/) === 306_000, { movimientos: r.movimientos, nu: cuenta(r, /^nu/) }),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Me depositaron la quincena de 15 mil en BBVA",
+    preparar: conCuentas({ cuenta: "BBVA", tipo: "debito", saldo: 1000 }),
+    verificar: (r) => motivo(tiposDe(r) === "ingreso" && saldo(r, /bbva/) === 1_600_000, { movimientos: r.movimientos, bbva: cuenta(r, /bbva/) }),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Tengo 2 mil en efectivo",
+    verificar: (r) => motivo(saldo(r, /efectivo/) === 200_000 && r.movimientos.length === 0, { cuentas: estadosDeCuentas(r.ctx), movimientos: r.movimientos }),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Tengo 20 mil en Revolut y debo 4 mil de la Invex",
+    verificar: (r) =>
+      motivo(saldo(r, /revolut/) === 2_000_000 && deuda(r, /invex/) === 400_000 && r.movimientos.length === 0, {
+        cuentas: estadosDeCuentas(r.ctx),
+        movimientos: r.movimientos,
+      }),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Gasté 1500 en unos tenis con la Nu",
+    preparar: conCuentas({ cuenta: "Nu", tipo: "credito", limite: 10000, deuda: 8000 }),
+    // Lo deja casi sin crédito: lo dice al confirmar.
+    verificar: (r) => motivo(tiposDe(r) === "gasto" && dice(r, "500") && /disponible/i.test(r.respuesta), r.respuesta),
+  },
+  {
+    grupo: "cuentas",
+    frase: "¿Cuánto tengo en mis cuentas?",
+    preparar: conCuentas(tarjetaNu, { cuenta: "Revolut", tipo: "debito", saldo: 20000 }),
+    verificar: (r) => motivo(dice(r, "20,000") && r.movimientos.length === 0, r.respuesta),
+  },
+  {
+    grupo: "cuentas",
+    frase: "¿Cuánto debo de la Nu?",
+    preparar: conCuentas(tarjetaNu),
+    verificar: (r) => motivo(dice(r, "3,000"), r.respuesta),
+  },
+  {
+    grupo: "cuentas",
+    frase: "¿Cuánto me queda disponible en la Nu?",
+    preparar: conCuentas(tarjetaNu),
+    verificar: (r) => motivo(dice(r, "17,000"), r.respuesta),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Le presté 500 a Juan",
+    // Un préstamo a una persona, no una transferencia a una cuenta llamada Juan.
+    verificar: (r) =>
+      motivo(listarPrestamos(r.ctx).prestamos.length === 1 && estadosDeCuentas(r.ctx).every((c) => !/juan/.test(normalizar(c.nombre))), {
+        prestamos: listarPrestamos(r.ctx).prestamos,
+        cuentas: estadosDeCuentas(r.ctx),
+      }),
+  },
+  // Etiquetas
+  {
+    grupo: "cuentas",
+    frase: "Gasté 300 en tacos, etiquétalo como viaje",
+    verificar: (r) => motivo(unoSolo(r)?.etiquetas?.map(normalizar).join() === "viaje", r.movimientos),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Ponle la etiqueta trabajo a mi último gasto",
+    preparar: (ctx) => {
+      crearMovimiento(previa(ctx), { tipo: "gasto", monto: 120, comercio: "Uber", categoria: "Taxi y apps" });
+    },
+    verificar: (r) => motivo(unoSolo(r)?.etiquetas?.map(normalizar).join() === "trabajo", r.movimientos),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Estoy de viaje en Oaxaca hasta el domingo, todo lo que gaste etiquétalo como viaje Oaxaca",
+    verificar: (r) => {
+      const activas = etiquetasActivas(r.ctx, r.ctx.hoy);
+      return motivo(activas.length === 1 && r.movimientos.length === 0, { activas, etiquetas: resumenEtiquetas(r.ctx), movimientos: r.movimientos });
+    },
+  },
+  {
+    grupo: "cuentas",
+    frase: "¿Cuánto llevo gastado en el viaje?",
+    preparar: (ctx) => {
+      crearMovimiento(previa(ctx), { tipo: "gasto", monto: 300, comercio: "Tacos", etiquetas: ["Viaje"] });
+      crearMovimiento(previa(ctx), { tipo: "gasto", monto: 2000, descripcion: "hotel", etiquetas: ["Viaje"] });
+      crearMovimiento(previa(ctx), { tipo: "gasto", monto: 999, descripcion: "otra cosa" });
+    },
+    verificar: (r) => motivo(dice(r, "2,300"), r.respuesta),
+  },
+  // Lo que encontró QA con el modelo real (QA-086 a QA-088).
+  {
+    grupo: "cuentas",
+    frase: "Ahora tengo 18 mil en Revolut",
+    preparar: conCuentas({ cuenta: "Revolut", saldo: 20000 }, { cuenta: "Bancomer", saldo: 10000 }),
+    verificar: (r) => motivo(saldo(r, /revolut/) === 1_800_000 && saldo(r, /bancomer|bbva/) === 1_000_000, { cuentas: estadosDeCuentas(r.ctx), resp: r.respuesta }),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Tengo 300 dólares en Wise",
+    verificar: (r) => motivo(saldo(r, /wise/) !== 30_000 && /d[oó]lar/i.test(r.respuesta), { cuentas: estadosDeCuentas(r.ctx), resp: r.respuesta }),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Le presté 500 a Juan de mi efectivo",
+    preparar: conCuentas({ cuenta: "Efectivo", tipo: "efectivo", saldo: 2000 }),
+    verificar: (r) => motivo(saldo(r, /efectivo/) === 150_000, { cuentas: estadosDeCuentas(r.ctx), resp: r.respuesta }),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Mi hermano me prestó 2 mil y me los depositó a Bancomer",
+    preparar: conCuentas({ cuenta: "Bancomer", saldo: 10000 }),
+    verificar: (r) => motivo(saldo(r, /bancomer|bbva/) === 1_200_000 && r.movimientos.every((m) => m.tipo !== "ingreso"), { cuentas: estadosDeCuentas(r.ctx), movimientos: r.movimientos }),
   },
 ];

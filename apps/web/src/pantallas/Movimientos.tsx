@@ -243,7 +243,13 @@ function tituloDe(m: MovimientoApp) {
 
 function subtituloDe(m: MovimientoApp) {
   const categoria = m.categoria?.split(">").pop()?.trim() ?? (m.tipo === "gasto" ? "Sin categoría" : TIPOS[m.tipo]);
-  return m.cuenta ? `${categoria} · ${m.cuenta}` : categoria;
+  const cuentas = cuentasDe(m);
+  return cuentas ? `${categoria} · ${cuentas}` : categoria;
+}
+
+/** "BBVA", o en una transferencia o pago de tarjeta "BBVA → Nu". */
+function cuentasDe(m: MovimientoApp) {
+  return [m.cuenta, m.cuentaDestino].filter(Boolean).join(" → ");
 }
 
 function ListaPorDia({
@@ -340,7 +346,7 @@ function Tabla({ movimientos }: { movimientos: MovimientoApp[] }) {
                 </div>
               </td>
               <td className="truncate px-2 py-2.5 text-muted-foreground">{m.categoria ?? "Sin categoría"}</td>
-              <td className="truncate px-2 py-2.5 text-muted-foreground">{m.cuenta ?? ""}</td>
+              <td className="truncate px-2 py-2.5 text-muted-foreground">{cuentasDe(m)}</td>
               <td className="px-4 py-2.5 text-right">
                 <Monto m={m} />
               </td>

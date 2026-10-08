@@ -110,7 +110,35 @@ export const cuentas = sqliteTable("cuentas", {
   diaPago: integer("dia_pago"),
   archivada: integer("archivada", { mode: "boolean" }).notNull().default(false),
   creadoEn: creadoEn(),
+  // Tarjetas de crédito: el límite que da el banco.
+  limiteCentavos: integer("limite_centavos"),
+  // El último saldo que dijo el usuario ("tengo 20 mil en Revolut") y cuándo. El saldo de hoy es ese más lo
+  // que se movió después (finanzas/cuentas.ts). Sin él, el saldo no se conoce: nunca se adivina desde cero.
+  // En una tarjeta de crédito, "saldo" es lo que tiene a favor (menos lo que debe); "disponible" se usa
+  // solo mientras no se sabe el límite.
+  saldoCentavos: integer("saldo_centavos"),
+  saldoTipo: text("saldo_tipo", { enum: ["saldo", "disponible"] }),
+  saldoEn: text("saldo_en"),
 });
+
+// Etiquetas libres ("viaje a Oaxaca", "trabajo", "deducible") que cruzan categorías y cuentas. Con
+// `activaDesde`/`activaHasta`, cada gasto nuevo de esos días la lleva sola.
+export const etiquetas = sqliteTable(
+  "etiquetas",
+  {
+    id: id(),
+    usuarioId: text("usuario_id")
+      .notNull()
+      .references(() => usuarios.id),
+    nombre: text("nombre").notNull(),
+    nombreNormalizado: text("nombre_normalizado").notNull(),
+    activaDesde: text("activa_desde"),
+    activaHasta: text("activa_hasta"),
+    creadoEn: creadoEn(),
+    eliminadoEn: text("eliminado_en"),
+  },
+  (t) => [uniqueIndex("etiquetas_usuario_nombre").on(t.usuarioId, t.nombreNormalizado)],
+);
 
 export const categorias = sqliteTable(
   "categorias",
@@ -176,6 +204,8 @@ export const movimientos = sqliteTable(
     entradaId: text("entrada_id"),
     recurrenteId: text("recurrente_id"),
     msiId: text("msi_id"),
+    // Ids de sus etiquetas, como JSON: así deshacer una edición también regresa sus etiquetas.
+    etiquetas: text("etiquetas", { mode: "json" }).$type<string[]>().notNull().default([]),
     // La IA no estaba segura (por ejemplo, de la categoría).
     revisar: integer("revisar", { mode: "boolean" }).notNull().default(false),
     creadoEn: creadoEn(),
@@ -343,6 +373,8 @@ export const TABLAS_BITACORA = [
   "metas",
   "prestamos_personales",
   "compras_msi",
+  "cuentas",
+  "etiquetas",
 ] as const;
 
 // Bitácora de cambios: permite deshacer cualquier cosa que hizo la IA.
@@ -409,6 +441,8 @@ export const TIPOS_AVISO = [
   "msi",
   "prestamo",
   "gasto_inusual",
+  "tarjeta_pago",
+  "tarjeta_limite",
 ] as const;
 
 // Lo que el revisor nocturno encontró (fugas, cobros que vienen, presupuestos en riesgo). El push y
