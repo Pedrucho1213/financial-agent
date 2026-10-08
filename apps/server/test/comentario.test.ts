@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { MockLanguageModelV4 } from "ai/test";
-import { crearApp, RESPUESTA_RAPIDA } from "../src/app";
+import { crearApp, RESPUESTAS_RAPIDAS } from "../src/app";
 import { crearDispositivo } from "../src/auth";
 import { esEsperable, MAXIMO_AL_DIA, marcarComentario, notaDelGasto } from "../src/finanzas/comentario";
 import { type Contexto, crearContexto } from "../src/finanzas/contexto";
@@ -8,6 +8,8 @@ import { crearMovimiento } from "../src/finanzas/movimientos";
 import { fijarPresupuesto } from "../src/finanzas/planes";
 import { sumarDias } from "../src/lib/fechas";
 import { llamada, preparar } from "./ayuda";
+
+const RESPUESTA_RAPIDA = RESPUESTAS_RAPIDAS[0];
 
 const ENDPOINT = "https://web.push.apple.com/QGuQyavXutnMtsHJWSeD1h4ztT4fjpQ";
 const LLAVES = {
@@ -91,6 +93,19 @@ describe("comentario al registrar", () => {
     expect((await hablar("gasté 900 en Liverpool", "comenta-0004")).comentario).toBeDefined();
     expect((await hablar("gasté 800 en Liverpool", "comenta-0005")).comentario).toBeDefined();
     expect(await hablar("gasté 700 en Liverpool", "comenta-0006")).toMatchObject({ estado: 202, respuesta: RESPUESTA_RAPIDA });
+  });
+
+  test("si la IA, en vez de anotar, corrigió algo ya anotado, su respuesta se oye", async () => {
+    const { ctx, enviadas, activar, hablar } = montar([llamada("editar_movimiento", { buscar: { texto: "Liverpool" }, cambios: { monto: 900 } })], 50);
+    conCostumbre(ctx);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 90, comercio: "Liverpool", categoria: "Ropa y calzado" });
+    await activar();
+    // Parece un gasto alto (por eso espera), pero la IA lo tomó como corrección del de hace rato.
+    const r = await hablar("el de Liverpool 900", "comenta-0010");
+    expect(r.respuesta).not.toBeOneOf([...RESPUESTAS_RAPIDAS]);
+    expect(r.respuesta).toStartWith("Listo");
+    await Bun.sleep(20);
+    expect(enviadas).toHaveLength(0);
   });
 
   test("sin historial no hay comentario ni espera", async () => {

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createPublicKey, verify } from "node:crypto";
 import { MockLanguageModelV4 } from "ai/test";
-import { crearApp, RESPUESTA_RAPIDA } from "../src/app";
+import { crearApp, RESPUESTAS_RAPIDAS } from "../src/app";
 import { crearDispositivo, crearUsuario, revocarDispositivo } from "../src/auth";
 import type { Db } from "../src/db/client";
 import { avisos, dispositivos, movimientos, suscripcionesPush } from "../src/db/schema";
@@ -11,6 +11,8 @@ import { notificacionDeDictado } from "../src/push/dictados";
 import { clavesVapid, type EnviarPush, ErrorSuscripcion, espera, notificar, suscribir } from "../src/push/notificaciones";
 import { cifrar, endpointValido, enviarPush, firmaVapid, generarClavesVapid } from "../src/push/webpush";
 import { llamada, preparar, texto } from "./ayuda";
+
+const RESPUESTA_RAPIDA = RESPUESTAS_RAPIDAS[0];
 
 const ENDPOINT = "https://web.push.apple.com/QGuQyavXutnMtsHJWSeD1h4ztT4fjpQ";
 // Llaves de un navegador de verdad (las del ejemplo del RFC 8291).
@@ -221,6 +223,37 @@ describe("Atajo rápido", () => {
     await hasta(() => enviadas.length > 0);
     expect(enviadas[0]!.titulo).toBe("$85 · Starbucks");
     expect(enviadas[0]!.cuerpo).toStartWith("Listo");
+  });
+
+  test("la confirmación rápida va cambiando, sin repetirse de un registro al siguiente", async () => {
+    const gasto = (monto: number) => llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto, comercio: "Oxxo", categoria: "Súper" }] });
+    const montos = [41, 42, 43, 44, 45, 46, 47];
+    const { pedir, activar } = montar(montos.map(gasto));
+    await activar();
+    const dichas: string[] = [];
+    for (const [i, monto] of montos.entries()) {
+      const r = await pedir("/v1/hablar", "POST", { texto: `gasté ${monto} en el Oxxo`, client_id: `variado-000${i}` });
+      dichas.push(((await r.json()) as { respuesta: string }).respuesta);
+    }
+    expect(dichas).toEqual([...RESPUESTAS_RAPIDAS, RESPUESTAS_RAPIDAS[0]]);
+  });
+
+  test("con notificaciones, una corrección con monto espera a la IA y se oye qué cambió", async () => {
+    // La IA tarda: sin esperarla, el Atajo diría "Anotado" y lo que cambió llegaría por notificación.
+    const respuestas = [REGISTRO_CAFE, llamada("editar_movimiento", { buscar: { texto: "Starbucks", monto: 85 }, cambios: { monto: 95 } })];
+    const { pedir, activar, enviadas, db } = montar(async () => (await Bun.sleep(30), respuestas.shift()!) as never);
+    await activar();
+    await pedir("/v1/hablar", "POST", { texto: "gasté 85 en Starbucks", client_id: "corrige-001" });
+    await hasta(() => enviadas.length > 0);
+    const r = await pedir("/v1/hablar", "POST", { texto: "no eran 85, eran 95", client_id: "corrige-002" });
+    expect(r.status).toBe(200);
+    const { respuesta } = (await r.json()) as { respuesta: string };
+    expect(respuesta).toStartWith("Listo");
+    expect(respuesta).toContain("95 pesos");
+    expect(db.select().from(movimientos).get()!.montoCentavos).toBe(9500);
+    // Lo que cambió ya se oyó: no llega otra notificación.
+    await Bun.sleep(20);
+    expect(enviadas).toHaveLength(1);
   });
 
   test("desde el Apple Watch contesta completo en voz: la notificación no le llega sin el iPhone", async () => {
