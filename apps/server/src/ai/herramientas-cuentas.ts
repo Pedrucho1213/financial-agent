@@ -193,7 +193,8 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
         if (t.cuentasConSaldo) partes.push(`tienes ${$(t.dineroCentavos)} en tus cuentas`);
         if (t.tarjetasConDeuda) partes.push(t.deudaCentavos > 0 ? `debes ${$(t.deudaCentavos)} en tarjetas` : "no debes nada en tarjetas");
         const credito = todas.filter((e) => e.esCredito && e.disponibleCentavos !== null);
-        if (credito.length) partes.push(`te quedan ${$(t.disponibleCreditoCentavos)} de crédito disponible`);
+        // Por voz cuenta también la tarjeta de la que solo se sabe el disponible.
+        if (credito.length) partes.push(`te quedan ${$(credito.reduce((s, e) => s + e.disponibleCentavos!, 0))} de crédito disponible`);
         const sinSaldo = t.sinSaldo.length ? ` De ${enLista(t.sinSaldo)} no sé cuánto tienes.` : "";
         const detalle = todas.filter((e) => e.conocido).map((e) => describirSaldo(ctx, e));
         const nota = observacionDeCuentas(ctx, todas);

@@ -551,6 +551,30 @@ describe("después del PR de cuentas", () => {
     }
   });
 
+  test("totales de crédito: solo las tarjetas con límite y disponible conocidos", () => {
+    const { ctx } = preparar();
+    // Límite sin deuda dicha: no se sabe cuánto lleva usado.
+    fijarCuenta(dictado(ctx, "la Nu tiene límite de 30 mil"), { cuenta: "Nu", tipo: "credito", limite: 30000 });
+    let t = totalesDeCuentas(estadosDeCuentas(ctx));
+    expect(t).toMatchObject({ limiteCreditoCentavos: 0, disponibleCreditoCentavos: 0, sinSaldo: ["Nu"] });
+    // Con la deuda ya cuenta; una con solo el disponible no entra en el límite ni en su disponible.
+    fijarCuenta(dictado(ctx, "debo 5 mil de la Nu"), { cuenta: "Nu", deuda: 5000 });
+    fijarCuenta(dictado(ctx, "tengo 7 mil disponibles en la tarjeta de crédito Invex"), { cuenta: "Invex", tipo: "credito", disponible: 7000 });
+    t = totalesDeCuentas(estadosDeCuentas(ctx));
+    expect(t).toMatchObject({ limiteCreditoCentavos: 3000000, disponibleCreditoCentavos: 2500000, sinSaldo: [] });
+    // Archivada, no se suma.
+    const nu = estado(ctx, "Nu");
+    expect(totalesDeCuentas([{ ...nu, archivada: true }]).limiteCreditoCentavos).toBe(0);
+  });
+
+  test("por voz, el crédito disponible incluye la tarjeta de la que solo se sabe el disponible", async () => {
+    const { ctx } = preparar();
+    fijarCuenta(dictado(ctx, "la Nu"), { cuenta: "Nu", tipo: "credito", limite: 30000, deuda: 5000 });
+    fijarCuenta(dictado(ctx, "la Invex"), { cuenta: "Invex", tipo: "credito", disponible: 7000 });
+    const r = await llamar(dictado(ctx, "¿cuánto crédito me queda?"), "consultar_cuentas", {});
+    expect(r.respuesta).toContain("te quedan $32,000 de crédito disponible");
+  });
+
   test("los avisos de una tarjeta abren esa cuenta en la app", () => {
     const { ctx } = preparar();
     fijarCuenta(dictado(ctx, "la Nu"), { cuenta: "Nu", tipo: "credito", limite: 10000, deuda: 9500, diaPago: Number(ctx.hoy.slice(8, 10)) });
