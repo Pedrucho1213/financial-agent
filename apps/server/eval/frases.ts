@@ -61,8 +61,11 @@ const gastosDeEjemplo = (ctx: Contexto) => {
 const cuenta = (r: Resultado, patron: RegExp) => estadosDeCuentas(r.ctx).find((c) => patron.test(normalizar(c.nombre)));
 const saldo = (r: Resultado, patron: RegExp) => cuenta(r, patron)?.saldoCentavos;
 const deuda = (r: Resultado, patron: RegExp) => cuenta(r, patron)?.deudaCentavos;
+// Los saldos se dijeron un minuto antes: lo dictado en la prueba cuenta después de ellos, aunque el
+// dictado llegue en el mismo milisegundo en que se preparó la base.
 const conCuentas = (...datos: Parameters<typeof fijarCuenta>[1][]) => (ctx: Contexto) => {
-  for (const d of datos) fijarCuenta(previa(ctx), d);
+  const antes = { ...previa(ctx), ahoraIso: new Date(Date.parse(ctx.ahoraIso) - 60_000).toISOString() };
+  for (const d of datos) fijarCuenta(antes, d);
 };
 const tarjetaNu = { cuenta: "Nu", tipo: "credito" as const, limite: 20000, deuda: 3000 };
 const debitoBbva = { cuenta: "BBVA", tipo: "debito" as const, saldo: 10000 };
