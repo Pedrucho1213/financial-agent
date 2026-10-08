@@ -18,11 +18,13 @@ import {
   registrarPrestamo,
   respuestaDisponible,
 } from "../finanzas/planes";
-import { formatearMonto } from "../lib/dinero";
+import { aCentavos, formatearMonto } from "../lib/dinero";
 import { normalizar } from "../lib/texto";
 import { eq } from "drizzle-orm";
 import { comprasMsi } from "../db/schema";
-import { describirSaldo, estadoDeCuenta } from "../finanzas/cuentas";
+import { describirSaldo, estadoDeCuenta, estadosDeCuentas } from "../finanzas/cuentas";
+import { cuentaMencionada } from "../finanzas/catalogos";
+import { crearMovimiento } from "../finanzas/movimientos";
 
 /** Envuelve una herramienta: guarda la acción y devuelve los errores de validación como texto. */
 type Ejecutar = <A, R>(nombre: string, fn: (args: A) => R) => (args: A) => Promise<R | { error: string }>;
@@ -103,9 +105,21 @@ export function herramientasPlanes(ctx: Contexto, ejecutar: Ejecutar) {
         accion: z.enum(["le_preste", "me_prestaron", "me_pagaron", "le_pague"]),
         persona: z.string(),
         monto: z.number().positive().optional(),
+        cuenta: z.string().optional().describe('De qué cuenta salió o a cuál llegó el dinero, solo si lo dijo: "de mi efectivo", "me los depositó a Bancomer".'),
         descripcion: z.string().optional(),
       }),
-      execute: ejecutar("prestamo", ({ accion, persona, monto, descripcion }) => {
+      execute: ejecutar("prestamo", ({ accion, persona, monto, cuenta, descripcion }) => {
+        // El dinero prestado sale de la cuenta que dijo o llega a ella (QA-088): un movimiento de un solo lado,
+        // que no es gasto ni ingreso. Sin cuenta dicha no se adivina.
+        const sale = accion === "le_preste" || accion === "le_pague";
+        const mover = (centavos: number, persona: string) => {
+          if (!cuenta || !ctx.textoOriginal || !cuentaMencionada(ctx.textoOriginal, cuenta)) return "";
+          const que = { le_preste: `Préstamo a ${persona}`, me_prestaron: `Préstamo de ${persona}`, me_pagaron: `${persona} me pagó`, le_pague: `Pago a ${persona}` }[accion];
+          const m = crearMovimiento(ctx, { tipo: "transferencia", monto: centavos / 100, [sale ? "cuenta" : "cuentaDestino"]: cuenta, descripcion: que });
+          const nombre = sale ? m.cuenta : m.cuenta_destino;
+          const e = estadosDeCuentas(ctx).find((x) => x.nombre === nombre);
+          return e?.conocido ? ` Ahora ${describirSaldo(ctx, e)}.` : "";
+        };
         if (accion === "le_preste" || accion === "me_prestaron") {
           if (monto === undefined) return { error: "Falta el monto del préstamo. Pregúntalo." };
           const meDeben = accion === "le_preste";
@@ -113,14 +127,16 @@ export function herramientasPlanes(ctx: Contexto, ejecutar: Ejecutar) {
           const quien = meDeben ? `${p.persona} te debe` : `le debes a ${p.persona}`;
           const total = p.totalPendienteCentavos > p.montoCentavos ? ` En total ${quien} ${$(p.totalPendienteCentavos)}.` : "";
           const que = meDeben ? `le prestaste ${$(p.montoCentavos)} a ${p.persona}` : `${p.persona} te prestó ${$(p.montoCentavos)}`;
-          return { prestamo: p, confirmacion: `Listo, anoté que ${que}.${total}` };
+          const queda = mover(p.montoCentavos, p.persona);
+          return { prestamo: p, confirmacion: `Listo, anoté que ${que}.${total}${queda}` };
         }
         const a = abonarPrestamo(ctx, { persona, monto, direccion: accion === "me_pagaron" ? "me_deben" : "debo" });
         const quien = a.direccion === "me_deben" ? `${a.persona} te debe` : `le debes a ${a.persona}`;
         const confirmacion = a.saldado
           ? `Listo, ${a.direccion === "me_deben" ? `${a.persona} ya no te debe nada` : `ya no le debes nada a ${a.persona}`}.`
           : `Listo, abono de ${$(a.abonadoCentavos)}. Todavía ${quien} ${$(a.pendienteCentavos)}.`;
-        return { ...a, confirmacion };
+        const queda = mover(monto !== undefined ? aCentavos(monto) : a.abonadoCentavos, a.persona);
+        return { ...a, confirmacion: `${confirmacion}${queda}` };
       }),
     }),
 

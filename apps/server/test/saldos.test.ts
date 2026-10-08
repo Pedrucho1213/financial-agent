@@ -457,3 +457,64 @@ describe("feedback", () => {
     expect(d.porDiaCentavos).toBe(100000);
   });
 });
+
+describe("lo que encontró QA con el modelo real", () => {
+  test("ahora tengo 18 mil en Revolut: aunque el modelo repita Bancomer, se fija Revolut y Bancomer no cambia", async () => {
+    const { ctx } = preparar();
+    await llamar(dictado(ctx, "tengo 20 mil en Revolut y 10 mil en Bancomer"), "cuentas", { cuentas: [{ cuenta: "Revolut", saldo: 20000 }, { cuenta: "Bancomer", saldo: 10000 }] });
+    const r = await llamar(dictado(ctx, "Ahora tengo 18 mil en Revolut"), "cuentas", { cuentas: [{ cuenta: "Revolut", saldo: 18000 }, { cuenta: "Bancomer", saldo: 5000 }] });
+    expect(r.error).toBeUndefined();
+    expect(r.confirmacion).toBe("Listo, Revolut tiene $18,000.");
+    expect(pesos(estado(ctx, "Revolut").saldoCentavos)).toBe(18000);
+    expect(pesos(estado(ctx, "Bancomer").saldoCentavos)).toBe(10000);
+  });
+
+  test("tengo 5 mil sin decir dónde: se pregunta, salvo que conteste una pregunta en la conversación", async () => {
+    const { ctx } = preparar();
+    const r = await llamar(dictado(ctx, "tengo 5 mil"), "cuentas", { cuentas: [{ cuenta: "BBVA", saldo: 5000 }] });
+    expect(r.error).toContain("No dijo en qué cuenta");
+    const enCharla = { ...dictado(ctx, "son 5 mil"), enConversacion: true };
+    const s = await llamar(enCharla, "cuentas", { cuentas: [{ cuenta: "BBVA", saldo: 5000 }] });
+    expect(s.error).toBeUndefined();
+    expect(pesos(estado(ctx, "BBVA").saldoCentavos)).toBe(5000);
+  });
+
+  test("tengo 300 dólares en Wise: crea la cuenta sin saldo y pregunta cuántos pesos son", async () => {
+    const { ctx } = preparar();
+    const r = await llamar(dictado(ctx, "Tengo 300 dólares en Wise"), "cuentas", { cuentas: [{ cuenta: "Wise", saldo: 300 }] });
+    expect(r.confirmacion).toBe("Llevo tus cuentas en pesos y no sé a cuánto cambiarlos. ¿Cuántos pesos son tus 300 dólares en Wise?");
+    expect(estado(ctx, "Wise").saldoCentavos).toBeNull();
+    // En pesos sí se guarda.
+    await llamar(dictado(ctx, "tengo 5,400 pesos en Wise"), "cuentas", { cuentas: [{ cuenta: "Wise", saldo: 5400 }] });
+    expect(pesos(estado(ctx, "Wise").saldoCentavos)).toBe(5400);
+  });
+
+  test("préstamos con la cuenta dicha mueven su saldo; sin cuenta, no se toca ninguna", async () => {
+    const { ctx } = preparar();
+    await llamar(dictado(ctx, "tengo 2 mil en efectivo y 10 mil en Bancomer"), "cuentas", { cuentas: [{ cuenta: "efectivo", saldo: 2000 }, { cuenta: "Bancomer", saldo: 10000 }] });
+    const a = await llamar(dictado(ctx, "Le presté 500 a Juan de mi efectivo"), "prestamo", { accion: "le_preste", persona: "Juan", monto: 500, cuenta: "efectivo" });
+    expect(a.confirmacion).toBe("Listo, anoté que le prestaste $500 a Juan. Ahora Efectivo tiene $1,500.");
+    expect(pesos(estado(ctx, "Efectivo").saldoCentavos)).toBe(1500);
+    const b = await llamar(dictado(ctx, "Juan me pagó 200 en efectivo"), "prestamo", { accion: "me_pagaron", persona: "Juan", monto: 200, cuenta: "efectivo" });
+    expect(b.confirmacion).toContain("Ahora Efectivo tiene $1,700.");
+    await llamar(dictado(ctx, "Mi hermano me prestó 2 mil y me los depositó a Bancomer"), "prestamo", { accion: "me_prestaron", persona: "mi hermano", monto: 2000, cuenta: "Bancomer" });
+    expect(pesos(estado(ctx, "Bancomer").saldoCentavos)).toBe(12000);
+    // El modelo puso una cuenta que la frase no dice: no se adivina.
+    await llamar(dictado(ctx, "le presté 100 a Ana"), "prestamo", { accion: "le_preste", persona: "Ana", monto: 100, cuenta: "Bancomer" });
+    expect(pesos(estado(ctx, "Bancomer").saldoCentavos)).toBe(12000);
+    // No son gastos ni ingresos, y se deshacen con el préstamo.
+    const movs = buscarMovimientos(ctx, { periodo: "todo" }).movimientos;
+    expect(movs.map((m) => m.tipo)).toEqual(["transferencia", "transferencia", "transferencia"]);
+    deshacer(dictado(ctx, "deshaz eso"));
+    deshacer(dictado(ctx, "deshaz eso"));
+    expect(pesos(estado(ctx, "Bancomer").saldoCentavos)).toBe(10000);
+  });
+
+  test("pagué la tarjeta de crédito sin tarjetas conocidas: la crea y anota el pago", () => {
+    const { ctx } = preparar();
+    const r = moverDinero(dictado(ctx, "Pagué la tarjeta de crédito, 5 mil"), { tipo: "pago_tarjeta", monto: 5000 });
+    expect(r.movimiento.tipo).toBe("pago_tarjeta");
+    const tarjeta = estadosDeCuentas(ctx).find((e) => e.esCredito);
+    expect(tarjeta?.nombre).toBe(r.movimiento.cuenta_destino);
+  });
+});

@@ -1186,4 +1186,28 @@ export const CASOS: Caso[] = [
     },
     verificar: (r) => motivo(dice(r, "2,300"), r.respuesta),
   },
+  // Lo que encontró QA con el modelo real (QA-086 a QA-088).
+  {
+    grupo: "cuentas",
+    frase: "Ahora tengo 18 mil en Revolut",
+    preparar: conCuentas({ cuenta: "Revolut", saldo: 20000 }, { cuenta: "Bancomer", saldo: 10000 }),
+    verificar: (r) => motivo(saldo(r, /revolut/) === 1_800_000 && saldo(r, /bancomer|bbva/) === 1_000_000, { cuentas: estadosDeCuentas(r.ctx), resp: r.respuesta }),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Tengo 300 dólares en Wise",
+    verificar: (r) => motivo(saldo(r, /wise/) !== 30_000 && /d[oó]lar/i.test(r.respuesta), { cuentas: estadosDeCuentas(r.ctx), resp: r.respuesta }),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Le presté 500 a Juan de mi efectivo",
+    preparar: conCuentas({ cuenta: "Efectivo", tipo: "efectivo", saldo: 2000 }),
+    verificar: (r) => motivo(saldo(r, /efectivo/) === 150_000, { cuentas: estadosDeCuentas(r.ctx), resp: r.respuesta }),
+  },
+  {
+    grupo: "cuentas",
+    frase: "Mi hermano me prestó 2 mil y me los depositó a Bancomer",
+    preparar: conCuentas({ cuenta: "Bancomer", saldo: 10000 }),
+    verificar: (r) => motivo(saldo(r, /bancomer|bbva/) === 1_200_000 && r.movimientos.every((m) => m.tipo !== "ingreso"), { cuentas: estadosDeCuentas(r.ctx), movimientos: r.movimientos }),
+  },
 ];

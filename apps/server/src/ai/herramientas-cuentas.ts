@@ -27,7 +27,7 @@ import { cuentaMencionada, encontrarOCrearCuenta, inferirTipoCuenta } from "../f
 import { montosDelTexto } from "../lib/numeros";
 import { formatearMonto } from "../lib/dinero";
 import { resolverPeriodo } from "../lib/fechas";
-import { normalizar } from "../lib/texto";
+import { monedaDelTexto, normalizar } from "../lib/texto";
 
 type Ejecutar = <A, R>(nombre: string, fn: (args: A) => R) => (args: A) => Promise<R | { error: string }>;
 
@@ -35,6 +35,9 @@ type Ejecutar = <A, R>(nombre: string, fn: (args: A) => R) => (args: A) => Promi
 export const CONSULTAS_CUENTAS = new Set(["consultar_cuentas"]);
 // Herramientas cuyo resultado trae `confirmacion`: lo que se dice sin otra vuelta del modelo.
 export const ESCRITURAS_CUENTAS = new Set(["cuentas", "mover_dinero", "etiqueta"]);
+
+// Cómo se dice la moneda de un saldo que no está en pesos.
+const NOMBRE_MONEDA: Record<string, string> = { USD: "dólares", EUR: "euros", GBP: "libras", JPY: "yenes", MXN: "pesos" };
 
 const monto = (que: string) => z.number().describe(`${que}, en números: 20 mil = 20000.`);
 
@@ -71,7 +74,8 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
           )
           .min(1),
       }),
-      execute: ejecutar("cuentas", ({ cuentas }) => {
+      execute: ejecutar("cuentas", ({ cuentas: dichas }) => {
+        let cuentas = dichas;
         // "Tengo 5 mil": si dijo la cifra pero no la cuenta, el modelo no la elige por él.
         const texto = ctx.textoOriginal;
         if (texto && montosDelTexto(texto).length) {
@@ -81,8 +85,23 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
             const cuenta = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, nombre, { soloExistente: true, siAmbigua: "ninguna", soloLeer: true });
             return tipo !== "otra" && cuenta?.tipo === tipo && estadosDeCuentas(ctx).filter((e) => e.tipo === tipo).length === 1;
           };
-          const sinNombrar = cuentas.find((c) => !cuentaMencionada(texto, c.cuenta) && !unicaDelTipo(c.cuenta));
-          if (sinNombrar) throw new ErrorFinanzas(`No dijo en qué cuenta o tarjeta: pregúntale dónde (no la elijas tú, no era "${sinNombrar.cuenta}").`);
+          const nombradas = cuentas.filter((c) => cuentaMencionada(texto, c.cuenta) || unicaDelTipo(c.cuenta));
+          // "Ahora tengo 18 mil en Revolut": el modelo a veces repite las otras que ya conoce (QA-086); esas se
+          // quedan como estaban. Sin ninguna nombrada, solo vale si contesta una pregunta ("¿en cuál?" → "son 5 mil").
+          if (nombradas.length) cuentas = nombradas;
+          else if (!ctx.enConversacion) throw new ErrorFinanzas(`No dijo en qué cuenta o tarjeta: pregúntale dónde (no la elijas tú, no era "${cuentas[0]!.cuenta}").`);
+        }
+        // "Tengo 300 dólares en Wise": los saldos se llevan en pesos; no se guardan 300 pesos (QA-087).
+        const moneda = monedaDelTexto(texto);
+        const cifra = cuentas.flatMap((c) => [c.saldo, c.disponible, c.deuda, c.limite]).find((x) => x !== undefined);
+        if (moneda && moneda !== ctx.monedaBase && cifra !== undefined) {
+          const creadas = cuentas.map((c) => fijarCuenta(ctx, { cuenta: c.cuenta, tipo: c.tipo }));
+          const nombre = NOMBRE_MONEDA[moneda] ?? moneda;
+          return {
+            cuentas: creadas.map((r) => ({ nombre: r.estado.nombre, tipo: r.estado.tipo, nueva: r.nueva || undefined })),
+            montos: montosDelTexto(texto ?? "").length,
+            confirmacion: `Llevo tus cuentas en pesos y no sé a cuánto cambiarlos. ¿Cuántos pesos son tus ${new Intl.NumberFormat("es-MX").format(cifra)} ${nombre} en ${enLista(creadas.map((r) => r.estado.nombre))}?`,
+          };
         }
         const resultados = cuentas.map((c) =>
           fijarCuenta(ctx, {

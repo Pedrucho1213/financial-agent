@@ -397,7 +397,8 @@ export function moverDinero(ctx: Contexto, datos: DatosMover) {
       const tarjetas = cuentasDelUsuario(ctx).filter((c) => c.tipo === "credito" && !c.archivada);
       if (tarjetas.length === 1) hacia = tarjetas[0];
       else if (tarjetas.length > 1) throw new ErrorFinanzas(`Pregunta a qué tarjeta fue el pago: tiene ${enLista(tarjetas.map((c) => c.nombre))}.`);
-      else throw new ErrorFinanzas("Pregunta a qué tarjeta de crédito fue el pago.");
+      // Sin tarjetas conocidas, "pagué la tarjeta de crédito" es la única que tiene: se crea con ese nombre.
+      else hacia = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, "tarjeta de crédito", { alCambiar: cambioDeCuenta(ctx) });
     }
   }
   if (!desde && !hacia) throw new ErrorFinanzas("Pregunta de qué cuenta a qué cuenta movió el dinero.");
