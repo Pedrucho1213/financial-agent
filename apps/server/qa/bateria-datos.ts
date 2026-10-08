@@ -23,7 +23,31 @@ const pesos = (centavos: unknown) => (typeof centavos === "number" ? centavos / 
  * Saldos, límites, usado y disponible. Se prueban, en orden, las funciones que la tanda nueva pueda
  * exportar; si no hay ninguna, se usan columnas de la tabla `cuentas` con esos nombres.
  */
-async function leerCredito(db: Db, usuarioId: string, filas: Cuenta[]): Promise<Foto["credito"]> {
+type Base = { zonaHoraria: string; monedaBase: string };
+
+async function leerCredito(db: Db, usuarioId: string, filas: Cuenta[], base?: Base): Promise<Foto["credito"]> {
+  // PR #38: estadosDeCuentas(ctx). saldo de crédito = -deuda; usado = deuda; null = no se sabe.
+  if (base) {
+    try {
+      const m = (await import("../src/finanzas/cuentas")) as Record<string, unknown>;
+      const { crearContexto } = await import("../src/finanzas/contexto");
+      if (typeof m.estadosDeCuentas === "function") {
+        const ctx = crearContexto({ db, usuarioId, ...base } as never);
+        const estados = (m.estadosDeCuentas as (c: unknown) => Record<string, unknown>[])(ctx);
+        const mapa = new Map<string, { saldo?: number; limite?: number; usado?: number; disponible?: number }>();
+        for (const e of estados)
+          mapa.set(String(e.id), {
+            saldo: pesos(e.saldoCentavos),
+            limite: pesos(e.limiteCentavos),
+            usado: pesos(e.deudaCentavos),
+            disponible: pesos(e.disponibleCentavos),
+          });
+        return mapa;
+      }
+    } catch {
+      // Sin la tanda de cuentas todavía.
+    }
+  }
   for (const ruta of ["../src/finanzas/cuentas", "../src/finanzas/saldos"]) {
     try {
       const m = (await import(ruta)) as Record<string, unknown>;
@@ -53,7 +77,22 @@ async function leerCredito(db: Db, usuarioId: string, filas: Cuenta[]): Promise<
   return mapa;
 }
 
-async function leerTags(db: Db): Promise<Foto["tags"]> {
+async function leerTags(db: Db, movs: Mov[]): Promise<Foto["tags"]> {
+  // PR #38: movimientos.etiquetas es un arreglo JSON de ids; la tabla etiquetas da el nombre.
+  const schema = (await import("../src/db/schema")) as Record<string, unknown>;
+  if (schema.etiquetas && movs.length && "etiquetas" in (movs[0] as object)) {
+    const filas = (db as unknown as { select: () => { from: (t: never) => { all: () => Record<string, unknown>[] } } })
+      .select()
+      .from(schema.etiquetas as never)
+      .all();
+    const nombres = new Map(filas.map((e) => [String(e.id), normalizar(String(e.nombre)).replace(/^#/, "")]));
+    const mapa = new Map<string, string[]>();
+    for (const m of movs) {
+      const ids = ((m as unknown as { etiquetas?: string[] }).etiquetas ?? []) as string[];
+      mapa.set(m.id, ids.map((id) => nombres.get(id) ?? "").filter(Boolean));
+    }
+    return mapa;
+  }
   try {
     const schema = (await import("../src/db/schema")) as Record<string, unknown>;
     const tabla = (schema.movimientosEtiquetas ?? schema.etiquetasMovimientos ?? schema.movimientoTags) as never;
@@ -79,10 +118,10 @@ async function leerTags(db: Db): Promise<Foto["tags"]> {
   }
 }
 
-export async function fotografiar(db: Db, usuarioId: string): Promise<Foto> {
+export async function fotografiar(db: Db, usuarioId: string, base?: Base): Promise<Foto> {
   const movs = db.select().from(movimientos).where(and(eq(movimientos.usuarioId, usuarioId), isNull(movimientos.eliminadoEn))).all();
   const filas = db.select().from(cuentas).where(eq(cuentas.usuarioId, usuarioId)).all() as Cuenta[];
-  return { movs, cuentas: filas, credito: await leerCredito(db, usuarioId, filas), tags: await leerTags(db) };
+  return { movs, cuentas: filas, credito: await leerCredito(db, usuarioId, filas, base), tags: await leerTags(db, movs) };
 }
 
 /** La cuenta cuyo nombre o alias contiene `nombre` (sin acentos ni mayúsculas). */

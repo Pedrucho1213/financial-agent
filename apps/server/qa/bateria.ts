@@ -269,7 +269,7 @@ for (let vuelta = 1; vuelta <= veces; vuelta++) {
     try {
       let conversacionId: string | undefined;
       for (const p of caso.previos ?? []) conversacionId = (await hablar(deps, u.id, { texto: p, clientId: crypto.randomUUID(), conversacionId })).conversacion_id;
-      const antes = await fotografiar(db, u.id);
+      const antes = await fotografiar(db, u.id, base);
       trazando = true;
       paso = 0;
       llamadas = 0;
@@ -278,7 +278,7 @@ for (let vuelta = 1; vuelta <= veces; vuelta++) {
       ms = Math.round(performance.now() - t0);
       respuesta = r.respuesta;
       herramientas = r.acciones.map((a) => `${a.herramienta} ${JSON.stringify(a.argumentos)}`.slice(0, 300));
-      const v = caso.verificar(new Revision(antes, await fotografiar(db, u.id), respuesta, herramientas));
+      const v = caso.verificar(new Revision(antes, await fotografiar(db, u.id, base), respuesta, herramientas));
       estado = v === true ? "ok" : "mal";
       detalle = v === true ? "" : String(v);
     } catch (e) {
