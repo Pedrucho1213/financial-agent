@@ -57,16 +57,21 @@ const ORDEN_SOBRE_LO_ANOTADO =
 // notificaciones, el Atajo diría "Anotado" sin que nadie oyera qué cambió.
 const CORRECCION = new RegExp(
   [
-    /\b(actualiza|modifica|ajusta|arregla|reemplaza|sustituye|tacha)(r|lo|la|los|las|me|le|les|rlo|rla)?\b/,
+    // Sin el infinitivo: "pagué 500 de arreglar el coche" es un gasto.
+    /\b(actualiza|modifica|ajusta|arregla|reemplaza|sustituye|tacha)(lo|la|los|las|me|le|les|rlo|rla)?\b/,
     /\b(agregale|anadele|subele|bajale|quitale)\b/,
     /\bme (equivoque|confundi)\b/,
-    /\ben realidad (fue|fueron|era|eran|es|son|pague|gaste)\b/,
+    /^(siempre no|error|perdon|perdona|disculpa|ups|chin|no espera|espera|no no)\b.*\b(eran|fueron|era|fue|es|son)\b/,
+    /^no (eran|fueron|era|fue|son|es) \d/,
+    /\b(te dije|dije|habia dicho)\b.*\bpero\b/,
+    /\ben realidad (fue|fueron|era|eran|es|son) (de |como )?\d|\ben realidad (fue|era) con\b|\ben realidad (pague|gaste)\b/,
     /\bno (eran|fueron|era|fue)\b.*\b(eran|fueron|era|fue|sino)\b/,
-    /\b(eran|fueron|era|fue|son|es) \d[\d ]*( pesos)? no \d/,
+    /\b(eran|fueron|era|fue|son|es) \d[\d ]*( pesos)?( y)? no \d/,
+    /\b(ponle|ponlo|ponla) \d[\d ]* (al|a la|a los|a las|en el|en la)\b|\bponlo en \d|\bmejor (ponlo|ponla|ponle|pon|que sean|son|eran|fueron)\b/,
     /\b(lo|la|los|las|me lo|me la) (anotaste|registraste|apuntaste|pusiste|cobraste) (dos veces|doble|mal)\b/,
     /\b(esta|quedo|salio) (repetido|duplicado|doble)\b/,
     /\bno (lo|la|los|las) (anotes|registres|apuntes|cuentes)\b/,
-    /\b(el|lo) (ultimo|anterior) (era|eran|fue|fueron|no)\b/,
+    /\b(el|lo) (ultimo|anterior) (era|eran|fue|fueron) (de )?\d|\b(el|lo) (ultimo|anterior) no\b/,
     /(?<!se me )\bolvida(lo|la|los|las)?\b/,
   ]
     .map((r) => r.source)

@@ -105,6 +105,18 @@ test("reconoce correcciones que no dicen borra ni cambia, aunque traigan monto",
     "el último era de 150",
     "ese de 85 no lo anotes",
     "olvídalo",
+    // QA-081
+    "No, fueron 95",
+    "Siempre no, fueron 95",
+    "Error, eran 95",
+    "No, espera, eran 95",
+    "Te dije 85 pero fueron 95",
+    "Perdón, el café fue de 95",
+    "Ponle 95 al café",
+    "Mejor ponlo en 95",
+    "Eran 95 pesos y no 85",
+    "No fue 85, 95",
+    "En realidad fueron 1,350 del súper",
   ]) {
     expect(esOrdenSobreLoAnotado(frase)).toBe(true);
   }
@@ -118,6 +130,16 @@ test("reconoce correcciones que no dicen borra ni cambia, aunque traigan monto",
     "se me olvida decirte que gasté 50 en café",
     "se me olvidó anotar 200 de Uber",
     "compré un arreglo de flores de 400",
+    // QA-082
+    "Pagué 500 de arreglar el coche",
+    "Pagué 80 de actualizar la app",
+    "Pagué 1,200 de modificar el traje",
+    "El último fue el café de 85",
+    "En realidad fue un buen día, gasté 200 en comida",
+    "Pagué 300 del cambio de aceite",
+    "Me cobraron 50 por cancelación",
+    "Le puse 500 de gasolina",
+    "Ponle 50 de gasolina al coche",
   ]) {
     expect(esOrdenSobreLoAnotado(frase)).toBe(false);
   }
