@@ -307,6 +307,35 @@ describe("cuándo no usar el monto de siempre (revisión del PR)", () => {
     expect(todos(ctx)).toHaveLength(0);
   });
 
+  test("un monto de un turno anterior solo vale si contestaba una pregunta (W3)", async () => {
+    const quincena = llamada("registrar_movimientos", { movimientos: [{ tipo: "ingreso", monto: 20000, categoria: "Sueldo", descripcion: "Quincena" }] });
+    // Cada turno con sus respuestas, para que un reintento o una confirmación directa no recorra las del siguiente.
+    const { db, usuario, ctx } = preparar();
+    const token = crearDispositivo(db, usuario.id, "iPhone");
+    const cola: unknown[] = [];
+    const modelo = new MockLanguageModelV4({ doGenerate: async () => (cola.shift() ?? texto("¿De cuánto fue?")) as never });
+    const app = crearApp({ db, modelo, zonaHoraria: "America/Mexico_City", monedaBase: "MXN" });
+    let conversacion_id: string | undefined;
+    const turno = async (frase: string, respuestas: unknown[]) => {
+      cola.length = 0;
+      cola.push(...respuestas);
+      const r = await app.request("/v1/hablar", {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ texto: frase, client_id: crypto.randomUUID(), conversacion_id, capturado_en: AHORA.toISOString() }),
+      });
+      conversacion_id = ((await r.json()) as { conversacion_id: string }).conversacion_id;
+    };
+    // "Tengo 20 mil en Revolut" y luego "me llegó la quincena": esos 20 mil no son la quincena.
+    await turno("Tengo 20 mil pesos en Revolut", [llamada("cuentas", { cuentas: [{ cuenta: "Revolut", saldo: 20000 }] }), texto("Listo.")]);
+    await turno("Me llegó la quincena", [quincena, texto("Listo, tu quincena de $20,000.")]);
+    expect(todos(ctx)).toHaveLength(0);
+    // Si la respuesta anterior preguntó "¿de cuánto?", lo que contesta sí trae el monto.
+    await turno("Me llegó la quincena", [texto("¿De cuánto fue tu quincena?")]);
+    await turno("Lo mismo que la otra vez", [quincena, texto("Listo.")]);
+    expect(todos(ctx)).toHaveLength(1);
+  });
+
   test("Netflix no es el Disney Plus que también es de streaming", async () => {
     const { ctx, hablar } = montar([texto("¿De cuánto fue Netflix?")]);
     crearRecurrente(ctx, { nombre: "Disney Plus", tipo: "suscripcion", monto: 159, frecuencia: "mensual", dia: 20, categoria: "Streaming" });

@@ -676,11 +676,13 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   const acciones: Accion[] = [];
   const mensajeUsuario: ModelMessage = { role: "user", content: entrada.texto };
   const historial = cargarHistorial(db, usuarioId, conversacionId);
-  ctx.enConversacion = historial.length > 0;
   // Si la respuesta anterior pedía elegir ("¿cuál café, el de 60 o el de 85?"), lo que se dice ahora la
   // contesta y el modelo ya sabe de cuál se habla. Otra pregunta ("¿de cuánto fue?") o una conversación
   // sin pregunta (el chat de la app) no bastan.
   const anterior = textoDe(historial.findLast((m) => m.role === "assistant" && textoDe(m) !== ""));
+  // Solo una respuesta a una pregunta trae el monto o la cuenta de antes ("¿de cuánto?" → "15 mil"). Un turno
+  // anterior cualquiera no: "Tengo 20 mil en Revolut" y luego "me llegó la quincena" no son $20,000 (W3).
+  ctx.enConversacion = anterior.includes("?");
   ctx.confiarEnMasReciente = anterior.includes("?") && PIDE_ELEGIR.test(normalizar(anterior));
   // Si un paso solo guardó, corrigió o borró, la confirmación se arma aquí y el modelo no da otra vuelta.
   let confirmacion: string | undefined;
