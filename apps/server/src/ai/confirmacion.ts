@@ -78,6 +78,9 @@ function enumerar(partes: string[]): string {
   return partes.length <= 1 ? (partes[0] ?? "") : `${partes.slice(0, -1).join(", ")} y ${partes.at(-1)}`;
 }
 
+// Consultas cuyo resultado trae `respuesta`, lista para decirse.
+const YA_REDACTADAS = new Set(["consultar_planes", "analizar", "consultar_gastos"]);
+
 const esError = (resultado: unknown) => !!resultado && typeof resultado === "object" && "error" in resultado;
 
 /**
@@ -110,8 +113,9 @@ export function confirmacionDirecta(texto: string, hoy: string, ejecutadas: Ejec
   if (ejecutadas.length === 0 || ejecutadas.some((e) => esError(e.resultado))) return undefined;
   const plano = normalizar(texto);
 
-  // "¿Cuánto puedo gastar hoy?": la cifra ya viene calculada y redactada.
-  if (ejecutadas.length === 1 && ejecutadas[0]!.herramienta === "consultar_planes" && !/\by\b/.test(plano)) {
+  // "¿Cuánto puedo gastar hoy?", "¿cómo voy?" o "¿cuánto gasté ayer en Uber?": la cifra ya viene
+  // calculada y redactada. consultar_gastos solo la trae si la pregunta era sencilla (ver consultas.ts).
+  if (ejecutadas.length === 1 && YA_REDACTADAS.has(ejecutadas[0]!.herramienta) && !/\by\b/.test(plano.replace(/^y /, ""))) {
     const respuesta = (ejecutadas[0]!.resultado as { respuesta?: string }).respuesta;
     if (respuesta) return respuesta;
   }

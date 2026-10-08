@@ -22,7 +22,7 @@ type Mov = ReturnType<typeof buscarMovimientos>["movimientos"][number];
 export type Resultado = Respuesta & { movimientos: Mov[]; recurrentes: ReturnType<typeof listarRecurrentes>["recurrentes"]; ctx: Contexto };
 
 export type Caso = {
-  grupo: "registro" | "dificil" | "charla" | "consulta" | "edicion" | "conversacion" | "recurrentes" | "autonomia" | "planes";
+  grupo: "registro" | "dificil" | "charla" | "consulta" | "edicion" | "conversacion" | "recurrentes" | "autonomia" | "planes" | "analisis";
   frase: string;
   preparar?: (ctx: Contexto) => void;
   /** Lo que el usuario dijo antes en la misma conversación. */
@@ -51,6 +51,29 @@ const gastosDeEjemplo = (ctx: Contexto) => {
   crearMovimiento(c, { tipo: "gasto", monto: 1850, categoria: "Súper", comercio: "Walmart" });
   crearMovimiento(c, { tipo: "gasto", monto: 230, categoria: "Taxi y apps", comercio: "Uber", fecha: "ayer" });
   crearMovimiento(c, { tipo: "ingreso", monto: 12000, categoria: "Sueldo" });
+};
+
+
+// Seis semanas de gastos hasta hoy, con un café casi diario (gasto hormiga), restaurantes que suben
+// en los últimos días, súper cada semana y una quincena fija. Sirve para las preguntas de análisis.
+const historialParaAnalizar = (ctx: Contexto) => {
+  const c = previa(ctx);
+  for (let n = 42; n >= 0; n--) {
+    const fecha = sumarDias(ctx.hoy, -n);
+    if (n % 2 === 0) crearMovimiento(c, { tipo: "gasto", monto: 85, categoria: "Café", comercio: "Starbucks", fecha });
+    if (n % 7 === 3) crearMovimiento(c, { tipo: "gasto", monto: 1400, categoria: "Súper", comercio: "Walmart", fecha });
+    if (n % 9 === 0) crearMovimiento(c, { tipo: "gasto", monto: 250, categoria: "Taxi y apps", comercio: "Uber", fecha });
+    if (n <= 6 && n % 2 === 1) crearMovimiento(c, { tipo: "gasto", monto: 650, categoria: "Restaurantes", fecha });
+  }
+  crearRecurrente(c, { nombre: "Quincena", tipo: "ingreso", monto: 15000, frecuencia: "quincenal", dia: 15 });
+};
+// Usó analizar con ese enfoque y dijo lo que trajo, sin otra vuelta del modelo.
+const analizo = (r: Resultado, enfoque: string, periodo?: string) => {
+  const a = r.acciones.find((x) => x.herramienta === "analizar");
+  const args = a?.argumentos as { enfoque?: string; periodo?: string } | undefined;
+  const traida = (a?.resultado as { respuesta?: string } | undefined)?.respuesta;
+  const ok = args?.enfoque === enfoque && (!periodo || args.periodo === periodo) && !!traida && r.respuesta.startsWith(traida);
+  return motivo(ok, { argumentos: args, respuesta: r.respuesta });
 };
 
 export const CASOS: Caso[] = [
@@ -969,5 +992,40 @@ export const CASOS: Caso[] = [
       const memorias = listarMemorias(r.ctx);
       return motivo(unoSolo(r)?.monto === "$80" && memorias.length === 0, { movimientos: r.movimientos, memorias });
     },
+  },
+  // Análisis: lo calcula el código y la IA lo dice tal cual.
+  { grupo: "analisis", frase: "¿Cómo voy este mes?", preparar: historialParaAnalizar, verificar: (r) => analizo(r, "como_voy") },
+  { grupo: "analisis", frase: "¿Cómo voy esta semana?", preparar: historialParaAnalizar, verificar: (r) => analizo(r, "como_voy", "semana") },
+  { grupo: "analisis", frase: "¿Estoy gastando más que el mes pasado?", preparar: historialParaAnalizar, verificar: (r) => analizo(r, "comparar") },
+  { grupo: "analisis", frase: "¿En qué puedo ahorrar?", preparar: historialParaAnalizar, verificar: (r) => analizo(r, "ahorrar") },
+  { grupo: "analisis", frase: "Dame un consejo para gastar menos", preparar: historialParaAnalizar, verificar: (r) => analizo(r, "ahorrar") },
+  { grupo: "analisis", frase: "¿Tengo gastos hormiga?", preparar: historialParaAnalizar, verificar: (r) => analizo(r, "ahorrar") },
+  { grupo: "analisis", frase: "¿Cómo voy a cerrar el mes?", preparar: historialParaAnalizar, verificar: (r) => analizo(r, "proyeccion") },
+  { grupo: "analisis", frase: "¿Cuánto voy a gastar en todo el mes?", preparar: historialParaAnalizar, verificar: (r) => analizo(r, "proyeccion") },
+  // Lo que no es análisis sigue igual: un total es consultar_gastos y un presupuesto, consultar_planes.
+  {
+    grupo: "analisis",
+    frase: "¿Cuánto gasté en Starbucks esta semana?",
+    preparar: historialParaAnalizar,
+    verificar: (r) => {
+      const c = r.acciones.find((a) => a.herramienta === "consultar_gastos");
+      const total = (c?.resultado as { total?: string } | undefined)?.total;
+      return motivo(!!total && dice(r, total) && !r.acciones.some((a) => a.herramienta === "analizar"), { respuesta: r.respuesta, total });
+    },
+  },
+  {
+    grupo: "analisis",
+    frase: "¿Cómo voy con mi presupuesto de comida?",
+    preparar: (ctx) => {
+      historialParaAnalizar(ctx);
+      fijarPresupuesto(previa(ctx), { categoria: "Comida", monto: 9000 });
+    },
+    verificar: (r) => motivo(r.acciones.some((a) => a.herramienta === "consultar_planes"), { respuesta: r.respuesta, herramientas: r.acciones.map((a) => a.herramienta) }),
+  },
+  {
+    grupo: "analisis",
+    frase: "¿Cuál fue mi gasto más grande este mes?",
+    preparar: historialParaAnalizar,
+    verificar: (r) => motivo(dice(r, "1,400"), r.respuesta),
   },
 ];

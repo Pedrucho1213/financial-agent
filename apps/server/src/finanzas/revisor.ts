@@ -72,8 +72,8 @@ function nombrador(ctx: Contexto, cats: Categoria[]) {
 const NECESIDADES_QUE_SE_REPITEN = new Set(["transporte publico", "gasolina", "casetas", "estacionamiento"]);
 const esNecesidad = (cats: Categoria[], m: Mov) => NECESIDADES_QUE_SE_REPITEN.has(normalizar(nombreCompleto(cats, m.categoriaId)?.split(" > ").at(-1) ?? ""));
 
-/** Gastos chicos que se repiten: "En 30 días gastaste $780 en Starbucks, 12 veces." */
-function hormiga(ctx: Contexto, cats: Categoria[]): AvisoNuevo[] {
+/** Gastos chicos que se repiten en los últimos 30 días, del que más suma al que menos. También los usa el análisis. */
+export function gastosHormiga(ctx: Contexto, cats: Categoria[]): { clave: string; nombre: string; totalCentavos: number; veces: number }[] {
   const nombre = nombrador(ctx, cats);
   const grupos = new Map<string, { nombre: string; filas: Mov[] }>();
   for (const m of gastos(ctx, sumarDias(ctx.hoy, -29))) {
@@ -86,20 +86,28 @@ function hormiga(ctx: Contexto, cats: Categoria[]): AvisoNuevo[] {
   }
   return [...grupos.entries()]
     .filter(([, g]) => g.filas.length >= HORMIGA_VECES && suma(g.filas) >= HORMIGA_MINIMO_TOTAL)
-    .sort((a, b) => suma(b[1].filas) - suma(a[1].filas))
+    .map(([clave, g]) => ({ clave, nombre: g.nombre, totalCentavos: suma(g.filas), veces: g.filas.length }))
+    .sort((a, b) => b.totalCentavos - a.totalCentavos);
+}
+
+/** "En los últimos 30 días gastaste $780 en Starbucks, 12 veces. Al año serían unos $9,500." */
+export function textoHormiga(ctx: Contexto, g: { nombre: string; totalCentavos: number; veces: number }): string {
+  return `En los últimos 30 días gastaste ${$(ctx, g.totalCentavos)} en ${g.nombre}, ${g.veces} veces. Al año serían unos ${$(ctx, Math.round((g.totalCentavos * 365) / 30 / 10_000) * 10_000)}.`;
+}
+
+/** Gastos chicos que se repiten: "En 30 días gastaste $780 en Starbucks, 12 veces." */
+function hormiga(ctx: Contexto, cats: Categoria[]): AvisoNuevo[] {
+  return gastosHormiga(ctx, cats)
     .slice(0, 2)
-    .map(([clave, g]) => {
-      const total = suma(g.filas);
-      return {
-        tipo: "hormiga" as const,
-        // Una vez al mes por cada uno.
-        clave: `hormiga:${clave}:${ctx.hoy.slice(0, 7)}`,
-        titulo: `Gasto hormiga: ${g.nombre}`,
-        texto: `En los últimos 30 días gastaste ${$(ctx, total)} en ${g.nombre}, ${g.filas.length} veces. Al año serían unos ${$(ctx, Math.round((total * 365) / 30 / 10_000) * 10_000)}.`,
-        prioridad: 2 as const,
-        enlace: enlaceMovimientos(g.nombre),
-      };
-    });
+    .map((g) => ({
+      tipo: "hormiga" as const,
+      // Una vez al mes por cada uno.
+      clave: `hormiga:${g.clave}:${ctx.hoy.slice(0, 7)}`,
+      titulo: `Gasto hormiga: ${g.nombre}`,
+      texto: textoHormiga(ctx, g),
+      prioridad: 2 as const,
+      enlace: enlaceMovimientos(g.nombre),
+    }));
 }
 
 /** Un cobro que se repite y no está dado de alta, para avisar antes del próximo. */
@@ -169,8 +177,8 @@ function suscripcionesOlvidadas(ctx: Contexto, cats: Categoria[]): AvisoNuevo[] 
   return avisos.slice(0, 2);
 }
 
-/** Dos suscripciones de lo mismo: "Netflix y Disney+, los dos en Streaming: $398 al mes." */
-function suscripcionesDuplicadas(ctx: Contexto, cats: Categoria[]): AvisoNuevo[] {
+/** Dos suscripciones de lo mismo: "Netflix y Disney+, los dos en Streaming: $398 al mes." También los usa el análisis. */
+export function suscripcionesDuplicadas(ctx: Contexto, cats: Categoria[]): (AvisoNuevo & { menorMensualCentavos: number })[] {
   const activos = ctx.db
     .select()
     .from(recurrentes)
@@ -188,7 +196,8 @@ function suscripcionesDuplicadas(ctx: Contexto, cats: Categoria[]): AvisoNuevo[]
     .map(([categoriaId, lista]) => {
       const nombres = lista.map((r) => `${r.nombre} (${$(ctx, r.montoCentavos)})`);
       const texto = nombres.length === 2 ? nombres.join(" y ") : `${nombres.slice(0, -1).join(", ")} y ${nombres.at(-1)}`;
-      const mensual = lista.reduce((s, r) => s + (r.frecuencia === "anual" ? Math.round(r.montoCentavos / 12) : r.montoCentavos), 0);
+      const alMes = (r: (typeof lista)[number]) => (r.frecuencia === "anual" ? Math.round(r.montoCentavos / 12) : r.montoCentavos);
+      const mensual = lista.reduce((s, r) => s + alMes(r), 0);
       const categoria = cats.find((c) => c.id === categoriaId)!.nombre;
       return {
         tipo: "suscripcion_duplicada" as const,
@@ -197,6 +206,7 @@ function suscripcionesDuplicadas(ctx: Contexto, cats: Categoria[]): AvisoNuevo[]
         texto: `Pagas ${texto}, todas de ${categoria}: unos ${$(ctx, mensual)} al mes. Si no usas alguna, cancelarla es dinero libre.`,
         prioridad: 2 as const,
         enlace: "#ajustes",
+        menorMensualCentavos: Math.min(...lista.map(alMes)),
       };
     });
 }

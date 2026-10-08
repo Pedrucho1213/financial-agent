@@ -27,6 +27,8 @@ import { listarMemorias, olvidar, recordar } from "../finanzas/memorias";
 import { cancelarRecurrente, crearRecurrente, editarRecurrente, listarRecurrentes } from "../finanzas/recurrentes";
 import { fechaDelTexto, fechasDelTexto, mencionaFecha, resolverFecha } from "../lib/fechas";
 import { montoConPalabras, montosDelTexto } from "../lib/numeros";
+import { herramientasAnalisis } from "./herramientas-analisis";
+import { respuestaDeConsulta } from "./consultas";
 import { apartaParaMeta, herramientasPlanes, mensualidadDe, nombresDePlanes, pagaPrestamo, prestaDinero } from "./herramientas-planes";
 import { monedaDelTexto, normalizar, tipoDelTexto } from "../lib/texto";
 
@@ -333,13 +335,16 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         texto: z.string().optional().describe("Comercio o palabra: Uber, café."),
         agrupar_por: z.enum(["ninguno", "categoria", "subcategoria", "comercio", "dia"]).optional(),
       }),
-      execute: ejecutar("consultar_gastos", ({ agrupar_por, ...filtro }) => {
+      execute: ejecutar("consultar_gastos", (args) => {
+        const { agrupar_por, ...filtro } = args;
         const resumen = resumir(ctx, { ...filtro, agruparPor: agrupar_por });
         // Sin gastos registrados, la pregunta suele ser por pagos fijos ("¿cuánto pago de suscripciones?").
         if (resumen.cantidad === 0 && !resumen.otras_monedas && listarRecurrentes(ctx).recurrentes.length > 0) {
           return { ...resumen, nota: "No hay movimientos registrados; si pregunta por pagos fijos o suscripciones, usa listar_recurrentes." };
         }
-        return resumen;
+        // Una pregunta sencilla trae su respuesta armada: así el modelo no da otra vuelta para decirla.
+        const respuesta = respuestaDeConsulta(ctx, args, resumen);
+        return respuesta ? { ...resumen, respuesta } : resumen;
       }),
     }),
 
@@ -419,6 +424,8 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
     }),
 
     ...herramientasPlanes(ctx, ejecutar),
+
+    ...herramientasAnalisis(ctx, ejecutar),
 
     listar_recurrentes: tool({
       description:

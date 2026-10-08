@@ -15,6 +15,7 @@ import { confirmacionDirecta, confirmarRegistro, type Ejecutada, type Movimiento
 import { construirInstrucciones, datosDelUsuario } from "./instrucciones";
 import { pagoDeFrase } from "../finanzas/applepay";
 import { crearHerramientas, type Accion } from "./herramientas";
+import { CONSULTAS_ANALISIS } from "./herramientas-analisis";
 import { CONSULTAS_PLANES } from "./herramientas-planes";
 import { correccionDeCuenta } from "./respaldo";
 
@@ -519,7 +520,7 @@ function loQuePago(acciones: Accion[]): string[] {
 }
 
 // Herramientas que solo leen: si el modelo solo usó estas, no cambió nada.
-const SOLO_CONSULTA = new Set(["buscar_movimientos", "consultar_gastos", "listar_recurrentes", ...CONSULTAS_PLANES]);
+const SOLO_CONSULTA = new Set(["buscar_movimientos", "consultar_gastos", "listar_recurrentes", ...CONSULTAS_PLANES, ...CONSULTAS_ANALISIS]);
 
 // La respuesta pide elegir entre varios: "¿Cuál café?", "¿El de Oxxo o el de Starbucks?".
 const PIDE_ELEGIR = /\b(cual|cuales)\b|\bo (el|la|los|las) de\b/;

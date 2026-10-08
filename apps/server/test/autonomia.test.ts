@@ -261,8 +261,8 @@ describe("preguntas de más", () => {
   test("en el chat de la app, una conversación sin pregunta previa no basta para elegir el más reciente (QA-036)", async () => {
     const borrar = llamada("eliminar_movimiento", { buscar: { texto: "café", mas_reciente: true } });
     const { ctx, hablar } = montar([
+      // El total ya viene redactado: la consulta es una sola vuelta del modelo.
       llamada("consultar_gastos", { periodo: "este_mes", texto: "café" }),
-      texto("Llevas $145 en café este mes."),
       borrar,
       texto("¿Cuál café, el de $60 o el de $85?"),
     ]);

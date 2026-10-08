@@ -172,10 +172,11 @@ describe("API", () => {
   });
 
   test("la conversación recuerda lo anterior", async () => {
+    // Por día: la respuesta la redacta el modelo (un total sencillo ya viene redactado, ver consultas.ts).
     const { hablar, modelo } = montar([
-      llamada("consultar_gastos", { periodo: "este_mes", texto: "café" }),
+      llamada("consultar_gastos", { periodo: "este_mes", texto: "café", agrupar_por: "dia" }),
       texto("Gastaste $105 en café."),
-      llamada("consultar_gastos", { periodo: "este_mes", texto: "Uber" }),
+      llamada("consultar_gastos", { periodo: "este_mes", texto: "Uber", agrupar_por: "dia" }),
       texto("En Uber gastaste $230."),
     ]);
     const primera = (await (await hablar({ texto: "¿cuánto gasté en café?", client_id: "dictado-0004" })).json()) as {
@@ -218,10 +219,16 @@ describe("API", () => {
 
   test("sin registros, '¿cuánto he gastado?' contesta lo que encontró y no 'no alcancé a guardar'", async () => {
     for (const frase of ["Cuánto he gastado hasta el momento", "¿Cuánto llevo gastado este mes?"]) {
-      const { hablar, modelo } = montar([llamada("consultar_gastos", { periodo: "este_mes" }), texto("Aún no tienes gastos registrados.")]);
+      // Lo que redacta el modelo (por día)...
+      const { hablar, modelo } = montar([llamada("consultar_gastos", { periodo: "este_mes", agrupar_por: "dia" }), texto("Aún no tienes gastos registrados.")]);
       const r = (await (await hablar({ texto: frase, client_id: "dictado-0012" })).json()) as { respuesta: string };
       expect(r.respuesta).toBe("Aún no tienes gastos registrados.");
       expect(modelo.doGenerateCalls).toHaveLength(2);
+      // ...y lo que ya viene redactado (un total sencillo), en una sola vuelta.
+      const directo = montar([llamada("consultar_gastos", { periodo: "este_mes" })]);
+      const d = (await (await directo.hablar({ texto: frase, client_id: "dictado-0013" })).json()) as { respuesta: string };
+      expect(d.respuesta).toBe("Este mes no tienes gastos registrados.");
+      expect(directo.modelo.doGenerateCalls).toHaveLength(1);
     }
   });
 
