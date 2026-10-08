@@ -200,19 +200,13 @@ test.describe("QA #42 · casos límite", () => {
   test("Revisión: borrar un movimiento desde la cuenta actualiza el saldo al volver", async ({ page }) => {
     const api = conCuentas(new ApiFalsa());
     await prepararSesion(page, api);
-    let borrado = false;
+    // El servidor falso no recalcula saldos al borrar: se ajusta a mano como lo haría el real.
     await page.route(/\/v1\/movimientos\/[^/]+$/, async (r) => {
-      if (r.request().method() === "DELETE") borrado = true;
+      if (r.request().method() === "DELETE") {
+        const bbva = api.cuentas!.cuentas.find((c) => c.id === "cta-bbva")!;
+        bbva.saldo! += 900_00;
+      }
       await r.fallback();
-    });
-    await page.route(/\/v1\/cuentas\/cta-bbva$/, async (r) => {
-      if (r.request().method() !== "GET" || !borrado) return r.fallback();
-      const res = await r.fetch();
-      const cuerpo = await res.json();
-      cuerpo.cuenta.saldoCentavos += 900_00;
-      cuerpo.cuenta.disponibleCentavos += 900_00;
-      cuerpo.movimientos = cuerpo.movimientos.filter((m: { comercio: string | null }) => m.comercio !== "Pemex");
-      await r.fulfill({ response: res, json: cuerpo });
     });
     await page.goto("/#cuenta?id=cta-bbva");
     await expect(page.getByTestId("saldo")).toHaveText("$18,450.00");
