@@ -84,7 +84,8 @@ const CASOS: Caso[] = [
   },
   { id: "QA-012", frase: "Compré 2 libras de carne en 180", verificar: (r) => ok(r.movimientos[0]?.monto === "$180", r.movimientos) },
   { id: "nuevo", frase: "Borra todo lo de ayer", preparar: ejemplo, verificar: (r) => ok(r.movimientos.length === 6 && pregunta(r), { n: r.movimientos.length, resp: r.respuesta }) },
-  { id: "nuevo", frase: "Pagué la tarjeta de crédito, 5 mil", verificar: (r) => ok(r.movimientos[0]?.tipo === "pago_tarjeta", r.movimientos) },
+  // Sin ninguna tarjeta conocida, desde el PR #38 puede preguntar cuál (con una sola, la batería pide que la use).
+  { id: "nuevo", frase: "Pagué la tarjeta de crédito, 5 mil", verificar: (r) => ok(r.movimientos[0]?.tipo === "pago_tarjeta" || (r.movimientos.length === 0 && pregunta(r)), { movs: r.movimientos, resp: r.respuesta }) },
   {
     id: "nuevo", frase: "Ayer gasté 150 en el súper y 80 en gasolina",
     verificar: (r) => ok(r.movimientos.length === 2 && r.movimientos.every((m) => m.fecha < r.ctx.hoy), r.movimientos),
