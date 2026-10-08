@@ -1,23 +1,32 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { defaultSettingsMiddleware, wrapLanguageModel, type LanguageModel } from "ai";
+import { defaultSettingsMiddleware, wrapLanguageModel, type LanguageModel, type LanguageModelMiddleware } from "ai";
 import type { Config } from "../config";
 
 /**
  * El modelo vive detrás de una API compatible con OpenAI. Cambiar de Ollama a LM Studio,
  * Osaurus o un proveedor en la nube es solo cambiar IA_URL, IA_MODELO e IA_API_KEY.
  */
-export function crearModelo(ia: Config["ia"], modelo = ia.modelo): LanguageModel {
+export function crearModelo(ia: Config["ia"], modelo = ia.modelo, alUsar?: () => void): LanguageModel {
   const base = createOpenAICompatible({ name: "local", baseURL: ia.url, apiKey: ia.apiKey }).chatModel(modelo);
   const opciones: Record<string, string> = {};
   // Se manda como reasoning_effort; Ollama lo usa en los modelos que razonan.
   if (ia.razonamiento && ia.razonamiento !== "no") opciones.reasoningEffort = ia.razonamiento;
   // keep_alive solo lo entiende Ollama; a otro proveedor no se le manda.
   if (esOllama(ia)) opciones.keep_alive = ia.mantenerCargado;
-  if (Object.keys(opciones).length === 0) return base;
-  return wrapLanguageModel({
-    model: base,
-    middleware: defaultSettingsMiddleware({ settings: { providerOptions: { local: opciones } } }),
-  });
+  const middleware: LanguageModelMiddleware[] = [];
+  if (Object.keys(opciones).length > 0) middleware.push(defaultSettingsMiddleware({ settings: { providerOptions: { local: opciones } } }));
+  // El interruptor de la IA (ai/encendido.ts) se entera de cada uso, termine bien o mal.
+  if (alUsar)
+    middleware.push({
+      wrapGenerate: async ({ doGenerate }) => {
+        try {
+          return await doGenerate();
+        } finally {
+          alUsar();
+        }
+      },
+    });
+  return middleware.length === 0 ? base : wrapLanguageModel({ model: base, middleware });
 }
 
 const LOCAL = new Set(["localhost", "127.0.0.1", "[::1]"]);

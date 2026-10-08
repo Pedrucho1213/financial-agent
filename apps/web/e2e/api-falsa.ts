@@ -1,5 +1,6 @@
 import type { Page, Route } from "@playwright/test";
 import { atenderCuenta } from "./api-falsa-cuenta";
+import { atenderIa } from "./api-falsa-ia";
 import { atenderPlan, planInicial } from "./api-falsa-plan";
 
 // API falsa que sigue docs/api.md, para probar la app sin el servidor.
@@ -265,6 +266,8 @@ export class ApiFalsa {
       return json(estado, datos);
     };
     await atenderCuenta(this, { metodo, ruta, cuerpo, autorizado: req.headers().authorization === `Bearer ${TOKEN}`, json: responder });
+    if (respondido) return;
+    await atenderIa(this, { metodo, ruta, cuerpo, autorizado: req.headers().authorization === `Bearer ${TOKEN}`, json: responder });
     if (respondido) return;
 
     // Públicas
