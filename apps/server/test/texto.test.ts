@@ -117,6 +117,7 @@ test("reconoce correcciones que no dicen borra ni cambia, aunque traigan monto",
     "Eran 95 pesos y no 85",
     "No fue 85, 95",
     "En realidad fueron 1,350 del súper",
+    "El café de hace rato fue de 95, no de 85",
   ]) {
     expect(esOrdenSobreLoAnotado(frase)).toBe(true);
   }
@@ -140,6 +141,8 @@ test("reconoce correcciones que no dicen borra ni cambia, aunque traigan monto",
     "Me cobraron 50 por cancelación",
     "Le puse 500 de gasolina",
     "Ponle 50 de gasolina al coche",
+    "Dije que iba a ahorrar pero gasté 500 en ropa",
+    "Perdón, fue un día caro, gasté 800 en ropa",
   ]) {
     expect(esOrdenSobreLoAnotado(frase)).toBe(false);
   }
