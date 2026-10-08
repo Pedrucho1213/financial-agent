@@ -302,6 +302,26 @@ export const CASOS: Caso[] = [
   },
   {
     grupo: "edicion",
+    // Visto en el eval del #36: con dos cafés idénticos preguntaba "¿cuál de los dos?".
+    frase: "El café de 85 lo anotaste dos veces",
+    preparar: (ctx) => {
+      crearMovimiento(previa(ctx), { tipo: "gasto", monto: 85, categoria: "Café", comercio: "Starbucks" });
+      crearMovimiento(previa(ctx), { tipo: "gasto", monto: 85, categoria: "Café", comercio: "Starbucks" });
+    },
+    verificar: (r) => motivo(r.movimientos.length === 1 && !pregunta(r), { movimientos: r.movimientos, respuesta: r.respuesta }),
+  },
+  {
+    grupo: "edicion",
+    // Visto en el eval del #36: buscaba una renta fija, no la encontraba y no corregía nada.
+    frase: "Ajusta la renta a 9 mil",
+    preparar: (ctx) => {
+      crearMovimiento(previa(ctx), { tipo: "gasto", monto: 8500, categoria: "Renta", descripcion: "Renta", fecha: "ayer" });
+      crearMovimiento(previa(ctx), { tipo: "gasto", monto: 85, categoria: "Café" });
+    },
+    verificar: (r) => motivo(montos(r).join(" ") === "$85 $9,000", r.movimientos),
+  },
+  {
+    grupo: "edicion",
     frase: "Elimina el gasto de gasolina de 800",
     preparar: (ctx) => {
       crearMovimiento(previa(ctx), { tipo: "gasto", monto: 800, categoria: "Gasolina", fecha: "ayer" });

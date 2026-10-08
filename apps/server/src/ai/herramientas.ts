@@ -116,6 +116,13 @@ function movimientosDeEntrada(ctx: Contexto, entradaId: string): number {
     .all().length;
 }
 
+/** El movimiento más reciente de los últimos dos meses que se llama así ("la renta"), dicho en corto. */
+function ultimoAnotado(ctx: Contexto, nombre: string) {
+  const texto = normalizar(nombre).replace(/^(el|la|los|las|mi|mis) /, "");
+  const m = texto ? buscarMovimientos(ctx, { texto, periodo: "ultimos_60_dias", limite: 1 }).movimientos[0] : undefined;
+  return m && { id: m.id, descripcion: `${m.comercio ?? m.descripcion ?? m.categoria} de ${m.monto} del ${m.fecha}` };
+}
+
 export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
   // Una frase que parece préstamo, meta o compra a meses se desvía a su herramienta una sola vez: si el
   // modelo insiste en que es un gasto, se registra (la regla puede equivocarse con "me prestaron el coche").
@@ -385,16 +392,25 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
           .optional()
           .describe("Solo lo que cambia, con su valor nuevo."),
       }),
-      execute: ejecutar("editar_recurrente", ({ nombre, cancelar, cambios }) =>
-        cancelar
-          ? { cancelado: cancelarRecurrente(ctx, nombre) }
-          : {
-              cambiado: editarRecurrente(ctx, nombre, {
-                ...cambios,
-                moneda: cambios?.monto !== undefined ? monedaDicha(cambios.moneda) : cambios?.moneda,
-              }),
-            },
-      ),
+      execute: ejecutar("editar_recurrente", ({ nombre, cancelar, cambios }) => {
+        try {
+          return cancelar
+            ? { cancelado: cancelarRecurrente(ctx, nombre) }
+            : {
+                cambiado: editarRecurrente(ctx, nombre, {
+                  ...cambios,
+                  moneda: cambios?.monto !== undefined ? monedaDicha(cambios.moneda) : cambios?.moneda,
+                }),
+              };
+        } catch (error) {
+          // "Ajusta la renta a 9 mil" sin una renta fija guardada: corrige la renta que sí anotó.
+          const anotado = !cancelar && error instanceof ErrorFinanzas && error.message.startsWith("No tengo") ? ultimoAnotado(ctx, nombre) : undefined;
+          if (!anotado) throw error;
+          throw new ErrorFinanzas(
+            `${nombre} no es un pago fijo, pero anotó ${anotado.descripcion}. Si es eso lo que corrige, usa editar_movimiento con id ${anotado.id}, sin preguntar.`,
+          );
+        }
+      }),
     }),
 
     recordar: tool({

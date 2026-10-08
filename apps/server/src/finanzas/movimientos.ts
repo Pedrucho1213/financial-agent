@@ -328,6 +328,10 @@ function vinoDespues(ctx: Contexto): (fila: { entradaId: string | null; creadoEn
   return (fila) => (fila.entradaId ? posteriores.has(fila.entradaId) : fila.creadoEn > propia.creadoEn);
 }
 
+/** Lo que el usuario distingue de un movimiento: dos con la misma huella son el mismo dicho dos veces. */
+const huella = (m: Movimiento) =>
+  [m.tipo, m.montoCentavos, m.moneda, m.fecha, m.categoriaId, m.comercioId, m.cuentaId, m.descripcion].join("|");
+
 /**
  * El movimiento a editar o eliminar: por id, o con una búsqueda que deje uno solo. Con `varios` ("borra
  * los tacos"), si coinciden pocos el error le pide a la IA ir uno por uno con su id.
@@ -343,7 +347,8 @@ export function idDelMovimiento(ctx: Contexto, id?: string, buscar?: Busqueda, v
   }
   if (filas.length === 1) return filas[0]!.id;
   // "El último" es lo último que anotó, aunque sea de ayer: no un gasto con fecha de hoy anotado antes.
-  if (buscar.mas_reciente) {
+  // "El café de 85 lo anotaste dos veces": si todos son idénticos no hay cuál preguntar; es el repetido.
+  if (buscar.mas_reciente || (!varios && new Set(filas.map(huella)).size === 1)) {
     return ctx.db
       .select({ id: movimientos.id })
       .from(movimientos)
