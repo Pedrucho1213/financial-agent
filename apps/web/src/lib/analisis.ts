@@ -102,6 +102,8 @@ type Opciones = {
   categorias: Categoria[];
   /** Solo los gastos de esta categoría (principal o sub). */
   categoria?: string | null;
+  /** Hay registros antes del periodo anterior: ya se usaba la app, aunque esos días no haya nada. */
+  historiaAntes?: boolean;
 };
 
 /** Categoría principal de una categoría (ella misma si ya lo es). */
@@ -136,7 +138,9 @@ export function analizar(filas: Fila[], o: Opciones): Analisis {
   const gastoAnterior = suma(gA);
 
   // Los días antes del primer registro no son "días sin gastar": la app todavía no se usaba.
-  const primero = enMoneda.reduce<string | null>((p, f) => (!p || f.f < p ? f.f : p), null);
+  const primero = o.historiaAntes
+    ? sumarDias(anterior.desde, -1)
+    : enMoneda.reduce<string | null>((p, f) => (!p || f.f < p ? f.f : p), null);
   const inicioEfectivo = primero && primero > rango.desde ? primero : rango.desde;
   const diasConsiderados = inicioEfectivo > ultimoDia ? 0 : diasEntre(inicioEfectivo, ultimoDia);
   // Con un poco de holgura: el primer registro puede caer unos días después del inicio.

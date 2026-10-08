@@ -147,6 +147,19 @@ describe("analizar: ¿se puede comparar con el anterior?", () => {
   test("sin ningún registro no hay con qué comparar", () => {
     expect(analizar([], { ...base, periodo: "semana", ref: "2026-10-06" }).comparable).toBe(false);
   });
+
+  test("con registros de antes, unos días vacíos al inicio del anterior no lo vuelven incomparable (QA-083)", () => {
+    // Semana 5–11 oct; la anterior 28 sep – 4 oct sin nada del 28 al 30, pero hay historia de meses atrás.
+    const filas = [f("2026-10-01", 200), f("2026-10-05", 300)];
+    const sin = analizar(filas, { ...base, periodo: "semana", ref: "2026-10-06" });
+    expect(sin.comparable).toBe(false);
+    const con = analizar(filas, { ...base, periodo: "semana", ref: "2026-10-06", historiaAntes: true });
+    expect(con.comparable).toBe(true);
+    // Mes que empieza sin gastos: con historia, esos días sí cuentan como días sin gastar.
+    const mes = analizar([f("2026-10-04", 100)], { ...base, periodo: "mes", ref: "2026-10-06", historiaAntes: true });
+    expect(mes.diasConsiderados).toBe(6);
+    expect(analizar([f("2026-10-04", 100)], { ...base, periodo: "mes", ref: "2026-10-06" }).diasConsiderados).toBe(3);
+  });
 });
 
 describe("analizar: días, horas y naturaleza", () => {

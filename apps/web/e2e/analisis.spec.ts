@@ -73,6 +73,19 @@ test.describe("Análisis", () => {
     await expect(page.locator("[data-insight=sube]")).toHaveCount(0);
   });
 
+  test("con meses de historia, unos días vacíos al inicio del periodo anterior sí se comparan (QA-083)", async ({ page }) => {
+    // Semana 5–11 oct; la anterior 28 sep – 4 oct sin nada del 28 al 30.
+    const api = conHistorial(new ApiFalsa());
+    api.movimientos = api.movimientos.filter((m) => !(m.fecha >= "2026-09-28" && m.fecha <= "2026-09-30"));
+    await prepararSesion(page, api);
+    await page.goto("/#analisis?periodo=semana");
+    await expect(total(page)).toBeVisible();
+    // Hoy es martes 6: a estas alturas de la anterior (28 y 29 sep) de verdad no hubo gastos.
+    await expect(page.getByTestId("comparacion")).toHaveText("Sin gastos en la semana anterior para comparar");
+    await page.getByRole("button", { name: "Semana anterior" }).click();
+    await expect(page.getByTestId("comparacion")).not.toContainText("Todavía no hay con qué comparar");
+  });
+
   test("tocar una barra muestra ese día; tocarla otra vez regresa al total", async ({ page }) => {
     await prepararSesion(page);
     await page.goto("/#analisis");

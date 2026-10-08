@@ -14,6 +14,7 @@ import { alCerrarSesion } from "./sesion";
 import { aFila, type Fila } from "./filas";
 import type { Categoria, DatosMovimiento, MovimientoApp, Tablero, TipoMovimiento, Yo } from "./tipos";
 import { rangoDelMes } from "./formato";
+import { sumarDias } from "./periodos";
 import { hashDetalle, navegar } from "./ruta";
 
 const DIA = 24 * 60 * 60 * 1000;
@@ -221,7 +222,8 @@ export function useGastosConLugar(desde: string, hasta: string) {
  * Todos los movimientos de un rango, reducidos a lo que usa Análisis (el periodo y el anterior juntos).
  * La clave empieza con "movimientos": se refresca con cualquier cambio, como las demás.
  */
-export type FilasAnalisis = { desde: string; hasta: string; filas: Fila[] };
+/** `antes`: si hay algún registro antes de `desde` (para saber si de verdad hay con qué comparar). */
+export type FilasAnalisis = { desde: string; hasta: string; filas: Fila[]; antes: boolean };
 
 export function useFilasAnalisis(desde: string, hasta: string) {
   return useQuery<FilasAnalisis>({
@@ -231,6 +233,10 @@ export function useFilasAnalisis(desde: string, hasta: string) {
     gcTime: 10 * 60_000,
     placeholderData: (previo) => previo,
     queryFn: async ({ signal }) => {
+      // Un solo registro anterior basta: si existe, la app ya se usaba aunque esos días no haya nada.
+      const previo = new URLSearchParams({ hasta: sumarDias(desde, -1), limite: "1" });
+      const antes = api<PaginaMovimientos>(`/v1/movimientos?${previo}`, { signal }).then((p) => p.total > 0)
+        .catch(() => false);
       const filas: Fila[] = [];
       // 500 por página (lo más que da el servidor); un tope alto por si acaso.
       for (let offset = 0; offset < 20_000; offset += 500) {
@@ -239,7 +245,7 @@ export function useFilasAnalisis(desde: string, hasta: string) {
         for (const m of pagina.movimientos) filas.push(aFila(m));
         if (pagina.movimientos.length < 500 || offset + 500 >= pagina.total) break;
       }
-      return { desde, hasta, filas };
+      return { desde, hasta, filas, antes: await antes };
     },
   });
 }

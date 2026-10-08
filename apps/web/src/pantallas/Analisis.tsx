@@ -148,6 +148,7 @@ export function Analisis({ params }: { params: URLSearchParams }) {
         <Contenido
           key={`${periodo}-${rango.desde}`}
           filas={listas}
+          historiaAntes={filas.data?.antes ?? false}
           periodo={periodo}
           refFecha={ref}
           hoy={hoy}
@@ -180,8 +181,10 @@ function Contenido({
   categoria,
   categorias,
   alFiltrar,
+  historiaAntes,
 }: {
   filas: Fila[];
+  historiaAntes: boolean;
   periodo: Periodo;
   refFecha: string;
   hoy: string;
@@ -192,12 +195,12 @@ function Contenido({
 }) {
   // Sin filtro: para las cápsulas y los colores (que siguen a cada categoría, no a su lugar).
   const todo = useMemo(
-    () => analizar(filas, { periodo, ref: refFecha, hoy, moneda, categorias }),
-    [filas, periodo, refFecha, hoy, moneda, categorias],
+    () => analizar(filas, { periodo, ref: refFecha, hoy, moneda, categorias, historiaAntes }),
+    [filas, periodo, refFecha, hoy, moneda, categorias, historiaAntes],
   );
   const a = useMemo(
-    () => (categoria ? analizar(filas, { periodo, ref: refFecha, hoy, moneda, categorias, categoria }) : todo),
-    [filas, periodo, refFecha, hoy, moneda, categorias, categoria, todo],
+    () => (categoria ? analizar(filas, { periodo, ref: refFecha, hoy, moneda, categorias, categoria, historiaAntes }) : todo),
+    [filas, periodo, refFecha, hoy, moneda, categorias, categoria, historiaAntes, todo],
   );
   const insights = useMemo(() => construirInsights(a), [a]);
   const nombreCategoria = categoria ? (categorias.find((c) => c.id === categoria)?.nombre ?? "Categoría") : null;
@@ -363,7 +366,12 @@ function Comparacion({ a }: { a: DatosAnalisis }) {
       </p>
     );
   }
-  if (r === null) return <p className="mt-1.5 text-[15px] text-muted-foreground">Sin gastos en {antes} para comparar</p>;
+  if (r === null)
+    return (
+      <p className="mt-1.5 text-[15px] text-muted-foreground" data-testid="comparacion">
+        Sin gastos en {antes} para comparar
+      </p>
+    );
   const igual = Math.abs(r) < 0.005;
   const Icono = igual ? Minus : r > 0 ? ArrowUpRight : ArrowDownRight;
   return (
