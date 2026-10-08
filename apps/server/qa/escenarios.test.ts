@@ -36,7 +36,8 @@ describe("QA: preguntas sin signos", () => {
       let n = 0;
       const { hablar } = montar(async () => { await dormir(40); return n++ % 2 === 0 ? llamada("consultar_gastos", { periodo: "este_mes" }) : texto("Llevas $1,200."); }, { registroMs: 20, preguntaMs: 1000 });
       const r = await hablar({ texto: frase, client_id: `preg-${frase.length}-0001` });
-      expect(r.cuerpo.respuesta).toContain("1,200");
+      // Desde el PR #39 consultar_gastos redacta los totales sencillos en código (base vacía: "no tienes gastos").
+      expect(r.cuerpo.respuesta).toMatch(/1,200|no tienes gastos/i);
     });
   }
 });
