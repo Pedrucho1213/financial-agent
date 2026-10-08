@@ -529,6 +529,13 @@ describe("Apple Pay", () => {
     expect(pagoDeTransaccion("Uber 12,50 € Visa")).toEqual({ monto: "12,50 €", nombre: "Uber Visa" });
     expect(pagoDeTransaccion("41 MXN")).toEqual({ monto: "41 MXN" });
     expect(montoDeWallet(pagoDeTransaccion("Reembolso -$41.00")!.monto)).toBeUndefined();
+    expect(montoDeWallet(pagoDeTransaccion("-$85.00 Starbucks")!.monto)).toBeUndefined();
+    expect(montoDeWallet(pagoDeTransaccion("($85.00) Starbucks")!.monto)).toBeUndefined();
+    // Un guion o una raya con espacios separa el comercio del monto: no es un reembolso.
+    expect(pagoDeTransaccion("OXXO – MX$41.00 – Nu")!.nombre).toBe("OXXO – Nu");
+    for (const t of ["Comercio - $41.00", "OXXO – MX$41.00 – Nu", "Uber - 41 MXN"]) {
+      expect(montoDeWallet(pagoDeTransaccion(t)!.monto)).toEqual({ monto: 41, moneda: "MXN" });
+    }
     for (const sin of [undefined, "", "OXXO 1234 Revolut ••1234"]) expect(pagoDeTransaccion(sin)).toBeUndefined();
   });
 
@@ -540,7 +547,7 @@ describe("Apple Pay", () => {
       client_id: "applepay-texto-0001",
       monto: "",
       comercio: "",
-      entrada: "GATORADE OXXO $41.00",
+      entrada: "GATORADE OXXO - $41.00",
       tipo: "Transacción",
     });
     expect([200, 202]).toContain(r.status);

@@ -515,9 +515,7 @@ export function crearApp(opciones: OpcionesApp) {
     if (crudo && typeof crudo === "object" && crudo.origen === "apple_pay") return pagoApplePay(c, crudo);
     const cuerpo = esquemaHablar.safeParse(sinVacios(crudo));
     if (!cuerpo.success) {
-      const detalles = z.flattenError(cuerpo.error).fieldErrors;
-      registrar(`Apple Pay: petición inválida en ${Object.keys(detalles).join(", ") || "el cuerpo"}`);
-      return c.json({ error: "Petición inválida.", detalles }, 400);
+      return c.json({ error: "Petición inválida.", detalles: z.flattenError(cuerpo.error).fieldErrors }, 400);
     }
     const p = cuerpo.data;
     const usuarioId = c.get("usuarioId");
