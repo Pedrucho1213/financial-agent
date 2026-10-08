@@ -34,6 +34,7 @@ import { esDevolucion, fraseDePago, pagoDeTransaccion } from "./finanzas/applepa
 import { avisoDelDia } from "./finanzas/avisos";
 import { listarCategorias, nombreCompleto } from "./finanzas/catalogos";
 import { crearContexto } from "./finanzas/contexto";
+import { hablaDeCuentas } from "./finanzas/cuentas";
 import {
   crearMovimiento,
   deshacer,
@@ -54,6 +55,7 @@ import { avisoDeDictado, conversacionPorContestar } from "./push/dictados";
 import { desuscribir, type EnviarPush, ErrorSuscripcion, estadoPush, notificar, suscribir, tienePush } from "./push/notificaciones";
 import { notaDelGasto } from "./finanzas/comentario";
 import { rutasPlanes } from "./rutas-planes";
+import { rutasCuentas } from "./rutas-cuentas";
 import { servirApp } from "./web";
 import type { EstadoIa } from "./ai/modelo";
 
@@ -166,7 +168,11 @@ const esquemaMovimiento = z.object({
   comercio: z.string().trim().max(200).optional(),
   descripcion: z.string().trim().max(500).optional(),
   cuenta: z.string().trim().max(200).optional(),
+  // Transferencias y pagos de tarjeta: a qué cuenta llegó.
+  cuenta_destino: z.string().trim().max(200).optional(),
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Usa AAAA-MM-DD.").optional(),
+  // Ids de etiquetas; al editar, la lista completa.
+  etiquetas: z.array(z.string().trim().min(1).max(64)).max(20).optional(),
 });
 
 // Al editar, null borra el dato (la app lo manda así); sin el campo, no se toca.
@@ -174,6 +180,7 @@ const esquemaEdicion = esquemaMovimiento.partial().extend({
   comercio: esquemaMovimiento.shape.comercio.unwrap().nullable().optional(),
   descripcion: esquemaMovimiento.shape.descripcion.unwrap().nullable().optional(),
   cuenta: esquemaMovimiento.shape.cuenta.unwrap().nullable().optional(),
+  cuenta_destino: esquemaMovimiento.shape.cuenta_destino.unwrap().nullable().optional(),
 });
 
 const esquemaServidor = z.url({ protocol: /^https?$/ });
@@ -537,11 +544,14 @@ export function crearApp(opciones: OpcionesApp) {
       if (process.env.NODE_ENV !== "test") console.log(`Atajo desde un User-Agent nuevo: ${agente.slice(0, 160)}`);
     }
     const enReloj = /watch/i.test(p.equipo ?? "") || /watch/i.test(agente);
-    const rapida = delAtajo && !pregunta && !enReloj && tienePush(db, usuarioId);
+    // "Tengo 20 mil en Revolut", "le pagué 3 mil a la Nu": no es un gasto sino cómo quedan sus cuentas,
+    // y eso se oye al momento en vez de un "Anotado".
+    const actualizaCuentas = hablaDeCuentas(p.texto);
+    const rapida = delAtajo && !pregunta && !actualizaCuentas && !enReloj && tienePush(db, usuarioId);
     // Sin nada que comentar (nada raro en el gasto, poco historial, ya comentó lo del día), no la espera.
     const esperaMs =
       p.espera_ms ??
-      (pregunta ? opciones.espera?.preguntaMs : rapida && !notaDelGasto(contexto(usuarioId), p.texto) ? 0 : opciones.espera?.registroMs);
+      (pregunta || actualizaCuentas ? opciones.espera?.preguntaMs : rapida && !notaDelGasto(contexto(usuarioId), p.texto) ? 0 : opciones.espera?.registroMs);
     try {
       let respuesta = await hablar(
         deps,
@@ -556,7 +566,7 @@ export function crearApp(opciones: OpcionesApp) {
           lugar: p.lugar,
           capturadoEn: p.capturado_en,
         },
-        { esperaMs, esPregunta: pregunta },
+        { esperaMs, esPregunta: pregunta || actualizaCuentas },
       );
       if (rapida) respuesta = sinComentarioEsRapida(usuarioId, p.client_id, respuesta);
       if (delAtajo) respuesta = conAvisoDelDia(usuarioId, respuesta, rapida);
@@ -890,6 +900,8 @@ export function crearApp(opciones: OpcionesApp) {
         periodo: q.periodo || undefined,
         tipo: (q.tipo || undefined) as never,
         categoriaId: q.categoria_id || undefined,
+        cuentaId: q.cuenta_id || undefined,
+        etiquetaId: q.etiqueta_id || undefined,
         texto: q.texto || undefined,
         revisar: q.revisar === "1" || q.revisar === "true",
         limite: q.limite ? Number(q.limite) : undefined,
@@ -904,8 +916,14 @@ export function crearApp(opciones: OpcionesApp) {
       return c.json({ error: "Datos inválidos.", detalles: z.flattenError(cuerpo.error).fieldErrors }, 400);
     }
     const ctx = contexto(c.get("usuarioId"));
-    const { categoria_id, ...datos } = cuerpo.data;
-    const creado = crearMovimiento(ctx, { ...datos, categoriaId: categoria_id ?? undefined, origen: "app" });
+    const { categoria_id, cuenta_destino, etiquetas, ...datos } = cuerpo.data;
+    const creado = crearMovimiento(ctx, {
+      ...datos,
+      cuentaDestino: cuenta_destino,
+      etiquetaIds: etiquetas,
+      categoriaId: categoria_id ?? undefined,
+      origen: "app",
+    });
     return c.json(movimientoApp(ctx, obtenerPropio(ctx, creado.id)), 201);
   });
 
@@ -926,7 +944,7 @@ export function crearApp(opciones: OpcionesApp) {
       return c.json({ error: "Datos inválidos.", detalles: z.flattenError(cuerpo.error).fieldErrors }, 400);
     }
     const ctx = contexto(c.get("usuarioId"));
-    const { categoria_id, comercio, descripcion, cuenta, ...cambios } = cuerpo.data;
+    const { categoria_id, comercio, descripcion, cuenta, cuenta_destino, etiquetas, ...cambios } = cuerpo.data;
     const id = c.req.param("id");
     // editarMovimiento borra con "".
     const texto = (v: string | null | undefined) => (v === null ? "" : v);
@@ -935,6 +953,8 @@ export function crearApp(opciones: OpcionesApp) {
       comercio: texto(comercio),
       descripcion: texto(descripcion),
       cuenta: texto(cuenta),
+      cuentaDestino: texto(cuenta_destino),
+      etiquetaIds: etiquetas,
       categoriaId: categoria_id,
     });
     return c.json(movimientoApp(ctx, obtenerPropio(ctx, id)));
@@ -997,6 +1017,7 @@ export function crearApp(opciones: OpcionesApp) {
   });
 
   rutasPlanes(v1, contexto);
+  rutasCuentas(v1, contexto);
 
   // Prepara el Atajo con un token propio y deja el archivo firmado 10 minutos para descargarlo.
   // tipo "apple_pay" prepara el Atajo que corre la automatización de la Cartera.

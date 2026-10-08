@@ -34,6 +34,15 @@ export function pideInformacion(texto: string): boolean {
   return INICIO_PREGUNTA.test(sinMuletillas) || PIDE_INFORMACION.test(sinMuletillas);
 }
 
+/**
+ * Si además de lo que dice pide saber algo: "¿...?", "cuánto me queda", "cómo voy". A diferencia de
+ * `pideInformacion`, "tengo 20 mil en Revolut" no cuenta aunque empiece con "tengo".
+ */
+export function pideInformacionExplicita(texto: string): boolean {
+  if (texto.includes("?") || texto.includes("¿")) return true;
+  return PIDE_INFORMACION.test(normalizar(texto).replace(RELLENO, " "));
+}
+
 /** Si el dictado es una pregunta (la respuesta importa más que la rapidez). */
 export function esPregunta(texto: string): boolean {
   if (texto.includes("?")) return true;

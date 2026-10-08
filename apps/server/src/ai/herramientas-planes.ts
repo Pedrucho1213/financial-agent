@@ -20,6 +20,9 @@ import {
 } from "../finanzas/planes";
 import { formatearMonto } from "../lib/dinero";
 import { normalizar } from "../lib/texto";
+import { eq } from "drizzle-orm";
+import { comprasMsi } from "../db/schema";
+import { describirSaldo, estadoDeCuenta } from "../finanzas/cuentas";
 
 /** Envuelve una herramienta: guarda la acción y devuelve los errores de validación como texto. */
 type Ejecutar = <A, R>(nombre: string, fn: (args: A) => R) => (args: A) => Promise<R | { error: string }>;
@@ -134,9 +137,13 @@ export function herramientasPlanes(ctx: Contexto, ejecutar: Ejecutar) {
       execute: ejecutar("compra_msi", (datos) => {
         const c = registrarMsi(ctx, datos);
         const cuenta = c.cuenta ? ` con ${c.cuenta}` : "";
+        // La compra completa sale del disponible de la tarjeta: si se conoce, se dice cómo quedó.
+        const tarjetaId = ctx.db.select({ id: comprasMsi.cuentaId }).from(comprasMsi).where(eq(comprasMsi.id, c.id)).get()?.id;
+        const tarjeta = tarjetaId ? estadoDeCuenta(ctx, tarjetaId) : undefined;
+        const queda = tarjeta?.conocido ? ` Ahora ${describirSaldo(ctx, tarjeta)}.` : "";
         return {
           compra: c,
-          confirmacion: `Listo, ${c.descripcion} de ${$(c.totalCentavos)} a ${c.meses} meses sin intereses${cuenta}: ${$(c.mensualidadCentavos)} al mes.`,
+          confirmacion: `Listo, ${c.descripcion} de ${$(c.totalCentavos)} a ${c.meses} meses sin intereses${cuenta}: ${$(c.mensualidadCentavos)} al mes.${queda}`,
         };
       }),
     }),

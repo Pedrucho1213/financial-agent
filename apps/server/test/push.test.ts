@@ -584,3 +584,16 @@ describe("Apple Pay", () => {
     expect(db.select().from(movimientos).all()).toHaveLength(0);
   });
 });
+
+describe("Atajo rápido con cuentas", () => {
+  test("decir cuánto hay en una cuenta no es un gasto: el Atajo espera y dice cómo quedó, sin 'Anotado' ni comentario de gasto alto", async () => {
+    const { pedir, activar, db } = montar([llamada("cuentas", { cuentas: [{ cuenta: "Revolut", saldo: 20000 }] })]);
+    await activar();
+    // Historial suficiente para que el servidor pudiera comentar un gasto alto.
+    for (let i = 0; i < 12; i++) await pedir("/v1/movimientos", "POST", { tipo: "gasto", monto: 80, descripcion: `café ${i}` });
+    const r = await pedir("/v1/hablar", "POST", { texto: "tengo 20 mil en Revolut", client_id: "cuentas-0001" });
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as { respuesta: string }).respuesta).toBe("Listo, Revolut tiene 20,000 pesos.");
+    expect(db.select().from(movimientos).all()).toHaveLength(12);
+  });
+});

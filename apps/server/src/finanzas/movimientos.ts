@@ -5,6 +5,7 @@ import {
   comprasMsi,
   cuentas,
   entradas,
+  etiquetas as tablaEtiquetas,
   metas,
   movimientos,
   prestamosPersonales,
@@ -30,6 +31,7 @@ import {
   type Categoria,
 } from "./catalogos";
 import type { Contexto } from "./contexto";
+import { etiquetasActivas, idsDeEtiquetas, nombresDeEtiquetas, soloPropias } from "./etiquetas";
 
 export type TipoMovimiento = (typeof TIPOS_MOVIMIENTO)[number];
 export type Movimiento = typeof movimientos.$inferSelect;
@@ -44,7 +46,15 @@ export type DatosMovimiento = {
   comercio?: string;
   descripcion?: string;
   cuenta?: string;
+  /** Transferencias y pagos de tarjeta: a dónde fue el dinero. */
+  cuentaDestino?: string;
   fecha?: string;
+  /** Nombres de etiquetas que se agregan ("viaje"); se crean si no existen. */
+  etiquetas?: string[];
+  /** Al editar: nombres de etiquetas que se quitan. */
+  quitarEtiquetas?: string[];
+  /** La app manda la lista completa de ids; reemplaza las que tenía. */
+  etiquetaIds?: string[];
   /** La app elige la categoría de una lista; la IA la nombra con texto (`categoria`). null la quita. */
   categoriaId?: string | null;
   origen?: Movimiento["origen"];
@@ -69,6 +79,10 @@ export function describir(ctx: Contexto, m: Movimiento, cats = listarCategorias(
   const cuenta = m.cuentaId
     ? ctx.db.select().from(cuentas).where(eq(cuentas.id, m.cuentaId)).get()?.nombre
     : undefined;
+  const destino = m.cuentaDestinoId
+    ? ctx.db.select().from(cuentas).where(eq(cuentas.id, m.cuentaDestinoId)).get()?.nombre
+    : undefined;
+  const conEtiquetas = nombresDeEtiquetas(ctx, m.etiquetas);
   return {
     id: m.id,
     fecha: m.fecha,
@@ -78,6 +92,8 @@ export function describir(ctx: Contexto, m: Movimiento, cats = listarCategorias(
     comercio,
     descripcion: m.descripcion ?? undefined,
     cuenta,
+    cuenta_destino: destino,
+    etiquetas: conEtiquetas.length ? conEtiquetas : undefined,
     lugar: m.lugar ?? undefined,
   };
 }
@@ -129,7 +145,16 @@ const TABLAS_PLANES = {
   metas,
   prestamos_personales: prestamosPersonales,
   compras_msi: comprasMsi,
+  cuentas,
+  etiquetas: tablaEtiquetas,
 } as const;
+
+// Lo que se hace al deshacer la creación de un registro de estas tablas (y lo contrario al rehacerla).
+// Una cuenta no se borra: se archiva, porque otros movimientos pueden usarla.
+const quitarCreado = (tabla: keyof typeof TABLAS_PLANES, ahora: string): Record<string, unknown> =>
+  tabla === "cuentas" ? { archivada: true } : { eliminadoEn: ahora };
+const volverCreado = (tabla: keyof typeof TABLAS_PLANES): Record<string, unknown> =>
+  tabla === "cuentas" ? { archivada: false } : { eliminadoEn: null };
 
 // Saldos que se mueven por abonos: se deshace la diferencia, no el valor, para no borrar otro abono
 // que llegó después ("aparté 500" y luego "aparté 200"; deshacer el primero deja los 200).
@@ -197,6 +222,15 @@ export function crearMovimiento(ctx: Contexto, datos: DatosMovimiento) {
     ctx.usuarioId,
     datos.cuenta || (categoria.revisar ? undefined : datos.cuentaSegunCategoria?.(categoria.id)),
   );
+  const mueveEntreCuentas = datos.tipo === "transferencia" || datos.tipo === "pago_tarjeta";
+  const destino = mueveEntreCuentas ? encontrarOCrearCuenta(ctx.db, ctx.usuarioId, datos.cuentaDestino) : undefined;
+  // Las que dijo, y las que están activas esos días ("todo lo de esta semana es del viaje") si es un gasto.
+  const etiquetas = [
+    ...new Set([
+      ...(datos.etiquetaIds ? soloPropias(ctx, datos.etiquetaIds) : idsDeEtiquetas(ctx, datos.etiquetas ?? [])),
+      ...(datos.tipo === "gasto" ? etiquetasActivas(ctx, fecha) : []),
+    ]),
+  ];
 
   const fila = ctx.db
     .insert(movimientos)
@@ -208,6 +242,8 @@ export function crearMovimiento(ctx: Contexto, datos: DatosMovimiento) {
       categoriaId: categoria.id,
       comercioId: comercio?.id,
       cuentaId: cuenta?.id,
+      cuentaDestinoId: destino?.id,
+      etiquetas,
       descripcion: datos.descripcion?.trim() || null,
       fecha,
       ocurridoEn: fecha === ctx.hoy ? ctx.ahoraIso : mediodiaUtc(fecha, ctx.zonaHoraria),
@@ -243,6 +279,10 @@ export type FiltroMovimientos = {
   tipo?: TipoMovimiento;
   monto?: number;
   limite?: number;
+  /** Nombre de una etiqueta: solo los movimientos que la llevan. */
+  etiqueta?: string;
+  /** Nombre de una cuenta: los que salieron de ella o llegaron a ella. */
+  cuenta?: string;
 };
 
 // Palabras que no ayudan a encontrar un movimiento: "el Uber de ayer" busca solo "uber".
@@ -264,6 +304,16 @@ function filtrar(ctx: Contexto, filtro: FiltroMovimientos, cats: Categoria[]) {
     .orderBy(desc(movimientos.ocurridoEn), desc(movimientos.creadoEn))
     .all();
 
+  if (filtro.etiqueta) {
+    const [id] = idsDeEtiquetas(ctx, [filtro.etiqueta], { soloExistentes: true });
+    if (!id) throw new ErrorFinanzas(`No tienes la etiqueta "${filtro.etiqueta}".`);
+    filas = filas.filter((m) => m.etiquetas.includes(id));
+  }
+  if (filtro.cuenta) {
+    const cuenta = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, filtro.cuenta, { soloExistente: true });
+    if (!cuenta) throw new ErrorFinanzas(`No tienes la cuenta "${filtro.cuenta}".`);
+    filas = filas.filter((m) => m.cuentaId === cuenta.id || m.cuentaDestinoId === cuenta.id);
+  }
   if (filtro.categoria) {
     const cat = encontrarCategoria(cats, filtro.categoria, filtro.tipo === "ingreso" ? "ingreso" : "gasto");
     if (!cat) throw new ErrorFinanzas(`No existe la categoría "${filtro.categoria}".`);
@@ -301,6 +351,11 @@ export function buscarMovimientos(ctx: Contexto, filtro: FiltroMovimientos) {
   const { filas } = filtrar(ctx, filtro, cats);
   const limite = Math.min(Math.max(filtro.limite ?? 5, 1), 50);
   return { encontrados: filas.length, movimientos: filas.slice(0, limite).map((m) => describir(ctx, m, cats)) };
+}
+
+/** Ids de todos los movimientos que coinciden con el filtro (para etiquetar varios a la vez). */
+export function idsQueCoinciden(ctx: Contexto, filtro: FiltroMovimientos): string[] {
+  return filtrar(ctx, filtro, listarCategorias(ctx.db, ctx.usuarioId)).filas.map((m) => m.id);
 }
 
 export type Busqueda = FiltroMovimientos & { mas_reciente?: boolean };
@@ -387,6 +442,17 @@ export function editarMovimiento(ctx: Contexto, id: string, cambios: Partial<Dat
     nuevo.comercioId = cambios.comercio ? encontrarOCrearComercio(ctx.db, ctx.usuarioId, cambios.comercio)?.id : null;
   if (cambios.cuenta !== undefined)
     nuevo.cuentaId = cambios.cuenta ? encontrarOCrearCuenta(ctx.db, ctx.usuarioId, cambios.cuenta)?.id : null;
+  if (cambios.cuentaDestino !== undefined)
+    nuevo.cuentaDestinoId = cambios.cuentaDestino ? encontrarOCrearCuenta(ctx.db, ctx.usuarioId, cambios.cuentaDestino)?.id : null;
+  if (cambios.etiquetaIds || cambios.etiquetas?.length || cambios.quitarEtiquetas?.length) {
+    const quitar = new Set(idsDeEtiquetas(ctx, cambios.quitarEtiquetas ?? [], { soloExistentes: true }));
+    const base = cambios.etiquetaIds ? soloPropias(ctx, cambios.etiquetaIds) : antes.etiquetas;
+    const lista = [...new Set([...base, ...idsDeEtiquetas(ctx, cambios.etiquetas ?? [])])].filter((e) => !quitar.has(e));
+    if (JSON.stringify(lista) !== JSON.stringify(antes.etiquetas)) nuevo.etiquetas = lista;
+    else if (!cambios.etiquetaIds && !Object.entries(cambios).some(([k, v]) => v !== undefined && !["etiquetas", "quitarEtiquetas"].includes(k))) {
+      throw new ErrorFinanzas("Ese movimiento ya tenía esas etiquetas.");
+    }
+  }
   if (cambios.categoriaId === null) nuevo.categoriaId = null;
   else if (cambios.categoria || cambios.categoriaId) {
     const cat = cambios.categoriaId
@@ -412,6 +478,8 @@ export function editarMovimiento(ctx: Contexto, id: string, cambios: Partial<Dat
       if (elegida.revisar) nuevo.revisar = true;
     }
   }
+  // Un gasto o ingreso no tiene a dónde fue el dinero.
+  if (tipo !== "transferencia" && tipo !== "pago_tarjeta" && antes.cuentaDestinoId) nuevo.cuentaDestinoId = null;
   if (nuevo.fecha && nuevo.fecha > ctx.hoy) nuevo.revisar = true;
   if (Object.keys(nuevo).length === 0) throw new ErrorFinanzas("No indicaste qué cambiar.");
   const despues = ctx.db
@@ -436,7 +504,7 @@ export function eliminarMovimiento(ctx: Contexto, id: string) {
   return describir(ctx, antes);
 }
 
-export type AgruparPor = "ninguno" | "categoria" | "subcategoria" | "comercio" | "dia";
+export type AgruparPor = "ninguno" | "categoria" | "subcategoria" | "comercio" | "dia" | "etiqueta" | "cuenta";
 
 /** Sumas y conteos calculados por código: la IA nunca suma por su cuenta. */
 export function resumir(
@@ -451,8 +519,16 @@ export function resumir(
 
   const nombreComercio = (id: string | null) =>
     id ? ctx.db.select().from(comercios).where(eq(comercios.id, id)).get()?.nombre : undefined;
-  const clave = (m: Movimiento): string => {
+  const nombreCuenta = (id: string | null) => (id ? ctx.db.select().from(cuentas).where(eq(cuentas.id, id)).get()?.nombre : undefined);
+  // Un movimiento con dos etiquetas cuenta en las dos.
+  const clave = (m: Movimiento): string | string[] => {
     switch (opciones.agruparPor) {
+      case "etiqueta": {
+        const nombres = nombresDeEtiquetas(ctx, m.etiquetas);
+        return nombres.length ? nombres : "Sin etiqueta";
+      }
+      case "cuenta":
+        return nombreCuenta(m.cuentaId) ?? "Sin cuenta";
       case "categoria": {
         const c = cats.find((x) => x.id === m.categoriaId);
         const padre = c?.padreId ? cats.find((x) => x.id === c.padreId) : c;
@@ -472,11 +548,12 @@ export function resumir(
   if (opciones.agruparPor && opciones.agruparPor !== "ninguno") {
     const acumulado = new Map<string, { centavos: number; cantidad: number }>();
     for (const m of enBase) {
-      const k = clave(m);
-      const g = acumulado.get(k) ?? { centavos: 0, cantidad: 0 };
-      g.centavos += m.montoCentavos;
-      g.cantidad += 1;
-      acumulado.set(k, g);
+      for (const k of [clave(m)].flat()) {
+        const g = acumulado.get(k) ?? { centavos: 0, cantidad: 0 };
+        g.centavos += m.montoCentavos;
+        g.cantidad += 1;
+        acumulado.set(k, g);
+      }
     }
     grupos = [...acumulado.entries()]
       .sort((a, b) => b[1].centavos - a[1].centavos)
@@ -522,7 +599,7 @@ function revertir(ctx: Contexto, grupo: CambioBitacora[], por?: string) {
         const tabla = TABLAS_PLANES[cambio.tabla];
         const valores =
           cambio.accion === "crear"
-            ? { eliminadoEn: ahora }
+            ? quitarCreado(cambio.tabla, ahora)
             : valoresDePlan(tabla, cambio.registroId, (cambio.despues ?? {}) as Record<string, unknown>, (cambio.antes ?? {}) as Record<string, unknown>, tx);
         if (Object.keys(valores).length) tx.update(tabla).set(valores).where(eq(tabla.id, cambio.registroId)).run();
         // Deshacer una compra a meses quita también las mensualidades que el revisor anotó solo.
@@ -561,7 +638,7 @@ function rehacer(ctx: Contexto, grupo: CambioBitacora[]) {
         const tabla = TABLAS_PLANES[cambio.tabla];
         const valores =
           cambio.accion === "crear"
-            ? { eliminadoEn: null }
+            ? volverCreado(cambio.tabla)
             : valoresDePlan(tabla, cambio.registroId, (cambio.antes ?? {}) as Record<string, unknown>, despues as Record<string, unknown>, tx);
         if (Object.keys(valores).length) tx.update(tabla).set(valores).where(eq(tabla.id, cambio.registroId)).run();
         if (cambio.tabla === "compras_msi" && cambio.accion === "crear" && cambio.deshechoEn) {

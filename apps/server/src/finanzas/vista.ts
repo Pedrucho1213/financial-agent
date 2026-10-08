@@ -7,15 +7,17 @@ import { armarFecha, diaSemana, partes, resolverPeriodo, sumarDias, ultimoDiaDel
 import { normalizar } from "../lib/texto";
 import { idsConHijas, listarCategorias, nombreCompleto, type Categoria } from "./catalogos";
 import type { Contexto } from "./contexto";
+import { estadosDeCuentas, totalesDeCuentas } from "./cuentas";
+import { listarVigentes, resumenEtiquetas } from "./etiquetas";
 import { ErrorFinanzas, type Movimiento, type TipoMovimiento } from "./movimientos";
 import { proximoCobro } from "./recurrentes";
 
-type Nombres = { comercios: Map<string, string>; cuentas: Map<string, string> };
+type Nombres = { comercios: Map<string, string>; cuentas: Map<string, string>; etiquetas: Map<string, string> };
 
 function nombres(ctx: Contexto, filas: Movimiento[]): Nombres {
   const ids = (campo: "comercioId" | "cuentaId") => [...new Set(filas.map((m) => m[campo]).filter((x): x is string => !!x))];
   const idsComercio = ids("comercioId");
-  const idsCuenta = ids("cuentaId");
+  const idsCuenta = [...new Set([...ids("cuentaId"), ...filas.map((m) => m.cuentaDestinoId).filter((x): x is string => !!x)])];
   return {
     comercios: new Map(
       idsComercio.length
@@ -27,6 +29,7 @@ function nombres(ctx: Contexto, filas: Movimiento[]): Nombres {
         ? ctx.db.select().from(cuentas).where(inArray(cuentas.id, idsCuenta)).all().map((c) => [c.id, c.nombre])
         : [],
     ),
+    etiquetas: new Map(filas.some((m) => m.etiquetas.length) ? listarVigentes(ctx).map((e) => [e.id, e.nombre]) : []),
   };
 }
 
@@ -44,6 +47,14 @@ export function aMovimientoApp(m: Movimiento, cats: Categoria[], n: Nombres) {
     comercio: (m.comercioId && n.comercios.get(m.comercioId)) || null,
     descripcion: m.descripcion,
     cuenta: (m.cuentaId && n.cuentas.get(m.cuentaId)) || null,
+    cuentaId: m.cuentaId,
+    // Transferencias y pagos de tarjeta: a dónde llegó el dinero.
+    cuentaDestino: (m.cuentaDestinoId && n.cuentas.get(m.cuentaDestinoId)) || null,
+    cuentaDestinoId: m.cuentaDestinoId,
+    etiquetas: m.etiquetas.flatMap((id) => {
+      const nombre = n.etiquetas.get(id);
+      return nombre ? [{ id, nombre }] : [];
+    }),
     lugar: m.lugar,
     lat: m.lat,
     lon: m.lon,
@@ -66,6 +77,8 @@ export type FiltroApp = {
   periodo?: string;
   tipo?: TipoMovimiento;
   categoriaId?: string;
+  cuentaId?: string;
+  etiquetaId?: string;
   texto?: string;
   revisar?: boolean;
   limite?: number;
@@ -103,6 +116,8 @@ export function listarMovimientosApp(ctx: Contexto, filtro: FiltroApp) {
     const ids = new Set(idsConHijas(cats, filtro.categoriaId));
     filas = filas.filter((m) => m.categoriaId && ids.has(m.categoriaId));
   }
+  if (filtro.cuentaId) filas = filas.filter((m) => m.cuentaId === filtro.cuentaId || m.cuentaDestinoId === filtro.cuentaId);
+  if (filtro.etiquetaId) filas = filas.filter((m) => m.etiquetas.includes(filtro.etiquetaId!));
   if (filtro.revisar) filas = filas.filter((m) => m.revisar);
   const palabras = normalizar(filtro.texto ?? "").split(" ").filter(Boolean);
   if (palabras.length) {
@@ -112,6 +127,8 @@ export function listarMovimientosApp(ctx: Contexto, filtro: FiltroApp) {
         [
           m.comercioId && n.comercios.get(m.comercioId),
           m.cuentaId && n.cuentas.get(m.cuentaId),
+          m.cuentaDestinoId && n.cuentas.get(m.cuentaDestinoId),
+          ...m.etiquetas.map((id) => n.etiquetas.get(id)),
           m.descripcion,
           m.textoOriginal,
           m.lugar,
@@ -248,5 +265,11 @@ export function tablero(ctx: Contexto, mesPedido?: string) {
       frecuencia: r.frecuencia,
     })),
     porRevisar: filasDelPeriodo(ctx, undefined, undefined).filter((m) => m.revisar).length,
+    // Lo que hay hoy en sus cuentas y tarjetas (no depende del mes); el detalle está en /v1/cuentas.
+    cuentas: totalesDeCuentas(estadosDeCuentas(ctx)),
+    // Etiquetas con movimientos en el mes, de la que más gastó a la que menos.
+    porEtiqueta: resumenEtiquetas(ctx, { desde, hasta })
+      .filter((e) => e.cantidad > 0)
+      .map(({ id, nombre, gastadoCentavos, ingresadoCentavos, cantidad, activa }) => ({ id, nombre, gastadoCentavos, ingresadoCentavos, cantidad, activa })),
   };
 }

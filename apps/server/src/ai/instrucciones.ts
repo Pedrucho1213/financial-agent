@@ -7,6 +7,7 @@ import { montosDeSiempre } from "../finanzas/habitos";
 import { listarMemorias } from "../finanzas/memorias";
 import { diaSemana, sumarDias } from "../lib/fechas";
 import { nombresDePlanes } from "./herramientas-planes";
+import { listarVigentes } from "../finanzas/etiquetas";
 
 const NOMBRES_DIA = ["", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
 
@@ -45,7 +46,10 @@ Qué haces:
 Reglas:
 - Si menciona varios gastos en una frase, regístralos todos en una sola llamada a registrar_movimientos.
 - Registra solo lo que ya pasó. Si habla de algo que piensa comprar o que pagará después, no lo registres.
-- Pagar la tarjeta de crédito es tipo pago_tarjeta, no un gasto.
+- Si dice cuánto tiene en una cuenta o tarjeta, lo disponible, el límite o lo que debe de una tarjeta de crédito, o su día de corte o de pago ("tengo 20 mil en Revolut y 10 mil en Bancomer", "en la Nu tengo 7 mil disponibles"), usa cuentas: no es un ingreso ni un gasto.
+- Pagar o abonar a una tarjeta de crédito, transferir entre sus cuentas y sacar del cajero no son gastos: usa mover_dinero. Pagar algo con la tarjeta sí es un gasto.
+- "¿Cuánto tengo?", "¿cuánto debo de la tarjeta?" o "¿cuánto me queda disponible?" se consultan con consultar_cuentas.
+- Etiquetas: si pide etiquetar movimientos, o dice que está de viaje o en un evento y quiere juntar lo que gaste, usa etiqueta. Al registrar, pon etiquetas solo si las dice.
 - Nunca preguntes con qué pagó. Si lo menciona (BBVA, Nu, efectivo), ponlo en "cuenta".
 - En "fecha" pon la palabra que dijo el usuario ("ayer", "viernes"); no la calcules.
 - En "categoria" usa siempre la subcategoría (lo que va después de los dos puntos), no la general: Uber es "Taxi y apps", no "Transporte"; la luz es "Luz", no "Vivienda". Usa la general solo si ninguna subcategoría encaja.
@@ -79,11 +83,15 @@ Al registrar, confirma qué guardaste, por ejemplo: "Listo, café de $85 en Comi
  */
 export function datosDelUsuario(ctx: Contexto): string | undefined {
   const listaCuentas = ctx.db
-    .select({ nombre: cuentas.nombre })
+    .select({ nombre: cuentas.nombre, tipo: cuentas.tipo, archivada: cuentas.archivada })
     .from(cuentas)
     .where(eq(cuentas.usuarioId, ctx.usuarioId))
     .all()
-    .map((c) => c.nombre);
+    .filter((c) => !c.archivada)
+    .map((c) => (c.tipo === "credito" ? `${c.nombre} (tarjeta de crédito)` : c.tipo === "debito" ? `${c.nombre} (débito)` : c.nombre));
+  const tags = listarVigentes(ctx).map((e) =>
+    e.activaDesde && e.activaHasta && e.activaDesde <= ctx.hoy && ctx.hoy <= e.activaHasta ? `${e.nombre} (activa hasta ${e.activaHasta})` : e.nombre,
+  );
   const recuerdos = listarMemorias(ctx).map((m) => `- ${m.texto}`);
   const deSiempre = montosDeSiempre(ctx).map((h) => `- ${h}`);
   const planes = nombresDePlanes(ctx);
@@ -93,6 +101,7 @@ export function datosDelUsuario(ctx: Contexto): string | undefined {
     recuerdos.length ? `Lo que sabes del usuario:\n${recuerdos.join("\n")}` : "",
     planes.metas.length ? `Sus metas: ${planes.metas.join(", ")}.` : "",
     planes.personas.length ? `Préstamos pendientes con: ${planes.personas.join(", ")}.` : "",
+    tags.length ? `Sus etiquetas: ${tags.join(", ")}.` : "",
   ].filter(Boolean);
   return partes.length ? partes.join("\n\n") : undefined;
 }

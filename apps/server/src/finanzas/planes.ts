@@ -6,6 +6,7 @@ import { normalizar } from "../lib/texto";
 import { encontrarCategoria, encontrarOCrearCuenta, idsConHijas, listarCategorias, nombreCompleto, type Categoria } from "./catalogos";
 import type { Contexto } from "./contexto";
 import { crearMovimiento, ErrorFinanzas, registrarEnBitacora } from "./movimientos";
+import { estadosDeCuentas, totalesDeCuentas } from "./cuentas";
 import { proximoCobro } from "./recurrentes";
 
 // Presupuestos, metas de ahorro, préstamos entre personas y compras a meses sin intereses.
@@ -658,6 +659,13 @@ export function registrarMensualidades(ctx: Contexto, opciones: { soloCompra?: s
   return creados;
 }
 
+/** Los meses sin intereses son de tarjeta de crédito: una cuenta sin tipo con la que se compra así lo es. */
+function tarjetaDeLaCompra(ctx: Contexto, texto: string | undefined): string | undefined {
+  const cuenta = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, texto);
+  if (cuenta?.tipo === "otra") ctx.db.update(cuentas).set({ tipo: "credito" }).where(eq(cuentas.id, cuenta.id)).run();
+  return cuenta?.id;
+}
+
 /** "Compré una pantalla de 12 mil a 12 meses sin intereses con la BBVA". */
 export function registrarMsi(ctx: Contexto, datos: { descripcion: string; total: number; meses: number; cuenta?: string; fecha?: string }) {
   const descripcion = datos.descripcion.trim();
@@ -679,7 +687,7 @@ export function registrarMsi(ctx: Contexto, datos: { descripcion: string; total:
       meses: datos.meses,
       mensualidadCentavos: Math.floor(total / datos.meses),
       primerCargo,
-      cuentaId: encontrarOCrearCuenta(ctx.db, ctx.usuarioId, datos.cuenta)?.id,
+      cuentaId: tarjetaDeLaCompra(ctx, datos.cuenta),
     })
     .returning()
     .get();
@@ -825,7 +833,7 @@ export function disponible(ctx: Contexto) {
     .reduce((s, { c, n }) => s + montoDelCargo(c, n), 0);
   let comprometido = porPagarFijos + porPagarMsi;
 
-  let base: "ingresos" | "presupuestos" | null = null;
+  let base: "ingresos" | "presupuestos" | "saldos" | null = null;
   let libreMes = 0;
   // Con presupuestos por categoría, lo gastado hoy fuera de ellos no cuenta contra lo que queda.
   let gastadoHoyBase = gastadoHoy;
@@ -846,6 +854,14 @@ export function disponible(ctx: Contexto) {
       const cats = listarCategorias(ctx.db, ctx.usuarioId);
       const cubiertas = new Set(estado.presupuestos.flatMap((p) => idsConHijas(cats, p.categoriaId!)));
       gastadoHoyBase = gastos.filter((m) => m.fecha === ctx.hoy && m.categoriaId && cubiertas.has(m.categoriaId)).reduce((s, m) => s + m.montoCentavos, 0);
+    } else {
+      // Sin ingresos ni presupuestos, pero con el saldo de sus cuentas: lo que tiene hoy, menos lo que falta
+      // pagar este mes. Lo gastado ya salió de esos saldos.
+      const t = totalesDeCuentas(estadosDeCuentas(ctx));
+      if (t.cuentasConSaldo) {
+        base = "saldos";
+        libreMes = t.dineroCentavos - comprometido;
+      }
     }
   }
   // Lo de hoy se reparte como si el día empezara: así gastar hoy baja lo que queda hoy, no el promedio.
@@ -868,7 +884,7 @@ export function disponible(ctx: Contexto) {
 export function respuestaDisponible(ctx: Contexto, d = disponible(ctx)): string {
   const $ = (c: number) => formatearMonto(c, ctx.monedaBase);
   if (!d.base) {
-    return 'Para calcularlo necesito saber cuánto te entra o un presupuesto. Dime, por ejemplo, "me pagan 12 mil cada quincena" o "mi presupuesto del mes es de 15 mil".';
+    return 'Para calcularlo necesito saber cuánto te entra, cuánto tienes o un presupuesto. Dime, por ejemplo, "me pagan 12 mil cada quincena", "tengo 20 mil en Revolut" o "mi presupuesto del mes es de 15 mil".';
   }
   if (d.libreMesCentavos <= 0) {
     return d.libreMesCentavos < 0
