@@ -32,7 +32,9 @@ describe("QA: preguntas sin signos", () => {
   // espera 5 s y contesta "Anotado", y el Atajo nunca escucha la respuesta.
   for (const frase of ["Oye, cuánto llevo gastado este mes", "Quiero saber cuánto gasté en Uber", "y en Uber", "Me puedes decir cuánto gasté", "Voy bien este mes"]) {
     test(`"${frase}" lenta se trata como pregunta (esperar: true)`, async () => {
-      const { hablar } = montar(async () => { await dormir(80); return texto("Llevas $1,200."); }, { registroMs: 20, preguntaMs: 1000 });
+      // Desde 22ceed1 una cifra sin consultar no se cree: el modelo falso consulta y luego contesta.
+      let n = 0;
+      const { hablar } = montar(async () => { await dormir(40); return n++ % 2 === 0 ? llamada("consultar_gastos", { periodo: "este_mes" }) : texto("Llevas $1,200."); }, { registroMs: 20, preguntaMs: 1000 });
       const r = await hablar({ texto: frase, client_id: `preg-${frase.length}-0001` });
       expect(r.cuerpo.respuesta).toContain("1,200");
     });
