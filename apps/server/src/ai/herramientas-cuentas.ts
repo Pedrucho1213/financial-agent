@@ -91,40 +91,51 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
           if (nombradas.length) cuentas = nombradas;
           else if (!ctx.enConversacion) throw new ErrorFinanzas(`No dijo en qué cuenta o tarjeta: pregúntale dónde (no la elijas tú, no era "${cuentas[0]!.cuenta}").`);
         }
-        // "Tengo 300 dólares en Wise": los saldos se llevan en pesos; no se guardan 300 pesos (QA-087).
+        // "Tengo 300 dólares en Wise": los saldos se llevan en pesos; no se guardan 300 pesos (QA-087). Con pesos
+        // en la misma frase ("y 10 mil en Bancomer"), esos sí se guardan: en otra moneda va solo la cifra dicha junto
+        // a ella.
+        const cifras = (c: (typeof cuentas)[number]) => [c.saldo, c.disponible, c.deuda, c.limite].filter((x) => x !== undefined);
         const moneda = monedaDelTexto(texto);
-        const cifra = cuentas.flatMap((c) => [c.saldo, c.disponible, c.deuda, c.limite]).find((x) => x !== undefined);
-        if (moneda && moneda !== ctx.monedaBase && cifra !== undefined) {
-          const creadas = cuentas.map((c) => fijarCuenta(ctx, { cuenta: c.cuenta, tipo: c.tipo }));
-          const nombre = NOMBRE_MONEDA[moneda] ?? moneda;
-          return {
-            cuentas: creadas.map((r) => ({ nombre: r.estado.nombre, tipo: r.estado.tipo, nueva: r.nueva || undefined })),
-            montos: montosDelTexto(texto ?? "").length,
-            confirmacion: `Llevo tus cuentas en pesos y no sé a cuánto cambiarlos. ¿Cuántos pesos son tus ${new Intl.NumberFormat("es-MX").format(cifra)} ${nombre} en ${enLista(creadas.map((r) => r.estado.nombre))}?`,
-          };
+        let enOtra: typeof cuentas = [];
+        let cifraEnOtra: number | undefined;
+        if (texto && moneda && moneda !== ctx.monedaBase) {
+          const dichas = normalizar(texto)
+            .split(/,|;|\by\b/)
+            .filter((parte) => monedaDelTexto(parte) === moneda)
+            .flatMap((parte) => montosDelTexto(parte));
+          enOtra = cuentas.filter((c) => cifras(c).some((x) => dichas.includes(x)));
+          // "300 en Wise, en dólares": la cifra no va junto a la moneda; todas las que traen cifra.
+          if (!enOtra.length) enOtra = cuentas.filter((c) => cifras(c).length);
+          cifraEnOtra = dichas[0] ?? cifras(enOtra[0] ?? cuentas[0]!)[0];
         }
-        const resultados = cuentas.map((c) =>
-          fijarCuenta(ctx, {
-            cuenta: c.cuenta,
-            tipo: c.tipo,
-            saldo: c.saldo,
-            disponible: c.disponible,
-            deuda: c.deuda,
-            limite: c.limite,
-            diaCorte: c.dia_corte,
-            diaPago: c.dia_pago,
-            nuevoNombre: c.nuevo_nombre,
-          }),
-        );
+        const sinMoneda = enOtra.map((c) => fijarCuenta(ctx, { cuenta: c.cuenta, tipo: c.tipo }));
+        const resultados = cuentas
+          .filter((c) => !enOtra.includes(c))
+          .map((c) =>
+            fijarCuenta(ctx, {
+              cuenta: c.cuenta,
+              tipo: c.tipo,
+              saldo: c.saldo,
+              disponible: c.disponible,
+              deuda: c.deuda,
+              limite: c.limite,
+              diaCorte: c.dia_corte,
+              diaPago: c.dia_pago,
+              nuevoNombre: c.nuevo_nombre,
+            }),
+          );
         // Cuántas cifras usó: si la frase trae más, quizá falta algo y el modelo debe seguir.
         const montos = cuentas.reduce(
           (n, c) => n + [c.saldo, c.disponible, c.deuda, c.limite, c.dia_corte, c.dia_pago].filter((x) => x !== undefined).length,
           0,
         );
+        const pregunta = sinMoneda.length
+          ? `Llevo tus cuentas en pesos y no sé a cuánto cambiarlos. ¿Cuántos pesos son tus ${new Intl.NumberFormat("es-MX").format(cifraEnOtra!)} ${NOMBRE_MONEDA[moneda!] ?? moneda} en ${enLista(sinMoneda.map((r) => r.estado.nombre))}?`
+          : "";
         return {
-          cuentas: resultados.map((r) => ({ nombre: r.estado.nombre, tipo: r.estado.tipo, nueva: r.nueva || undefined })),
+          cuentas: [...resultados, ...sinMoneda].map((r) => ({ nombre: r.estado.nombre, tipo: r.estado.tipo, nueva: r.nueva || undefined })),
           montos,
-          confirmacion: confirmarCuentas(ctx, resultados),
+          confirmacion: [resultados.length ? confirmarCuentas(ctx, resultados) : "", pregunta].filter(Boolean).join(" "),
         };
       }),
     }),
@@ -153,7 +164,7 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
 
     consultar_cuentas: tool({
       description:
-        '"¿Cuánto tengo en Revolut?", "¿cuánto dinero tengo?", "¿cuánto debo de tarjetas?", "¿cuánto me queda disponible en la Nu?". Saldos de hoy de sus cuentas y tarjetas.',
+        '"¿Cuánto tengo en Revolut?", "¿cuánto dinero tengo?", "¿cuánto debo de tarjetas?", "¿cuánto me queda disponible en la Nu?". Saldos de hoy de sus cuentas y tarjetas. Solo para cuánto tiene, debe o le queda disponible: "¿cómo voy?" o cuánto ha gastado no es esto.',
       inputSchema: z.object({ cuenta: z.string().optional().describe("Una cuenta o tarjeta; sin ella, todas.") }),
       execute: ejecutar("consultar_cuentas", ({ cuenta }) => {
         const todas = estadosDeCuentas(ctx);

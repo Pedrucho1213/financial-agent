@@ -90,9 +90,20 @@ export function rutasCuentas(v1: Hono<{ Variables: VariablesAuth }>, contextoBas
     });
   });
 
+  // Una cuenta que no existe, o que es de otro usuario, es un 404 y no un 400.
+  const cuentaDe = (ctx: Contexto, id: string) => {
+    try {
+      return estadoDeCuenta(ctx, id);
+    } catch (error) {
+      if (error instanceof ErrorFinanzas) return undefined;
+      throw error;
+    }
+  };
+
   v1.get("/cuentas/:id", (c) => {
     const ctx = contexto(c.get("usuarioId"));
-    const estado = estadoDeCuenta(ctx, c.req.param("id"));
+    const estado = cuentaDe(ctx, c.req.param("id"));
+    if (!estado) return c.json({ error: "No existe esa cuenta." }, 404);
     const recientes = listarMovimientosApp(ctx, { cuentaId: estado.id, limite: 30 });
     return c.json({ cuenta: estado, movimientos: recientes.movimientos, totalMovimientos: recientes.total });
   });
@@ -129,7 +140,8 @@ export function rutasCuentas(v1: Hono<{ Variables: VariablesAuth }>, contextoBas
     if (!cuerpo.success) return c.json(invalido(cuerpo.error), 400);
     const ctx = contexto(c.get("usuarioId"));
     const id = c.req.param("id");
-    const actual = estadoDeCuenta(ctx, id);
+    const actual = cuentaDe(ctx, id);
+    if (!actual) return c.json({ error: "No existe esa cuenta." }, 404);
     const { archivada, ...d } = cuerpo.data;
     if (Object.keys(d).length) {
       fijarCuenta(ctx, {

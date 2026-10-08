@@ -18,6 +18,8 @@ import {
 } from "../src/finanzas/cuentas";
 import { buscarMovimientos, crearMovimiento, deshacer, editarMovimiento, ErrorFinanzas } from "../src/finanzas/movimientos";
 import { disponible, registrarMsi } from "../src/finanzas/planes";
+import { listarAvisos } from "../src/finanzas/avisos";
+import { revisar } from "../src/finanzas/revisor";
 import { AHORA, preparar } from "./ayuda";
 
 // Cada dictado, unos minutos después del anterior: el saldo dicho cuenta lo que pasó después.
@@ -516,5 +518,31 @@ describe("lo que encontró QA con el modelo real", () => {
     expect(r.movimiento.tipo).toBe("pago_tarjeta");
     const tarjeta = estadosDeCuentas(ctx).find((e) => e.esCredito);
     expect(tarjeta?.nombre).toBe(r.movimiento.cuenta_destino);
+  });
+});
+
+describe("después del PR de cuentas", () => {
+  test("pesos y dólares en la misma frase: los pesos se guardan y solo se pregunta por los dólares", async () => {
+    const { ctx } = preparar();
+    const r = await llamar(dictado(ctx, "tengo 300 dólares en Wise y 10 mil en Bancomer"), "cuentas", {
+      cuentas: [{ cuenta: "Wise", saldo: 300 }, { cuenta: "Bancomer", saldo: 10000 }],
+    });
+    expect(r.confirmacion).toBe("Listo, Bancomer tiene $10,000. Llevo tus cuentas en pesos y no sé a cuánto cambiarlos. ¿Cuántos pesos son tus 300 dólares en Wise?");
+    expect(pesos(estado(ctx, "Bancomer").saldoCentavos)).toBe(10000);
+    expect(estado(ctx, "Wise").saldoCentavos).toBeNull();
+    // Con la cifra lejos de la moneda, no se adivina cuál era: ninguna con saldo en pesos.
+    const s = await llamar(dictado(ctx, "tengo 500 en Revolut, en euros"), "cuentas", { cuentas: [{ cuenta: "Revolut", saldo: 500 }] });
+    expect(s.confirmacion).toBe("Llevo tus cuentas en pesos y no sé a cuánto cambiarlos. ¿Cuántos pesos son tus 500 euros en Revolut?");
+    expect(estado(ctx, "Revolut").saldoCentavos).toBeNull();
+  });
+
+  test("los avisos de una tarjeta abren esa cuenta en la app", () => {
+    const { ctx } = preparar();
+    fijarCuenta(dictado(ctx, "la Nu"), { cuenta: "Nu", tipo: "credito", limite: 10000, deuda: 9500, diaPago: Number(ctx.hoy.slice(8, 10)) });
+    revisar(ctx);
+    const nu = estado(ctx, "Nu");
+    const deTarjeta = listarAvisos(ctx).avisos.filter((a) => a.tipo.startsWith("tarjeta_"));
+    expect(deTarjeta.map((a) => a.tipo).sort()).toEqual(["tarjeta_limite", "tarjeta_pago"]);
+    expect(deTarjeta.every((a) => a.enlace === `#cuenta?id=${nu.id}`)).toBe(true);
   });
 });
