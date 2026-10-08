@@ -66,7 +66,7 @@ const CORRECCION = new RegExp(
     /\b(te dije|dije|habia dicho) (que )?(eran |fueron |era |fue )?\d.*\bpero\b/,
     /\ben realidad (fue|fueron|era|eran|es|son) (de |como )?\d|\ben realidad (fue|era) con\b|\ben realidad (pague|gaste)\b/,
     /\bno (eran|fueron|era|fue)\b.*(\b(eran|fueron|era|fue) ((de )?\d|con|en|por|a|al|el|la|los|las|del)\b|\bsino\b)/,
-    /\b(eran|fueron|era|fue|son|es) (de )?\d[\d ]*( pesos)?( y)? no (de )?\d/,
+    /\b((eran|fueron|era|fue|son|es) (de )?)?\d[\d ]*( pesos)?( y)? no (de )?\d/,
     /\b(ponle|ponlo|ponla) \d[\d ]* (al|a la|a los|a las|en el|en la)\b|\bponlo en \d|\bmejor (ponlo|ponla|ponle|pon|que sean|son|eran|fueron)\b/,
     /\b(lo|la|los|las|me lo|me la) (anotaste|registraste|apuntaste|pusiste|cobraste) (dos veces|doble|mal)\b/,
     /\b(esta|quedo|salio) (repetido|duplicado|doble)\b/,

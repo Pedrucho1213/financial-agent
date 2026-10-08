@@ -118,6 +118,7 @@ test("reconoce correcciones que no dicen borra ni cambia, aunque traigan monto",
     "No fue 85, 95",
     "En realidad fueron 1,350 del súper",
     "El café de hace rato fue de 95, no de 85",
+    "Café 95 no 85",
   ]) {
     expect(esOrdenSobreLoAnotado(frase)).toBe(true);
   }

@@ -76,7 +76,7 @@ const CASOS: Caso[] = [
 
   // Sin palabra de corrección: el servidor no la ve venir. Solo informativo (no cuenta como fallo).
   { tipo: "sin palabra", antes: ["Gasté 85 en Starbucks"], frase: "El de Starbucks 95", verificar: (m) => motivo(m.length === 1 && m[0]?.monto === "$95", m) },
-  { tipo: "sin palabra", antes: ["Gasté 85 en Starbucks"], frase: "Café 95 no 85", verificar: (m) => motivo(m.length === 1 && m[0]?.monto === "$95", m) },
+  { tipo: "correccion", antes: ["Gasté 85 en Starbucks"], frase: "Café 95 no 85", verificar: (m) => motivo(m.length === 1 && m[0]?.monto === "$95", m) },
 ];
 
 const ENDPOINT = "https://web.push.apple.com/QGuQyavXutnMtsHJWSeD1h4ztT4fjpQ";
