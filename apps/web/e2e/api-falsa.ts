@@ -1,5 +1,6 @@
 import type { Page, Route } from "@playwright/test";
 import { atenderCuenta } from "./api-falsa-cuenta";
+import { atenderIa } from "./api-falsa-ia";
 import { atenderPlan, planInicial } from "./api-falsa-plan";
 
 // API falsa que sigue docs/api.md, para probar la app sin el servidor.
@@ -42,17 +43,18 @@ type Categoria = {
   naturaleza: "necesidad" | "gusto" | "ahorro" | null;
 };
 
-const SEMILLAS_GASTO: [string, string[]][] = [
-  ["Vivienda", ["Renta", "Luz", "Agua", "Gas", "Internet y teléfono", "Mantenimiento"]],
-  ["Comida", ["Súper", "Restaurantes", "Café", "Antojos", "Delivery"]],
-  ["Transporte", ["Gasolina", "Taxi y apps", "Transporte público", "Estacionamiento", "Casetas", "Auto"]],
-  ["Salud", ["Médico", "Farmacia", "Seguro", "Gimnasio"]],
-  ["Suscripciones", ["Streaming", "Música", "Software", "Otras suscripciones"]],
-  ["Entretenimiento", ["Cine", "Salidas", "Juegos", "Eventos"]],
-  ["Compras", ["Ropa y calzado", "Electrónica", "Hogar"]],
-  ["Cuidado personal", []],
-  ["Educación", []],
-  ["Otros gastos", []],
+// Como las semillas del servidor (apps/server/src/finanzas/catalogos.ts), con su naturaleza.
+const SEMILLAS_GASTO: [string, string[], Categoria["naturaleza"]][] = [
+  ["Vivienda", ["Renta", "Luz", "Agua", "Gas", "Internet y teléfono", "Mantenimiento"], "necesidad"],
+  ["Comida", ["Súper", "Restaurantes", "Café", "Antojos", "Delivery"], "necesidad"],
+  ["Transporte", ["Gasolina", "Taxi y apps", "Transporte público", "Estacionamiento", "Casetas", "Auto"], "necesidad"],
+  ["Salud", ["Médico", "Farmacia", "Seguro", "Gimnasio"], "necesidad"],
+  ["Suscripciones", ["Streaming", "Música", "Software", "Otras suscripciones"], "gusto"],
+  ["Entretenimiento", ["Cine", "Salidas", "Juegos", "Eventos"], "gusto"],
+  ["Compras", ["Ropa y calzado", "Electrónica", "Hogar"], "gusto"],
+  ["Cuidado personal", [], "gusto"],
+  ["Educación", [], "necesidad"],
+  ["Otros gastos", [], "gusto"],
 ];
 const SEMILLAS_INGRESO = ["Sueldo", "Freelance", "Reembolsos", "Otros ingresos"];
 
@@ -65,15 +67,15 @@ function slug(t: string) {
 }
 
 export const CATEGORIAS: Categoria[] = [
-  ...SEMILLAS_GASTO.flatMap(([padre, hijas]) => [
-    { id: `cat-${slug(padre)}`, nombre: padre, nombreCompleto: padre, padreId: null, tipo: "gasto" as const, naturaleza: null },
+  ...SEMILLAS_GASTO.flatMap(([padre, hijas, naturaleza]) => [
+    { id: `cat-${slug(padre)}`, nombre: padre, nombreCompleto: padre, padreId: null, tipo: "gasto" as const, naturaleza },
     ...hijas.map((h) => ({
       id: `cat-${slug(h)}`,
       nombre: h,
       nombreCompleto: `${padre} > ${h}`,
       padreId: `cat-${slug(padre)}`,
       tipo: "gasto" as const,
-      naturaleza: null,
+      naturaleza,
     })),
   ]),
   ...SEMILLAS_INGRESO.map((n) => ({
@@ -93,7 +95,7 @@ function cat(nombre: string) {
 }
 
 let siguienteId = 1;
-function mov(
+export function mov(
   fecha: string,
   tipo: Tipo,
   pesos: number,
@@ -264,6 +266,8 @@ export class ApiFalsa {
       return json(estado, datos);
     };
     await atenderCuenta(this, { metodo, ruta, cuerpo, autorizado: req.headers().authorization === `Bearer ${TOKEN}`, json: responder });
+    if (respondido) return;
+    await atenderIa(this, { metodo, ruta, cuerpo, autorizado: req.headers().authorization === `Bearer ${TOKEN}`, json: responder });
     if (respondido) return;
 
     // Públicas

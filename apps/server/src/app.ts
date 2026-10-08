@@ -53,9 +53,11 @@ import { and, count, eq, gte, sql } from "drizzle-orm";
 import { avisoDeDictado, conversacionPorContestar } from "./push/dictados";
 import { desuscribir, type EnviarPush, ErrorSuscripcion, estadoPush, notificar, suscribir, tienePush } from "./push/notificaciones";
 import { notaDelGasto } from "./finanzas/comentario";
+import { rutasIa } from "./rutas-ia";
 import { rutasPlanes } from "./rutas-planes";
 import { servirApp } from "./web";
 import type { EstadoIa } from "./ai/modelo";
+import type { ControlIa } from "./ai/encendido";
 
 export type OpcionesApp = Dependencias & {
   /** Precarga el modelo de IA con las instrucciones del usuario; en pruebas no hace nada. */
@@ -75,6 +77,8 @@ export type OpcionesApp = Dependencias & {
   contactoPush?: string;
   /** Para "Estado del sistema" en Ajustes: cómo está la IA. Sin esto se reporta como no disponible. */
   estadoIa?: () => Promise<EstadoIa>;
+  /** Interruptor de la IA para desarrollo (IA_INTERRUPTOR). Sin él, /v1/ia no existe. */
+  controlIa?: ControlIa;
   /** Qué versión del código corre (commit y su fecha), para saber qué está desplegado. */
   version?: { commit: string | null; commitEn: string | null };
   /** Límites del código personal; las pruebas los bajan para no verificar cien veces con argon2. */
@@ -149,8 +153,14 @@ const PRUEBA_PUSH_CADA_MS = 15_000;
 // con otro folio.
 const PAGO_REPETIDO_MS = 90_000;
 
-/** Lo que el Atajo dice cuando registró y el resultado llega por notificación. */
-export const RESPUESTA_RAPIDA = "Anotado.";
+/**
+ * Lo que el Atajo dice cuando registró y el resultado llega por notificación. Va cambiando para que no
+ * siempre diga lo mismo; la primera es "Anotado".
+ */
+export const RESPUESTAS_RAPIDAS = ["Anotado.", "Listo.", "Ya quedó.", "Hecho.", "Va, anotado.", "Registrado."] as const;
+
+// Herramientas que cambian algo ya guardado: lo que la IA conteste sobre eso se oye, no se tapa.
+const CAMBIAN_LO_ANOTADO = new Set(["editar_movimiento", "eliminar_movimiento", "deshacer", "editar_recurrente", "olvidar"]);
 
 // Los Atajos mandan "" en los campos vacíos; se tratan como ausentes.
 function sinVacios(cuerpo: unknown): unknown {
@@ -317,16 +327,23 @@ export function crearApp(opciones: OpcionesApp) {
    * "Anotado" y lo anotado llega por notificación, igual que si no la hubiera esperado. Si tardó más de
    * lo que se esperó, la notificación sale sola al terminar.
    */
+  const rapidasDichas = new Map<string, number>();
+  const respuestaRapida = (usuarioId: string) => {
+    const n = rapidasDichas.get(usuarioId) ?? 0;
+    rapidasDichas.set(usuarioId, n + 1);
+    return RESPUESTAS_RAPIDAS[n % RESPUESTAS_RAPIDAS.length]!;
+  };
   const sinComentarioEsRapida = (usuarioId: string, clientId: string, r: Respuesta): Respuesta => {
-    if (r.pendiente) return { ...r, respuesta: RESPUESTA_RAPIDA };
+    if (r.pendiente) return { ...r, respuesta: respuestaRapida(usuarioId) };
     if (r.duplicado || r.comentario || r.dato || r.respuesta.includes("?")) return r;
+    if (r.acciones.some((a) => CAMBIAN_LO_ANOTADO.has(a.herramienta))) return r;
     const entrada = db
       .select()
       .from(entradas)
       .where(and(eq(entradas.usuarioId, usuarioId), eq(entradas.clientId, clientId)))
       .get();
     if (entrada) deps.alTerminarSinEspera(entrada, r);
-    return { ...r, respuesta: RESPUESTA_RAPIDA };
+    return { ...r, respuesta: respuestaRapida(usuarioId) };
   };
   const contexto = (usuarioId: string) =>
     crearContexto({ db, usuarioId, zonaHoraria: opciones.zonaHoraria, monedaBase: opciones.monedaBase });
@@ -523,9 +540,10 @@ export function crearApp(opciones: OpcionesApp) {
     const delAtajo = p.espera_ms === undefined;
     // Sin monto, lo que conteste importa tanto como en una pregunta: puede pedir un dato ("¿de cuánto fue?")
     // o decir qué borró o cambió. Si contestara "Anotado" y lo terminara sola, nadie oiría esa respuesta.
-    // Lo mismo al borrar o cambiar algo, aunque diga el monto: "borra el café de 85" (QA-029).
+    // Lo mismo al borrar, cambiar o corregir algo, aunque diga el monto: "borra el café de 85" (QA-029),
+    // "no eran 85, eran 95": se espera a la IA y se oye qué cambió.
     const pregunta = esPregunta(p.texto) || montosDelTexto(p.texto).length === 0 || esOrdenSobreLoAnotado(p.texto);
-    // Con notificaciones, un registro no espera a la IA: el Atajo dice "Anotado" y termina, y lo que
+    // Con notificaciones, un registro no espera a la IA: el Atajo dice "Anotado" (o "Listo", "Hecho") y termina, y lo que
     // anotó llega en una notificación. Solo si el gasto tiene algo que vale la pena decir
     // (finanzas/comentario.ts), la espera para decirlo. Las preguntas se siguen contestando en voz.
     // En el reloj no: la notificación va a la app del iPhone y, si no está cerca, nunca le llega.
@@ -997,6 +1015,8 @@ export function crearApp(opciones: OpcionesApp) {
   });
 
   rutasPlanes(v1, contexto);
+  // Al encender o apagar, Ajustes ve el estado nuevo de la IA sin esperar los 10 s del caché.
+  if (opciones.controlIa) rutasIa(v1, { control: opciones.controlIa, esDueno, alCambiar: () => (iaReciente = null) });
 
   // Prepara el Atajo con un token propio y deja el archivo firmado 10 minutos para descargarlo.
   // tipo "apple_pay" prepara el Atajo que corre la automatización de la Cartera.

@@ -356,7 +356,15 @@ function UltimosMeses({ t }: { t: Tablero }) {
   const elegido = t.porMes[sel] ?? t.porMes[ultimo];
   return (
     <section>
-      <TituloSeccion>Últimos 6 meses</TituloSeccion>
+      <TituloSeccion
+        accion={
+          <Button variant="plain" size="text" className="text-[15px]" onClick={() => navegar(hashDe("analisis", { periodo: "6m", ref: `${t.mes}-01` }))}>
+            Ver análisis
+          </Button>
+        }
+      >
+        Últimos 6 meses
+      </TituloSeccion>
       <div className="rounded-[20px] bg-card p-4">
         <div className="grid grid-cols-2 gap-4" aria-live="polite">
           <div className="min-w-0">
@@ -461,7 +469,17 @@ function PorCategoria({ t }: { t: Tablero }) {
 
   return (
     <section>
-      <TituloSeccion>Por categoría</TituloSeccion>
+      <TituloSeccion
+        accion={
+          items.length ? (
+            <Button variant="plain" size="text" className="text-[15px]" onClick={() => navegar(hashDe("analisis", { ref: `${t.mes}-01` }))}>
+              Comparar
+            </Button>
+          ) : undefined
+        }
+      >
+        Por categoría
+      </TituloSeccion>
       {items.length === 0 ? (
         <div className="rounded-[20px] bg-card px-6 py-8 text-center">
           <p className="text-[17px] font-semibold">Aún no hay gastos este mes</p>
