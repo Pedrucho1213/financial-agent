@@ -78,6 +78,8 @@ describe("el gasto más grande", () => {
     crearMovimiento(ctx, { tipo: "gasto", monto: 1400, categoria: "Súper", comercio: "Walmart", fecha: "2026-10-03" } as never);
     crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café", fecha: "2026-10-07" } as never);
     crearMovimiento(ctx, { tipo: "gasto", monto: 9000, categoria: "Viajes", fecha: "2026-09-20" } as never);
+    // La quincena es más grande, pero no es un gasto (M5: "tu ingreso más grande fue Sueldo").
+    crearMovimiento(ctx, { tipo: "ingreso", monto: 12000, categoria: "Sueldo", fecha: "2026-10-01" } as never);
     const resp = [llamada("buscar_movimientos", args), texto(MODELO)];
     const modelo = new MockLanguageModelV4({ doGenerate: async () => resp.shift() as never });
     const r = await hablar({ db, modelo, zonaHoraria: "America/Mexico_City", monedaBase: "MXN" }, usuario.id, {

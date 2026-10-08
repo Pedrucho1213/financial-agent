@@ -420,7 +420,8 @@ const huella = (m: Movimiento) =>
  * El movimiento a editar o eliminar: por id, o con una búsqueda que deje uno solo. Con `varios` ("borra
  * los tacos"), si coinciden pocos el error le pide a la IA ir uno por uno con su id.
  */
-export function idDelMovimiento(ctx: Contexto, id?: string, buscar?: Busqueda, varios = false): string {
+/** `cuantos`: los que dijo la frase ("borra los dos cafés"); si coinciden justo esos, son ellos. */
+export function idDelMovimiento(ctx: Contexto, id?: string, buscar?: Busqueda, varios = false, cuantos?: number): string {
   if (id) return id;
   if (!buscar) throw new ErrorFinanzas("Indica el id o qué buscar.");
   const cats = listarCategorias(ctx.db, ctx.usuarioId);
@@ -445,7 +446,9 @@ export function idDelMovimiento(ctx: Contexto, id?: string, buscar?: Busqueda, v
     const d = describir(ctx, m, cats);
     return `${d.comercio ?? d.categoria ?? d.tipo} de ${d.monto} del ${d.fecha} (id ${d.id})`;
   });
-  const queHacer = !varios
+  const queHacer = !varios && cuantos === filas.length
+    ? `Son justo los ${cuantos} que pidió: hazlo con el id de cada uno, uno por uno, sin preguntar.`
+    : !varios
     ? "Pregunta cuál; si pidió borrar o cambiar varios, usa el id de cada uno."
     : filas.length <= 3
       ? "Pidió varios: hazlo con el id de cada uno, uno por uno, sin preguntar."

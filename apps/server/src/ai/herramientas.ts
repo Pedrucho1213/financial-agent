@@ -11,6 +11,7 @@ import {
   eliminarMovimiento,
   ErrorFinanzas,
   idDelMovimiento,
+  idsQueCoinciden,
   nombraOtroMovimiento,
   resumir,
 } from "../finanzas/movimientos";
@@ -35,7 +36,7 @@ import { respuestaDeConsulta, respuestaDelMasGrande } from "./consultas";
 import { herramientasCuentas } from "./herramientas-cuentas";
 import { esPagoDeTarjeta, esSaldoDicho, moverDinero, nombresDeTarjetas } from "../finanzas/cuentas";
 import { apartaParaMeta, herramientasPlanes, mensualidadDe, nombresDePlanes, pagaPrestamo, prestaDinero } from "./herramientas-planes";
-import { monedaDelTexto, normalizar, tipoDelTexto } from "../lib/texto";
+import { esOrdenSobreLoAnotado, monedaDelTexto, normalizar, tipoDelTexto } from "../lib/texto";
 
 /** Lo que hizo una herramienta: con qué la llamó el modelo y qué resultó. */
 export type Accion = { herramienta: string; argumentos: unknown; resultado: unknown };
@@ -160,6 +161,8 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
   // pregunte; si pidió varios ("borra los tacos"), que use el id de cada uno. "Fueron 70" a secas, sin
   // nombrar nada, sí es lo último que anotó.
   const pideVarios = !!ctx.textoOriginal && PIDE_VARIOS.test(normalizar(ctx.textoOriginal));
+  // "Borra los dos cafés de ayer" o "ambos": si el modelo busca sin mas_reciente y salen justo dos, son esos.
+  const cuantosDice = /\b(ambos|ambas|(los|las) (ultim[oa]s )?(dos|2))\b/.test(normalizar(ctx.textoOriginal ?? "")) ? 2 : undefined;
   // "Mi último gasto" no es un ingreso que llegó después.
   const tipoDicho = normalizar(ctx.textoOriginal ?? "").match(/\bultimo (gasto|ingreso)\b/)?.[1] as "gasto" | "ingreso" | undefined;
   const comoLoDijo = <B extends { texto?: string; categoria?: string; mas_reciente?: boolean }>(buscar?: B): (B & { tipo?: "gasto" | "ingreso" }) | undefined => {
@@ -284,6 +287,20 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
           );
           if (inventado) throw new ErrorFinanzas("No dijo cuánto y no es un monto de siempre: no registres nada y pregúntale de cuánto fue.");
         }
+        // "El café de hoy fueron 95, no 85": el de 85 ya está anotado; es una corrección, no otro café.
+        if (unico && !pago && esOrdenSobreLoAnotado(texto!)) {
+          const nuevo = movimientos[0]!;
+          const tipo = nuevo.tipo === "ingreso" ? ("ingreso" as const) : ("gasto" as const);
+          const anterior = montosDelTexto(texto!)
+            .filter((x) => x !== nuevo.monto)
+            .map((x) => ({ monto: x, id: idsQueCoinciden(ctx, { monto: x, tipo })[0] }))
+            .find((a) => a.id);
+          if (anterior) {
+            throw new ErrorFinanzas(
+              `Es una corrección: ya está anotado uno de ${anterior.monto} (id ${anterior.id}). Corrígelo con editar_movimiento con ese id; no registres otro.`,
+            );
+          }
+        }
         return {
           registrados: movimientos.map((m, i) => {
             // Una transferencia o un pago de tarjeta va por mover_dinero: valida las cuentas y dice cómo quedaron.
@@ -340,7 +357,10 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         limite: z.number().int().optional().describe("Cuántos regresar, 5 por omisión."),
         mas_grandes: z.boolean().optional().describe('true para "¿cuál fue mi gasto más grande?": del más grande al más chico.'),
       }),
-      execute: ejecutar("buscar_movimientos", (filtro) => {
+      execute: ejecutar("buscar_movimientos", (pedido) => {
+        // "¿Cuál fue mi gasto más grande?" no es la quincena: sin tipo, lo más grande es de gastos.
+        const deIngresos = /\b(ingreso|ingresos|me pagaron|me depositaron|me llego|cobre)\b/.test(normalizar(ctx.textoOriginal ?? ""));
+        const filtro = pedido.mas_grandes && !pedido.tipo ? { ...pedido, tipo: deIngresos ? ("ingreso" as const) : ("gasto" as const) } : pedido;
         const encontrados = buscarMovimientos(ctx, filtro);
         const respuesta = respuestaDelMasGrande(ctx, filtro, encontrados.movimientos);
         return respuesta ? { ...encontrados, respuesta } : encontrados;
@@ -360,7 +380,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
       }),
       execute: ejecutar("editar_movimiento", ({ id, buscar, cambios }) => {
         const { quitar_etiquetas, ...resto } = cambios;
-        const ultimo = idDelMovimiento(ctx, id, comoLoDijo(buscar), pideVarios);
+        const ultimo = idDelMovimiento(ctx, id, comoLoDijo(buscar), pideVarios, cuantosDice);
         const elegido = id ? ultimo : noEsOtro(ultimo, buscar, [cambios.categoria, cambios.comercio, cambios.descripcion]);
         return {
           // Un "" del modelo no borra nada: para la IA, vacío es lo mismo que no mandarlo.
@@ -379,7 +399,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         buscar: busqueda.optional(),
       }),
       execute: ejecutar("eliminar_movimiento", ({ id, buscar }) => {
-        const ultimo = idDelMovimiento(ctx, id, comoLoDijo(buscar), pideVarios);
+        const ultimo = idDelMovimiento(ctx, id, comoLoDijo(buscar), pideVarios, cuantosDice);
         const elegido = id ? ultimo : noEsOtro(ultimo, buscar);
         return { eliminado: eliminarMovimiento(ctx, elegido) };
       }),

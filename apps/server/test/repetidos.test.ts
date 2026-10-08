@@ -176,3 +176,43 @@ describe("un monto que nadie dijo (QA-097)", () => {
     expect(enCharla.error).toBeUndefined();
   });
 });
+
+describe("una corrección que el modelo manda como registro nuevo (M5)", () => {
+  test('"el café de hoy fueron 95, no 85" no anota otro café: dice cuál corregir', async () => {
+    const { ctx } = preparar();
+    const cafe = crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café" } as never);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 800, categoria: "Gasolina" } as never);
+    const r = await llamar(dictado(ctx, "El café de hoy fueron 95, no 85"), "registrar_movimientos", {
+      movimientos: [{ tipo: "gasto", monto: 95, categoria: "Café" }],
+    });
+    expect(r.error).toContain(`editar_movimiento con ese id`);
+    expect(r.error).toContain(cafe.id);
+    expect(todos(ctx)).toHaveLength(2);
+  });
+
+  test('"me equivoqué, fueron 120" sin otro monto anotado sí se registra', async () => {
+    const { ctx } = preparar();
+    crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café" } as never);
+    const r = await llamar(dictado(ctx, "Me equivoqué, fueron 120 de tacos"), "registrar_movimientos", {
+      movimientos: [{ tipo: "gasto", monto: 120, descripcion: "tacos" }],
+    });
+    expect(r.error).toBeUndefined();
+    expect(todos(ctx)).toHaveLength(2);
+  });
+});
+
+describe('"borra los dos cafés" sin mas_reciente (M5)', () => {
+  test("si salen justo dos, la IA los borra uno por uno sin preguntar", async () => {
+    const { ctx } = preparar();
+    crearMovimiento(ctx, { tipo: "gasto", monto: 60, categoria: "Café", comercio: "Starbucks", fecha: "ayer" } as never);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 45, categoria: "Café", comercio: "Oxxo", fecha: "ayer" } as never);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 30, categoria: "Café" } as never);
+    const c = dictado(ctx, "Borra los dos cafés de ayer");
+    const r = await llamar(c, "eliminar_movimiento", { buscar: { texto: "café", periodo: "ayer" } });
+    expect(r.error).toContain("Son justo los 2 que pidió");
+    // Con tres que coinciden, sí pregunta cuáles.
+    const tres = await llamar(c, "eliminar_movimiento", { buscar: { texto: "café" } });
+    expect(tres.error).toContain("Pregunta cuál");
+    expect(todos(ctx)).toHaveLength(3);
+  });
+});
