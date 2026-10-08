@@ -160,19 +160,23 @@ export function estadoDeCuenta(ctx: Contexto, cuentaId: string): EstadoCuenta {
 
 /** Lo que suma todo: el dinero en cuentas, lo que debe en tarjetas y lo que le queda de crédito. */
 export function totalesDeCuentas(estados: EstadoCuenta[]) {
-  const debito = estados.filter((e) => !e.esCredito && e.saldoCentavos !== null);
-  const credito = estados.filter((e) => e.esCredito);
+  const vigentes = estados.filter((e) => !e.archivada);
+  const debito = vigentes.filter((e) => !e.esCredito && e.saldoCentavos !== null);
+  const credito = vigentes.filter((e) => e.esCredito);
+  // Límite y disponible juntos, de las tarjetas que tienen los dos: una con límite y deuda sin decir no es
+  // "100 % usada", y una con solo el disponible no dice cuánto se ha usado.
+  const conLimite = credito.filter((e) => e.limiteCentavos !== null && e.disponibleCentavos !== null);
   const suma = (xs: (number | null)[]) => xs.reduce<number>((s, x) => s + (x ?? 0), 0);
   return {
     dineroCentavos: suma(debito.map((e) => e.saldoCentavos)),
     deudaCentavos: suma(credito.map((e) => (e.deudaCentavos !== null && e.deudaCentavos > 0 ? e.deudaCentavos : 0))),
-    disponibleCreditoCentavos: suma(credito.map((e) => e.disponibleCentavos)),
-    limiteCreditoCentavos: suma(credito.map((e) => e.limiteCentavos)),
+    disponibleCreditoCentavos: suma(conLimite.map((e) => e.disponibleCentavos)),
+    limiteCreditoCentavos: suma(conLimite.map((e) => e.limiteCentavos)),
     /** Patrimonio líquido: lo que tiene menos lo que debe en tarjetas. */
     netoCentavos: suma(debito.map((e) => e.saldoCentavos)) - suma(credito.map((e) => e.deudaCentavos)),
     cuentasConSaldo: debito.length,
     tarjetasConDeuda: credito.filter((e) => e.deudaCentavos !== null).length,
-    sinSaldo: estados.filter((e) => !e.conocido).map((e) => e.nombre),
+    sinSaldo: vigentes.filter((e) => !e.conocido).map((e) => e.nombre),
   };
 }
 
