@@ -36,6 +36,11 @@ const CASOS = [
   { texto: "En Bancomer tengo 12,500 y en Wise 2,000 dólares", cuentas: [{ cuenta: "Bancomer", saldo: 12500 }, { cuenta: "Wise", saldo: 2000 }], cifra: "2,000", pesos: { Bancomer: 12500 } },
   { texto: "Tengo 2,000 USD en Wise", cuentas: [{ cuenta: "Wise", saldo: 2000 }], cifra: "2,000", pesos: {} },
   { texto: "Tengo 1,234.50 dólares en Wise y 3,000 en Revolut", cuentas: [{ cuenta: "Wise", saldo: 1234.5 }, { cuenta: "Revolut", saldo: 3000 }], cifra: "1,234.5", pesos: { Revolut: 3000 } },
+  // 3e822ee: más formas de decirlo.
+  { texto: "Tengo 10 mil en Bancomer, 1,500 dólares en Wise y 5 mil en Revolut", cuentas: [{ cuenta: "Bancomer", saldo: 10000 }, { cuenta: "Wise", saldo: 1500 }, { cuenta: "Revolut", saldo: 5000 }], cifra: "1,500", pesos: { Bancomer: 10000, Revolut: 5000 } },
+  { texto: "Tengo US$ 200 en Wise y 4,500 en Bancomer", cuentas: [{ cuenta: "Wise", saldo: 200 }, { cuenta: "Bancomer", saldo: 4500 }], cifra: "200", pesos: { Bancomer: 4500 } },
+  { texto: "Tengo 350 dlls en Wise", cuentas: [{ cuenta: "Wise", saldo: 350 }], cifra: "350", pesos: {} },
+  { texto: "En Wise tengo dos mil dólares y en Bancomer 8,000", cuentas: [{ cuenta: "Wise", saldo: 2000 }, { cuenta: "Bancomer", saldo: 8000 }], cifra: "2,000", pesos: { Bancomer: 8000 } },
 ];
 
 describe("PR #41: pesos y otra moneda en una frase", () => {
