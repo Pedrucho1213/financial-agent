@@ -105,6 +105,13 @@ const MES_TIPICO = (ctx: Contexto) => {
   crearMovimiento(ctx, { tipo: "gasto", monto: 300, categoria: "Taxi y apps", comercio: "Uber", cuenta: "Nu" } as never);
   crearMovimiento(ctx, { tipo: "gasto", monto: 900, categoria: "Súper", comercio: "Walmart", cuenta: "Nu" } as never);
 };
+// Con 5 o más gastos (MINIMO_GASTOS del #39) para que analizar haga el análisis completo: total 14,175.
+const MES_COMPLETO = (ctx: Contexto) => {
+  MES_TIPICO(ctx);
+  crearMovimiento(ctx, { tipo: "gasto", monto: 150, categoria: "Súper", comercio: "Oxxo", cuenta: "Nu" } as never);
+  crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café", comercio: "Starbucks", cuenta: "Nu" } as never);
+  crearMovimiento(ctx, { tipo: "gasto", monto: 240, categoria: "Entretenimiento", comercio: "Cinépolis", cuenta: "Nu" } as never);
+};
 
 type Caso = {
   grupo: string;
@@ -215,12 +222,13 @@ const CASOS: Caso[] = [
   { grupo: "feedback", frase: "Deshaz eso", previos: [...CUENTAS_Y_NU, "Pagué 3 mil a la Nu desde Bancomer"], verificar: (r) => no(cerca(r.saldo("bancomer"), 10000) && cerca(r.usado("nu"), 12000), { ban: r.saldo("bancomer"), u: r.usado("nu") }) },
 
   // ── Análisis por voz (PR #39: herramienta analizar y respuestas de consulta armadas en código) ──
-  { grupo: "analisis", frase: "¿Cómo voy?", preparar: MES_TIPICO, verificar: (r) => no((r.usoHerramienta("analizar") || r.usoHerramienta("consultar_gastos")) && /\d/.test(r.respuesta) && r.nuevos().length === 0, { h: r.herramientas, resp: r.respuesta }) },
-  { grupo: "analisis", frase: "¿En qué puedo ahorrar?", preparar: MES_TIPICO, verificar: (r) => no(r.usoHerramienta("analizar") && r.nuevos().length === 0, { h: r.herramientas, resp: r.respuesta }) },
-  { grupo: "analisis", frase: "¿Cómo voy a cerrar el mes?", preparar: MES_TIPICO, verificar: (r) => no(r.usoHerramienta("analizar") && /\d/.test(r.respuesta), { h: r.herramientas, resp: r.respuesta }) },
+  { grupo: "analisis", frase: "¿Cómo voy?", preparar: MES_COMPLETO, verificar: (r) => no((r.usoHerramienta("analizar") || r.usoHerramienta("consultar_gastos")) && /\d/.test(r.respuesta) && r.nuevos().length === 0, { h: r.herramientas, resp: r.respuesta }) },
+  { grupo: "analisis", frase: "¿Cómo voy?", preparar: MES_TIPICO, verificar: (r) => no((r.dice("13700") || r.dice("13,700") || /13 mil/.test(r.respuesta)) && r.nuevos().length === 0, { h: r.herramientas, resp: r.respuesta }), nota: "QA-090: con pocos gastos igual dice cuánto lleva" },
+  { grupo: "analisis", frase: "¿En qué puedo ahorrar?", preparar: MES_COMPLETO, verificar: (r) => no(r.usoHerramienta("analizar") && r.nuevos().length === 0, { h: r.herramientas, resp: r.respuesta }) },
+  { grupo: "analisis", frase: "¿Cómo voy a cerrar el mes?", preparar: MES_COMPLETO, verificar: (r) => no(r.usoHerramienta("analizar") && /\d/.test(r.respuesta), { h: r.herramientas, resp: r.respuesta }) },
   { grupo: "analisis", frase: "¿Cómo voy con mi presupuesto de comida?", previos: ["Pon un presupuesto de comida de 3000 al mes"], preparar: MES_TIPICO, verificar: (r) => no(r.usoHerramienta("consultar_planes"), r.herramientas), nota: "presupuesto: consultar_planes, no analizar" },
   { grupo: "analisis", frase: "¿Cuánto gasté con la Nu?", preparar: MES_TIPICO, verificar: (r) => no(!r.dice("13700") && !r.dice("13,700"), r.respuesta), nota: "QA-085: no dar el total de todas las cuentas" },
-  { grupo: "analisis", frase: "¿Cuánto gasté este mes sin contar la renta?", preparar: MES_TIPICO, verificar: (r) => no(r.dice("1200") && !r.dice("13700"), r.respuesta), nota: "QA-085" },
+  { grupo: "analisis", frase: "¿Cuánto gasté este mes sin contar la renta?", preparar: MES_TIPICO, verificar: (r) => no(r.dice("1200") && !r.dice("13700"), r.respuesta), nota: "QA-085 / QA-091: la renta es un gasto del mes, no un recurrente" },
   { grupo: "analisis", frase: "¿En qué gasté menos este mes?", preparar: MES_TIPICO, verificar: (r) => no(!/gastaste mas en (vivienda|renta)/.test(normalizar(r.respuesta)), r.respuesta), nota: "QA-085: no contestar al revés" },
   { grupo: "analisis", frase: "¿Cuánto gasté en Uber este mes?", preparar: MES_TIPICO, verificar: (r) => no(r.dice("300") && !r.dice("13700"), r.respuesta) },
 
