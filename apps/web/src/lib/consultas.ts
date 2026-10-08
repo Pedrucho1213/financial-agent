@@ -1,5 +1,14 @@
-import { QueryClient, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  defaultShouldDehydrateQuery,
+  type Query,
+  QueryClient,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
+import { removeOldestQuery } from "@tanstack/react-query-persist-client";
 import { api, ErrorApi } from "./api";
 import { alCerrarSesion } from "./sesion";
 import { aFila, type Fila } from "./filas";
@@ -23,7 +32,19 @@ export const clienteConsultas = new QueryClient({
 export const persistidor = createSyncStoragePersister({
   storage: typeof window === "undefined" ? undefined : window.localStorage,
   key: "fa_cache",
+  // Si localStorage se llena (~5 MB en iOS), quita la consulta más vieja y reintenta,
+  // en vez de dejar de guardar todo el caché sin avisar.
+  retry: removeOldestQuery,
 });
+
+/**
+ * Qué se guarda para abrir sin conexión. De Análisis, solo el periodo en pantalla: un año son dos años
+ * de movimientos, y cada periodo recorrido sería otra copia en localStorage.
+ */
+export function guardarSinConexion(q: Query) {
+  if (!defaultShouldDehydrateQuery(q)) return false;
+  return q.queryKey[1] !== "analisis" || q.getObserversCount() > 0;
+}
 
 alCerrarSesion(() => {
   clienteConsultas.clear();
@@ -206,6 +227,8 @@ export function useFilasAnalisis(desde: string, hasta: string) {
   return useQuery<FilasAnalisis>({
     queryKey: ["movimientos", "analisis", desde, hasta] as const,
     staleTime: 60_000,
+    // Los periodos que ya no se ven salen pronto de memoria.
+    gcTime: 10 * 60_000,
     placeholderData: (previo) => previo,
     queryFn: async ({ signal }) => {
       const filas: Fila[] = [];

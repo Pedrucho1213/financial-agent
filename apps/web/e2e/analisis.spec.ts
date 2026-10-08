@@ -309,4 +309,59 @@ test.describe("Análisis", () => {
       expect(cortados, periodo).toEqual([]);
     }
   });
+
+  test("sin conexión solo se guarda el periodo en pantalla, no cada uno que se recorre", async ({ page }) => {
+    await prepararSesion(page, conHistorial(new ApiFalsa()));
+    const guardados = () =>
+      page.evaluate(() => {
+        const cache = JSON.parse(localStorage.getItem("fa_cache") ?? "{}") as { clientState?: { queries?: { queryKey: unknown[] }[] } };
+        return (cache.clientState?.queries ?? []).filter((q) => q.queryKey[1] === "analisis").map((q) => q.queryKey.slice(2).join(".."));
+      });
+    await page.goto("/#analisis?periodo=anio");
+    await expect(titulo(page)).toHaveText("nov 2025 – oct 2026");
+    await page.getByRole("radio", { name: "6M" }).click();
+    await expect(titulo(page)).toHaveText("may – oct 2026");
+    await page.getByRole("radio", { name: "S" }).click();
+    await expect(total(page)).toHaveText("$1,690.40");
+    await expect.poll(guardados, { timeout: 5_000 }).toEqual(["2026-09-28..2026-10-11"]);
+  });
+
+  test("con localStorage casi lleno, el caché se sigue guardando (quita lo más viejo)", async ({ page }) => {
+    // Llena localStorage hasta dejar ~40 KB libres: el año de Análisis (~100 KB) no cabe junto con lo demás.
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem("fa_lleno")) return;
+      sessionStorage.setItem("fa_lleno", "1");
+      const bloque = "x".repeat(256 * 1024);
+      let i = 0;
+      try {
+        for (; i < 400; i++) localStorage.setItem(`relleno-${i}`, bloque);
+      } catch {
+        // lleno
+      }
+      for (let tam = 128 * 1024; tam >= 1024; tam = Math.floor(tam / 2)) {
+        try {
+          for (;;) localStorage.setItem(`relleno-${i++}`, "y".repeat(tam));
+        } catch {
+          // ya no cabe uno de este tamaño
+        }
+      }
+      // Deja espacio para el token y para el caché chico de siempre.
+      localStorage.removeItem(`relleno-${i - 1}`);
+      for (let k = 0; k < 400; k++) {
+        if (localStorage.getItem(`relleno-${k}`)?.length === 256 * 1024) {
+          localStorage.setItem(`relleno-${k}`, "x".repeat(256 * 1024 - 40 * 1024));
+          break;
+        }
+      }
+    });
+    await prepararSesion(page, conHistorial(new ApiFalsa()));
+    await page.goto("/#analisis?periodo=anio");
+    await expect(titulo(page)).toHaveText("nov 2025 – oct 2026");
+    // El caché sí se escribió (sin reintento, el error de cuota lo dejaba sin guardar nada).
+    await expect
+      .poll(() => page.evaluate(() => (localStorage.getItem("fa_cache") ?? "").length), { timeout: 5_000 })
+      .toBeGreaterThan(0);
+    const cache = await page.evaluate(() => localStorage.getItem("fa_cache") ?? "");
+    expect(cache.length).toBeLessThan(40 * 1024);
+  });
 });
