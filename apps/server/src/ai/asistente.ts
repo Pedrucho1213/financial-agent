@@ -93,9 +93,17 @@ function cargarHistorial(db: Db, usuarioId: string, conversacionId: string): Mod
     .all()
     .map((m) => m.contenido as ModelMessage);
   const recientes = filas.slice(-MAX_MENSAJES_HISTORIAL);
-  // No empezar a media llamada de herramienta: el historial arranca en un mensaje del usuario.
+  // No empezar a media llamada de herramienta: el historial arranca en un mensaje del usuario, con los
+  // datos del usuario que iban justo antes (ver `procesar`).
   const inicio = recientes.findIndex((m) => m.role === "user");
-  return inicio === -1 ? [] : recientes.slice(inicio);
+  if (inicio === -1) return [];
+  return recientes.slice(inicio > 0 && recientes[inicio - 1]!.role === "system" ? inicio - 1 : inicio);
+}
+
+/** Los últimos datos del usuario que ya están en la conversación. */
+function ultimosDatos(historial: ModelMessage[]): string | undefined {
+  const m = historial.findLast((x) => x.role === "system");
+  return m && typeof m.content === "string" ? m.content : undefined;
 }
 
 // Palabras con las que el modelo dice que ya hizo algo ("Listo", "registré", "lo borré"), sin acentos.
@@ -655,6 +663,11 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   ctx.confiarEnMasReciente = anterior.includes("?") && PIDE_ELEGIR.test(normalizar(anterior));
   // Si un paso solo guardó, corrigió o borró, la confirmación se arma aquí y el modelo no da otra vuelta.
   let confirmacion: string | undefined;
+  // Lo que cambia mientras se usa va en un mensaje aparte, antes del dictado, y se guarda con la
+  // conversación: el turno siguiente empieza igual que este y Ollama reutiliza lo ya procesado
+  // (instrucciones, herramientas, datos y lo dicho). Si no cambiaron desde el último turno, no se repiten.
+  const datosActuales = datosDelUsuario(ctx);
+  const datosNuevos = datosActuales && datosActuales !== ultimosDatos(historial) ? datosActuales : undefined;
   // Lo que tiene de raro el gasto dictado, antes de que la IA lo anote (es lo que hace esperar al Atajo).
   const nota =
     montosDelTexto(entrada.texto).length > 0 && !esPregunta(entrada.texto) && !esOrdenSobreLoAnotado(entrada.texto)
@@ -662,9 +675,8 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
       : undefined;
   const generar = (aviso = "") => {
     confirmacion = undefined;
-    // Lo que cambia mientras se usa (y el aviso de un reintento) va justo antes del dictado, no en las
-    // instrucciones: así Ollama reutiliza lo ya procesado de instrucciones, herramientas e historial.
-    const datos = [datosDelUsuario(ctx), aviso.trim()].filter(Boolean).join("\n\n");
+    // El aviso de un reintento va con los datos, justo antes del dictado, no en las instrucciones.
+    const datos = [datosNuevos, aviso.trim()].filter(Boolean).join("\n\n");
     return generateText({
       model: deps.modelo,
       instructions: construirInstrucciones(ctx),
@@ -780,7 +792,8 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
     ...(comentario ? { comentario } : {}),
   };
   db.transaction((tx) => {
-    for (const contenido of [mensajeUsuario, ...mensajesRespuesta]) {
+    const datosGuardados: ModelMessage[] = datosNuevos ? [{ role: "system", content: datosNuevos }] : [];
+    for (const contenido of [...datosGuardados, mensajeUsuario, ...mensajesRespuesta]) {
       tx.insert(mensajes).values({ usuarioId, conversacionId, contenido }).run();
     }
     tx.update(entradas).set({ estado: "listo", respuesta }).where(eq(entradas.id, entrada.id)).run();
