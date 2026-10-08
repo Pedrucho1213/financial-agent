@@ -25,6 +25,9 @@ export type MovimientoApp = {
   origen: Origen;
   textoOriginal: string | null;
   revisar: boolean;
+  /** Con cuentas y etiquetas (servidores nuevos). En una transferencia o pago, `cuenta` es de donde sale. */
+  cuentaId?: string | null;
+  cuentaDestinoId?: string | null;
 };
 
 export type Categoria = {
@@ -98,6 +101,9 @@ export type Tablero = {
     frecuencia: string;
   }[];
   porRevisar: number;
+  /** Servidores con cuentas: los mismos totales que /v1/cuentas. */
+  cuentas?: TotalesCuentas;
+  porEtiqueta?: { id: string; nombre: string; gastadoCentavos: number; ingresadoCentavos: number; cantidad: number; activa: boolean }[];
 };
 
 export type Accion = { herramienta: string; argumentos?: unknown; resultado?: unknown };
@@ -126,7 +132,96 @@ export type DatosMovimiento = {
   comercio?: string | null;
   descripcion?: string | null;
   cuenta?: string | null;
+  /** Transferencias y pagos de tarjeta: a dónde llega (nombre). */
+  cuenta_destino?: string | null;
+  /** Ids de etiquetas; al editar, la lista completa. */
+  etiquetas?: string[];
   fecha?: string;
+};
+
+// ------------------------------------------------------------------ Cuentas, tarjetas y etiquetas
+// Todo en centavos de la moneda base. null es "no se sabe": nunca se muestra como 0.
+
+export type TipoCuenta = "efectivo" | "debito" | "credito" | "otra";
+
+export type EstadoCuenta = {
+  id: string;
+  nombre: string;
+  tipo: TipoCuenta;
+  institucion: string | null;
+  alias: string[];
+  archivada: boolean;
+  esCredito: boolean;
+  /** Si alguna vez dijo cuánto hay (o cuánto debe). */
+  conocido: boolean;
+  /** Lo que tiene; en crédito, menos lo que debe. */
+  saldoCentavos: number | null;
+  /** Solo crédito: lo usado (negativo si hay saldo a favor). */
+  deudaCentavos: number | null;
+  /** Crédito: límite menos deuda. Débito: igual al saldo. */
+  disponibleCentavos: number | null;
+  limiteCentavos: number | null;
+  /** Cuándo dijo el saldo (ISO). */
+  saldoEn: string | null;
+  diaCorte: number | null;
+  diaPago: number | null;
+};
+
+export type CuentaConMes = EstadoCuenta & { mes: { entradaCentavos: number; salidaCentavos: number } };
+
+export type TotalesCuentas = {
+  dineroCentavos: number;
+  deudaCentavos: number;
+  disponibleCreditoCentavos: number;
+  limiteCreditoCentavos: number;
+  netoCentavos: number;
+  cuentasConSaldo: number;
+  tarjetasConDeuda: number;
+  /** Nombres de las cuentas de las que no se sabe el saldo. */
+  sinSaldo: string[];
+};
+
+/** GET /v1/cuentas */
+export type Cuentas = { cuentas: CuentaConMes[]; totales: TotalesCuentas; observacion: string | null };
+
+/** GET /v1/cuentas/:id */
+export type DetalleCuenta = { cuenta: EstadoCuenta; movimientos: MovimientoApp[]; totalMovimientos: number };
+
+/** POST /v1/cuentas y PATCH /v1/cuentas/:id (montos en pesos). */
+export type DatosCuenta = {
+  nombre?: string;
+  tipo?: TipoCuenta;
+  saldo?: number;
+  disponible?: number;
+  deuda?: number;
+  limite?: number | null;
+  dia_corte?: number | null;
+  dia_pago?: number | null;
+  archivada?: boolean;
+};
+
+/** POST /v1/transferencias */
+export type DatosMover = {
+  tipo: "transferencia" | "pago_tarjeta" | "retiro";
+  monto: number;
+  desde_id?: string;
+  hacia_id?: string;
+  fecha?: string;
+  descripcion?: string;
+  etiquetas?: string[];
+};
+
+/** GET /v1/etiquetas. Una etiqueta activa se pone sola en los gastos de esos días. */
+export type Etiqueta = {
+  id: string;
+  nombre: string;
+  activaDesde: string | null;
+  activaHasta: string | null;
+  activa: boolean;
+  cantidad: number;
+  gastadoCentavos: number;
+  ingresadoCentavos: number;
+  ultimoUso: string | null;
 };
 
 /** GET /v1/presupuestos?mes= (contrato acordado con el hilo de la IA; ver docs/api.md). */

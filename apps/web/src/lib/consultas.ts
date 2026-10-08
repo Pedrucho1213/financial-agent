@@ -90,6 +90,9 @@ export type FiltrosMovimientos = {
   categoria?: string;
   texto?: string;
   revisar?: boolean;
+  /** Id de cuenta: lo que salió o llegó a ella. */
+  cuenta?: string;
+  etiqueta?: string;
 };
 
 export const POR_PAGINA = 50;
@@ -109,6 +112,8 @@ export function parametrosMovimientos(f: FiltrosMovimientos, offset: number) {
   if (f.categoria) p.set("categoria_id", f.categoria);
   if (f.texto) p.set("texto", f.texto);
   if (f.revisar) p.set("revisar", "1");
+  if (f.cuenta) p.set("cuenta_id", f.cuenta);
+  if (f.etiqueta) p.set("etiqueta_id", f.etiqueta);
   p.set("limite", String(POR_PAGINA));
   p.set("offset", String(offset));
   return p;
@@ -258,6 +263,9 @@ export function useRefrescarDatos() {
       qc.invalidateQueries({ queryKey: ["tablero"] }),
       qc.invalidateQueries({ queryKey: ["movimientos"] }),
       qc.invalidateQueries({ queryKey: ["plan"] }),
+      // Un gasto con cuenta cambia su saldo, y uno con etiqueta lo que lleva.
+      qc.invalidateQueries({ queryKey: ["cuentas"] }),
+      qc.invalidateQueries({ queryKey: ["etiquetas"] }),
     ]);
 }
 

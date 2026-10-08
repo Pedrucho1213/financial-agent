@@ -1,5 +1,6 @@
 import type { Page, Route } from "@playwright/test";
 import { atenderCuenta } from "./api-falsa-cuenta";
+import { atenderCuentas, type DatosCuentas, extraMovimiento, extraTablero } from "./api-falsa-cuentas";
 import { atenderIa } from "./api-falsa-ia";
 import { atenderPlan, planInicial } from "./api-falsa-plan";
 
@@ -32,6 +33,11 @@ export type MovimientoApp = {
   origen: Origen;
   textoOriginal: string | null;
   revisar: boolean;
+  /** Solo con cuentas (conCuentas en api-falsa-cuentas.ts). */
+  cuentaId?: string | null;
+  cuentaDestino?: string | null;
+  cuentaDestinoId?: string | null;
+  etiquetas?: { id: string; nombre: string }[];
 };
 
 type Categoria = {
@@ -219,6 +225,8 @@ export class ApiFalsa {
   sinPlan = false;
   /** Datos de la cuenta que se pueden cambiar en Ajustes (ver api-falsa-cuenta.ts). */
   cuenta = { nombre: "Pedro Ramírez", usuario: "pedro", tieneCodigo: false, codigo: null as string | null };
+  /** Cuentas, tarjetas y etiquetas (ver api-falsa-cuentas.ts); null = servidor sin ellas (404). */
+  cuentas: DatosCuentas | null = null;
 
   async instalar(page: Page) {
     await page.route(/\/v1\//, (route) => this.atender(route));
@@ -348,6 +356,8 @@ export class ApiFalsa {
     }
     await atenderPlan(this, { metodo, ruta, cuerpo, consulta: url.searchParams, json: responder });
     if (respondido) return;
+    await atenderCuentas(this, { metodo, ruta, cuerpo, consulta: url.searchParams, json: responder });
+    if (respondido) return;
     if (metodo === "GET" && ruta === "/v1/categorias") return json(200, { categorias: CATEGORIAS });
     if (metodo === "GET" && ruta === "/v1/movimientos") return json(200, this.buscar(url.searchParams));
     if (metodo === "POST" && ruta === "/v1/movimientos") {
@@ -357,6 +367,7 @@ export class ApiFalsa {
         origen: "app",
         descripcion: (b.descripcion as string) ?? null,
         cuenta: (b.cuenta as string) ?? null,
+        ...extraMovimiento(this, b),
       });
       nuevo.id = `mov-nuevo-${this.movimientos.length}`;
       this.movimientos.unshift(nuevo);
@@ -380,6 +391,7 @@ export class ApiFalsa {
           ...("descripcion" in b ? { descripcion: b.descripcion as string | null } : {}),
           ...("cuenta" in b ? { cuenta: b.cuenta as string | null } : {}),
           ...(c !== undefined ? { categoriaId: c?.id ?? null, categoria: c?.nombreCompleto ?? null } : {}),
+          ...extraMovimiento(this, b),
           montoCentavos: centavos,
           monto: (centavos / 100).toFixed(2),
           revisar: false,
@@ -461,6 +473,10 @@ export class ApiFalsa {
     const texto = q.get("texto")?.toLowerCase();
     if (texto) lista = lista.filter((m) => `${m.comercio ?? ""} ${m.descripcion ?? ""}`.toLowerCase().includes(texto));
     if (q.get("revisar") === "1") lista = lista.filter((m) => m.revisar);
+    const cuenta = q.get("cuenta_id");
+    if (cuenta) lista = lista.filter((m) => m.cuentaId === cuenta || m.cuentaDestinoId === cuenta);
+    const etiqueta = q.get("etiqueta_id");
+    if (etiqueta) lista = lista.filter((m) => m.etiquetas?.some((e) => e.id === etiqueta));
     const limite = Math.min(Number(q.get("limite") ?? 100), 500);
     const offset = Number(q.get("offset") ?? 0);
     return { total: lista.length, movimientos: lista.slice(offset, offset + limite) };
@@ -529,6 +545,7 @@ export class ApiFalsa {
         { id: "rec-3", nombre: "Netflix", montoCentavos: 29_900, moneda: "MXN", proximoCobro: "2026-11-02", frecuencia: "mensual" },
       ],
       porRevisar: delMes.filter((m) => m.revisar).length,
+      ...extraTablero(this, mes),
     };
   }
 }

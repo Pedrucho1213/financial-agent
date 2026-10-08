@@ -13,6 +13,7 @@ import { mensajeDeError } from "../lib/api";
 import { OpcionesCategorias } from "../lib/categorias";
 import { useEnLinea } from "../lib/conexion";
 import { useCategorias, useGuardarMovimiento } from "../lib/consultas";
+import { useCuentas, useEtiquetas, useGuardarEtiqueta } from "../lib/cuentas";
 import { avisarCambiosSinGuardar, cerrarEditor, useEditor } from "../lib/editor";
 import { aFecha, fechaHora, hoyIso, leerMonto } from "../lib/formato";
 import type { DatosMovimiento, MovimientoApp, TipoMovimiento } from "../lib/tipos";
@@ -26,10 +27,12 @@ type Formulario = {
   descripcion: string;
   fecha: string;
   cuenta: string;
+  destino: string;
+  etiquetas: string[];
 };
 
 function desde(m: MovimientoApp | null): Formulario {
-  if (!m) return { tipo: "gasto", monto: "", categoriaId: "", comercio: "", descripcion: "", fecha: hoyIso(), cuenta: "" };
+  if (!m) return { tipo: "gasto", monto: "", categoriaId: "", comercio: "", descripcion: "", fecha: hoyIso(), cuenta: "", destino: "", etiquetas: [] };
   return {
     tipo: m.tipo,
     monto: String(Math.abs(m.montoCentavos) / 100),
@@ -38,8 +41,12 @@ function desde(m: MovimientoApp | null): Formulario {
     descripcion: m.descripcion ?? "",
     fecha: m.fecha,
     cuenta: m.cuenta ?? "",
+    destino: m.cuentaDestino ?? "",
+    etiquetas: (m.etiquetas ?? []).map((e) => e.id),
   };
 }
+
+const mismas = (a: string[], b: string[]) => a.length === b.length && [...a].sort().join() === [...b].sort().join();
 
 const TIPOS_SEGMENTO: { valor: TipoMovimiento; etiqueta: string }[] = [
   { valor: "gasto", etiqueta: "Gasto" },
@@ -68,6 +75,11 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
 
   const poner = <K extends keyof Formulario>(k: K, v: Formulario[K]) => setF((x) => ({ ...x, [k]: v }));
   const conCategoria = f.tipo === "gasto" || f.tipo === "ingreso";
+  const mueve = !conCategoria;
+  // Con un servidor que tiene cuentas y etiquetas: sugerir sus cuentas y elegir etiquetas.
+  const cuentas = useCuentas();
+  const etiquetas = useEtiquetas("todo");
+  const nombresCuentas = (cuentas.data?.cuentas ?? []).filter((c) => !c.archivada).map((c) => c.nombre);
   const categoriasDelTipo = useMemo(
     () => (categorias.data ?? []).filter((c) => conCategoria && c.tipo === f.tipo),
     [categorias.data, conCategoria, f.tipo],
@@ -104,7 +116,9 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
       comercio: limpio(f.comercio),
       descripcion: limpio(f.descripcion),
       cuenta: limpio(f.cuenta),
+      cuenta_destino: mueve ? limpio(f.destino) : null,
     };
+    if (f.etiquetas.length) completo.etiquetas = f.etiquetas;
     if (!editando) {
       // Al crear, solo lo que tiene valor.
       return Object.fromEntries(Object.entries(completo).filter(([, v]) => v !== null && v !== "")) as DatosMovimiento;
@@ -119,6 +133,8 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
     if (f.comercio.trim() !== antes.comercio) cambios.comercio = completo.comercio;
     if (f.descripcion.trim() !== antes.descripcion) cambios.descripcion = completo.descripcion;
     if (f.cuenta.trim() !== antes.cuenta) cambios.cuenta = completo.cuenta;
+    if (mueve && f.destino.trim() !== antes.destino) cambios.cuenta_destino = completo.cuenta_destino;
+    if (!mismas(f.etiquetas, antes.etiquetas)) cambios.etiquetas = f.etiquetas;
     return cambios;
   };
 
@@ -283,7 +299,7 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
           </Fila>
           <Fila>
             <label htmlFor="cuenta" className="shrink-0">
-              Cuenta
+              {mueve ? "Desde" : "Cuenta"}
             </label>
             <CampoFila
               id="cuenta"
@@ -291,9 +307,40 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
               onChange={(e) => poner("cuenta", e.target.value)}
               placeholder="Efectivo, BBVA, Nu…"
               enterKeyHint="done"
+              list={nombresCuentas.length ? "lista-cuentas" : undefined}
             />
           </Fila>
+          {mueve ? (
+            <Fila>
+              <label htmlFor="destino" className="shrink-0">
+                {f.tipo === "pago_tarjeta" ? "Tarjeta" : "Hacia"}
+              </label>
+              <CampoFila
+                id="destino"
+                value={f.destino}
+                onChange={(e) => poner("destino", e.target.value)}
+                placeholder={f.tipo === "pago_tarjeta" ? "Nu, Banamex…" : "Otra cuenta tuya"}
+                enterKeyHint="done"
+                list={nombresCuentas.length ? "lista-cuentas" : undefined}
+              />
+            </Fila>
+          ) : null}
         </Grupo>
+        {nombresCuentas.length ? (
+          <datalist id="lista-cuentas">
+            {nombresCuentas.map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
+        ) : null}
+
+        {etiquetas.data || f.etiquetas.length ? (
+          <ElegirEtiquetas
+            disponibles={etiquetas.data ?? movimiento?.etiquetas ?? []}
+            elegidas={f.etiquetas}
+            alCambiar={(ids) => poner("etiquetas", ids)}
+          />
+        ) : null}
 
         {movimiento?.textoOriginal ? (
           <Grupo
@@ -324,5 +371,88 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
         <button type="submit" hidden aria-hidden tabIndex={-1} />
       </form>
     </SheetContent>
+  );
+}
+
+/** Chips para poner o quitar etiquetas; "Nueva" crea una y la deja puesta. */
+function ElegirEtiquetas({
+  disponibles,
+  elegidas,
+  alCambiar,
+}: {
+  disponibles: { id: string; nombre: string }[];
+  elegidas: string[];
+  alCambiar: (ids: string[]) => void;
+}) {
+  const crear = useGuardarEtiqueta();
+  const enLinea = useEnLinea();
+  const [nueva, setNueva] = useState("");
+  const agregar = async () => {
+    const nombre = nueva.trim().replace(/^#+/, "");
+    if (!nombre || crear.isPending) return;
+    const existente = disponibles.find((e) => e.nombre.toLowerCase() === nombre.toLowerCase());
+    if (existente) {
+      if (!elegidas.includes(existente.id)) alCambiar([...elegidas, existente.id]);
+      setNueva("");
+      return;
+    }
+    try {
+      const e = await crear.mutateAsync({ datos: { nombre } });
+      if (e?.id) alCambiar([...elegidas, e.id]);
+      setNueva("");
+    } catch (error) {
+      toast.error(mensajeDeError(error));
+    }
+  };
+  return (
+    <Grupo titulo="Etiquetas">
+      {disponibles.length ? (
+        <div role="group" aria-label="Etiquetas" className="flex flex-wrap gap-2 px-4 pt-3 pb-2">
+          {disponibles.map((e) => {
+            const puesta = elegidas.includes(e.id);
+            return (
+              <button
+                key={e.id}
+                type="button"
+                aria-pressed={puesta}
+                onClick={() => alCambiar(puesta ? elegidas.filter((x) => x !== e.id) : [...elegidas, e.id])}
+                className={cn(
+                  "h-8 rounded-full px-3 text-[15px] font-medium transition-colors",
+                  puesta ? "bg-tint text-white" : "bg-fill text-foreground",
+                )}
+              >
+                #{e.nombre}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+      <Fila>
+        <label htmlFor="etiqueta-nueva" className="sr-only">
+          Nueva etiqueta
+        </label>
+        <CampoFila
+          id="etiqueta-nueva"
+          value={nueva}
+          maxLength={40}
+          onChange={(e) => setNueva(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void agregar();
+            }
+          }}
+          placeholder="Nueva etiqueta"
+          autoCapitalize="none"
+          enterKeyHint="done"
+          className="text-left"
+        />
+        {nueva.trim() ? (
+          <Button variant="plain" size="text" className="shrink-0" disabled={!enLinea || crear.isPending} onClick={() => void agregar()}>
+            Agregar
+          </Button>
+        ) : null}
+      </Fila>
+    </Grupo>
   );
 }

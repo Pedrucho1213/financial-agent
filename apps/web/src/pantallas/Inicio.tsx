@@ -109,6 +109,8 @@ export function Inicio({ params }: { params: URLSearchParams }) {
 function Tablero({ t, esMesActual }: { t: Tablero; esMesActual: boolean }) {
   const { totales, moneda } = t;
   const fmt = (n: number) => dinero(n, moneda);
+  // Saldos de hoy: solo tienen sentido en el mes actual y si dijo alguno.
+  const saldos = esMesActual && t.cuentas && (t.cuentas.cuentasConSaldo || t.cuentas.tarjetasConDeuda) ? t.cuentas : null;
   const ritmo = useRitmo(t, esMesActual);
   const enLinea = useEnLinea();
   const destacados = useMemo(
@@ -148,18 +150,46 @@ function Tablero({ t, esMesActual }: { t: Tablero; esMesActual: boolean }) {
               className="mt-1 block truncate text-[22px] leading-7 font-bold tracking-[-0.01em] tabular"
             />
           </section>
-          <section aria-label="Balance" className="min-w-0 rounded-[20px] bg-card p-4">
-            <h2 className="text-[15px] font-medium text-muted-foreground">Balance</h2>
-            <NumeroAnimado
-              valor={totales.balanceCentavos}
-              formato={(n) => dinero(n, moneda, { signo: true })}
-              className={cn(
-                "mt-1 block truncate text-[22px] leading-7 font-bold tracking-[-0.01em] tabular",
-                totales.balanceCentavos > 0 && "text-positive",
-                totales.balanceCentavos < 0 && "text-negative",
-              )}
-            />
-          </section>
+          {saldos ? (
+            // Con saldos dichos, lo que de verdad tiene (cuentas menos tarjetas), no ingresos menos gastos del mes.
+            <button
+              type="button"
+              aria-label={`Tienes ${dinero(saldos.netoCentavos, moneda)}. Ver cuentas`}
+              onClick={() => navegar(hashDe("cuentas"))}
+              className="fila-presionable min-w-0 rounded-[20px] bg-card p-4 text-left"
+            >
+              <h2 className="flex items-center justify-between text-[15px] font-medium text-muted-foreground">
+                Tienes
+                <ChevronRight aria-hidden className="-mr-1 size-[18px] text-muted-foreground/60" />
+              </h2>
+              <NumeroAnimado
+                valor={saldos.netoCentavos}
+                formato={fmt}
+                className={cn(
+                  "mt-1 block truncate text-[22px] leading-7 font-bold tracking-[-0.01em] tabular",
+                  saldos.netoCentavos < 0 && "text-negative",
+                )}
+              />
+            </button>
+          ) : (
+            <section aria-label="Balance" className="min-w-0 rounded-[20px] bg-card p-4">
+              <h2 className="text-[15px] font-medium text-muted-foreground">Balance</h2>
+              <NumeroAnimado
+                valor={totales.balanceCentavos}
+                formato={(n) => dinero(n, moneda, { signo: true })}
+                className={cn(
+                  "mt-1 block truncate text-[22px] leading-7 font-bold tracking-[-0.01em] tabular",
+                  totales.balanceCentavos > 0 && "text-positive",
+                  totales.balanceCentavos < 0 && "text-negative",
+                )}
+              />
+              {t.cuentas && esMesActual ? (
+                <button type="button" onClick={() => navegar(hashDe("cuentas"))} className="mt-0.5 text-[13px] text-tint">
+                  ¿Cuánto tienes?
+                </button>
+              ) : null}
+            </section>
+          )}
         </div>
       </div>
 

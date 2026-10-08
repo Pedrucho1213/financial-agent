@@ -78,6 +78,8 @@ export type Analisis = {
   promedioCubeta: number;
   categorias: Grupo[];
   comercios: Grupo[];
+  /** Gasto por etiqueta (id = el de la etiqueta); vacío si ninguno tiene. */
+  etiquetas: Grupo[];
   cuentas: Grupo[];
   dias: DiaCalor[];
   /** Promedio por día de cada día de la semana, 0 = lunes. */
@@ -190,6 +192,20 @@ export function analizar(filas: Fila[], o: Opciones): Analisis {
     (id, f) => (id ? (f.a ?? "") : "Sin decir"),
   );
 
+  // Etiquetas: un gasto con dos cuenta en las dos.
+  const porEtiqueta = new Map<string, Grupo>();
+  for (const [lista, campo] of [[g, "centavos"], [gA, "anterior"]] as const) {
+    for (const f of lista) {
+      for (const [k, nombre] of f.g ?? []) {
+        const e = porEtiqueta.get(k) ?? { id: k, nombre, centavos: 0, cantidad: 0, anterior: 0 };
+        e[campo] += f.c;
+        if (campo === "centavos") e.cantidad += 1;
+        porEtiqueta.set(k, e);
+      }
+    }
+  }
+  const etiquetas = [...porEtiqueta.values()].sort((a, b) => b.centavos - a.centavos || b.anterior - a.anterior);
+
   // Mapa de calor por día.
   const porDia = new Map<string, { centavos: number; cantidad: number }>();
   for (const f of g) {
@@ -288,6 +304,7 @@ export function analizar(filas: Fila[], o: Opciones): Analisis {
     categorias,
     comercios,
     cuentas,
+    etiquetas,
     dias,
     diaSemana: semana,
     momentos,

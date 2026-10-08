@@ -14,6 +14,7 @@ import { mensajeDeError } from "../lib/api";
 import { IconoCategoria, OpcionesCategorias } from "../lib/categorias";
 import { useEnLinea } from "../lib/conexion";
 import { abrirDetalle, type FiltrosMovimientos, useCategorias, useMovimientos } from "../lib/consultas";
+import { useCuentas, useEtiquetas } from "../lib/cuentas";
 import { abrirEditor } from "../lib/editor";
 import { diaCorto, dinero, mesActual, nombreDia, nombreMes, sumarMeses, TIPOS } from "../lib/formato";
 import { useMedia } from "../lib/medios";
@@ -35,6 +36,9 @@ export function Movimientos({ params }: { params: URLSearchParams }) {
   const categoria = params.get("categoria") ?? undefined;
   const q = params.get("q") ?? "";
   const revisar = params.get("revisar") === "1";
+  // Desde una cuenta o una etiqueta: lo suyo.
+  const cuenta = params.get("cuenta") ?? undefined;
+  const etiqueta = params.get("etiqueta") ?? undefined;
 
   const actualizar = (cambios: Record<string, string | undefined>) => {
     const actual: Record<string, string | undefined> = {
@@ -43,6 +47,8 @@ export function Movimientos({ params }: { params: URLSearchParams }) {
       categoria,
       q: q || undefined,
       revisar: revisar ? "1" : undefined,
+      cuenta,
+      etiqueta,
     };
     navegar(hashDe("movimientos", { ...actual, ...cambios }), { reemplazar: true });
   };
@@ -57,16 +63,20 @@ export function Movimientos({ params }: { params: URLSearchParams }) {
   }, [texto]);
 
   const filtros: FiltrosMovimientos = useMemo(
-    () => ({ mes, tipo, categoria, texto: q || undefined, revisar: revisar || undefined }),
-    [mes, tipo, categoria, q, revisar],
+    () => ({ mes, tipo, categoria, texto: q || undefined, revisar: revisar || undefined, cuenta, etiqueta }),
+    [mes, tipo, categoria, q, revisar, cuenta, etiqueta],
   );
   const consulta = useMovimientos(filtros);
   const categorias = useCategorias();
 
   const movimientos = useMemo(() => consulta.data?.pages.flatMap((p) => p.movimientos) ?? [], [consulta.data]);
   const total = consulta.data?.pages.at(-1)?.total ?? 0;
-  const conFiltros = !!(tipo || categoria || q || revisar || pedido === "todo");
+  const conFiltros = !!(tipo || categoria || q || revisar || cuenta || etiqueta || pedido === "todo");
   const nombreCategoria = categorias.data?.find((c) => c.id === categoria)?.nombre;
+  const cuentas = useCuentas({ activo: !!cuenta });
+  const etiquetas = useEtiquetas("todo", !!etiqueta);
+  const nombreCuenta = cuentas.data?.cuentas.find((c) => c.id === cuenta)?.nombre ?? movimientos.find((m) => m.cuentaId === cuenta)?.cuenta;
+  const nombreEtiqueta = etiquetas.data?.find((e) => e.id === etiqueta)?.nombre ?? movimientos.flatMap((m) => m.etiquetas ?? []).find((e) => e.id === etiqueta)?.nombre;
 
   const meses = useMemo(() => Array.from({ length: 24 }, (_, i) => sumarMeses(mesActual(), -i)), []);
   const tipoCategorias = tipo === "gasto" || tipo === "ingreso" ? tipo : undefined;
@@ -135,6 +145,22 @@ export function Movimientos({ params }: { params: URLSearchParams }) {
           <button type="button" className="shrink-0" aria-pressed={revisar} onClick={() => actualizar({ revisar: revisar ? undefined : "1" })}>
             <Chip activo={revisar}>Por revisar</Chip>
           </button>
+          {cuenta ? (
+            <button type="button" className="shrink-0" onClick={() => actualizar({ cuenta: undefined })} aria-label={`Quitar filtro de cuenta ${nombreCuenta ?? ""}`.trim()}>
+              <Chip activo>
+                {nombreCuenta ?? "Cuenta"}
+                <X className="size-4" strokeWidth={2.5} />
+              </Chip>
+            </button>
+          ) : null}
+          {etiqueta ? (
+            <button type="button" className="shrink-0" onClick={() => actualizar({ etiqueta: undefined })} aria-label={`Quitar filtro de etiqueta ${nombreEtiqueta ?? ""}`.trim()}>
+              <Chip activo>
+                #{nombreEtiqueta ?? "etiqueta"}
+                <X className="size-4" strokeWidth={2.5} />
+              </Chip>
+            </button>
+          ) : null}
           {tipo && tipo !== "gasto" && tipo !== "ingreso" ? (
             <button type="button" className="shrink-0" onClick={() => actualizar({ tipo: undefined })} aria-label={`Quitar filtro ${TIPOS[tipo]}`}>
               <Chip activo>
@@ -237,14 +263,16 @@ export function Monto({ m, className }: { m: MovimientoApp; className?: string }
   );
 }
 
-function tituloDe(m: MovimientoApp) {
+export function tituloDe(m: MovimientoApp) {
   return m.comercio ?? m.descripcion ?? m.categoria?.split(">").pop()?.trim() ?? TIPOS[m.tipo] ?? "Movimiento";
 }
 
-function subtituloDe(m: MovimientoApp) {
+export function subtituloDe(m: MovimientoApp) {
   const categoria = m.categoria?.split(">").pop()?.trim() ?? (m.tipo === "gasto" ? "Sin categoría" : TIPOS[m.tipo]);
-  const cuentas = cuentasDe(m);
-  return cuentas ? `${categoria} · ${cuentas}` : categoria;
+  // Transferencias y pagos: de dónde a dónde.
+  if (m.cuentaDestino) return `${categoria} · ${m.cuenta ?? "?"} → ${m.cuentaDestino}`;
+  const etiquetas = m.etiquetas?.length ? ` · ${m.etiquetas.map((e) => `#${e.nombre}`).join(" ")}` : "";
+  return `${m.cuenta ? `${categoria} · ${m.cuenta}` : categoria}${etiquetas}`;
 }
 
 /** "BBVA", o en una transferencia o pago de tarjeta "BBVA → Nu". */
