@@ -24,7 +24,7 @@ export type EstadoControlIa = ModoIa & {
   disponible: boolean;
   /** El modelo está en memoria ahora. */
   cargada: boolean;
-  /** Cuándo la suelta Ollama; null si no está cargada o no tiene fecha (siempre encendida). */
+  /** Cuándo la suelta Ollama; null si no está cargada o falta más de un mes (siempre encendida). */
   hasta: string | null;
   /** Memoria que ocupa el modelo cargado, en bytes. */
   memoria: number | null;
@@ -38,13 +38,13 @@ export type OllamaControl = {
   enMemoria(): Promise<ModeloCargado[] | null>;
   /** Modelos descargados (/api/tags); null si Ollama no contesta. */
   descargados(): Promise<string[] | null>;
-  /** Carga el modelo (o lo suelta con 0) y fija cuánto se queda: -1 es sin límite. */
+  /** Carga el modelo (o lo suelta con 0) y fija cuánto se queda ("10m", "8760h"). */
   cargar(keepAlive: number | string): Promise<boolean>;
 };
 
 export type ControlIa = {
   modo(): ModoIa & { apagadaAMano: boolean };
-  /** El keep_alive que corresponde al modo: -1 (siempre) o "Nm". */
+  /** El keep_alive que corresponde al modo: SIEMPRE o "Nm". */
   keepAlive(): number | string;
   cambiar(cambio: Partial<ModoIa>): Promise<EstadoControlIa>;
   encender(): Promise<EstadoControlIa>;
@@ -59,10 +59,13 @@ export type ControlIa = {
 const CLAVE = "ia_encendido";
 export const MINUTOS_MIN = 1;
 export const MINUTOS_MAX = 24 * 60;
-// Si Ollama la suelta antes de esto, en modo "siempre" se le vuelve a pedir sin límite.
+// "Siempre" es un año, como texto: medido en la Mac (Ollama 0.32.5), el número -1 no le cambia el plazo
+// a un modelo que ya está cargado; un texto sí. Y "-1m" lo toma como los 5 minutos de siempre.
+export const SIEMPRE = "8760h";
+// Si Ollama la suelta antes de esto, en modo "siempre" se le vuelve a pedir el año.
 const MARGEN_SIEMPRE_MS = 24 * 3_600_000;
-// Ollama guarda "sin límite" como una fecha a siglos; más allá de un año se muestra como sin fecha.
-const SIN_FECHA_MS = 365 * 86_400_000;
+// Un plazo de más de 30 días se muestra como sin fecha (los plazos de la app son de una hora o menos).
+const SIN_FECHA_MS = 30 * 86_400_000;
 
 type Guardado = ModoIa & { apagadaAMano: boolean };
 
@@ -92,7 +95,7 @@ export function crearControlIa(opciones: {
   const guardar = (valor: Guardado) =>
     db.insert(configuracion).values({ clave: CLAVE, valor }).onConflictDoUpdate({ target: configuracion.clave, set: { valor } }).run();
 
-  const keepAlive = (m: ModoIa = leer()) => (m.siempre ? -1 : `${m.minutos}m`);
+  const keepAlive = (m: ModoIa = leer()) => (m.siempre ? SIEMPRE : `${m.minutos}m`);
 
   const estado = async (): Promise<EstadoControlIa> => {
     const m = leer();
@@ -143,7 +146,7 @@ export function crearControlIa(opciones: {
       const cargado = ps.find((x) => x.name === modelo);
       const vence = cargado?.expires_at ? Date.parse(cargado.expires_at) : Number.NaN;
       if (cargado && Number.isFinite(vence) && vence - ahora() > MARGEN_SIEMPRE_MS) return;
-      await ollama.cargar(-1);
+      await ollama.cargar(SIEMPRE);
     });
 
   return {
@@ -160,7 +163,7 @@ export function crearControlIa(opciones: {
       if (despues.siempre && !antes.siempre) despues.apagadaAMano = false;
       guardar(despues);
       await enFila(async () => {
-        if (despues.siempre && !despues.apagadaAMano) return ollama.cargar(-1);
+        if (despues.siempre && !despues.apagadaAMano) return ollama.cargar(SIEMPRE);
         // Si ya está cargada, el nuevo plazo cuenta desde ahora; si no, se aplica al próximo uso.
         const ps = await ollama.enMemoria();
         if (ps?.some((x) => x.name === modelo)) return ollama.cargar(keepAlive(despues));

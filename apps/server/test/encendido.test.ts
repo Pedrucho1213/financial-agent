@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { generateText } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
-import { crearControlIa, type ModeloCargado, type OllamaControl } from "../src/ai/encendido";
+import { crearControlIa, type ModeloCargado, type OllamaControl, SIEMPRE } from "../src/ai/encendido";
 import { crearModelo } from "../src/ai/modelo";
 import { crearApp } from "../src/app";
 import { crearInvitacion } from "../src/auth";
@@ -11,7 +11,7 @@ import { texto } from "./ayuda";
 
 const MODELO = "gemma4:12b-it-qat";
 const AHORA = Date.parse("2026-10-08T20:00:00Z");
-// Lo que Ollama reporta con keep_alive -1: una fecha a siglos.
+// Lo que Ollama reporta con keep_alive -1 (por ejemplo OLLAMA_KEEP_ALIVE=-1): una fecha a siglos.
 const SIN_LIMITE = "2318-01-01T00:00:00Z";
 
 /** Un Ollama falso que recuerda qué se le pidió y qué tiene en memoria. */
@@ -26,8 +26,8 @@ function ollamaFalso(inicial: ModeloCargado[] = []) {
       pedidos.push(keepAlive);
       if (keepAlive === 0) estado.memoria = [];
       else {
-        const vence =
-          keepAlive === -1 ? SIN_LIMITE : new Date(AHORA + Number.parseInt(String(keepAlive), 10) * 60_000).toISOString();
+        const [, n, unidad] = String(keepAlive).match(/^(\d+)([mh])$/) ?? [];
+        const vence = new Date(AHORA + Number(n) * (unidad === "h" ? 3_600_000 : 60_000)).toISOString();
         estado.memoria = [{ name: MODELO, expires_at: vence, size: 8_200_000_000 }];
       }
       return true;
@@ -47,14 +47,14 @@ describe("interruptor de la IA", () => {
   test("sin nada guardado queda siempre encendida, como lo pidió el dueño", async () => {
     const { control } = preparar();
     expect(control.modo()).toEqual({ siempre: true, minutos: 10, apagadaAMano: false });
-    expect(control.keepAlive()).toBe(-1);
+    expect(control.keepAlive()).toBe(SIEMPRE);
     expect(await control.estado()).toMatchObject({ siempre: true, cargada: false, disponible: true, hasta: null, modelo: MODELO });
   });
 
-  test("encender la carga sin límite y el estado no muestra fecha de 300 años", async () => {
+  test("encender la carga por un año (texto, no -1) y el estado lo muestra sin fecha", async () => {
     const { control, pedidos } = preparar();
     const e = await control.encender();
-    expect(pedidos).toEqual([-1]);
+    expect(pedidos).toEqual([SIEMPRE]);
     expect(e).toMatchObject({ cargada: true, hasta: null, memoria: 8_200_000_000, apagadaAMano: false });
   });
 
@@ -75,7 +75,7 @@ describe("interruptor de la IA", () => {
     await control.cambiar({ minutos: 60 });
     expect(pedidos).toEqual(["5m", "60m"]);
     await control.cambiar({ siempre: true });
-    expect(pedidos).toEqual(["5m", "60m", -1]);
+    expect(pedidos).toEqual(["5m", "60m", SIEMPRE]);
   });
 
   test("los minutos se acotan de 1 a 1440 y lo guardado sobrevive a un reinicio", async () => {
@@ -100,7 +100,7 @@ describe("interruptor de la IA", () => {
     // Un dictado la carga de nuevo y quita el "apagada a mano".
     control.trasUsar();
     await Bun.sleep(30);
-    expect(pedidos).toEqual([0, -1]);
+    expect(pedidos).toEqual([0, SIEMPRE]);
     expect(control.modo().apagadaAMano).toBe(false);
   });
 
@@ -109,14 +109,14 @@ describe("interruptor de la IA", () => {
     let parar = control.vigilar(5);
     await Bun.sleep(30);
     parar();
-    expect(pedidos).toEqual([-1]); // no estaba: la carga una vez y luego ya la ve sin límite
+    expect(pedidos).toEqual([SIEMPRE]); // no estaba: la carga una vez y luego ya la ve sin límite
 
     // OLLAMA_KEEP_ALIVE de 5 min tras un dictado por /v1: la vuelve a dejar sin límite.
     estado.memoria = [{ name: MODELO, expires_at: new Date(AHORA + 5 * 60_000).toISOString() }];
     parar = control.vigilar(5);
     await Bun.sleep(30);
     parar();
-    expect(pedidos).toEqual([-1, -1]);
+    expect(pedidos).toEqual([SIEMPRE, SIEMPRE]);
 
     // Ollama apagado: no truena ni insiste.
     estado.contesta = false;
@@ -124,7 +124,7 @@ describe("interruptor de la IA", () => {
     parar = control.vigilar(5);
     await Bun.sleep(30);
     parar();
-    expect(pedidos).toEqual([-1, -1]);
+    expect(pedidos).toEqual([SIEMPRE, SIEMPRE]);
   });
 
   test("en modo con plazo el vigilante no carga nada", async () => {
