@@ -192,7 +192,7 @@ export function renombrarEtiqueta(ctx: Contexto, nombre: string, nuevo: string) 
 export function eliminarEtiqueta(ctx: Contexto, nombreOId: { nombre?: string; id?: string }) {
   const e = nombreOId.id ? todas(ctx).find((x) => x.id === nombreOId.id) : buscar(ctx, nombreOId.nombre ?? "");
   if (!e || e.eliminadoEn) throw new ErrorFinanzas("No existe esa etiqueta.");
-  const despues = ctx.db.update(etiquetas).set({ eliminadoEn: new Date().toISOString() }).where(eq(etiquetas.id, e.id)).returning().get()!;
+  const despues = ctx.db.update(etiquetas).set({ eliminadoEn: ctx.ahoraIso }).where(eq(etiquetas.id, e.id)).returning().get()!;
   registrarEnBitacora(ctx, "etiquetas", e.id, "editar", e, despues);
   return { etiqueta: e.nombre };
 }

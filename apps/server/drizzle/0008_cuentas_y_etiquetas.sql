@@ -18,6 +18,7 @@ ALTER TABLE `cuentas` ADD `saldo_en` text;--> statement-breakpoint
 ALTER TABLE `movimientos` ADD `etiquetas` text DEFAULT '[]' NOT NULL;--> statement-breakpoint
 -- Bancos que solo dan tarjeta de crédito (o solo débito): las cuentas que ya existen con ese nombre toman su tipo.
 UPDATE `cuentas` SET `tipo` = 'credito' WHERE `tipo` = 'otra' AND lower(trim(`nombre`)) IN ('invex', 'stori', 'amex', 'american express', 'rappicard', 'rappi card', 'didi card', 'liverpool', 'palacio de hierro', 'costco', 'sears');--> statement-breakpoint
-UPDATE `cuentas` SET `tipo` = 'debito' WHERE `tipo` = 'otra' AND lower(trim(`nombre`)) IN ('revolut', 'hey banco', 'albo', 'fondeadora', 'spin', 'spin by oxxo', 'uala', 'ualá', 'openbank');--> statement-breakpoint
+-- lower() de SQLite solo cambia ASCII: 'UALÁ' queda 'ualÁ'.
+UPDATE `cuentas` SET `tipo` = 'debito' WHERE `tipo` = 'otra' AND lower(trim(`nombre`)) IN ('revolut', 'hey banco', 'albo', 'fondeadora', 'spin', 'spin by oxxo', 'uala', 'ualá', 'ualÁ', 'openbank');--> statement-breakpoint
 -- Un pago de tarjeta guardaba la tarjeta en `cuenta_id`; ahora es el destino del dinero y `cuenta_id` es de dónde salió.
 UPDATE `movimientos` SET `cuenta_destino_id` = `cuenta_id`, `cuenta_id` = NULL WHERE `tipo` = 'pago_tarjeta' AND `cuenta_destino_id` IS NULL AND `cuenta_id` IN (SELECT `id` FROM `cuentas` WHERE `tipo` = 'credito');

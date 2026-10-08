@@ -182,6 +182,10 @@ function valoresDePlan(
   return valores;
 }
 
+/** Para encontrarOCrearCuenta: si desarchiva una cuenta o le pone tipo, que se pueda deshacer. */
+export const cambioDeCuenta = (ctx: Contexto) => (id: string, antes: Record<string, unknown>, despues: Record<string, unknown>) =>
+  registrarEnBitacora(ctx, "cuentas", id, "editar", antes, despues);
+
 export function registrarEnBitacora(
   ctx: Contexto,
   tabla: TablaBitacora,
@@ -217,13 +221,16 @@ export function crearMovimiento(ctx: Contexto, datos: DatosMovimiento) {
       ]);
   // El comercio solo aprende de tus correcciones (editarMovimiento): Oxxo, Walmart o Amazon venden
   // de todo y la primera compra no dice a qué categoría van las demás.
-  const cuenta = encontrarOCrearCuenta(
+  let cuenta = encontrarOCrearCuenta(
     ctx.db,
     ctx.usuarioId,
     datos.cuenta || (categoria.revisar ? undefined : datos.cuentaSegunCategoria?.(categoria.id)),
+    { alCambiar: cambioDeCuenta(ctx) },
   );
   const mueveEntreCuentas = datos.tipo === "transferencia" || datos.tipo === "pago_tarjeta";
-  const destino = mueveEntreCuentas ? encontrarOCrearCuenta(ctx.db, ctx.usuarioId, datos.cuentaDestino) : undefined;
+  let destino = mueveEntreCuentas ? encontrarOCrearCuenta(ctx.db, ctx.usuarioId, datos.cuentaDestino, { alCambiar: cambioDeCuenta(ctx) }) : undefined;
+  // Un pago de tarjeta con solo la tarjeta (la app manda una cuenta): el dinero llega a ella, no sale de ella.
+  if (datos.tipo === "pago_tarjeta" && !destino && cuenta?.tipo === "credito") [destino, cuenta] = [cuenta, undefined];
   // Las que dijo, y las que están activas esos días ("todo lo de esta semana es del viaje") si es un gasto.
   const etiquetas = [
     ...new Set([
@@ -310,7 +317,7 @@ function filtrar(ctx: Contexto, filtro: FiltroMovimientos, cats: Categoria[]) {
     filas = filas.filter((m) => m.etiquetas.includes(id));
   }
   if (filtro.cuenta) {
-    const cuenta = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, filtro.cuenta, { soloExistente: true });
+    const cuenta = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, filtro.cuenta, { soloExistente: true, soloLeer: true });
     if (!cuenta) throw new ErrorFinanzas(`No tienes la cuenta "${filtro.cuenta}".`);
     filas = filas.filter((m) => m.cuentaId === cuenta.id || m.cuentaDestinoId === cuenta.id);
   }
@@ -441,9 +448,9 @@ export function editarMovimiento(ctx: Contexto, id: string, cambios: Partial<Dat
   if (cambios.comercio !== undefined)
     nuevo.comercioId = cambios.comercio ? encontrarOCrearComercio(ctx.db, ctx.usuarioId, cambios.comercio)?.id : null;
   if (cambios.cuenta !== undefined)
-    nuevo.cuentaId = cambios.cuenta ? encontrarOCrearCuenta(ctx.db, ctx.usuarioId, cambios.cuenta)?.id : null;
+    nuevo.cuentaId = cambios.cuenta ? encontrarOCrearCuenta(ctx.db, ctx.usuarioId, cambios.cuenta, { alCambiar: cambioDeCuenta(ctx) })?.id : null;
   if (cambios.cuentaDestino !== undefined)
-    nuevo.cuentaDestinoId = cambios.cuentaDestino ? encontrarOCrearCuenta(ctx.db, ctx.usuarioId, cambios.cuentaDestino)?.id : null;
+    nuevo.cuentaDestinoId = cambios.cuentaDestino ? encontrarOCrearCuenta(ctx.db, ctx.usuarioId, cambios.cuentaDestino, { alCambiar: cambioDeCuenta(ctx) })?.id : null;
   if (cambios.etiquetaIds || cambios.etiquetas?.length || cambios.quitarEtiquetas?.length) {
     const quitar = new Set(idsDeEtiquetas(ctx, cambios.quitarEtiquetas ?? [], { soloExistentes: true }));
     const base = cambios.etiquetaIds ? soloPropias(ctx, cambios.etiquetaIds) : antes.etiquetas;
@@ -480,6 +487,13 @@ export function editarMovimiento(ctx: Contexto, id: string, cambios: Partial<Dat
   }
   // Un gasto o ingreso no tiene a dónde fue el dinero.
   if (tipo !== "transferencia" && tipo !== "pago_tarjeta" && antes.cuentaDestinoId) nuevo.cuentaDestinoId = null;
+  // Un gasto con la Nu que pasa a ser pago de tarjeta: la Nu es a la que se pagó.
+  if (tipo === "pago_tarjeta") {
+    const origenId = nuevo.cuentaId !== undefined ? nuevo.cuentaId : antes.cuentaId;
+    const destinoId = nuevo.cuentaDestinoId !== undefined ? nuevo.cuentaDestinoId : antes.cuentaDestinoId;
+    const origen = origenId ? ctx.db.select().from(cuentas).where(eq(cuentas.id, origenId)).get() : undefined;
+    if (!destinoId && origen?.tipo === "credito") Object.assign(nuevo, { cuentaDestinoId: origen.id, cuentaId: null });
+  }
   if (nuevo.fecha && nuevo.fecha > ctx.hoy) nuevo.revisar = true;
   if (Object.keys(nuevo).length === 0) throw new ErrorFinanzas("No indicaste qué cambiar.");
   const despues = ctx.db

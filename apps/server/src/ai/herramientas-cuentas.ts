@@ -22,7 +22,7 @@ import {
   respuestaEtiqueta,
   resumenEtiquetas,
 } from "../finanzas/etiquetas";
-import { ErrorFinanzas, idDelMovimiento, idsQueCoinciden } from "../finanzas/movimientos";
+import { buscarMovimientos, ErrorFinanzas, idDelMovimiento, idsQueCoinciden } from "../finanzas/movimientos";
 import { cuentaMencionada, encontrarOCrearCuenta, inferirTipoCuenta } from "../finanzas/catalogos";
 import { montosDelTexto } from "../lib/numeros";
 import { formatearMonto } from "../lib/dinero";
@@ -37,6 +37,11 @@ export const CONSULTAS_CUENTAS = new Set(["consultar_cuentas"]);
 export const ESCRITURAS_CUENTAS = new Set(["cuentas", "mover_dinero", "etiqueta"]);
 
 const monto = (que: string) => z.number().describe(`${que}, en números: 20 mil = 20000.`);
+
+// Palabras que no distinguen unos movimientos de otros al etiquetar: "ponle viaje a los gastos de la semana".
+const SIN_FILTRO = new Set("gasto gastos movimiento movimientos compra compras cosas todo todos todas esos esas eso los las del que mis pago pagos".split(" "));
+// Más de esto de un jalón se pregunta antes: una frase ambigua no debe etiquetar todo el historial.
+const MUCHOS_PARA_ETIQUETAR = 30;
 
 // Sin cifra en la frase vale si pagó todo ("pagué el total de la Nu") o confirma lo que se le preguntó.
 const SIN_CIFRA_VALE = /\b(total|completo|completa|todo lo que debo|todo)\b|^(si|correcto|exacto|eso|asi es|andale|va|ok|okay|claro)\b/;
@@ -73,7 +78,7 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
           // "Mi tarjeta de crédito" con una sola tarjeta: el modelo puede llamarla por su nombre.
           const unicaDelTipo = (nombre: string) => {
             const tipo = inferirTipoCuenta(texto);
-            const cuenta = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, nombre, { soloExistente: true, siAmbigua: "ninguna" });
+            const cuenta = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, nombre, { soloExistente: true, siAmbigua: "ninguna", soloLeer: true });
             return tipo !== "otra" && cuenta?.tipo === tipo && estadosDeCuentas(ctx).filter((e) => e.tipo === tipo).length === 1;
           };
           const sinNombrar = cuentas.find((c) => !cuentaMencionada(texto, c.cuenta) && !unicaDelTipo(c.cuenta));
@@ -134,7 +139,7 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
       execute: ejecutar("consultar_cuentas", ({ cuenta }) => {
         const todas = estadosDeCuentas(ctx);
         if (cuenta) {
-          const encontrada = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, cuenta, { siAmbigua: "error", soloExistente: true });
+          const encontrada = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, cuenta, { siAmbigua: "error", soloExistente: true, soloLeer: true });
           const e = encontrada && todas.find((x) => x.id === encontrada.id);
           if (!e) {
             return {
@@ -189,11 +194,15 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
         periodo: z.string().optional().describe("poner/quitar: de qué días (hoy, ayer, esta_semana, este_mes, YYYY-MM-DD..YYYY-MM-DD)."),
         texto: z.string().optional().describe("poner/quitar: solo los de este comercio o palabra (Uber, hotel)."),
         mas_reciente: z.boolean().optional().describe('poner/quitar: true si habla de "el último" o "eso".'),
+        cantidad: z.number().int().positive().optional().describe('poner/quitar: "los últimos 3 gastos" → 3.'),
+        confirmado: z.boolean().optional().describe("Solo cuando ya le preguntaste si de verdad son todos esos movimientos y dijo que sí."),
         hasta: z.string().optional().describe('activar: hasta qué día ("domingo", YYYY-MM-DD).'),
         desde: z.string().optional().describe("activar: desde qué día, si no es hoy."),
         nuevo_nombre: z.string().optional(),
       }),
-      execute: ejecutar("etiqueta", ({ accion, etiqueta, periodo, texto, mas_reciente, hasta, desde, nuevo_nombre }) => {
+      execute: ejecutar("etiqueta", ({ accion, etiqueta, periodo, texto: dicho, mas_reciente, cantidad, confirmado, hasta, desde, nuevo_nombre }) => {
+        // "Gastos", "lo de la": sin una palabra que distinga, no es un filtro (si no, etiqueta todo el historial).
+        const texto = dicho && normalizar(dicho).split(/\s+/).some((p) => p.length >= 3 && !SIN_FILTRO.has(p)) ? dicho : undefined;
         switch (accion) {
           case "activar": {
             const r = activarEtiqueta(ctx, { nombre: etiqueta, desde, hasta });
@@ -231,10 +240,16 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
           default: {
             const quitar = accion === "quitar";
             // "Eso" o "el último": uno. Si no, todos los del periodo o con esa palabra.
-            const ids =
-              mas_reciente || (!periodo && !texto)
+            // Poner una etiqueta es para gastos, salvo que hable de un ingreso en particular ("el último", "eso").
+            const tipo = quitar ? undefined : "gasto";
+            const ids = cantidad
+              ? buscarMovimientos(ctx, { texto, periodo: periodo ?? "todo", tipo, limite: cantidad }).movimientos.map((m) => m.id)
+              : mas_reciente || (!periodo && !texto)
                 ? [idDelMovimiento(ctx, undefined, { texto, periodo: periodo ?? "ultimos_30_dias", mas_reciente: true })]
-                : idsQueCoinciden(ctx, { texto, periodo });
+                : idsQueCoinciden(ctx, { texto, periodo, tipo });
+            if (ids.length > MUCHOS_PARA_ETIQUETAR && !confirmado) {
+              return { error: `Son ${ids.length} movimientos. Pregúntale si de verdad son todos (y si dice que sí, vuelve a llamar con confirmado: true) o de qué periodo.` };
+            }
             const r = etiquetar(ctx, { nombre: etiqueta, ids, quitar });
             if (!r.cambiados) {
               throw new ErrorFinanzas(quitar ? `Ninguno de esos tenía la etiqueta ${r.etiqueta}.` : `No encontré movimientos para etiquetar como ${r.etiqueta}, o ya la tenían.`);

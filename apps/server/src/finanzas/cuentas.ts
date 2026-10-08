@@ -5,11 +5,12 @@
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { comprasMsi, cuentas, movimientos, TIPOS_CUENTA } from "../db/schema";
 import { aCentavos, formatearMonto } from "../lib/dinero";
+import { fechaLocal, mediodiaUtc } from "../lib/fechas";
 import { montosDelTexto } from "../lib/numeros";
 import { normalizar } from "../lib/texto";
 import { type Cuenta, encontrarOCrearCuenta, enLista, inferirTipoCuenta } from "./catalogos";
 import type { Contexto } from "./contexto";
-import { crearMovimiento, ErrorFinanzas, registrarEnBitacora } from "./movimientos";
+import { cambioDeCuenta, crearMovimiento, ErrorFinanzas, registrarEnBitacora } from "./movimientos";
 
 export type TipoCuenta = (typeof TIPOS_CUENTA)[number];
 
@@ -91,7 +92,12 @@ function movidoDesdeElSaldo(ctx: Contexto, lista: Cuenta[]): Map<string, number>
     .from(comprasMsi)
     .where(and(eq(comprasMsi.usuarioId, ctx.usuarioId), isNull(comprasMsi.eliminadoEn), inArray(comprasMsi.cuentaId, ids)))
     .all();
-  for (const c of compras) sumar(c.cuentaId, -c.totalCentavos, c.creadoEn);
+  // La compra cuenta desde el día en que se hizo, no desde que se anotó: si se anota tarde, ya venía en el
+  // saldo que dijo después de comprar.
+  for (const c of compras) {
+    const momento = fechaLocal(new Date(c.creadoEn), ctx.zonaHoraria) === c.primerCargo ? c.creadoEn : mediodiaUtc(c.primerCargo, ctx.zonaHoraria);
+    sumar(c.cuentaId, -c.totalCentavos, momento);
+  }
   return movido;
 }
 
@@ -347,6 +353,9 @@ export type DatosMover = {
   monto: number;
   desde?: string;
   hacia?: string;
+  /** La app las elige de una lista: con el id no se busca por nombre. */
+  desdeId?: string;
+  haciaId?: string;
   fecha?: string;
   descripcion?: string;
   etiquetas?: string[];
@@ -355,7 +364,7 @@ export type DatosMover = {
 /** Encuentra una cuenta propia por cómo la nombró; si no existe y suena a cuenta, la crea. */
 function cuentaPropia(ctx: Contexto, texto: string | undefined, rol: "desde" | "hacia"): Cuenta | undefined {
   if (!texto?.trim()) return undefined;
-  const existente = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, texto, { siAmbigua: "error", soloExistente: true });
+  const existente = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, texto, { siAmbigua: "error", soloExistente: true, alCambiar: cambioDeCuenta(ctx) });
   if (existente) return existente;
   if (!PARECE_CUENTA.test(normalizar(texto))) {
     throw new ErrorFinanzas(
@@ -364,7 +373,7 @@ function cuentaPropia(ctx: Contexto, texto: string | undefined, rol: "desde" | "
         : `"${texto}" no es una de sus cuentas. Si el dinero se lo dio otra persona, es un ingreso o un préstamo.`,
     );
   }
-  return encontrarOCrearCuenta(ctx.db, ctx.usuarioId, texto, { siAmbigua: "error" });
+  return encontrarOCrearCuenta(ctx.db, ctx.usuarioId, texto, { siAmbigua: "error", alCambiar: cambioDeCuenta(ctx) });
 }
 
 /**
@@ -373,8 +382,13 @@ function cuentaPropia(ctx: Contexto, texto: string | undefined, rol: "desde" | "
  * cómo quedaron las cuentas que se conocen.
  */
 export function moverDinero(ctx: Contexto, datos: DatosMover) {
-  let desde = cuentaPropia(ctx, datos.desde, "desde");
-  let hacia = datos.tipo === "retiro" && !datos.hacia ? encontrarOCrearCuenta(ctx.db, ctx.usuarioId, "efectivo") : cuentaPropia(ctx, datos.hacia, "hacia");
+  const porId = (id: string) => {
+    const c = cuentasDelUsuario(ctx).find((x) => x.id === id);
+    if (!c) throw new ErrorFinanzas("No existe esa cuenta.");
+    return c;
+  };
+  let desde = datos.desdeId ? porId(datos.desdeId) : cuentaPropia(ctx, datos.desde, "desde");
+  let hacia = datos.haciaId ? porId(datos.haciaId) : datos.tipo === "retiro" && !datos.hacia ? encontrarOCrearCuenta(ctx.db, ctx.usuarioId, "efectivo", { alCambiar: cambioDeCuenta(ctx) }) : cuentaPropia(ctx, datos.hacia, "hacia");
   let tipo: "transferencia" | "pago_tarjeta" = datos.tipo === "pago_tarjeta" ? "pago_tarjeta" : "transferencia";
   if (tipo === "pago_tarjeta" && !hacia) {
     // "Pagué la Nu" con solo una cuenta dicha: si es de crédito, es a la que se pagó.
@@ -390,6 +404,7 @@ export function moverDinero(ctx: Contexto, datos: DatosMover) {
   if (desde && hacia && desde.id === hacia.id) throw new ErrorFinanzas("El dinero sale y llega a la misma cuenta: pregunta a cuál fue.");
   // Lo que llega a una tarjeta de crédito es un pago; una tarjeta de "otra" a la que se le paga es de crédito.
   if (hacia && tipo === "pago_tarjeta" && hacia.tipo === "otra") {
+    registrarEnBitacora(ctx, "cuentas", hacia.id, "editar", { tipo: hacia.tipo }, { tipo: "credito" });
     hacia = ctx.db.update(cuentas).set({ tipo: "credito" }).where(eq(cuentas.id, hacia.id)).returning().get()!;
   }
   if (hacia?.tipo === "credito") tipo = "pago_tarjeta";

@@ -5,7 +5,7 @@ import { armarFecha, diaSemana, partes, sumarDias, sumarMeses } from "../lib/fec
 import { normalizar } from "../lib/texto";
 import { encontrarCategoria, encontrarOCrearCuenta, listarCategorias } from "./catalogos";
 import type { Contexto } from "./contexto";
-import { ErrorFinanzas, registrarEnBitacora } from "./movimientos";
+import { cambioDeCuenta, ErrorFinanzas, registrarEnBitacora } from "./movimientos";
 
 export type Recurrente = typeof recurrentes.$inferSelect;
 
@@ -103,7 +103,7 @@ export function crearRecurrente(ctx: Contexto, datos: DatosRecurrente) {
       dia: datos.dia,
       mes: datos.mes,
       categoriaId: categoria?.id,
-      cuentaId: encontrarOCrearCuenta(ctx.db, ctx.usuarioId, datos.cuenta)?.id,
+      cuentaId: encontrarOCrearCuenta(ctx.db, ctx.usuarioId, datos.cuenta, { alCambiar: cambioDeCuenta(ctx) })?.id,
       entradaId: ctx.entradaId,
     })
     .returning()

@@ -16,6 +16,9 @@ export type MovimientoApp = {
   comercio: string | null;
   descripcion: string | null;
   cuenta: string | null;
+  /** Transferencias y pagos de tarjeta: a dónde llegó el dinero. Viejos servidores no lo mandan. */
+  cuentaDestino?: string | null;
+  etiquetas?: { id: string; nombre: string }[];
   lugar: string | null;
   lat: number | null;
   lon: number | null;

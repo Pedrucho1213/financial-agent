@@ -15,7 +15,7 @@ import {
   observacionDeCuentas,
   totalesDeCuentas,
 } from "../src/finanzas/cuentas";
-import { buscarMovimientos, crearMovimiento, deshacer, ErrorFinanzas } from "../src/finanzas/movimientos";
+import { buscarMovimientos, crearMovimiento, deshacer, editarMovimiento, ErrorFinanzas } from "../src/finanzas/movimientos";
 import { disponible, registrarMsi } from "../src/finanzas/planes";
 import { AHORA, preparar } from "./ayuda";
 
@@ -337,6 +337,40 @@ describe("la IA no confunde un saldo con un ingreso", () => {
     expect(pesos(estado(ctx, "Nu").deudaCentavos)).toBe(12000);
     await llamar(dictado(ctx, "Pagué el total de la Nu con Revolut"), "mover_dinero", { tipo: "pago_tarjeta", monto: 12000, desde: "Revolut", hacia: "Nu" });
     expect(pesos(estado(ctx, "Nu").deudaCentavos)).toBe(0);
+  });
+
+  test("un pago de tarjeta con solo la tarjeta (como lo manda la app) baja la deuda; también al editar un gasto a pago", () => {
+    const { ctx } = preparar();
+    fijarCuenta(dictado(ctx), { cuenta: "Nu", tipo: "credito", limite: 30000, deuda: 5000 });
+    crearMovimiento(dictado(ctx), { tipo: "pago_tarjeta", monto: 2000, cuenta: "Nu" });
+    expect(pesos(estado(ctx, "Nu").deudaCentavos)).toBe(3000);
+    const g = crearMovimiento(dictado(ctx), { tipo: "gasto", monto: 1000, cuenta: "Nu" });
+    expect(pesos(estado(ctx, "Nu").deudaCentavos)).toBe(4000);
+    editarMovimiento(dictado(ctx), g.id, { tipo: "pago_tarjeta" });
+    expect(pesos(estado(ctx, "Nu").deudaCentavos)).toBe(2000);
+  });
+
+  test("una compra a meses anotada tarde ya venía en el saldo que dijo después de comprar", () => {
+    const { ctx } = preparar();
+    fijarCuenta(dictado(ctx), { cuenta: "Nu", tipo: "credito", limite: 30000, disponible: 20000 });
+    registrarMsi(dictado(ctx), { descripcion: "pantalla", total: 12000, meses: 12, cuenta: "Nu", fecha: "2026-08-01" });
+    expect(pesos(estado(ctx, "Nu").disponibleCentavos)).toBe(20000);
+    // Una de hoy, después de decirlo, sí lo baja.
+    registrarMsi(dictado(ctx), { descripcion: "tenis", total: 2400, meses: 6, cuenta: "Nu" });
+    expect(pesos(estado(ctx, "Nu").disponibleCentavos)).toBe(17600);
+  });
+
+  test("al encontrar una cuenta archivada o sin tipo en un gasto, el cambio se puede deshacer", () => {
+    const { ctx } = preparar();
+    const banorte = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, "Banorte")!;
+    ctx.db.update(tablaCuentas).set({ archivada: true }).run();
+    crearMovimiento(dictado(ctx, "gasté 100 con la tarjeta de crédito Banorte"), { tipo: "gasto", monto: 100, cuenta: "tarjeta de crédito Banorte" });
+    expect(ctx.db.select().from(tablaCuentas).get()).toMatchObject({ id: banorte.id, archivada: false, tipo: "credito" });
+    deshacer(dictado(ctx, "deshaz eso"));
+    expect(ctx.db.select().from(tablaCuentas).get()).toMatchObject({ archivada: true, tipo: "otra" });
+    // Buscar por cuenta no cambia nada.
+    buscarMovimientos(dictado(ctx), { periodo: "todo", cuenta: "tarjeta de crédito Banorte" });
+    expect(ctx.db.select().from(tablaCuentas).get()).toMatchObject({ archivada: true, tipo: "otra" });
   });
 
   test("transferir más de lo que había lo dice en vez de dejar un saldo negativo callado", async () => {

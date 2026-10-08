@@ -5,7 +5,7 @@ import { armarFecha, partes, resolverFecha, resolverPeriodo, sumarDias, sumarMes
 import { normalizar } from "../lib/texto";
 import { encontrarCategoria, encontrarOCrearCuenta, idsConHijas, listarCategorias, nombreCompleto, type Categoria } from "./catalogos";
 import type { Contexto } from "./contexto";
-import { crearMovimiento, ErrorFinanzas, registrarEnBitacora } from "./movimientos";
+import { cambioDeCuenta, crearMovimiento, ErrorFinanzas, registrarEnBitacora } from "./movimientos";
 import { estadosDeCuentas, totalesDeCuentas } from "./cuentas";
 import { proximoCobro } from "./recurrentes";
 
@@ -661,8 +661,11 @@ export function registrarMensualidades(ctx: Contexto, opciones: { soloCompra?: s
 
 /** Los meses sin intereses son de tarjeta de crédito: una cuenta sin tipo con la que se compra así lo es. */
 function tarjetaDeLaCompra(ctx: Contexto, texto: string | undefined): string | undefined {
-  const cuenta = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, texto);
-  if (cuenta?.tipo === "otra") ctx.db.update(cuentas).set({ tipo: "credito" }).where(eq(cuentas.id, cuenta.id)).run();
+  const cuenta = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, texto, { alCambiar: cambioDeCuenta(ctx) });
+  if (cuenta?.tipo === "otra") {
+    registrarEnBitacora(ctx, "cuentas", cuenta.id, "editar", { tipo: "otra" }, { tipo: "credito" });
+    ctx.db.update(cuentas).set({ tipo: "credito" }).where(eq(cuentas.id, cuenta.id)).run();
+  }
   return cuenta?.id;
 }
 

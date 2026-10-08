@@ -67,6 +67,23 @@ describe("etiquetas", () => {
     expect(quitar.confirmacion).toBe("Listo, le quité la etiqueta Trabajo a un movimiento.");
   });
 
+  test("una frase sin palabras que distingan no etiqueta todo el historial; 'los últimos 3' son 3 gastos; muchos se preguntan", async () => {
+    const { ctx } = preparar();
+    for (let i = 0; i < 4; i++) crearMovimiento(dictado(ctx), { tipo: "gasto", monto: 10 + i, descripcion: `cosa ${i}` });
+    crearMovimiento(dictado(ctx), { tipo: "ingreso", monto: 500, descripcion: "reembolso" });
+    const r = await llamar(dictado(ctx, "ponle trabajo a los gastos"), "etiqueta", { accion: "poner", etiqueta: "trabajo", texto: "gastos" });
+    expect(r.cambiados).toBe(1);
+    deshacer(dictado(ctx, "deshaz eso"));
+    const tres = await llamar(dictado(ctx, "etiqueta los últimos 3 gastos como trabajo"), "etiqueta", { accion: "poner", etiqueta: "trabajo", cantidad: 3 });
+    expect(tres.cambiados).toBe(3);
+    expect(todos(ctx).filter((m) => m.etiquetas).every((m) => m.tipo === "gasto")).toBe(true);
+    for (let i = 0; i < 31; i++) crearMovimiento(dictado(ctx), { tipo: "gasto", monto: 5, comercio: "Oxxo" });
+    const muchos = await llamar(dictado(ctx, "todo lo de Oxxo es de la oficina"), "etiqueta", { accion: "poner", etiqueta: "oficina", texto: "Oxxo", periodo: "todo" });
+    expect(muchos.error).toContain("Son 31 movimientos");
+    const ya = await llamar(dictado(ctx, "sí, todos"), "etiqueta", { accion: "poner", etiqueta: "oficina", texto: "Oxxo", periodo: "todo", confirmado: true });
+    expect(ya.cambiados).toBe(31);
+  });
+
   test("editar_movimiento agrega y quita etiquetas sin perder las otras", async () => {
     const { ctx } = preparar();
     const m = crearMovimiento(dictado(ctx), { tipo: "gasto", monto: 500, descripcion: "cena", etiquetas: ["boda", "amigos"] });

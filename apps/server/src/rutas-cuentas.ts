@@ -73,7 +73,10 @@ const invalido = (error: z.ZodError) => ({ error: "Datos inválidos.", detalles:
  * Cuentas y tarjetas con su saldo, dinero entre cuentas y etiquetas, para la app. Los errores de finanzas
  * (ErrorFinanzas) ya se convierten en 400 en `v1`.
  */
-export function rutasCuentas(v1: Hono<{ Variables: VariablesAuth }>, contexto: (usuarioId: string) => Contexto) {
+export function rutasCuentas(v1: Hono<{ Variables: VariablesAuth }>, contextoBase: (usuarioId: string) => Contexto) {
+  // Cada petición de la app es una sola acción en la bitácora: activar una etiqueta que marca 5 gastos
+  // se deshace de una vez, no de uno en uno.
+  const contexto = (usuarioId: string): Contexto => ({ ...contextoBase(usuarioId), entradaId: `app-${crypto.randomUUID()}` });
   // Todas sus cuentas con el saldo de hoy, lo que entró y salió este mes y los totales.
   v1.get("/cuentas", (c) => {
     const ctx = contexto(c.get("usuarioId"));
@@ -151,13 +154,12 @@ export function rutasCuentas(v1: Hono<{ Variables: VariablesAuth }>, contexto: (
     const cuerpo = esquemaMover.safeParse(await c.req.json().catch(() => null));
     if (!cuerpo.success) return c.json(invalido(cuerpo.error), 400);
     const ctx = contexto(c.get("usuarioId"));
-    const nombre = (id?: string) => (id ? estadoDeCuenta(ctx, id).nombre : undefined);
     const d = cuerpo.data;
-    const r = moverDinero({ ...ctx, origen: undefined }, {
+    const r = moverDinero(ctx, {
       tipo: d.tipo,
       monto: d.monto,
-      desde: nombre(d.desde_id),
-      hacia: nombre(d.hacia_id),
+      desdeId: d.desde_id,
+      haciaId: d.hacia_id,
       fecha: d.fecha,
       descripcion: d.descripcion,
       etiquetas: d.etiquetas,

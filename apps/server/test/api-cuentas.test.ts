@@ -37,6 +37,11 @@ describe("API de cuentas", () => {
     expect(nu.cuerpo).toMatchObject({ esCredito: true, deudaCentavos: 200000, disponibleCentavos: 2800000, diaPago: 25 });
 
     expect((await pedir("/v1/movimientos", "POST", { tipo: "gasto", monto: 300, cuenta: "BBVA", etiquetas: [] })).estado).toBe(201);
+    // Un pago a la Nu desde la app, con solo la tarjeta, baja la deuda (no la sube).
+    const pagoApp = await pedir("/v1/movimientos", "POST", { tipo: "pago_tarjeta", monto: 500, cuenta: "Nu" });
+    expect(pagoApp.cuerpo).toMatchObject({ cuentaDestino: "Nu", cuenta: null });
+    expect((await pedir(`/v1/cuentas/${nu.cuerpo.id}`)).cuerpo.cuenta.deudaCentavos).toBe(150000);
+    await pedir(`/v1/movimientos/${pagoApp.cuerpo.id}`, "DELETE");
     const pago = await pedir("/v1/transferencias", "POST", { tipo: "pago_tarjeta", monto: 1000, desde_id: bbva.cuerpo.id, hacia_id: nu.cuerpo.id });
     expect(pago.estado).toBe(201);
     expect(pago.cuerpo.movimiento).toMatchObject({ tipo: "pago_tarjeta", cuenta: "BBVA", cuentaDestino: "Nu", cuentaDestinoId: nu.cuerpo.id });
@@ -99,6 +104,13 @@ describe("API de cuentas", () => {
       { id: trabajo.cuerpo.id, nombre: "Trabajo", gastadoCentavos: 25000, ingresadoCentavos: 0, cantidad: 1, activa: false },
       { id: viaje.cuerpo.id, nombre: "Viaje Oaxaca", gastadoCentavos: 25000, ingresadoCentavos: 0, cantidad: 1, activa: true },
     ]);
+    // Activar desde la app marcó gastos de esos días: un solo "deshacer" lo regresa todo.
+    await pedir("/v1/movimientos", "POST", { tipo: "gasto", monto: 10, descripcion: "a" });
+    await pedir("/v1/movimientos", "POST", { tipo: "gasto", monto: 20, descripcion: "b" });
+    const playa = await pedir("/v1/etiquetas", "POST", { nombre: "Playa", activa_desde: "2026-10-01", activa_hasta: "2026-10-31" });
+    expect(playa.cuerpo.cantidad).toBeGreaterThanOrEqual(2);
+    await pedir("/v1/deshacer", "POST", {});
+    expect((await pedir(`/v1/movimientos?etiqueta_id=${playa.cuerpo.id}`)).cuerpo.total).toBe(0);
     expect((await pedir(`/v1/etiquetas/${trabajo.cuerpo.id}`, "DELETE")).estado).toBe(200);
     expect((await pedir(`/v1/etiquetas/${trabajo.cuerpo.id}`, "DELETE")).estado).toBe(404);
     expect((await pedir(`/v1/movimientos/${m.cuerpo.id}`)).cuerpo.etiquetas.map((e: Json) => e.nombre)).toEqual(["Viaje Oaxaca"]);

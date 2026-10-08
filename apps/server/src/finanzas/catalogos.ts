@@ -281,6 +281,10 @@ export type OpcionesCuenta = {
   siAmbigua?: "error" | "ninguna";
   /** No crear la cuenta si no existe. */
   soloExistente?: boolean;
+  /** Solo buscarla: no desarchivarla ni ponerle el tipo que se dijo (consultas, filtros). */
+  soloLeer?: boolean;
+  /** Si al encontrarla se desarchiva o se le pone tipo, para dejarlo en la bitácora (deshacer). */
+  alCambiar?: (id: string, antes: Partial<Cuenta>, despues: Partial<Cuenta>) => void;
 };
 
 /**
@@ -300,7 +304,9 @@ export function encontrarOCrearCuenta(db: Db, usuarioId: string, texto: string |
     if (c.archivada) cambios.archivada = false;
     // "Otra" no dice nada; un tipo dicho sí. Una de débito no se vuelve de crédito por una frase.
     if (c.tipo === "otra" && tipoDicho !== "otra" && tipoDicho !== "transferencia") cambios.tipo = tipoDicho;
-    if (Object.keys(cambios).length === 0) return c;
+    if (opciones.soloLeer || Object.keys(cambios).length === 0) return c;
+    const antes = Object.fromEntries(Object.keys(cambios).map((k) => [k, c[k as keyof Cuenta]])) as Partial<Cuenta>;
+    opciones.alCambiar?.(c.id, antes, cambios);
     return db.update(cuentas).set(cambios).where(eq(cuentas.id, c.id)).returning().get()!;
   };
   if (!buscado || SOLO_TIPO.test(buscado) || buscado === "efectivo") {
