@@ -95,7 +95,8 @@ export function esOrdenSobreLoAnotado(texto: string): boolean {
 
 const MONEDAS: [RegExp, string][] = [
   [/\b(peso|pesos|mxn|varos|baros)\b/, "MXN"],
-  [/\b(dolar|dolares|usd|dls)\b/, "USD"],
+  // "US$1,500" queda "us 1 500" al normalizar.
+  [/\b(dolar|dolares|usd|dls|dlls)\b|\bus(?= \d)/, "USD"],
   [/\b(euro|euros|eur)\b/, "EUR"],
   // "2 libras de carne" es peso, no dinero.
   [/\b(gbp|libras? esterlinas?)\b|\blibras?\b(?! de\b)/, "GBP"],

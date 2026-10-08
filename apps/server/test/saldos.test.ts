@@ -18,6 +18,8 @@ import {
 } from "../src/finanzas/cuentas";
 import { buscarMovimientos, crearMovimiento, deshacer, editarMovimiento, ErrorFinanzas } from "../src/finanzas/movimientos";
 import { disponible, registrarMsi } from "../src/finanzas/planes";
+import { listarAvisos } from "../src/finanzas/avisos";
+import { revisar } from "../src/finanzas/revisor";
 import { AHORA, preparar } from "./ayuda";
 
 // Cada dictado, unos minutos después del anterior: el saldo dicho cuenta lo que pasó después.
@@ -516,5 +518,70 @@ describe("lo que encontró QA con el modelo real", () => {
     expect(r.movimiento.tipo).toBe("pago_tarjeta");
     const tarjeta = estadosDeCuentas(ctx).find((e) => e.esCredito);
     expect(tarjeta?.nombre).toBe(r.movimiento.cuenta_destino);
+  });
+});
+
+describe("después del PR de cuentas", () => {
+  test("pesos y dólares en la misma frase: los pesos se guardan y solo se pregunta por los dólares", async () => {
+    const { ctx } = preparar();
+    const r = await llamar(dictado(ctx, "tengo 300 dólares en Wise y 10 mil en Bancomer"), "cuentas", {
+      cuentas: [{ cuenta: "Wise", saldo: 300 }, { cuenta: "Bancomer", saldo: 10000 }],
+    });
+    expect(r.confirmacion).toBe("Listo, Bancomer tiene $10,000. Llevo tus cuentas en pesos y no sé a cuánto cambiarlos. ¿Cuántos pesos son tus 300 dólares en Wise?");
+    expect(pesos(estado(ctx, "Bancomer").saldoCentavos)).toBe(10000);
+    expect(estado(ctx, "Wise").saldoCentavos).toBeNull();
+    // Con la cifra lejos de la moneda, no se adivina cuál era: ninguna con saldo en pesos.
+    const s = await llamar(dictado(ctx, "tengo 500 en Revolut, en euros"), "cuentas", { cuentas: [{ cuenta: "Revolut", saldo: 500 }] });
+    expect(s.confirmacion).toBe("Llevo tus cuentas en pesos y no sé a cuánto cambiarlos. ¿Cuántos pesos son tus 500 euros en Revolut?");
+    expect(estado(ctx, "Revolut").saldoCentavos).toBeNull();
+  });
+
+  test("cifras con coma y otras formas de decir dólares", async () => {
+    for (const [frase, cifra] of [
+      ["Tengo 1,500 dólares en Wise y 10,000 pesos en Bancomer", "1,500"],
+      ["Tengo 2,000 USD en Wise y 10 mil en Bancomer", "2,000"],
+      ["Tengo US$1,500 en Wise y 10 mil en Bancomer", "1,500"],
+    ] as const) {
+      const { ctx } = preparar();
+      const monto = Number(cifra.replace(",", ""));
+      const r = await llamar(dictado(ctx, frase), "cuentas", { cuentas: [{ cuenta: "Wise", saldo: monto }, { cuenta: "Bancomer", saldo: 10000 }] });
+      expect(r.confirmacion).toBe(`Listo, Bancomer tiene $10,000. Llevo tus cuentas en pesos y no sé a cuánto cambiarlos. ¿Cuántos pesos son tus ${cifra} dólares en Wise?`);
+      expect(pesos(estado(ctx, "Bancomer").saldoCentavos)).toBe(10000);
+      expect(estado(ctx, "Wise").saldoCentavos).toBeNull();
+    }
+  });
+
+  test("totales de crédito: solo las tarjetas con límite y disponible conocidos", () => {
+    const { ctx } = preparar();
+    // Límite sin deuda dicha: no se sabe cuánto lleva usado.
+    fijarCuenta(dictado(ctx, "la Nu tiene límite de 30 mil"), { cuenta: "Nu", tipo: "credito", limite: 30000 });
+    let t = totalesDeCuentas(estadosDeCuentas(ctx));
+    expect(t).toMatchObject({ limiteCreditoCentavos: 0, disponibleCreditoCentavos: 0, sinSaldo: ["Nu"] });
+    // Con la deuda ya cuenta; una con solo el disponible no entra en el límite ni en su disponible.
+    fijarCuenta(dictado(ctx, "debo 5 mil de la Nu"), { cuenta: "Nu", deuda: 5000 });
+    fijarCuenta(dictado(ctx, "tengo 7 mil disponibles en la tarjeta de crédito Invex"), { cuenta: "Invex", tipo: "credito", disponible: 7000 });
+    t = totalesDeCuentas(estadosDeCuentas(ctx));
+    expect(t).toMatchObject({ limiteCreditoCentavos: 3000000, disponibleCreditoCentavos: 2500000, sinSaldo: [] });
+    // Archivada, no se suma.
+    const nu = estado(ctx, "Nu");
+    expect(totalesDeCuentas([{ ...nu, archivada: true }]).limiteCreditoCentavos).toBe(0);
+  });
+
+  test("por voz, el crédito disponible incluye la tarjeta de la que solo se sabe el disponible", async () => {
+    const { ctx } = preparar();
+    fijarCuenta(dictado(ctx, "la Nu"), { cuenta: "Nu", tipo: "credito", limite: 30000, deuda: 5000 });
+    fijarCuenta(dictado(ctx, "la Invex"), { cuenta: "Invex", tipo: "credito", disponible: 7000 });
+    const r = await llamar(dictado(ctx, "¿cuánto crédito me queda?"), "consultar_cuentas", {});
+    expect(r.respuesta).toContain("te quedan $32,000 de crédito disponible");
+  });
+
+  test("los avisos de una tarjeta abren esa cuenta en la app", () => {
+    const { ctx } = preparar();
+    fijarCuenta(dictado(ctx, "la Nu"), { cuenta: "Nu", tipo: "credito", limite: 10000, deuda: 9500, diaPago: Number(ctx.hoy.slice(8, 10)) });
+    revisar(ctx);
+    const nu = estado(ctx, "Nu");
+    const deTarjeta = listarAvisos(ctx).avisos.filter((a) => a.tipo.startsWith("tarjeta_"));
+    expect(deTarjeta.map((a) => a.tipo).sort()).toEqual(["tarjeta_limite", "tarjeta_pago"]);
+    expect(deTarjeta.every((a) => a.enlace === `#cuenta?id=${nu.id}`)).toBe(true);
   });
 });

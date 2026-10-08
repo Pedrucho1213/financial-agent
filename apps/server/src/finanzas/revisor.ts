@@ -368,7 +368,7 @@ function tarjetas(ctx: Contexto): AvisoNuevo[] {
           texto: `${cuando(fecha)} es el día límite para pagar ${e.nombre}. Debes ${$(ctx, e.deudaCentavos!)}.`,
           vence: fecha,
           prioridad: 1,
-          enlace: "#inicio",
+          enlace: `#cuenta?id=${e.id}`,
         });
       }
     }
@@ -380,7 +380,7 @@ function tarjetas(ctx: Contexto): AvisoNuevo[] {
         texto: `${e.nombre} va al ${Math.round((e.deudaCentavos! / e.limiteCentavos) * 100)}% de su límite: te quedan ${$(ctx, Math.max(0, e.disponibleCentavos ?? 0))} disponibles.`,
         vence: null,
         prioridad: 2,
-        enlace: "#inicio",
+        enlace: `#cuenta?id=${e.id}`,
       });
     }
   }

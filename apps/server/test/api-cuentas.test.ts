@@ -76,11 +76,13 @@ describe("API de cuentas", () => {
     expect((await pedir("/v1/cuentas", "POST", { nombre: "X", dia_corte: 40 })).estado).toBe(400);
     expect((await pedir("/v1/cuentas", "POST", { nombre: "X", saldo: "mucho" })).estado).toBe(400);
     expect((await pedir("/v1/cuentas", "POST", { nombre: "Débito", tipo: "debito", limite: 5000 })).estado).toBe(400);
-    expect((await pedir("/v1/cuentas/no-existe")).estado).toBe(400);
+    expect((await pedir("/v1/cuentas/no-existe")).estado).toBe(404);
     const otro = montar();
     const ajena = await otro.pedir("/v1/cuentas", "POST", { nombre: "Secreta", saldo: 100 });
-    expect((await pedir(`/v1/cuentas/${ajena.cuerpo.id}`)).estado).toBe(400);
-    expect((await pedir(`/v1/cuentas/${ajena.cuerpo.id}`, "PATCH", { saldo: 1 })).estado).toBe(400);
+    expect((await pedir(`/v1/cuentas/${ajena.cuerpo.id}`)).estado).toBe(404);
+    expect((await pedir(`/v1/cuentas/${ajena.cuerpo.id}`, "PATCH", { saldo: 1 })).estado).toBe(404);
+    // La de otro sigue igual.
+    expect((await otro.pedir(`/v1/cuentas/${ajena.cuerpo.id}`)).cuerpo.cuenta.saldoCentavos).toBe(10000);
     expect((await pedir("/v1/transferencias", "POST", { tipo: "transferencia", monto: 1, hacia_id: ajena.cuerpo.id })).estado).toBe(400);
   });
 
