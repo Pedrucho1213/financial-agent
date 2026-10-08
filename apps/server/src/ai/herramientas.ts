@@ -25,7 +25,8 @@ import {
 } from "../finanzas/habitos";
 import { listarMemorias, olvidar, recordar } from "../finanzas/memorias";
 import { cancelarRecurrente, crearRecurrente, editarRecurrente, listarRecurrentes } from "../finanzas/recurrentes";
-import { fechaDelTexto, fechasDelTexto, mencionaFecha, resolverFecha } from "../lib/fechas";
+import { fechaDelTexto, fechasDelTexto, mencionaFecha, resolverFecha, sumarDias } from "../lib/fechas";
+import { aCentavos, formatearMonto } from "../lib/dinero";
 import { montoConPalabras, montosDelTexto } from "../lib/numeros";
 import { herramientasAnalisis } from "./herramientas-analisis";
 import { respuestaDeConsulta } from "./consultas";
@@ -103,6 +104,9 @@ const PAGA_MENSUALIDAD = /\b(mensualidad|mensualidades|pago de|abono de)\b/;
 const CORRIGE_REGISTRO =
   /\b(no (fue|fueron|era|eran)|ultimo (gasto|registro|movimiento|ingreso)|que (agregamos|anotamos|registramos|apuntamos|anotaste|registraste|apuntaste|agregaste))\b/;
 
+// Un cambio de aquí en adelante, no una corrección: "la renta subió a 9 mil", "a partir del próximo mes".
+const HACIA_ADELANTE = /\b(subio|sube|subira|bajo|baja|bajara|aumento|a partir|desde ahora|de ahora en adelante|ahora (es|sera|cuesta|me cobran)|(el|la) (proximo|proxima|siguiente)|cada (mes|quincena|semana|ano))\b/;
+
 // Algo que se repite: "cada día 15", "cada mes", "mensual", "cada quincena".
 const SE_REPITE = /\b(cada|al mes|por mes|a la semana|por semana|al ano|mensual|mensualmente|semanal|quincenal|anual|diario)\b/;
 
@@ -120,7 +124,7 @@ function movimientosDeEntrada(ctx: Contexto, entradaId: string): number {
 function ultimoAnotado(ctx: Contexto, nombre: string) {
   const texto = normalizar(nombre).replace(/^(el|la|los|las|mi|mis) /, "");
   const m = texto ? buscarMovimientos(ctx, { texto, periodo: "ultimos_60_dias", limite: 1 }).movimientos[0] : undefined;
-  return m && { id: m.id, descripcion: `${m.comercio ?? m.descripcion ?? m.categoria} de ${m.monto} del ${m.fecha}` };
+  return m && { id: m.id, fecha: m.fecha, descripcion: `${m.comercio ?? m.descripcion ?? m.categoria} de ${m.monto} del ${m.fecha}` };
 }
 
 export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
@@ -404,10 +408,18 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
               };
         } catch (error) {
           // "Ajusta la renta a 9 mil" sin una renta fija guardada: corrige la renta que sí anotó.
+          // Si habla de ahora en adelante ("subió", "el próximo mes") o lo anotado es viejo, puede querer
+          // guardarla como pago fijo: que pregunte antes de reescribir el pasado.
           const anotado = !cancelar && error instanceof ErrorFinanzas && error.message.startsWith("No tengo") ? ultimoAnotado(ctx, nombre) : undefined;
           if (!anotado) throw error;
+          const reciente = anotado.fecha >= sumarDias(ctx.hoy, -7) || anotado.fecha.slice(0, 7) === ctx.hoy.slice(0, 7);
+          const haciaAdelante = HACIA_ADELANTE.test(normalizar(ctx.textoOriginal ?? ""));
+          if (reciente && !haciaAdelante) {
+            throw new ErrorFinanzas(`${nombre} no es un pago fijo, pero anotó ${anotado.descripcion}: corrígelo con editar_movimiento con id ${anotado.id}, sin preguntar.`);
+          }
+          const nuevo = cambios?.monto !== undefined ? ` o la guarda como pago fijo de ${formatearMonto(aCentavos(cambios.monto), monedaDicha(cambios.moneda)?.toUpperCase() ?? ctx.monedaBase)}` : " o la guarda como pago fijo";
           throw new ErrorFinanzas(
-            `${nombre} no es un pago fijo, pero anotó ${anotado.descripcion}. Si es eso lo que corrige, usa editar_movimiento con id ${anotado.id}, sin preguntar.`,
+            `${nombre} no es un pago fijo, pero anotó ${anotado.descripcion}. No cambies nada: pregunta si corrige ese movimiento${nuevo}.`,
           );
         }
       }),

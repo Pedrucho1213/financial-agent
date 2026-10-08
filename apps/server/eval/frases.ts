@@ -322,6 +322,15 @@ export const CASOS: Caso[] = [
   },
   {
     grupo: "edicion",
+    // Un cambio hacia adelante no reescribe la renta ya pagada.
+    frase: "La renta subió a 9 mil",
+    preparar: (ctx) => {
+      crearMovimiento(previa(ctx), { tipo: "gasto", monto: 8500, categoria: "Renta", descripcion: "Renta", fecha: "ayer" });
+    },
+    verificar: (r) => motivo(montos(r).join(" ") === "$8,500", { movimientos: r.movimientos, respuesta: r.respuesta }),
+  },
+  {
+    grupo: "edicion",
     frase: "Elimina el gasto de gasolina de 800",
     preparar: (ctx) => {
       crearMovimiento(previa(ctx), { tipo: "gasto", monto: 800, categoria: "Gasolina", fecha: "ayer" });

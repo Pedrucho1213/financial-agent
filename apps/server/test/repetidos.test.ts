@@ -51,6 +51,23 @@ describe("corregir algo que no es un pago fijo", () => {
     expect(r.error).toContain("$8,500");
   });
 
+  test('"la renta subió a 9 mil" no reescribe la renta que ya pagó: pregunta', async () => {
+    const { ctx } = preparar();
+    crearMovimiento(ctx, { tipo: "gasto", monto: 8500, descripcion: "Renta", categoria: "Renta" } as never);
+    const r = await llamar(dictado(ctx, "La renta subió a 9 mil"), "editar_recurrente", { nombre: "renta", cambios: { monto: 9000 } });
+    expect(r.error).toContain("No cambies nada: pregunta si corrige ese movimiento o la guarda como pago fijo de $9,000");
+    expect(r.error).not.toContain("editar_movimiento");
+    expect(todos(ctx)[0]!.monto).toBe("$8,500");
+  });
+
+  test("una renta de hace semanas tampoco se corrige sin preguntar", async () => {
+    const { ctx } = preparar();
+    crearMovimiento(ctx, { tipo: "gasto", monto: 8500, descripcion: "Renta", categoria: "Renta", fecha: "2026-09-01" } as never);
+    const r = await llamar(dictado(ctx, "Ajusta la renta a 9 mil"), "editar_recurrente", { nombre: "renta", cambios: { monto: 9000 } });
+    expect(r.error).toContain("pregunta si corrige ese movimiento");
+    expect(r.error).toContain("del 2026-09-01");
+  });
+
   test("con una renta fija guardada, cambia la fija", async () => {
     const { ctx } = preparar();
     crearRecurrente(ctx, { nombre: "Renta", tipo: "gasto", monto: 8500, frecuencia: "mensual", dia: 1 } as never);
