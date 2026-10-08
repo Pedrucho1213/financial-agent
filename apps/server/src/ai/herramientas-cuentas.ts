@@ -95,14 +95,14 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
         // en la misma frase ("y 10 mil en Bancomer"), esos sí se guardan: en otra moneda va solo la cifra dicha junto
         // a ella.
         const cifras = (c: (typeof cuentas)[number]) => [c.saldo, c.disponible, c.deuda, c.limite].filter((x) => x !== undefined);
-        const moneda = monedaDelTexto(texto);
+        // Cada parte de la frase con su moneda, sobre el texto tal cual: normalizado, "1,500" sería "1 500" y
+        // saldrían dos cifras. "1,500 dólares en Wise y 10,000 pesos en Bancomer" dice dos monedas.
+        const partes = (texto ?? "").split(/;|,\s+|\s+y\s+/i).map((parte) => ({ moneda: monedaDelTexto(parte), montos: montosDelTexto(parte) }));
+        const moneda = partes.find((p) => p.moneda && p.moneda !== ctx.monedaBase)?.moneda;
         let enOtra: typeof cuentas = [];
         let cifraEnOtra: number | undefined;
-        if (texto && moneda && moneda !== ctx.monedaBase) {
-          const dichas = normalizar(texto)
-            .split(/,|;|\by\b/)
-            .filter((parte) => monedaDelTexto(parte) === moneda)
-            .flatMap((parte) => montosDelTexto(parte));
+        if (moneda) {
+          const dichas = partes.filter((p) => p.moneda === moneda).flatMap((p) => p.montos);
           enOtra = cuentas.filter((c) => cifras(c).some((x) => dichas.includes(x)));
           // "300 en Wise, en dólares": la cifra no va junto a la moneda; todas las que traen cifra.
           if (!enOtra.length) enOtra = cuentas.filter((c) => cifras(c).length);

@@ -536,6 +536,21 @@ describe("después del PR de cuentas", () => {
     expect(estado(ctx, "Revolut").saldoCentavos).toBeNull();
   });
 
+  test("cifras con coma y otras formas de decir dólares", async () => {
+    for (const [frase, cifra] of [
+      ["Tengo 1,500 dólares en Wise y 10,000 pesos en Bancomer", "1,500"],
+      ["Tengo 2,000 USD en Wise y 10 mil en Bancomer", "2,000"],
+      ["Tengo US$1,500 en Wise y 10 mil en Bancomer", "1,500"],
+    ] as const) {
+      const { ctx } = preparar();
+      const monto = Number(cifra.replace(",", ""));
+      const r = await llamar(dictado(ctx, frase), "cuentas", { cuentas: [{ cuenta: "Wise", saldo: monto }, { cuenta: "Bancomer", saldo: 10000 }] });
+      expect(r.confirmacion).toBe(`Listo, Bancomer tiene $10,000. Llevo tus cuentas en pesos y no sé a cuánto cambiarlos. ¿Cuántos pesos son tus ${cifra} dólares en Wise?`);
+      expect(pesos(estado(ctx, "Bancomer").saldoCentavos)).toBe(10000);
+      expect(estado(ctx, "Wise").saldoCentavos).toBeNull();
+    }
+  });
+
   test("los avisos de una tarjeta abren esa cuenta en la app", () => {
     const { ctx } = preparar();
     fijarCuenta(dictado(ctx, "la Nu"), { cuenta: "Nu", tipo: "credito", limite: 10000, deuda: 9500, diaPago: Number(ctx.hoy.slice(8, 10)) });
