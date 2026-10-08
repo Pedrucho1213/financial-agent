@@ -84,7 +84,7 @@ function enumerar(partes: string[]): string {
 }
 
 // Consultas cuyo resultado trae `respuesta`, lista para decirse.
-const YA_REDACTADAS = new Set(["consultar_planes", "analizar", "consultar_gastos"]);
+const YA_REDACTADAS = new Set(["consultar_planes", "analizar", "consultar_gastos", "buscar_movimientos"]);
 
 const esError = (resultado: unknown) => !!resultado && typeof resultado === "object" && "error" in resultado;
 

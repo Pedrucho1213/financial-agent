@@ -29,7 +29,7 @@ import { fechaDelTexto, fechasDelTexto, mencionaFecha, resolverFecha, sumarDias 
 import { aCentavos, formatearMonto } from "../lib/dinero";
 import { montoConPalabras, montosDelTexto } from "../lib/numeros";
 import { herramientasAnalisis } from "./herramientas-analisis";
-import { respuestaDeConsulta } from "./consultas";
+import { respuestaDeConsulta, respuestaDelMasGrande } from "./consultas";
 import { herramientasCuentas } from "./herramientas-cuentas";
 import { esPagoDeTarjeta, esSaldoDicho, moverDinero, nombresDeTarjetas } from "../finanzas/cuentas";
 import { apartaParaMeta, herramientasPlanes, mensualidadDe, nombresDePlanes, pagaPrestamo, prestaDinero } from "./herramientas-planes";
@@ -311,8 +311,13 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         etiqueta: z.string().optional(),
         cuenta: z.string().optional().describe("Cuenta o tarjeta con que se pagó, o a la que llegó."),
         limite: z.number().int().optional().describe("Cuántos regresar, 5 por omisión."),
+        mas_grandes: z.boolean().optional().describe('true para "¿cuál fue mi gasto más grande?": del más grande al más chico.'),
       }),
-      execute: ejecutar("buscar_movimientos", (filtro) => buscarMovimientos(ctx, filtro)),
+      execute: ejecutar("buscar_movimientos", (filtro) => {
+        const encontrados = buscarMovimientos(ctx, filtro);
+        const respuesta = respuestaDelMasGrande(ctx, filtro, encontrados.movimientos);
+        return respuesta ? { ...encontrados, respuesta } : encontrados;
+      }),
     }),
 
     editar_movimiento: tool({

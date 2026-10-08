@@ -135,3 +135,27 @@ export function respuestaDeConsulta(ctx: Contexto, args: ArgsConsulta, resumen: 
   if (etiqueta.enCurso) return `${etiqueta.texto} llevas ${resumen.total} ${que ? `en ${que}` : "en gastos"}.`;
   return `${etiqueta.texto} gastaste ${resumen.total}${que ? ` en ${que}` : ""}.`;
 }
+
+type Encontrado = { fecha: string; tipo: string; monto: string; comercio?: string; descripcion?: string; categoria?: string };
+type FiltroDelMasGrande = { mas_grandes?: boolean; periodo?: string; limite?: number; texto?: string; categoria?: string; cuenta?: string; etiqueta?: string; monto?: number };
+
+/**
+ * "¿Cuál fue mi gasto más grande este mes?": buscar_movimientos con mas_grandes ya trae cuál fue. Solo
+ * si pide uno y sin más filtros que el periodo; "¿cuáles fueron los tres más grandes?" lo dice el modelo.
+ */
+export function respuestaDelMasGrande(ctx: Contexto, filtro: FiltroDelMasGrande, encontrados: Encontrado[]): string | undefined {
+  const pregunta = ctx.textoOriginal;
+  const primero = encontrados[0];
+  if (!filtro.mas_grandes || !primero || !pregunta || !esPregunta(pregunta)) return undefined;
+  if ((filtro.limite ?? 1) > 1 || filtro.texto || filtro.categoria || filtro.cuenta || filtro.etiqueta || filtro.monto !== undefined) return undefined;
+  if (primero.tipo !== "gasto" && primero.tipo !== "ingreso") return undefined;
+  const plano = normalizar(pregunta);
+  if (!/\b(mas grande|mas caro|mayor)\b/.test(plano) || /\b(cuales|los|las|tres|dos|cinco|2|3|5)\b/.test(plano)) return undefined;
+  const etiqueta = filtro.periodo ? etiquetaDelPeriodo(filtro.periodo, ctx.hoy) : undefined;
+  if (filtro.periodo && !etiqueta) return undefined;
+  const que = primero.comercio ?? primero.descripcion ?? primero.categoria?.split(" > ").at(-1) ?? (primero.tipo === "ingreso" ? "un ingreso" : "un gasto");
+  const p = partes(primero.fecha);
+  const cuando = primero.fecha === ctx.hoy ? "hoy" : primero.fecha === sumarDias(ctx.hoy, -1) ? "ayer" : `el ${p.dia} de ${NOMBRES_MES[p.mes - 1]}`;
+  const sujeto = `${primero.tipo === "ingreso" ? "ingreso" : "gasto"} más grande`;
+  return `${etiqueta ? `${etiqueta.texto}, tu` : "Tu"} ${sujeto} fue ${que}, de ${primero.monto}, ${cuando}.`;
+}

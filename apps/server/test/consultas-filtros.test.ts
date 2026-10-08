@@ -3,8 +3,8 @@
 import { describe, expect, test } from "bun:test";
 import { MockLanguageModelV4 } from "ai/test";
 import { hablar } from "../src/ai/asistente";
-import { crearMovimiento } from "../src/finanzas/movimientos";
-import { llamada, preparar, texto } from "./ayuda";
+import { buscarMovimientos, crearMovimiento } from "../src/finanzas/movimientos";
+import { AHORA, llamada, preparar, texto } from "./ayuda";
 
 const MODELO = "<<lo redactó el modelo>>";
 
@@ -68,5 +68,49 @@ describe("sin contar algo", () => {
     const resultado = JSON.stringify(modelo.doGenerateCalls[1]!.prompt);
     expect(resultado).toContain("$1,200");
     expect(resultado).not.toContain("$13,700");
+  });
+});
+
+describe("el gasto más grande", () => {
+  async function preguntarMasGrande(frase: string, args: Record<string, unknown>) {
+    const { db, usuario, ctx } = preparar();
+    crearMovimiento(ctx, { tipo: "gasto", monto: 300, categoria: "Taxi y apps", comercio: "Uber", fecha: "2026-10-06" } as never);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 1400, categoria: "Súper", comercio: "Walmart", fecha: "2026-10-03" } as never);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café", fecha: "2026-10-07" } as never);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 9000, categoria: "Viajes", fecha: "2026-09-20" } as never);
+    const resp = [llamada("buscar_movimientos", args), texto(MODELO)];
+    const modelo = new MockLanguageModelV4({ doGenerate: async () => resp.shift() as never });
+    const r = await hablar({ db, modelo, zonaHoraria: "America/Mexico_City", monedaBase: "MXN" }, usuario.id, {
+      texto: frase,
+      clientId: crypto.randomUUID(),
+      capturadoEn: AHORA.toISOString(),
+    });
+    return { respuesta: r.respuesta, llamadas: modelo.doGenerateCalls.length };
+  }
+
+  test("con mas_grandes trae cuál fue y lo dice sin otra vuelta del modelo", async () => {
+    const r = await preguntarMasGrande("¿Cuál fue mi gasto más grande este mes?", { periodo: "este_mes", mas_grandes: true, limite: 1 });
+    expect(r.llamadas).toBe(1);
+    expect(r.respuesta).toMatch(/^Este mes, tu gasto más grande fue Walmart, de (\$1,400|1,400 pesos), el 3 de octubre\.$/);
+  });
+
+  test("sin periodo es el de siempre", async () => {
+    const r = await preguntarMasGrande("¿Cuál fue mi gasto más grande?", { mas_grandes: true });
+    expect(r.respuesta).toMatch(/^Tu gasto más grande fue Viajes, de (\$9,000|9,000 pesos), el 20 de septiembre\.$/);
+  });
+
+  test("los tres más grandes, o sin mas_grandes, los dice el modelo", async () => {
+    expect((await preguntarMasGrande("¿Cuáles fueron mis tres gastos más grandes?", { mas_grandes: true, limite: 3 })).respuesta).toBe(MODELO);
+    expect((await preguntarMasGrande("¿Cuál fue mi gasto más grande?", { periodo: "este_mes" })).respuesta).toBe(MODELO);
+  });
+
+  test("buscar_movimientos con mas_grandes ordena por monto", () => {
+    const { ctx } = preparar();
+    crearMovimiento(ctx, { tipo: "gasto", monto: 300, categoria: "Café" } as never);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 50, moneda: "USD", categoria: "Software" } as never);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 1400, categoria: "Súper" } as never);
+    const montos = buscarMovimientos(ctx, { mas_grandes: true }).movimientos.map((m) => m.monto);
+    expect(montos[0]).toBe("$1,400");
+    expect(montos[1]).toBe("$300");
   });
 });

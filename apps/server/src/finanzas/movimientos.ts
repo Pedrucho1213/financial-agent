@@ -302,6 +302,8 @@ export type FiltroMovimientos = {
   etiqueta?: string;
   /** Nombre de una cuenta: los que salieron de ella o llegaron a ella. */
   cuenta?: string;
+  /** Del más grande al más chico, en lugar del más reciente primero. */
+  mas_grandes?: boolean;
 };
 
 // Palabras que no ayudan a encontrar un movimiento: "el Uber de ayer" busca solo "uber".
@@ -370,7 +372,12 @@ function filtrar(ctx: Contexto, filtro: FiltroMovimientos, cats: Categoria[]) {
 
 export function buscarMovimientos(ctx: Contexto, filtro: FiltroMovimientos) {
   const cats = listarCategorias(ctx.db, ctx.usuarioId);
-  const { filas } = filtrar(ctx, filtro, cats);
+  let { filas } = filtrar(ctx, filtro, cats);
+  // "¿Cuál fue mi gasto más grande?": los de la moneda base primero, del más grande al más chico.
+  if (filtro.mas_grandes) {
+    const base = (m: Movimiento) => (m.moneda === ctx.monedaBase ? 0 : 1);
+    filas = [...filas].sort((a, b) => base(a) - base(b) || b.montoCentavos - a.montoCentavos);
+  }
   const limite = Math.min(Math.max(filtro.limite ?? 5, 1), 50);
   return { encontrados: filas.length, movimientos: filas.slice(0, limite).map((m) => describir(ctx, m, cats)) };
 }
