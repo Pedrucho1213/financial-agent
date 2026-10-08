@@ -136,6 +136,12 @@ export function nombreActual(periodo: Periodo) {
   return { semana: "esta semana", mes: "este mes", "6m": "en estos 6 meses", anio: "en este año" }[periodo];
 }
 
+/** Un rango para un filtro: "5–11 oct", o con años si cruza de un año a otro. */
+export function rangoTexto(desde: string, hasta: string) {
+  if (desde.slice(0, 4) === hasta.slice(0, 4)) return rangoCorto(desde, hasta);
+  return `${Number(desde.slice(8, 10))} ${mesCorto(desde.slice(0, 7))} ${desde.slice(0, 4)} – ${Number(hasta.slice(8, 10))} ${mesCorto(hasta.slice(0, 7))} ${hasta.slice(0, 4)}`;
+}
+
 function rangoCorto(desde: string, hasta: string) {
   const d1 = Number(desde.slice(8, 10));
   const d2 = Number(hasta.slice(8, 10));

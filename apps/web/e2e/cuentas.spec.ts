@@ -450,3 +450,100 @@ test.describe("Cuentas a 320 de ancho", () => {
     }
   });
 });
+
+test.describe("Lo que encontró la revisión del #42", () => {
+  test("crédito usado: una tarjeta con límite pero sin deuda dicha no cuenta como llena", async ({ page }) => {
+    const api = conCuentas(new ApiFalsa());
+    const base = api.cuentas!.cuentas.find((c) => c.id === "cta-nu")!;
+    api.cuentas!.cuentas.push(
+      { ...base, id: "cta-hsbc", nombre: "HSBC", deuda: null, limite: 30_000_00, saldoEn: null },
+      { ...base, id: "cta-amex", nombre: "Amex", deuda: 1_000_00, limite: null },
+    );
+    await abrir(page, "#cuentas", api);
+    const credito = page.getByTestId("credito-total");
+    // Solo Nu y Banamex (deuda y límite dichos): $32,100 de $60,000.
+    await expect(credito).toContainText("54%");
+    await expect(credito).toContainText("Te quedan $27,900.00 de $60,000.00 · sin Amex, que no tiene límite dicho");
+    await expect(page.getByTestId("sin-saldo")).toContainText("HSBC");
+  });
+
+  test("borrar un movimiento desde una cuenta refresca la cuenta, no espera 30 s", async ({ page }) => {
+    const api = await abrir(page, "#cuenta?id=cta-bbva");
+    const recientes = page.getByRole("region", { name: "Recientes" });
+    await expect(recientes.getByRole("button", { name: /Pemex/ })).toBeVisible();
+    const antes = api.de("GET", "/v1/cuentas/cta-bbva").length;
+    await recientes.getByRole("button", { name: /Pemex/ }).click();
+    await page.getByRole("button", { name: "Editar" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Eliminar movimiento" }).click();
+    await expect(page.locator("[data-sonner-toast]").filter({ hasText: "Eliminado" })).toBeVisible();
+    // De regreso (sin recargar): la cuenta se vuelve a pedir en vez de mostrar lo de hace un momento.
+    await page.getByRole("button", { name: "Atrás" }).click();
+    await expect(page).toHaveURL(/#cuenta\?id=cta-bbva$/);
+    await expect(recientes.getByRole("button", { name: /Pemex/ })).toHaveCount(0);
+    await expect(recientes.getByRole("button", { name: /Starbucks/ })).toBeVisible();
+    expect(api.de("GET", "/v1/cuentas/cta-bbva").length).toBeGreaterThan(antes);
+  });
+
+  test("pasar a «Retirar» con Efectivo elegido lo vacía y no deja mandar", async ({ page }) => {
+    await abrir(page, "#cuenta?id=cta-efectivo");
+    await page.getByRole("button", { name: "Mover dinero" }).first().click();
+    const hoja = page.getByRole("dialog");
+    await expect(hoja.getByLabel("Desde")).toHaveValue("cta-efectivo");
+    await hoja.locator("#monto-mover").fill("300");
+    await hoja.getByRole("radio", { name: "Retirar" }).click();
+    await expect(hoja.getByLabel("De")).toHaveValue("");
+    await expect(hoja.getByRole("button", { name: "Listo" })).toBeDisabled();
+  });
+
+  test("un monedero (Mercado Pago) dice su tipo, no «undefined», y se puede editar sin perderlo", async ({ page }) => {
+    const api = conCuentas(new ApiFalsa());
+    const base = api.cuentas!.cuentas.find((c) => c.id === "cta-efectivo")!;
+    api.cuentas!.cuentas.push({ ...base, id: "cta-mp", nombre: "Mercado Pago", tipo: "monedero", saldo: 500_00 });
+    await abrir(page, "#cuenta?id=cta-mp", api);
+    await expect(page.getByText("Monedero", { exact: true })).toBeVisible();
+    await expect(page.locator("body")).not.toContainText("undefined");
+    await page.getByRole("button", { name: "Editar" }).click();
+    const hoja = page.getByRole("dialog");
+    await expect(hoja.getByRole("radio", { name: "Monedero" })).toBeChecked();
+    await hoja.getByLabel("Tienes").fill("650");
+    await hoja.getByRole("button", { name: "Guardar" }).click();
+    await expect(hoja).toBeHidden();
+    expect(api.de("PATCH", "/v1/cuentas/cta-mp")[0]?.cuerpo).toEqual({ saldo: 650 });
+  });
+
+  test("saldo a favor en una tarjeta: la vista previa suma, y el signo se conserva", async ({ page }) => {
+    const api = conCuentas(new ApiFalsa());
+    Object.assign(api.cuentas!.cuentas.find((c) => c.id === "cta-nu")!, { deuda: -200_00 });
+    await abrir(page, "#cuenta?id=cta-nu", api);
+    await page.getByRole("button", { name: "Editar" }).click();
+    const hoja = page.getByRole("dialog");
+    await expect(hoja.getByLabel("Debes")).toHaveValue("-200");
+    await expect(hoja.getByText("Te quedan $30,200.00 disponibles.")).toBeVisible();
+    await hoja.getByLabel("Debes").fill("-250");
+    await expect(hoja.getByText("Te quedan $30,250.00 disponibles.")).toBeVisible();
+    await hoja.getByRole("button", { name: "Guardar" }).click();
+    await expect(hoja).toBeHidden();
+    expect(api.de("PATCH", "/v1/cuentas/cta-nu")[0]?.cuerpo).toEqual({ deuda: -250 });
+  });
+
+  test("«Tienes» dice qué cuentas no entran en la suma", async ({ page }) => {
+    await abrir(page, "#inicio");
+    await expect(page.getByTestId("faltan")).toHaveText("Falta Revolut");
+    await expect(page.getByRole("button", { name: /^Tienes −\$12,450\.00, falta Revolut\. Ver cuentas$/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Cuentas y tarjetas −\$12,450\.00 · debes \$32,100\.00 · falta Revolut/ })).toBeVisible();
+  });
+
+  test("«Por etiqueta» en una semana lleva a los gastos de esa semana con esa etiqueta", async ({ page }) => {
+    const api = await abrir(page, "#analisis?periodo=semana");
+    const seccion = page.getByRole("region", { name: "Por etiqueta" });
+    const filaEtiqueta = seccion.locator("[data-etiqueta]").first();
+    const texto = (await filaEtiqueta.innerText()).replace(/\s+/g, " ");
+    const cantidad = Number(texto.match(/(\d+) gastos?/)?.[1]);
+    await filaEtiqueta.click();
+    await expect(page).toHaveURL(/#movimientos\?desde=2026-10-05&hasta=2026-10-11&tipo=gasto&etiqueta=/);
+    await expect(page.getByText("5–11 oct", { exact: true }).filter({ visible: true })).toBeVisible();
+    await expect(page.getByText(`${cantidad} ${cantidad === 1 ? "movimiento" : "movimientos"}`, { exact: true })).toBeVisible();
+    const pedido = api.de("GET", "/v1/movimientos").at(-1)!.consulta;
+    expect([pedido.get("desde"), pedido.get("hasta"), pedido.get("tipo")]).toEqual(["2026-10-05", "2026-10-11", "gasto"]);
+  });
+});

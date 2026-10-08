@@ -1,4 +1,4 @@
-import { Banknote, CreditCard, Landmark, type LucideIcon, Wallet } from "lucide-react";
+import { Banknote, CreditCard, Landmark, type LucideIcon, Ticket, Wallet } from "lucide-react";
 import type { TipoCuenta } from "../../lib/tipos";
 import { cn } from "../../lib/utils";
 
@@ -6,6 +6,9 @@ const ICONOS: Record<TipoCuenta, [LucideIcon, string]> = {
   efectivo: [Banknote, "#34c759"],
   debito: [Landmark, "#007aff"],
   credito: [CreditCard, "#ff9500"],
+  transferencia: [Landmark, "#007aff"],
+  vales: [Ticket, "#34c759"],
+  monedero: [Wallet, "#af52de"],
   otra: [Wallet, "#8e8e93"],
 };
 

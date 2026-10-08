@@ -1,6 +1,6 @@
 import { toast } from "sonner";
 import { api, mensajeDeError } from "./api";
-import { clienteConsultas } from "./consultas";
+import { clienteConsultas, refrescarDatos } from "./consultas";
 import type { MovimientoApp } from "./tipos";
 
 // Funciones sueltas (no hooks): el aviso de "Deshacer" sigue funcionando
@@ -9,13 +9,7 @@ import type { MovimientoApp } from "./tipos";
 type Pagina = { total: number; movimientos: MovimientoApp[] };
 type Infinito = { pages: Pagina[]; pageParams: number[] };
 
-function refrescar() {
-  return Promise.all([
-    clienteConsultas.invalidateQueries({ queryKey: ["tablero"] }),
-    clienteConsultas.invalidateQueries({ queryKey: ["movimientos"] }),
-    clienteConsultas.invalidateQueries({ queryKey: ["plan"] }),
-  ]);
-}
+const refrescar = () => refrescarDatos();
 
 // POST /v1/deshacer revierte el ÚLTIMO cambio de la cuenta, no uno en particular (no hay
 // forma de restaurar por id). Por eso solo vive un aviso de "Deshacer" a la vez, y se quita

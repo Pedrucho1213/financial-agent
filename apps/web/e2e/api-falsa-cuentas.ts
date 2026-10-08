@@ -11,7 +11,7 @@ type Peticion = {
   json: (estado: number, datos: unknown) => Promise<void>;
 };
 
-type TipoCuenta = "efectivo" | "debito" | "credito" | "otra";
+type TipoCuenta = "efectivo" | "debito" | "credito" | "transferencia" | "vales" | "monedero" | "otra";
 
 /** Lo que guarda el servidor falso; null es "no se sabe". */
 export type CuentaFalsa = {

@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   colorUso,
+  creditoTotal,
   describirCuentas,
+  faltan,
   enCuantosDias,
   leerCantidad,
+  limpiarPesos,
   lineaCuenta,
+  nombreTipo,
   proximaFecha,
   repartoDinero,
   separarCuentas,
@@ -143,5 +147,51 @@ describe("leerCantidad", () => {
     expect(leerCantidad("0.00")).toBe(0);
     expect(leerCantidad("5,000")).toBe(5000);
     expect(leerCantidad("1500,50")).toBe(1500.5);
+  });
+  test("con signo: saldo a favor o sobregiro (y lo que se teclea guarda el menos solo al inicio)", () => {
+    expect(leerCantidad("-200")).toBe(-200);
+    expect(leerCantidad("−1,500.50")).toBe(-1500.5);
+    expect(leerCantidad("-0")).toBe(0);
+    expect(leerCantidad("20-0")).toBe(200);
+    expect(limpiarPesos("-2a0-0")).toBe("-200");
+    expect(limpiarPesos("1-5")).toBe("15");
+  });
+});
+
+describe("crédito de todas las tarjetas", () => {
+  test("solo las que tienen deuda y límite; un límite sin deuda no es 100% usado", () => {
+    const r = creditoTotal([
+      credito("nu", 4_500_00, 30_000_00),
+      credito("banamex", 27_600_00, 30_000_00),
+      credito("hsbc", null, 30_000_00),
+      credito("amex", 1_000_00, null),
+      credito("vieja", 15_000_00, 15_000_00, { archivada: true }),
+      debito("bbva", 100),
+    ])!;
+    expect(r.limite).toBe(60_000_00);
+    expect(r.disponible).toBe(27_900_00);
+    expect(r.uso).toBeCloseTo(32_100_00 / 60_000_00);
+    expect(r.fuera).toEqual(["amex"]);
+  });
+  test("saldo a favor no resta uso; pasarse no da disponible negativo; sin ninguna, null", () => {
+    const r = creditoTotal([credito("a", -500_00, 10_000_00), credito("b", 12_000_00, 10_000_00)])!;
+    expect(r.uso).toBeCloseTo(0.6);
+    expect(r.disponible).toBe(10_000_00);
+    expect(creditoTotal([credito("hsbc", null, 30_000_00), debito("bbva", 100)])).toBeNull();
+  });
+});
+
+describe("textos", () => {
+  test("tipos del servidor y uno desconocido", () => {
+    expect(nombreTipo("monedero")).toBe("Monedero");
+    expect(nombreTipo("vales")).toBe("Vales");
+    expect(nombreTipo("transferencia")).toBe("Cuenta");
+    expect(nombreTipo("cripto")).toBe("Cuenta");
+  });
+  test("las que faltan en la suma", () => {
+    expect(faltan([])).toBe("");
+    expect(faltan(["Nu"])).toBe("falta Nu");
+    expect(faltan(["Nu", "Revolut"])).toBe("faltan Nu y Revolut");
+    expect(faltan(["a", "b", "c"])).toBe("faltan 3");
   });
 });

@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "./api";
+import { useRefrescarDatos } from "./consultas";
 import type { Cuentas, DatosCuenta, DatosMover, DetalleCuenta, Etiqueta, EstadoCuenta, MovimientoApp } from "./tipos";
 
 // Cuentas, tarjetas y etiquetas. Un gasto cambia saldos: se refrescan con cualquier movimiento (consultas.ts).
@@ -9,7 +10,6 @@ export function useCuentas({ archivadas = false, activo = true }: { archivadas?:
     queryKey: ["cuentas", "lista", archivadas] as const,
     enabled: activo,
     queryFn: ({ signal }) => api<Cuentas>(`/v1/cuentas${archivadas ? "?archivadas=1" : ""}`, { signal }),
-    placeholderData: (previo) => previo,
   });
 }
 
@@ -28,21 +28,11 @@ export function useEtiquetas(periodo: "este_mes" | "todo" = "todo", activo = tru
     enabled: activo,
     queryFn: ({ signal }) =>
       api<{ etiquetas: Etiqueta[] }>(`/v1/etiquetas${periodo === "todo" ? "" : `?periodo=${periodo}`}`, { signal }).then((r) => r.etiquetas),
-    placeholderData: (previo) => previo,
   });
 }
 
-/** Mover dinero o cambiar un saldo toca cuentas, movimientos, el tablero y lo disponible. */
-function useRefrescarTodo() {
-  const qc = useQueryClient();
-  return () =>
-    Promise.all(
-      ["cuentas", "etiquetas", "movimientos", "tablero", "plan"].map((k) => qc.invalidateQueries({ queryKey: [k] })),
-    );
-}
-
 export function useGuardarCuenta() {
-  const refrescar = useRefrescarTodo();
+  const refrescar = useRefrescarDatos();
   return useMutation({
     mutationFn: ({ id, datos }: { id?: string; datos: DatosCuenta }) =>
       id
@@ -53,7 +43,7 @@ export function useGuardarCuenta() {
 }
 
 export function useMoverDinero() {
-  const refrescar = useRefrescarTodo();
+  const refrescar = useRefrescarDatos();
   return useMutation({
     mutationFn: (datos: DatosMover) =>
       api<{ movimiento: MovimientoApp; cuentas: EstadoCuenta[] }>("/v1/transferencias", { method: "POST", body: datos }),
@@ -64,7 +54,7 @@ export function useMoverDinero() {
 export type DatosEtiqueta = { nombre?: string; activa_desde?: string | null; activa_hasta?: string | null };
 
 export function useGuardarEtiqueta() {
-  const refrescar = useRefrescarTodo();
+  const refrescar = useRefrescarDatos();
   return useMutation({
     mutationFn: ({ id, datos }: { id?: string; datos: DatosEtiqueta }) =>
       id
@@ -75,7 +65,7 @@ export function useGuardarEtiqueta() {
 }
 
 export function useBorrarEtiqueta() {
-  const refrescar = useRefrescarTodo();
+  const refrescar = useRefrescarDatos();
   return useMutation({
     mutationFn: (id: string) => api<{ ok: true }>(`/v1/etiquetas/${encodeURIComponent(id)}`, { method: "DELETE" }),
     onSuccess: () => refrescar(),

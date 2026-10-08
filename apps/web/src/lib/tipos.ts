@@ -142,7 +142,8 @@ export type DatosMovimiento = {
 // ------------------------------------------------------------------ Cuentas, tarjetas y etiquetas
 // Todo en centavos de la moneda base. null es "no se sabe": nunca se muestra como 0.
 
-export type TipoCuenta = "efectivo" | "debito" | "credito" | "otra";
+/** Los del servidor: "con Mercado Pago" crea un monedero; "vales" unos vales. */
+export type TipoCuenta = "efectivo" | "debito" | "credito" | "transferencia" | "vales" | "monedero" | "otra";
 
 export type EstadoCuenta = {
   id: string;

@@ -17,6 +17,7 @@ import { abrirDetalle, type FiltrosMovimientos, useCategorias, useMovimientos } 
 import { useCuentas, useEtiquetas } from "../lib/cuentas";
 import { abrirEditor } from "../lib/editor";
 import { diaCorto, dinero, mesActual, nombreDia, nombreMes, sumarMeses, TIPOS } from "../lib/formato";
+import { rangoTexto } from "../lib/periodos";
 import { useMedia } from "../lib/medios";
 import { hashDe, navegar } from "../lib/ruta";
 import type { MovimientoApp, Origen, TipoMovimiento } from "../lib/tipos";
@@ -24,6 +25,7 @@ import { cn } from "../lib/utils";
 
 const TIPOS_VALIDOS: TipoMovimiento[] = ["gasto", "ingreso", "transferencia", "pago_tarjeta"];
 const MES_VALIDO = /^\d{4}-(0[1-9]|1[0-2])$/;
+const FECHA_VALIDA = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 
 export function Movimientos({ params }: { params: URLSearchParams }) {
   const enLinea = useEnLinea();
@@ -39,6 +41,10 @@ export function Movimientos({ params }: { params: URLSearchParams }) {
   // Desde una cuenta o una etiqueta: lo suyo.
   const cuenta = params.get("cuenta") ?? undefined;
   const etiqueta = params.get("etiqueta") ?? undefined;
+  // Desde Análisis, una semana o varios meses: esas fechas exactas.
+  const desdeP = params.get("desde");
+  const hastaP = params.get("hasta");
+  const rango = desdeP && hastaP && FECHA_VALIDA.test(desdeP) && FECHA_VALIDA.test(hastaP) && desdeP <= hastaP ? { desde: desdeP, hasta: hastaP } : undefined;
 
   const actualizar = (cambios: Record<string, string | undefined>) => {
     const actual: Record<string, string | undefined> = {
@@ -49,6 +55,8 @@ export function Movimientos({ params }: { params: URLSearchParams }) {
       revisar: revisar ? "1" : undefined,
       cuenta,
       etiqueta,
+      desde: rango?.desde,
+      hasta: rango?.hasta,
     };
     navegar(hashDe("movimientos", { ...actual, ...cambios }), { reemplazar: true });
   };
@@ -63,15 +71,15 @@ export function Movimientos({ params }: { params: URLSearchParams }) {
   }, [texto]);
 
   const filtros: FiltrosMovimientos = useMemo(
-    () => ({ mes, tipo, categoria, texto: q || undefined, revisar: revisar || undefined, cuenta, etiqueta }),
-    [mes, tipo, categoria, q, revisar, cuenta, etiqueta],
+    () => ({ mes, rango, tipo, categoria, texto: q || undefined, revisar: revisar || undefined, cuenta, etiqueta }),
+    [mes, rango?.desde, rango?.hasta, tipo, categoria, q, revisar, cuenta, etiqueta],
   );
   const consulta = useMovimientos(filtros);
   const categorias = useCategorias();
 
   const movimientos = useMemo(() => consulta.data?.pages.flatMap((p) => p.movimientos) ?? [], [consulta.data]);
   const total = consulta.data?.pages.at(-1)?.total ?? 0;
-  const conFiltros = !!(tipo || categoria || q || revisar || cuenta || etiqueta || pedido === "todo");
+  const conFiltros = !!(tipo || categoria || q || revisar || cuenta || etiqueta || rango || pedido === "todo");
   const nombreCategoria = categorias.data?.find((c) => c.id === categoria)?.nombre;
   const cuentas = useCuentas({ activo: !!cuenta });
   const etiquetas = useEtiquetas("todo", !!etiqueta);
@@ -107,10 +115,15 @@ export function Movimientos({ params }: { params: URLSearchParams }) {
           <SelectNativo
             className="shrink-0"
             aria-label="Mes"
-            value={mes}
-            onChange={(e) => actualizar({ mes: e.target.value === mesActual() ? undefined : e.target.value })}
+            value={rango ? "rango" : mes}
+            onChange={(e) => actualizar({ mes: e.target.value === mesActual() ? undefined : e.target.value, desde: undefined, hasta: undefined })}
             opciones={
               <>
+                {rango ? (
+                  <option value="rango" disabled>
+                    {rangoTexto(rango.desde, rango.hasta)}
+                  </option>
+                ) : null}
                 <option value="todo">Todo</option>
                 {meses.map((m) => (
                   <option key={m} value={m}>
@@ -120,8 +133,8 @@ export function Movimientos({ params }: { params: URLSearchParams }) {
               </>
             }
           >
-            <Chip activo={mes !== mesActual()}>
-              {mes === "todo" ? "Todo" : nombreMes(mes)}
+            <Chip activo={!!rango || mes !== mesActual()}>
+              {rango ? rangoTexto(rango.desde, rango.hasta) : mes === "todo" ? "Todo" : nombreMes(mes)}
               <ChevronDown className="size-4" strokeWidth={2.5} />
             </Chip>
           </SelectNativo>

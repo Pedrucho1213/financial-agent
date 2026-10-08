@@ -8,8 +8,14 @@ export const NOMBRE_TIPO: Record<TipoCuenta, string> = {
   efectivo: "Efectivo",
   debito: "Débito",
   credito: "Crédito",
+  transferencia: "Cuenta",
+  vales: "Vales",
+  monedero: "Monedero",
   otra: "Otra",
 };
+
+/** Un tipo que el servidor agregue después dice "Cuenta" en lugar de "undefined". */
+export const nombreTipo = (tipo: string) => NOMBRE_TIPO[tipo as TipoCuenta] ?? "Cuenta";
 
 /** La próxima fecha con ese día del mes (hoy cuenta). Un 31 en un mes de 30 cae en el último día. */
 export function proximaFecha(dia: number, hoy: string): string {
@@ -43,6 +49,28 @@ export function enCuantosDias(fecha: string, hoy: string) {
 export function usoCredito(e: Pick<EstadoCuenta, "deudaCentavos" | "limiteCentavos">): number | null {
   if (e.deudaCentavos === null || !e.limiteCentavos) return null;
   return Math.max(0, e.deudaCentavos) / e.limiteCentavos;
+}
+
+/**
+ * Crédito de todas las tarjetas: solo las que tienen deuda y límite dichos (sumar un límite sin su
+ * deuda daría 100% usado). `fuera`: las que tienen deuda pero no límite; las de deuda desconocida
+ * ya salen en `sinSaldo`. null si no hay ninguna que sume.
+ */
+export function creditoTotal(cuentas: EstadoCuenta[]) {
+  const tarjetas = cuentas.filter((c) => c.esCredito && !c.archivada);
+  const suman = tarjetas.filter((c) => c.deudaCentavos !== null && !!c.limiteCentavos);
+  const fuera = tarjetas.filter((c) => c.deudaCentavos !== null && !c.limiteCentavos).map((c) => c.nombre);
+  if (!suman.length) return null;
+  let limite = 0;
+  let usado = 0;
+  let disponible = 0;
+  for (const c of suman) {
+    const deuda = Math.max(0, c.deudaCentavos!);
+    limite += c.limiteCentavos!;
+    usado += deuda;
+    disponible += Math.max(0, c.limiteCentavos! - deuda);
+  }
+  return { uso: usado / limite, limite, disponible, fuera };
 }
 
 /** Color del uso de una tarjeta: como el revisor, que avisa desde el 90%. */
@@ -122,10 +150,27 @@ export function aTextoPesos(centavos: number | null): string {
   return String(centavos / 100);
 }
 
-/** Como leerMonto, pero "0" también vale: "no debo nada", "no tengo nada". Vacío es null. */
+/**
+ * Como leerMonto, pero "0" también vale ("no debo nada", "no tengo nada") y respeta el signo:
+ * "-200" en "Debes" es saldo a favor, en "Tienes" un sobregiro. Vacío es null.
+ */
 export function leerCantidad(texto: string): number | null {
   const t = texto.replace(/[^\d.,]/g, "");
   if (!t) return null;
   if (/^[0.,]+$/.test(t)) return 0;
-  return leerMonto(t);
+  const n = leerMonto(t);
+  return n !== null && esNegativo(texto) ? -n : n;
+}
+
+const esNegativo = (texto: string) => /^\s*[-−]/.test(texto);
+
+/** Lo que se teclea en un campo de pesos: dígitos, punto y coma, y un menos solo al inicio. */
+export const limpiarPesos = (texto: string) => `${esNegativo(texto) ? "-" : ""}${texto.replace(/[^\d.,]/g, "").slice(0, 12)}`;
+
+/** Las cuentas sin saldo que no entran en "Tienes": "falta Nu", "faltan Nu y Revolut", "faltan 3". */
+export function faltan(sinSaldo: string[]): string {
+  if (!sinSaldo.length) return "";
+  if (sinSaldo.length === 1) return `falta ${sinSaldo[0]}`;
+  if (sinSaldo.length === 2) return `faltan ${sinSaldo[0]} y ${sinSaldo[1]}`;
+  return `faltan ${sinSaldo.length}`;
 }

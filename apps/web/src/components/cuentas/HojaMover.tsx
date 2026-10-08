@@ -54,14 +54,18 @@ export function HojaMover({ valor, moneda, alCerrar }: { valor: InicioMover | nu
 
   const lista = useMemo(() => (cuentas.data?.cuentas ?? []).filter((c) => !c.archivada), [cuentas.data]);
   const tarjetas = useMemo(() => lista.filter((c) => c.esCredito), [lista]);
-  const origenes = tipo === "retiro" ? lista.filter((c) => c.tipo !== "efectivo") : lista;
+  const origenes = useMemo(() => (tipo === "retiro" ? lista.filter((c) => c.tipo !== "efectivo") : lista), [tipo, lista]);
   const destinos = tipo === "pago_tarjeta" ? tarjetas : lista;
 
   // Una tarjeta elegida como destino en "Transferir" es un pago; el servidor lo anota así.
+  // Lo elegido que ya no está en la lista (Retirar desde Efectivo) se vacía; mientras las cuentas
+  // no han llegado no se toca, para no perder lo que trajo la pantalla que abrió la hoja.
   useEffect(() => {
+    if (!cuentas.data) return;
+    if (desde && !origenes.some((c) => c.id === desde)) setDesde("");
     if (tipo === "pago_tarjeta" && hacia && !tarjetas.some((t) => t.id === hacia)) setHacia("");
     if (tipo === "pago_tarjeta" && !hacia && tarjetas.length === 1) setHacia(tarjetas[0]!.id);
-  }, [tipo, hacia, tarjetas]);
+  }, [cuentas.data, tipo, desde, hacia, origenes, tarjetas]);
 
   const n = leerMonto(monto);
   const faltaDesde = tipo !== "pago_tarjeta" && !desde;

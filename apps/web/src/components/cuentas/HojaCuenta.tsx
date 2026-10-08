@@ -6,7 +6,7 @@ import { useEnLinea } from "../../lib/conexion";
 import { useGuardarCuenta } from "../../lib/cuentas";
 import { dinero } from "../../lib/formato";
 import { haptico } from "../../lib/haptico";
-import { aTextoPesos, leerCantidad } from "../../lib/saldos";
+import { aTextoPesos, leerCantidad, limpiarPesos, nombreTipo } from "../../lib/saldos";
 import type { DatosCuenta, EstadoCuenta, TipoCuenta } from "../../lib/tipos";
 import { cn } from "../../lib/utils";
 import { Spinner } from "../Spinner";
@@ -23,6 +23,11 @@ const TIPOS: { valor: TipoCuenta; etiqueta: string }[] = [
   { valor: "efectivo", etiqueta: "Efectivo" },
   { valor: "otra", etiqueta: "Otra" },
 ];
+
+/** Un monedero o unos vales (creados por voz) ocupan el lugar de "Otra" para no perder su tipo. */
+function opcionesTipo(actual: TipoCuenta) {
+  return TIPOS.some((t) => t.valor === actual) ? TIPOS : [...TIPOS.slice(0, 3), { valor: actual, etiqueta: nombreTipo(actual) }];
+}
 
 type Formulario = { nombre: string; tipo: TipoCuenta; saldo: string; deuda: string; limite: string; corte: string; pago: string };
 
@@ -155,7 +160,7 @@ export function HojaCuenta({
               </Fila>
             </Grupo>
 
-            <Segmented<TipoCuenta> etiqueta="Tipo de cuenta" valor={f.tipo} onChange={(v) => poner("tipo", v)} opciones={TIPOS} />
+            <Segmented<TipoCuenta> etiqueta="Tipo de cuenta" valor={f.tipo} onChange={(v) => poner("tipo", v)} opciones={opcionesTipo(original.tipo)} />
 
             {credito ? (
               <Grupo
@@ -206,7 +211,7 @@ function CampoPesos({ id, etiqueta, valor, onCambio }: { id: string; etiqueta: s
         autoComplete="off"
         placeholder="No lo sé"
         value={valor}
-        onChange={(e) => onCambio(e.target.value.replace(/[^\d.,]/g, "").slice(0, 12))}
+        onChange={(e) => onCambio(limpiarPesos(e.target.value))}
         className="w-auto flex-1 tabular"
       />
     </Fila>

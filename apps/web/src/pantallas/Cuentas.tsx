@@ -19,10 +19,11 @@ import { haptico } from "../lib/haptico";
 import { hashDe, navegar, volver } from "../lib/ruta";
 import {
   colorUso,
+  creditoTotal,
   diasEntreFechas,
   enCuantosDias,
   lineaCuenta,
-  NOMBRE_TIPO,
+  nombreTipo,
   proximaFecha,
   repartoDinero,
   separarCuentas,
@@ -186,7 +187,7 @@ function Resumen({ datos, moneda }: { datos: CuentasApi; moneda: string }) {
   const conocido = t.cuentasConSaldo > 0 || t.tarjetasConDeuda > 0;
   const colores = new Map(datos.cuentas.filter((c) => !c.esCredito).map((c, i) => [c.id, COLORES[i % COLORES.length]!]));
   const porciones = repartoDinero(datos.cuentas);
-  const usado = t.limiteCreditoCentavos > 0 ? Math.max(0, t.limiteCreditoCentavos - t.disponibleCreditoCentavos) / t.limiteCreditoCentavos : null;
+  const credito = creditoTotal(datos.cuentas);
 
   return (
     <section aria-label="Lo que tienes" className="rounded-[20px] bg-card p-4">
@@ -241,18 +242,19 @@ function Resumen({ datos, moneda }: { datos: CuentasApi; moneda: string }) {
         </div>
       ) : null}
 
-      {usado !== null ? (
+      {credito ? (
         <div className="mt-4 pt-3 hairline-t" data-testid="credito-total">
           <div className="flex items-baseline justify-between gap-3 text-[13px]">
             <span className="font-medium text-muted-foreground">Crédito usado</span>
-            <span className="font-semibold tabular" style={{ color: colorUso(usado) }}>
-              {pct(usado)}
+            <span className="font-semibold tabular" style={{ color: colorUso(credito.uso) }}>
+              {pct(credito.uso)}
             </span>
           </div>
-          <BarraUso uso={usado} className="mt-1.5" />
+          <BarraUso uso={credito.uso} className="mt-1.5" />
           <p className="mt-1.5 text-[13px] text-muted-foreground">
-            Te quedan <span className="whitespace-nowrap tabular">{dinero(t.disponibleCreditoCentavos, moneda)}</span> de{" "}
-            <span className="whitespace-nowrap tabular">{dinero(t.limiteCreditoCentavos, moneda)}</span>
+            Te quedan <span className="whitespace-nowrap tabular">{dinero(credito.disponible, moneda)}</span> de{" "}
+            <span className="whitespace-nowrap tabular">{dinero(credito.limite, moneda)}</span>
+            {credito.fuera.length ? ` · sin ${enLista(credito.fuera)}, que no ${credito.fuera.length === 1 ? "tiene" : "tienen"} límite dicho` : ""}
           </p>
         </div>
       ) : null}
@@ -376,7 +378,7 @@ export function Cuenta({ params }: { params: URLSearchParams }) {
   return (
     <Pantalla
       titulo={c?.nombre ?? "Cuenta"}
-      encima={c ? `${NOMBRE_TIPO[c.tipo]}${c.institucion && c.institucion !== c.nombre ? ` · ${c.institucion}` : ""}${c.archivada ? " · archivada" : ""}` : undefined}
+      encima={c ? `${nombreTipo(c.tipo)}${c.institucion && c.institucion !== c.nombre ? ` · ${c.institucion}` : ""}${c.archivada ? " · archivada" : ""}` : undefined}
       atras={{ etiqueta: "Cuentas", alTocar: () => volver("inicio") }}
       derecha={
         c ? (

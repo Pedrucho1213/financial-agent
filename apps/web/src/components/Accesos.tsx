@@ -6,6 +6,7 @@ import { dinero } from "../lib/formato";
 import { haptico } from "../lib/haptico";
 import { useMetas, usePresupuestos } from "../lib/plan";
 import { hashDe, navegar } from "../lib/ruta";
+import { faltan } from "../lib/saldos";
 import { cn } from "../lib/utils";
 import { Anillos } from "./Anillos";
 
@@ -37,6 +38,8 @@ export function Accesos({ mes, moneda }: { mes: string; moneda: string }) {
   let detalleCuentas = "Dime cuánto tienes y en dónde";
   if (t && (t.cuentasConSaldo || t.tarjetasConDeuda)) {
     detalleCuentas = t.deudaCentavos > 0 ? `${dinero(t.netoCentavos, moneda)} · debes ${dinero(t.deudaCentavos, moneda)}` : `Tienes ${dinero(t.netoCentavos, moneda)}`;
+    // Las que no tienen saldo no suman: se dice cuáles, no se callan.
+    if (t.sinSaldo.length) detalleCuentas += ` · ${faltan(t.sinSaldo)}`;
   } else if (cuentas.data?.cuentas.length) detalleCuentas = "No sé cuánto tienes todavía";
 
   const analisis = (ancha: boolean) => (

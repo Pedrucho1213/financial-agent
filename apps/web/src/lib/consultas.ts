@@ -86,6 +86,8 @@ export function useTablero(mes: string) {
 export type FiltrosMovimientos = {
   /** YYYY-MM o "todo" */
   mes: string;
+  /** Unas fechas exactas (una semana o 6 meses de Análisis): mandan sobre `mes`. */
+  rango?: { desde: string; hasta: string };
   tipo?: TipoMovimiento;
   categoria?: string;
   texto?: string;
@@ -99,7 +101,10 @@ export const POR_PAGINA = 50;
 
 export function parametrosMovimientos(f: FiltrosMovimientos, offset: number) {
   const p = new URLSearchParams();
-  if (f.mes === "todo") {
+  if (f.rango) {
+    p.set("desde", f.rango.desde);
+    p.set("hasta", f.rango.hasta);
+  } else if (f.mes === "todo") {
     // El contrato no tiene "todo": se pide un rango amplio.
     p.set("desde", "2000-01-01");
     p.set("hasta", "2099-12-31");
@@ -255,18 +260,17 @@ export function useFilasAnalisis(desde: string, hasta: string) {
   });
 }
 
-/** Después de cualquier cambio: tablero y listas se vuelven a pedir. */
+/**
+ * Después de cualquier cambio: tablero y listas se vuelven a pedir. Un gasto con cuenta cambia su
+ * saldo, y uno con etiqueta lo que lleva. También para lo que no es hook (deshacer, el chat).
+ */
+export function refrescarDatos(qc: QueryClient = clienteConsultas) {
+  return Promise.all(["tablero", "movimientos", "plan", "cuentas", "etiquetas"].map((k) => qc.invalidateQueries({ queryKey: [k] })));
+}
+
 export function useRefrescarDatos() {
   const qc = useQueryClient();
-  return () =>
-    Promise.all([
-      qc.invalidateQueries({ queryKey: ["tablero"] }),
-      qc.invalidateQueries({ queryKey: ["movimientos"] }),
-      qc.invalidateQueries({ queryKey: ["plan"] }),
-      // Un gasto con cuenta cambia su saldo, y uno con etiqueta lo que lleva.
-      qc.invalidateQueries({ queryKey: ["cuentas"] }),
-      qc.invalidateQueries({ queryKey: ["etiquetas"] }),
-    ]);
+  return () => refrescarDatos(qc);
 }
 
 export function useGuardarMovimiento() {

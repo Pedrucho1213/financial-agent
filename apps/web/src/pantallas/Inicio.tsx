@@ -40,6 +40,7 @@ import {
 } from "../lib/formato";
 import { haptico } from "../lib/haptico";
 import { hashDe, navegar } from "../lib/ruta";
+import { faltan } from "../lib/saldos";
 import type { Tablero } from "../lib/tipos";
 import { cn } from "../lib/utils";
 
@@ -154,7 +155,7 @@ function Tablero({ t, esMesActual }: { t: Tablero; esMesActual: boolean }) {
             // Con saldos dichos, lo que de verdad tiene (cuentas menos tarjetas), no ingresos menos gastos del mes.
             <button
               type="button"
-              aria-label={`Tienes ${dinero(saldos.netoCentavos, moneda)}. Ver cuentas`}
+              aria-label={`Tienes ${dinero(saldos.netoCentavos, moneda)}${saldos.sinSaldo?.length ? `, ${faltan(saldos.sinSaldo)}` : ""}. Ver cuentas`}
               onClick={() => navegar(hashDe("cuentas"))}
               className="fila-presionable min-w-0 rounded-[20px] bg-card p-4 text-left"
             >
@@ -170,6 +171,11 @@ function Tablero({ t, esMesActual }: { t: Tablero; esMesActual: boolean }) {
                   saldos.netoCentavos < 0 && "text-negative",
                 )}
               />
+              {saldos.sinSaldo?.length ? (
+                <span aria-hidden data-testid="faltan" className="mt-0.5 block truncate text-[13px] text-muted-foreground">
+                  {faltan(saldos.sinSaldo).replace(/^f/, "F")}
+                </span>
+              ) : null}
             </button>
           ) : (
             <section aria-label="Balance" className="min-w-0 rounded-[20px] bg-card p-4">
