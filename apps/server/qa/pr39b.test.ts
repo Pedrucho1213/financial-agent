@@ -129,3 +129,43 @@ describe("W3: la guardia vale también con turnos previos que no preguntaron", (
     expect(azul?.disponibleCentavos ?? null).not.toBe(7000_00);
   });
 });
+
+// c4670ab: registrar_movimientos rechaza un registro si la frase es una corrección y ya hay uno con el otro monto.
+// Que no se coma un gasto nuevo con autocorrección al dictar cuando hay otro de ese monto que no tiene nada que ver.
+describe("c4670ab: corrección contra registro nuevo", () => {
+  const conGasolina = (ctx: any) => {
+    const hace = new Date(Date.now() - 5 * 86400000).toISOString().slice(0, 10);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 450, categoria: "Gasolina", comercio: "Pemex", fecha: hace } as never);
+  };
+  for (const [frase, nuevo, comercio] of [
+    ["Gasté 450 en la farmacia, no, perdón, fueron 540", 540, "Farmacia"],
+    ["Pagué 450 en el súper, no, espera, eran 540", 540, "Walmart"],
+  ] as const) {
+    test(`"${frase}" con un Pemex de 450 de hace días: guarda el nuevo y no toca el Pemex`, async () => {
+      const { respuesta, movs } = await dictar(frase, [llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: nuevo, comercio, categoria: "Otros gastos" }] }), texto("Listo.")], conGasolina);
+      const montos = movs.map((m: any) => m.montoCentavos / 100).sort((a: number, b: number) => a - b);
+      console.log(frase, "→", respuesta, montos);
+      expect(montos).toEqual([450, nuevo]);
+    });
+  }
+
+  test('"El café de hoy fueron 95, no 85" con el café de 85 de hoy: no registra otro', async () => {
+    const { movs } = await dictar(
+      "El café de hoy fueron 95, no 85",
+      [llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 95, comercio: "Starbucks", categoria: "Café" }] }), texto("Listo.")],
+      (ctx: any) => crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café", comercio: "Starbucks" } as never),
+    );
+    expect(movs).toHaveLength(1);
+  });
+
+  test('"Gasté 450 en la farmacia, no, perdón, fueron 540" con un Oxxo de 450 de HOY: guarda la farmacia', async () => {
+    const { respuesta, movs } = await dictar(
+      "Gasté 450 en la farmacia, no, perdón, fueron 540",
+      [llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 540, comercio: "Farmacia", categoria: "Otros gastos" }] }), texto("Listo.")],
+      (ctx: any) => crearMovimiento(ctx, { tipo: "gasto", monto: 450, categoria: "Súper", comercio: "Oxxo" } as never),
+    );
+    const montos = movs.map((m: any) => m.montoCentavos / 100).sort((a: number, b: number) => a - b);
+    console.log("Oxxo hoy →", respuesta, montos);
+    expect(montos).toEqual([450, 540]);
+  });
+});
