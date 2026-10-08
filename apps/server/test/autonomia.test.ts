@@ -311,9 +311,10 @@ describe("cuándo no usar el monto de siempre (revisión del PR)", () => {
     const { ctx, hablar } = montar([texto("¿De cuánto fue Netflix?")]);
     crearRecurrente(ctx, { nombre: "Disney Plus", tipo: "suscripcion", monto: 159, frecuencia: "mensual", dia: 20, categoria: "Streaming" });
     expect((await hablar("Ya pagué Netflix")).respuesta).toBe("¿De cuánto fue Netflix?");
+    // Un monto que el modelo inventa tampoco se guarda (QA-097): ni el de Disney ni otro.
     const r = await llamar(dictado(ctx, "Ya pagué Netflix"), "registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 199, comercio: "Netflix" }] });
-    expect(r.registrados[0]).toMatchObject({ monto: "$199", comercio: "Netflix" });
-    expect(r.registrados[0].monto_de_siempre).toBeUndefined();
+    expect(r.error).toContain("No dijo cuánto");
+    expect(todos(ctx)).toHaveLength(0);
   });
 
   test("no pisa un monto que viene de la conversación, de \"la mitad\" o de \"dos meses\"", async () => {

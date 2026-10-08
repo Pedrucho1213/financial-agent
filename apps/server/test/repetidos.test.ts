@@ -119,3 +119,32 @@ describe("el último movimiento no es el que nombra", () => {
     ).toBeUndefined();
   });
 });
+
+describe("un monto que nadie dijo (QA-097)", () => {
+  test('"me llegó la quincena" sin monto ni quincena guardada no inventa 20 mil', async () => {
+    const { ctx } = preparar();
+    const r = await llamar(dictado(ctx, "Me llegó la quincena"), "registrar_movimientos", {
+      movimientos: [{ tipo: "ingreso", monto: 20000, categoria: "Sueldo", descripcion: "Quincena" }],
+    });
+    expect(r.error).toContain("pregúntale de cuánto fue");
+    expect(todos(ctx)).toHaveLength(0);
+  });
+
+  test("con la quincena guardada como pago fijo, usa ese monto", async () => {
+    const { ctx } = preparar();
+    crearRecurrente(ctx, { nombre: "Quincena", tipo: "ingreso", monto: 15000, frecuencia: "quincenal", dia: 15 } as never);
+    const r = await llamar(dictado(ctx, "Me llegó la quincena"), "registrar_movimientos", {
+      movimientos: [{ tipo: "ingreso", monto: 15000, categoria: "Sueldo", descripcion: "Quincena" }],
+    });
+    expect(r.error).toBeUndefined();
+    expect(todos(ctx)[0]!.monto).toBe("$15,000");
+  });
+
+  test("con el monto en la frase o en la conversación, se registra", async () => {
+    const { ctx } = preparar();
+    const dicha = await llamar(dictado(ctx, "Me llegó la quincena de 12 mil"), "registrar_movimientos", { movimientos: [{ tipo: "ingreso", monto: 12000, categoria: "Sueldo" }] });
+    expect(dicha.error).toBeUndefined();
+    const enCharla = await llamar({ ...dictado(ctx, "con la Nu"), enConversacion: true }, "registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 300, comercio: "Uber" }] });
+    expect(enCharla.error).toBeUndefined();
+  });
+});

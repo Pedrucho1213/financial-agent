@@ -21,6 +21,7 @@ import {
   cuentaHabitualDeCategoria,
   cuentaRecordada,
   habitoMencionado,
+  habitos,
   hablaDeOtroMonto,
   nombreDeCuenta,
 } from "../finanzas/habitos";
@@ -267,6 +268,14 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
           const otroComercio = habito?.comercio && m.comercio && normalizar(m.comercio) !== normalizar(habito.comercio);
           return habito?.seguro && !otroComercio ? habito : undefined;
         };
+        // "Me llegó la quincena" sin monto y sin un monto de siempre: lo que mande el modelo es inventado (QA-097).
+        if (sinMonto && !pago) {
+          const conocidos = new Set(habitos(ctx).map((h) => h.montoCentavos));
+          const inventado = movimientos.find(
+            (m) => !conocidos.has(Math.round(m.monto * 100)) && !recordado(m.monto) && !deSiempre(m, conTipo(m.tipo)),
+          );
+          if (inventado) throw new ErrorFinanzas("No dijo cuánto y no es un monto de siempre: no registres nada y pregúntale de cuánto fue.");
+        }
         return {
           registrados: movimientos.map((m, i) => {
             // Una transferencia o un pago de tarjeta va por mover_dinero: valida las cuentas y dice cómo quedaron.
