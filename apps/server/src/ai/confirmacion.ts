@@ -1,7 +1,8 @@
 import { diaSemana, sumarDias } from "../lib/fechas";
 import { montosDelTexto } from "../lib/numeros";
-import { esPregunta, normalizar } from "../lib/texto";
+import { esPregunta, normalizar, pideInformacionExplicita } from "../lib/texto";
 import { ESCRITURAS_PLANES } from "./herramientas-planes";
+import { ESCRITURAS_CUENTAS } from "./herramientas-cuentas";
 
 /** Lo que la herramienta regresó de un movimiento (ver `describir`). */
 export type Movimiento = {
@@ -12,6 +13,8 @@ export type Movimiento = {
   comercio?: string;
   descripcion?: string;
   cuenta?: string;
+  /** Transferencias y pagos de tarjeta: a dónde llegó. */
+  cuenta_destino?: string;
   revisar?: boolean;
   /** No dijo el monto y se usó el de siempre. */
   monto_de_siempre?: boolean;
@@ -70,8 +73,10 @@ function describirMovimiento(m: Movimiento, hoy: string): string {
     hoja?.toLowerCase() ??
     (m.tipo === "ingreso" ? "ingreso" : m.tipo === "pago_tarjeta" ? "pago de tarjeta" : m.tipo === "transferencia" ? "transferencia" : "gasto");
   const enCategoria = hoja && normalizar(hoja) !== normalizar(concepto) ? ` en ${hoja}` : "";
-  const cuenta = m.cuenta ? ` con ${m.cuenta}` : "";
-  return `${concepto} de ${m.monto}${enCategoria}${cuenta}${fechaHablada(m.fecha, hoy)}`;
+  const mueve = m.tipo === "transferencia" || m.tipo === "pago_tarjeta";
+  const cuenta = m.cuenta ? (mueve ? ` desde ${m.cuenta}` : ` con ${m.cuenta}`) : "";
+  const destino = mueve && m.cuenta_destino ? ` a ${m.cuenta_destino}` : "";
+  return `${concepto} de ${m.monto}${enCategoria}${destino}${cuenta}${fechaHablada(m.fecha, hoy)}`;
 }
 
 function enumerar(partes: string[]): string {
@@ -118,6 +123,18 @@ export function confirmacionDirecta(texto: string, hoy: string, ejecutadas: Ejec
   if (ejecutadas.length === 1 && YA_REDACTADAS.has(ejecutadas[0]!.herramienta) && !/\by\b/.test(plano.replace(/^y /, ""))) {
     const respuesta = (ejecutadas[0]!.resultado as { respuesta?: string }).respuesta;
     if (respuesta) return respuesta;
+  }
+  // Saldos de cuentas o lo que lleva una etiqueta: la respuesta ya viene calculada y redactada.
+  const consulta = ejecutadas.length === 1 ? (ejecutadas[0]!.resultado as { respuesta?: string }).respuesta : undefined;
+  if (consulta && ["consultar_cuentas", "etiqueta"].includes(ejecutadas[0]!.herramienta) && !/\by\b/.test(plano)) return consulta;
+  // Cuentas, dinero que se mueve entre ellas y etiquetas traen su confirmación con cómo quedaron. "Tengo 20 mil
+  // en Revolut" empieza como pregunta, pero no lo es: solo cuenta una pregunta explícita o un "también".
+  if (ejecutadas.every((e) => ESCRITURAS_CUENTAS.has(e.herramienta))) {
+    if (pideInformacionExplicita(texto) || OTRA_PARTE.test(plano)) return undefined;
+    const usados = ejecutadas.reduce((s, e) => s + ((e.resultado as { montos?: number }).montos ?? 1), 0);
+    if (montosDichos(texto) > usados) return undefined;
+    const confirmaciones = ejecutadas.map((e) => (e.resultado as { confirmacion?: string }).confirmacion);
+    return confirmaciones.every(Boolean) ? confirmaciones.join(" ") : undefined;
   }
   // Presupuestos, metas, préstamos y MSI traen su confirmación. "Al mes" o "a 12 meses" son parte de lo
   // que guardaron, no algo más que pedir; una pregunta o un "también" sí lo son.

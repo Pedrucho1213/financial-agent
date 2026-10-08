@@ -86,7 +86,9 @@ export type ArgsConsulta = {
   categoria?: string;
   texto?: string;
   excluir?: string;
-  agrupar_por?: "ninguno" | "categoria" | "subcategoria" | "comercio" | "dia";
+  etiqueta?: string;
+  cuenta?: string;
+  agrupar_por?: "ninguno" | "categoria" | "subcategoria" | "comercio" | "dia" | "etiqueta" | "cuenta";
 };
 
 /**
@@ -95,12 +97,12 @@ export type ArgsConsulta = {
  */
 export function respuestaDeConsulta(ctx: Contexto, args: ArgsConsulta, resumen: ReturnType<typeof resumir>): string | undefined {
   const pregunta = ctx.textoOriginal;
-  // "Sin contar la renta": que el modelo diga qué dejó fuera.
-  if (!pregunta || !esPregunta(pregunta) || resumen.otras_monedas || args.excluir) return undefined;
+  // "Sin contar la renta", "con la Nu", "del viaje": que el modelo diga qué filtró.
+  if (!pregunta || !esPregunta(pregunta) || resumen.otras_monedas || args.excluir || args.etiqueta || args.cuenta) return undefined;
   // "¿Y en Uber?" sigue la conversación: la "y" del principio no es una segunda pregunta.
   const plano = normalizar(pregunta).replace(/^((oye|a ver|bueno|y) )+/, "");
   const agrupa = !!args.agrupar_por && args.agrupar_por !== "ninguno";
-  if (args.agrupar_por === "dia") return undefined;
+  if (args.agrupar_por === "dia" || args.agrupar_por === "etiqueta" || args.agrupar_por === "cuenta") return undefined;
   const etiqueta = etiquetaDelPeriodo(args.periodo, ctx.hoy);
   if (!etiqueta) return undefined;
   const tipo = args.tipo ?? "gasto";

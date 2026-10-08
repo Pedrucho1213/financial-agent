@@ -16,6 +16,9 @@ export type MovimientoApp = {
   comercio: string | null;
   descripcion: string | null;
   cuenta: string | null;
+  /** Transferencias y pagos de tarjeta: a dónde llegó el dinero. Viejos servidores no lo mandan. */
+  cuentaDestino?: string | null;
+  etiquetas?: { id: string; nombre: string }[];
   lugar: string | null;
   lat: number | null;
   lon: number | null;
@@ -172,7 +175,8 @@ export type Disponible = {
   porDiaCentavos: number;
   disponibleHoyCentavos: number;
   libreMesCentavos: number;
-  base: "ingresos" | "presupuestos" | null;
+  /** "saldos": sin ingresos ni presupuestos, pero con lo que tiene en sus cuentas. */
+  base: "ingresos" | "presupuestos" | "saldos" | null;
   ingresosCentavos: number;
   gastadoCentavos: number;
   comprometidoCentavos: number;
@@ -221,7 +225,9 @@ export type Aviso = {
     | "meta"
     | "msi"
     | "prestamo"
-    | "gasto_inusual";
+    | "gasto_inusual"
+    | "tarjeta_pago"
+    | "tarjeta_limite";
   titulo: string;
   texto: string;
   fecha: string;

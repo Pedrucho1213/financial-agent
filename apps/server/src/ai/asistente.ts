@@ -17,6 +17,8 @@ import { pagoDeFrase } from "../finanzas/applepay";
 import { crearHerramientas, type Accion } from "./herramientas";
 import { CONSULTAS_ANALISIS } from "./herramientas-analisis";
 import { CONSULTAS_PLANES } from "./herramientas-planes";
+import { CONSULTAS_CUENTAS } from "./herramientas-cuentas";
+import { datoDeCuentas } from "../finanzas/cuentas";
 import { correccionDeCuenta } from "./respaldo";
 
 export type Peticion = {
@@ -512,7 +514,13 @@ function categoriasAnotadas(acciones: Accion[]): (string | undefined)[] {
 /** Los gastos que creó este dictado y siguen ahí, para saber si cruzaron un presupuesto. */
 function gastosNuevos(ctx: Contexto, entradaId: string) {
   return ctx.db
-    .select({ categoriaId: movimientos.categoriaId, montoCentavos: movimientos.montoCentavos, fecha: movimientos.fecha, moneda: movimientos.moneda })
+    .select({
+      categoriaId: movimientos.categoriaId,
+      cuentaId: movimientos.cuentaId,
+      montoCentavos: movimientos.montoCentavos,
+      fecha: movimientos.fecha,
+      moneda: movimientos.moneda,
+    })
     .from(movimientos)
     .where(and(eq(movimientos.usuarioId, ctx.usuarioId), eq(movimientos.entradaId, entradaId), eq(movimientos.tipo, "gasto"), isNull(movimientos.eliminadoEn)))
     .all();
@@ -528,7 +536,7 @@ function loQuePago(acciones: Accion[]): string[] {
 }
 
 // Herramientas que solo leen: si el modelo solo usó estas, no cambió nada.
-const SOLO_CONSULTA = new Set(["buscar_movimientos", "consultar_gastos", "listar_recurrentes", ...CONSULTAS_PLANES, ...CONSULTAS_ANALISIS]);
+const SOLO_CONSULTA = new Set(["buscar_movimientos", "consultar_gastos", "listar_recurrentes", ...CONSULTAS_PLANES, ...CONSULTAS_CUENTAS, ...CONSULTAS_ANALISIS]);
 
 // La respuesta pide elegir entre varios: "¿Cuál café?", "¿El de Oxxo o el de Starbucks?".
 const PIDE_ELEGIR = /\b(cual|cuales)\b|\bo (el|la|los|las) de\b/;
@@ -776,7 +784,9 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   // viene. Si el iPhone ya recibió "Anotado", nadie lo va a oír: el aviso del cobro se deja para el
   // próximo dictado.
   const puedeAgregar = acciones.length > 0 && !texto.includes("?");
-  const dato = puedeAgregar ? datoDePresupuesto(ctx, gastosNuevos(ctx, entrada.id)) : undefined;
+  // Un gasto que deja la tarjeta casi sin crédito o la cuenta en poco o en negativo también es un dato que importa.
+  const nuevos = puedeAgregar ? gastosNuevos(ctx, entrada.id) : [];
+  const dato = puedeAgregar ? (datoDePresupuesto(ctx, nuevos) ?? datoDeCuentas(ctx, nuevos)) : undefined;
   // Solo si de verdad anotó un gasto, y no de los que se esperan aunque salgan altos (la gasolina, el súper).
   const anotados = categoriasAnotadas(acciones);
   const comentario = puedeAgregar && !dato && nota && anotados.length && !anotados.some(esEsperable) ? nota : undefined;

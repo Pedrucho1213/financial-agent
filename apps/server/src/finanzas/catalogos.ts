@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { categorias, comercios, cuentas, TIPOS_CUENTA } from "../db/schema";
 import { normalizar } from "../lib/texto";
+import { ErrorFinanzas } from "./movimientos";
 
 type Naturaleza = "necesidad" | "gusto" | "ahorro";
 type Semilla = { nombre: string; naturaleza?: Naturaleza; hijas?: string[] };
@@ -225,45 +226,133 @@ export function idsConHijas(lista: Categoria[], categoriaId: string): string[] {
 }
 
 export type Cuenta = typeof cuentas.$inferSelect;
+export type TipoCuenta = (typeof TIPOS_CUENTA)[number];
 
-function inferirTipoCuenta(texto: string): (typeof TIPOS_CUENTA)[number] {
+// Bancos que solo dan tarjeta de crédito, o solo cuenta de débito: el nombre dice el tipo.
+const SOLO_CREDITO = /\b(invex|stori|amex|american express|rappi ?card|didi card|liverpool|palacio de hierro|sears)\b/;
+const SOLO_DEBITO = /\b(revolut|hey banco|albo|fondeadora|spin|uala|openbank)\b/;
+
+export function inferirTipoCuenta(texto: string): TipoCuenta {
   const t = normalizar(texto);
-  if (t.includes("efectivo") || t.includes("cash")) return "efectivo";
-  if (t.includes("credito")) return "credito";
-  if (t.includes("debito")) return "debito";
+  if (t.includes("efectivo") || t.includes("cash") || /\b(cartera|bolsillo)\b/.test(t)) return "efectivo";
+  if (t.includes("credito") || SOLO_CREDITO.test(t)) return "credito";
+  if (t.includes("debito") || t.includes("nomina") || SOLO_DEBITO.test(t)) return "debito";
   if (t.includes("transferencia") || t.includes("spei")) return "transferencia";
   if (t.includes("vales")) return "vales";
   if (t.includes("mercado pago") || t.includes("paypal")) return "monedero";
   return "otra";
 }
 
+// El mismo banco con dos nombres: "Bancomer" es BBVA, "Citibanamex" es Banamex.
+const MISMO_BANCO: Record<string, string> = { bancomer: "bbva", "bbva bancomer": "bbva", citibanamex: "banamex", "citi banamex": "banamex", "nu bank": "nu", nubank: "nu", "american express": "amex" };
+const canonico = (nombre: string) => MISMO_BANCO[nombre] ?? nombre;
+
+// Palabras que no son el nombre de la cuenta: "con la tarjeta de crédito", "mi cuenta de".
+const RELLENO_CUENTA = /^(con|la|el|en|mi|mis|tu|tarjeta|tarjetas|cuenta|cuentas|de|del|credito|debito|banco|tdc|tdd|nomina)\s+/;
+// Lo que queda si solo dijo el tipo: "la tarjeta de crédito", "mi débito".
+const SOLO_TIPO = /^(credito|debito|tarjeta|cuenta|banco|tdc|tdd|nomina)$/;
+
 /**
- * Encuentra la cuenta mencionada ("la BBVA", "con efectivo") o la crea.
- * Decir el método de pago es opcional, así que sin texto no hay cuenta.
+ * Si la frase nombra esa cuenta: "en Bancomer tengo…" nombra a BBVA, "revo lut" a Revolut, "mi tarjeta de
+ * crédito" a una cuenta que solo se llama por su tipo. Sirve para no guardar un saldo en una cuenta que el
+ * modelo eligió solo ("tengo 5 mil" → ¿en cuál?).
  */
-export function encontrarOCrearCuenta(db: Db, usuarioId: string, texto: string | undefined) {
-  if (!texto?.trim()) return undefined;
+export function cuentaMencionada(texto: string, nombre: string): boolean {
+  const buscado = nombreBuscado(nombre);
+  let plano = normalizar(texto);
+  for (const [otro, banco] of Object.entries(MISMO_BANCO)) plano = plano.replace(new RegExp(`\\b${otro}\\b`, "g"), banco);
+  if (!buscado || SOLO_TIPO.test(buscado)) return /\b(tarjeta|cuenta|credito|debito|tdc|tdd|banco|nomina)\b/.test(plano);
+  if (plano.replace(/\s+/g, "").includes(buscado.replace(/\s+/g, ""))) return true;
+  return buscado.split(" ").some((palabra) => palabra.length >= 3 && new RegExp(`\\b${palabra}\\b`).test(plano));
+}
+
+/** "Con la tarjeta de crédito Nu" → "nu"; "mi tarjeta de crédito" → "credito". */
+function nombreBuscado(texto: string): string {
   let buscado = normalizar(texto);
-  while (/^(con|la|el|mi|mis|tarjeta|cuenta|de|credito|debito) /.test(buscado)) {
-    buscado = buscado.replace(/^\S+ /, "");
-  }
+  while (RELLENO_CUENTA.test(buscado)) buscado = buscado.replace(/^\S+ /, "");
+  return canonico(buscado);
+}
+
+export type OpcionesCuenta = {
+  /**
+   * Si dijo solo "la tarjeta de crédito" y tiene varias: "error" pide decir cuál; "ninguna" no pone
+   * cuenta (al registrar un gasto, decir con qué pagó es opcional). Por omisión, "ninguna".
+   */
+  siAmbigua?: "error" | "ninguna";
+  /** No crear la cuenta si no existe. */
+  soloExistente?: boolean;
+  /** Solo buscarla: no desarchivarla ni ponerle el tipo que se dijo (consultas, filtros). */
+  soloLeer?: boolean;
+  /** Si al encontrarla se desarchiva o se le pone tipo, para dejarlo en la bitácora (deshacer). */
+  alCambiar?: (id: string, antes: Partial<Cuenta>, despues: Partial<Cuenta>) => void;
+};
+
+/**
+ * Encuentra la cuenta mencionada ("la BBVA", "con efectivo", "Bancomer" para la BBVA) o la crea.
+ * Decir el método de pago es opcional, así que sin texto no hay cuenta. "La tarjeta de crédito" a
+ * secas es su única tarjeta de crédito; si dice el tipo de una cuenta que no lo tenía ("mi tarjeta de
+ * crédito Invex"), se lo pone.
+ */
+export function encontrarOCrearCuenta(db: Db, usuarioId: string, texto: string | undefined, opciones: OpcionesCuenta = {}): Cuenta | undefined {
+  if (!texto?.trim()) return undefined;
+  const buscado = nombreBuscado(texto);
+  const tipoDicho = inferirTipoCuenta(texto);
   const lista = db.select().from(cuentas).where(eq(cuentas.usuarioId, usuarioId)).all();
-  // El nombre exacto primero: "BBVA Azul" no es "BBVA" si existen las dos.
-  const nombres = (c: (typeof lista)[number]) => [c.nombre, ...c.alias].map(normalizar);
+  const activas = lista.filter((c) => !c.archivada);
+  const conTipo = (c: Cuenta): Cuenta => {
+    const cambios: Partial<Cuenta> = {};
+    if (c.archivada) cambios.archivada = false;
+    // "Otra" no dice nada; un tipo dicho sí. Una de débito no se vuelve de crédito por una frase.
+    if (c.tipo === "otra" && tipoDicho !== "otra" && tipoDicho !== "transferencia") cambios.tipo = tipoDicho;
+    if (opciones.soloLeer || Object.keys(cambios).length === 0) return c;
+    const antes = Object.fromEntries(Object.keys(cambios).map((k) => [k, c[k as keyof Cuenta]])) as Partial<Cuenta>;
+    opciones.alCambiar?.(c.id, antes, cambios);
+    return db.update(cuentas).set(cambios).where(eq(cuentas.id, c.id)).returning().get()!;
+  };
+  if (!buscado || SOLO_TIPO.test(buscado) || buscado === "efectivo") {
+    const tipo = buscado === "efectivo" ? "efectivo" : tipoDicho;
+    const generico = tipo === "otra" || tipo === "transferencia";
+    // "La tarjeta" o "la cuenta" sin tipo: sirve solo si tiene una sola de banco.
+    const candidatas = activas.filter((c) => (generico ? ["credito", "debito", "otra"].includes(c.tipo) : c.tipo === tipo));
+    if (candidatas.length === 1) return candidatas[0];
+    if (candidatas.length > 1) {
+      if (opciones.siAmbigua === "error") throw new ErrorFinanzas(`¿Cuál? Tienes ${enLista(candidatas.map((c) => c.nombre))}.`);
+      return undefined;
+    }
+    if (opciones.soloExistente || !buscado) return undefined;
+    if (!generico) {
+      const nombre = { efectivo: "Efectivo", credito: "Tarjeta de crédito", debito: "Tarjeta de débito", vales: "Vales", monedero: "Monedero" }[tipo];
+      return db.insert(cuentas).values({ usuarioId, nombre, tipo }).returning().get();
+    }
+  }
+  // El nombre exacto primero: "BBVA Azul" no es "BBVA" si existen las dos. Las activas antes que las archivadas.
+  const nombres = (c: Cuenta) => [c.nombre, ...c.alias].map((n) => canonico(nombreBuscado(n) || normalizar(n)));
+  const coincide = (c: Cuenta) => nombres(c).some((x) => x.split(" ").includes(buscado) || buscado.split(" ").includes(x));
   const existente =
+    activas.find((c) => nombres(c).includes(buscado)) ??
     lista.find((c) => nombres(c).includes(buscado)) ??
-    lista.find((c) => nombres(c).some((x) => x.split(" ").includes(buscado) || buscado.split(" ").includes(x)));
-  if (existente) return existente;
+    activas.find(coincide) ??
+    lista.find(coincide);
+  if (existente) return conTipo(existente);
+  if (opciones.soloExistente) return undefined;
   let nombre = texto.trim();
-  while (/^(con|la|el|mi|mis|tarjeta|cuenta|de|cr[eé]dito|d[eé]bito)\s+/i.test(nombre)) {
+  while (/^(con|la|el|en|mi|mis|tarjeta|cuenta|de|del|cr[eé]dito|d[eé]bito|banco|nómina|nomina)\s+/i.test(nombre)) {
     nombre = nombre.replace(/^\S+\s+/, "");
   }
-  const tipo = inferirTipoCuenta(texto);
+  nombre = nombre.charAt(0).toUpperCase() + nombre.slice(1);
   return db
     .insert(cuentas)
-    .values({ usuarioId, nombre: tipo === "efectivo" ? "Efectivo" : nombre, tipo })
+    .values({ usuarioId, nombre: tipoDicho === "efectivo" ? "Efectivo" : nombre, tipo: tipoDicho })
     .returning()
     .get();
+}
+
+/** "Nu, BBVA e Invex". */
+export function enLista(partes: string[]): string {
+  if (partes.length <= 1) return partes[0] ?? "";
+  const ultima = partes.at(-1)!;
+  const y = /^(i|hi)/i.test(normalizar(ultima)) && !/^(hie|hia|hio)/i.test(normalizar(ultima)) ? "e" : "y";
+  return `${partes.slice(0, -1).join(", ")} ${y} ${ultima}`;
 }
 
 export function encontrarOCrearComercio(db: Db, usuarioId: string, nombre: string | undefined) {

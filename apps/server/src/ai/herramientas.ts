@@ -30,6 +30,8 @@ import { aCentavos, formatearMonto } from "../lib/dinero";
 import { montoConPalabras, montosDelTexto } from "../lib/numeros";
 import { herramientasAnalisis } from "./herramientas-analisis";
 import { respuestaDeConsulta } from "./consultas";
+import { herramientasCuentas } from "./herramientas-cuentas";
+import { esPagoDeTarjeta, esSaldoDicho, moverDinero, nombresDeTarjetas } from "../finanzas/cuentas";
 import { apartaParaMeta, herramientasPlanes, mensualidadDe, nombresDePlanes, pagaPrestamo, prestaDinero } from "./herramientas-planes";
 import { monedaDelTexto, normalizar, tipoDelTexto } from "../lib/texto";
 
@@ -57,6 +59,7 @@ const datosMovimiento = z.object({
   descripcion: z.string().optional().describe("Qué fue, en pocas palabras."),
   cuenta: z.string().optional().describe("Solo si el usuario dijo con qué pagó: BBVA, Nu, efectivo."),
   fecha: fecha.optional(),
+  etiquetas: z.array(z.string()).optional().describe('Solo si dijo una etiqueta ("etiquétalo como viaje") o es una de sus etiquetas.'),
 });
 
 // Cómo encontrar el movimiento a editar o eliminar sin buscarlo antes.
@@ -192,6 +195,11 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         // Préstamos, metas y meses sin intereses tienen su herramienta. Con varios montos en la frase
         // ("200 de tacos y le presté 100 a Juan") puede haber gastos de verdad: ahí no se frena.
         // En un pago de Apple Pay la frase la armó el servidor: "MSI STORE" o "TACOS EL LUNES" son el comercio.
+        // "Tengo 20 mil en Revolut" dice cuánto hay, no es un ingreso; "le pagué 5 mil a la Nu" mueve dinero.
+        if (texto && !pago && movimientos.every((m) => m.tipo === "gasto" || m.tipo === "ingreso")) {
+          if (esSaldoDicho(texto)) desviar("cuentas", "Eso dice cuánto tiene en una cuenta o tarjeta, no es un gasto ni un ingreso: usa cuentas.");
+          if (esPagoDeTarjeta(texto, nombresDeTarjetas(ctx))) desviar("tarjeta", "Pagar o abonar a una tarjeta de crédito no es un gasto: usa mover_dinero con tipo pago_tarjeta.");
+        }
         if (texto && !pago && montosDelTexto(texto).length <= 1) {
           const plano = normalizar(texto);
           const planes = nombresDePlanes(ctx);
@@ -251,6 +259,10 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         };
         return {
           registrados: movimientos.map((m, i) => {
+            // Una transferencia o un pago de tarjeta va por mover_dinero: valida las cuentas y dice cómo quedaron.
+            if (m.tipo === "transferencia" || m.tipo === "pago_tarjeta") {
+              return moverDinero(ctx, { tipo: m.tipo, monto: montoDicho ?? m.monto, desde: m.cuenta, fecha: conFecha(m.fecha, i), descripcion: m.descripcion }).movimiento;
+            }
             const tipo = conTipo(m.tipo);
             const habito = deSiempre(m, tipo);
             const comercio = m.comercio || habito?.comercio;
@@ -296,6 +308,8 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         periodo: periodo.optional(),
         tipo: tipoMovimiento.optional(),
         monto: z.number().optional(),
+        etiqueta: z.string().optional(),
+        cuenta: z.string().optional().describe("Cuenta o tarjeta con que se pagó, o a la que llegó."),
         limite: z.number().int().optional().describe("Cuántos regresar, 5 por omisión."),
       }),
       execute: ejecutar("buscar_movimientos", (filtro) => buscarMovimientos(ctx, filtro)),
@@ -307,16 +321,21 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
       inputSchema: z.object({
         id: z.string().optional().describe("id, si ya lo tienes"),
         buscar: busqueda.optional(),
-        cambios: datosMovimiento.partial().describe("Solo los campos que cambian, con su valor nuevo."),
+        cambios: datosMovimiento
+          .partial()
+          .extend({ quitar_etiquetas: z.array(z.string()).optional().describe("Etiquetas que pide quitarle.") })
+          .describe("Solo los campos que cambian, con su valor nuevo. etiquetas agrega; quitar_etiquetas quita."),
       }),
-      execute: ejecutar("editar_movimiento", ({ id, buscar, cambios }) => ({
-        // Un "" del modelo no borra nada: para la IA, vacío es lo mismo que no mandarlo.
-        editado: editarMovimiento(
-          ctx,
-          idDelMovimiento(ctx, id, comoLoDijo(buscar), pideVarios),
-          Object.fromEntries(Object.entries(cambios).filter(([, v]) => v !== "")),
-        ),
-      })),
+      execute: ejecutar("editar_movimiento", ({ id, buscar, cambios }) => {
+        const { quitar_etiquetas, ...resto } = cambios;
+        return {
+          // Un "" del modelo no borra nada: para la IA, vacío es lo mismo que no mandarlo.
+          editado: editarMovimiento(ctx, idDelMovimiento(ctx, id, comoLoDijo(buscar), pideVarios), {
+            ...Object.fromEntries(Object.entries(resto).filter(([, v]) => v !== "")),
+            quitarEtiquetas: quitar_etiquetas,
+          }),
+        };
+      }),
     }),
 
     eliminar_movimiento: tool({
@@ -345,7 +364,9 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         categoria: z.string().optional(),
         texto: z.string().optional().describe("Comercio o palabra: Uber, café."),
         excluir: z.string().optional().describe('Lo que no cuenta: "sin contar la renta" es renta.'),
-        agrupar_por: z.enum(["ninguno", "categoria", "subcategoria", "comercio", "dia"]).optional(),
+        etiqueta: z.string().optional().describe("Solo lo que lleva esa etiqueta: viaje, trabajo."),
+        cuenta: z.string().optional().describe("Solo lo pagado con esa cuenta o tarjeta."),
+        agrupar_por: z.enum(["ninguno", "categoria", "subcategoria", "comercio", "dia", "etiqueta", "cuenta"]).optional(),
       }),
       execute: ejecutar("consultar_gastos", (args) => {
         const { agrupar_por, ...filtro } = args;
@@ -455,6 +476,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
     ...herramientasPlanes(ctx, ejecutar),
 
     ...herramientasAnalisis(ctx, ejecutar),
+    ...herramientasCuentas(ctx, ejecutar),
 
     listar_recurrentes: tool({
       description:

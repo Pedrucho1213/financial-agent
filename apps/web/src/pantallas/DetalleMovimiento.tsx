@@ -203,7 +203,8 @@ function Detalle({ m, enLinea }: { m: MovimientoApp; enLinea: boolean }) {
       <Grupo>
         <Fila titulo="Tipo" valor={TIPOS[m.tipo] ?? m.tipo} />
         <Fila titulo="Categoría" valor={m.categoria?.replace(" > ", " › ") ?? "Sin categoría"} />
-        {m.cuenta ? <Fila titulo="Pagado con" valor={m.cuenta} /> : null}
+        {m.cuenta ? <Fila titulo={m.cuentaDestino ? "Desde" : "Pagado con"} valor={m.cuenta} /> : null}
+        {m.cuentaDestino ? <Fila titulo={m.tipo === "pago_tarjeta" ? "Tarjeta pagada" : "Hacia"} valor={m.cuentaDestino} /> : null}
         {m.descripcion && m.comercio ? <Fila titulo="Nota" valor={m.descripcion} /> : null}
         {m.lugar ? <Fila titulo="Lugar" valor={m.lugar} /> : null}
         {m.moneda !== "MXN" ? <Fila titulo="Moneda" valor={m.moneda} /> : null}

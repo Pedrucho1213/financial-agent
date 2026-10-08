@@ -14,6 +14,8 @@ const ICONOS: Record<Aviso["tipo"], [typeof Coffee, string]> = {
   msi: [CreditCard, "var(--tint)"],
   prestamo: [HandCoins, "var(--positive)"],
   gasto_inusual: [TriangleAlert, "var(--orange)"],
+  tarjeta_pago: [CalendarClock, "var(--orange)"],
+  tarjeta_limite: [CreditCard, "var(--orange)"],
 };
 
 /** Lo que encontró el revisor nocturno: fugas, cobros que vienen, presupuestos en riesgo. */
