@@ -1,4 +1,4 @@
-// QA del PR #37 (página Análisis). Playwright de apps/web: copiar a apps/web/e2e/ y borrar después.
+// QA del PR #37 (página Análisis). Playwright de apps/web (.pw.ts para que bun test no lo tome): copiar como *.spec.ts a apps/web/e2e/ y borrar después.
 // Complementa e2e/analisis.spec.ts con lo que la tanda de cuentas va a meter (transferencias, pagos de
 // tarjeta), montos extremos, texto roto (NaN, undefined) y la comparación de la semana.
 // QA-083 y QA-084 cerrados en 37c5cf7 y 00781ab.

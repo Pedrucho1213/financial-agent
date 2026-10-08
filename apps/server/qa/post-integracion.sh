@@ -30,10 +30,11 @@ cd ../web
 paso "web typecheck" bun run typecheck
 paso "web test" bun run test
 paso "web build" bun run build
-cp ../server/qa/web-qa28.spec.ts e2e/zz-qa28.spec.ts
-cp ../server/qa/web-pr37.spec.ts e2e/zz-qa37.spec.ts
+cp ../server/qa/web-qa28.pw.ts e2e/zz-qa28.spec.ts
+cp ../server/qa/web-pr37.pw.ts e2e/zz-qa37.spec.ts
+cp ../server/qa/web-pr42.pw.ts e2e/zz-qa42.spec.ts
 paso "web e2e" bun run e2e --reporter=line
-rm -f e2e/zz-qa28.spec.ts e2e/zz-qa37.spec.ts
+rm -f e2e/zz-qa28.spec.ts e2e/zz-qa37.spec.ts e2e/zz-qa42.spec.ts
 
 echo "Resumen:"
 for f in "$SALIDA"/*.txt; do echo "-- $(basename "$f")"; grep -E "^ *[0-9]+ (pass|fail)$|passed|failed|✓ [0-9]+ +✗|mediana|^[0-9]+/[0-9]+" "$f" | tail -14; done

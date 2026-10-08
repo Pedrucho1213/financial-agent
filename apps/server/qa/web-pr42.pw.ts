@@ -1,4 +1,4 @@
-// QA del PR #42 (pantallas de cuentas, tarjetas, mover dinero y etiquetas). Playwright de apps/web: copiar a
+// QA del PR #42 (pantallas de cuentas, tarjetas, mover dinero y etiquetas). Playwright de apps/web (.pw.ts para que bun test no lo tome): copiar como *.spec.ts a
 // apps/web/e2e/ y borrar después. Complementa e2e/cuentas.spec.ts con casos límite: montos enormes y negativos,
 // tarjeta pasada del límite o con saldo a favor, nombres raros, 404 del servidor nuevo (#41), doble toque,
 // comas en el monto, modo oscuro a 320 y sin conexión.
