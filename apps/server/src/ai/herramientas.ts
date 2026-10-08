@@ -171,12 +171,20 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
     return buscar.mas_reciente && nombraAlgo && !senala ? { ...conTipo, mas_reciente: false } : conTipo;
   };
 
-  // "Ajusta la renta a 9 mil" con solo mas_reciente: si el último es un café, no es ese. Que lo busque por nombre.
-  const noEsOtro = (elegido: string, buscar: { texto?: string; categoria?: string } | undefined, nuevos: (string | undefined)[] = []) => {
-    if (!ctx.textoOriginal || buscar?.texto || buscar?.categoria) return;
+  // "Ajusta la renta a 9 mil" o "el café de hoy fueron 95" con solo mas_reciente: si el último es otro
+  // (un café, la gasolina), no es ese. Se usa el que nombra; si no hay, que lo busque por nombre.
+  // "La renta subió" habla de lo que viene: ahí no se toca ningún movimiento sin que la IA lo decida.
+  const noEsOtro = (elegido: string, buscar: z.infer<typeof busqueda> | undefined, nuevos: (string | undefined)[] = []): string => {
+    if (!ctx.textoOriginal || buscar?.texto || buscar?.categoria) return elegido;
     const nombrado = nombraOtroMovimiento(ctx, elegido, ctx.textoOriginal, nuevos);
-    if (nombrado) {
-      throw new ErrorFinanzas(`El último movimiento no es de ${nombrado}. Búscalo por nombre: usa buscar con texto "${nombrado}", no mas_reciente.`);
+    if (!nombrado) return elegido;
+    const porNombre = `El último movimiento no es de ${nombrado}. Búscalo por nombre: usa buscar con texto "${nombrado}", no mas_reciente.`;
+    if (HACIA_ADELANTE.test(normalizar(ctx.textoOriginal))) throw new ErrorFinanzas(porNombre);
+    try {
+      return idDelMovimiento(ctx, undefined, comoLoDijo({ ...buscar, texto: nombrado }), pideVarios);
+    } catch (e) {
+      if (e instanceof ErrorFinanzas && e.message.startsWith("No encontré")) throw new ErrorFinanzas(porNombre);
+      throw e;
     }
   };
 
@@ -352,8 +360,8 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
       }),
       execute: ejecutar("editar_movimiento", ({ id, buscar, cambios }) => {
         const { quitar_etiquetas, ...resto } = cambios;
-        const elegido = idDelMovimiento(ctx, id, comoLoDijo(buscar), pideVarios);
-        if (!id) noEsOtro(elegido, buscar, [cambios.categoria, cambios.comercio, cambios.descripcion]);
+        const ultimo = idDelMovimiento(ctx, id, comoLoDijo(buscar), pideVarios);
+        const elegido = id ? ultimo : noEsOtro(ultimo, buscar, [cambios.categoria, cambios.comercio, cambios.descripcion]);
         return {
           // Un "" del modelo no borra nada: para la IA, vacío es lo mismo que no mandarlo.
           editado: editarMovimiento(ctx, elegido, {
@@ -371,8 +379,8 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         buscar: busqueda.optional(),
       }),
       execute: ejecutar("eliminar_movimiento", ({ id, buscar }) => {
-        const elegido = idDelMovimiento(ctx, id, comoLoDijo(buscar), pideVarios);
-        if (!id) noEsOtro(elegido, buscar);
+        const ultimo = idDelMovimiento(ctx, id, comoLoDijo(buscar), pideVarios);
+        const elegido = id ? ultimo : noEsOtro(ultimo, buscar);
         return { eliminado: eliminarMovimiento(ctx, elegido) };
       }),
     }),

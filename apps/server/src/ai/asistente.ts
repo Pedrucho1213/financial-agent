@@ -141,6 +141,19 @@ const AVISO_SIN_HERRAMIENTAS =
   "Si el usuario dictó un gasto o ingreso que ya hizo, regístralo; si pidió corregir o borrar, hazlo; si preguntó por sus finanzas, consúltalas. " +
   "Si no pidió nada de eso, responde sin decir que guardaste algo.";
 
+// "Borra los dos cafés de ayer": pidió borrar uno o dos y el modelo preguntó si de verdad, sin buscar nada.
+// Las instrucciones piden borrarlos sin preguntar; solo "todo" o más de dos se confirman.
+const BORRA_POCOS =
+  /^(?:(?:oye|a ver|bueno|porfa|por favor|y) )*(borra|borrame|elimina|eliminame|quita|quitame)\b(?!.*\b(todo|todos|todas)\b)(?!.*\b(los|las) (tres|cuatro|cinco|seis|siete|ocho|nueve|diez|[3-9]|\d{2,})\b)/;
+
+function preguntoSinBorrar(pedido: string, respuesta: string, llamadas: number): boolean {
+  return llamadas === 0 && respuesta.includes("?") && BORRA_POCOS.test(normalizar(pedido));
+}
+
+const AVISO_BORRAR =
+  "\n\nAviso: pidió borrar uno o dos movimientos y en tu intento anterior preguntaste sin buscarlos. " +
+  "No pidas confirmación: bórralos con eliminar_movimiento, uno por uno. Solo pregunta si no los encuentras o si no sabes cuál es.";
+
 const RESPUESTA_NO_GUARDADA = "No alcancé a guardar nada. ¿Me lo repites?";
 const RESPUESTA_NO_CONSULTADA = "No alcancé a revisar tus movimientos. ¿Me lo preguntas otra vez?";
 
@@ -732,6 +745,9 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
       // Un "Listo" sin haber llamado a ninguna herramienta es una confirmación falsa: se reintenta una vez.
       if (!yaEstaba && respuestaSinSustento(entrada.texto, texto, acciones)) {
         resultado = await generar(AVISO_SIN_HERRAMIENTAS);
+        texto = confirmacion ?? resultado.text;
+      } else if (preguntoSinBorrar(entrada.texto, texto, resultado.steps.flatMap((p) => p.toolCalls).length) && tieneMovimientos(ctx)) {
+        resultado = await generar(AVISO_BORRAR);
         texto = confirmacion ?? resultado.text;
       }
       mensajesRespuesta = resultado.response.messages;

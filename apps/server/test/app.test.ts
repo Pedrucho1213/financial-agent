@@ -250,6 +250,28 @@ describe("API", () => {
     expect(r3.respuesta).toBe("No alcancé a revisar tus movimientos. ¿Me lo preguntas otra vez?");
   });
 
+  test('"borra los dos cafés" que el modelo pregunta sin buscar se reintenta y los borra; "borra todo" no', async () => {
+    const { hablar, get, db, modelo } = montar([
+      texto("¿Quieres que borre ambos cafés de ayer?"),
+      llamada("eliminar_movimiento", { buscar: { texto: "café", mas_reciente: true } }),
+      llamada("eliminar_movimiento", { buscar: { texto: "café", mas_reciente: true } }),
+      texto("Listo, borré los dos cafés."),
+      texto("¿Seguro que quieres borrar todo lo de ayer?"),
+    ]);
+    const usuarioId = db.select().from(usuarios).get()!.id;
+    const ctx = crearContexto({ db, usuarioId, zonaHoraria: "America/Mexico_City", monedaBase: "MXN" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 60, categoria: "Café", fecha: "ayer" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 45, categoria: "Café", fecha: "ayer" });
+    crearMovimiento(ctx, { tipo: "gasto", monto: 300, categoria: "Súper", fecha: "ayer" });
+    await hablar({ texto: "Borra los dos cafés de ayer", client_id: "dictado-0016" });
+    expect(JSON.stringify(modelo.doGenerateCalls[1]?.prompt)).toContain("No pidas confirmación");
+    expect(((await (await get("/v1/movimientos")).json()) as { total: number }).total).toBe(1);
+    const antes = modelo.doGenerateCalls.length;
+    const r = (await (await hablar({ texto: "Borra todo lo de ayer", client_id: "dictado-0017" })).json()) as { respuesta: string };
+    expect(r.respuesta).toBe("¿Seguro que quieres borrar todo lo de ayer?");
+    expect(modelo.doGenerateCalls).toHaveLength(antes + 1);
+  });
+
   test("la charla sin montos no se reintenta", async () => {
     const { hablar, modelo } = montar([texto("¡Hola! Listo para ayudarte.")]);
     await hablar({ texto: "Hola", client_id: "dictado-0009" });

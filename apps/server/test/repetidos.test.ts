@@ -85,27 +85,55 @@ describe("corregir algo que no es un pago fijo", () => {
 });
 
 describe("el último movimiento no es el que nombra", () => {
-  test('"ajusta la renta a 9 mil" con solo mas_reciente no le pone 9 mil al café', async () => {
+  test('"ajusta la renta a 9 mil" con solo mas_reciente le pone 9 mil a la renta, no al café', async () => {
     const { ctx } = preparar();
     crearMovimiento(ctx, { tipo: "gasto", monto: 8500, descripcion: "Renta", categoria: "Renta", fecha: "ayer" } as never);
     crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café" } as never);
-    const c = dictado(ctx, "Ajusta la renta a 9 mil");
-    const r = await llamar(c, "editar_movimiento", { buscar: { mas_reciente: true }, cambios: { monto: 9000 } });
-    expect(r.error).toContain('buscar con texto "renta"');
-    expect(todos(ctx).map((m) => m.monto).sort()).toEqual(["$8,500", "$85"]);
-    // Buscándola por nombre, sí.
-    const bien = await llamar(c, "editar_movimiento", { buscar: { texto: "renta" }, cambios: { monto: 9000 } });
-    expect(bien.error).toBeUndefined();
+    const r = await llamar(dictado(ctx, "Ajusta la renta a 9 mil"), "editar_movimiento", { buscar: { mas_reciente: true }, cambios: { monto: 9000 } });
+    expect(r.error).toBeUndefined();
     expect(todos(ctx).map((m) => m.monto).sort()).toEqual(["$85", "$9,000"]);
   });
 
-  test("borrar con solo mas_reciente tampoco borra otro", async () => {
+  test('"el café de hoy fueron 95, no 85" con la gasolina anotada después corrige el café', async () => {
+    const { ctx } = preparar();
+    crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café" } as never);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 800, categoria: "Gasolina" } as never);
+    const r = await llamar(dictado(ctx, "El café de hoy fueron 95, no 85"), "editar_movimiento", { buscar: { mas_reciente: true }, cambios: { monto: 95 } });
+    expect(r.error).toBeUndefined();
+    expect(todos(ctx).map((m) => m.monto).sort()).toEqual(["$800", "$95"]);
+  });
+
+  test("borrar con solo mas_reciente borra el que nombra, no el último", async () => {
     const { ctx } = preparar();
     crearMovimiento(ctx, { tipo: "gasto", monto: 300, comercio: "Uber", categoria: "Taxi y apps" } as never);
     crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café" } as never);
     const r = await llamar(dictado(ctx, "Borra el Uber"), "eliminar_movimiento", { buscar: { mas_reciente: true } });
-    expect(r.error).toContain('"uber"');
-    expect(todos(ctx)).toHaveLength(2);
+    expect(r.error).toBeUndefined();
+    expect(todos(ctx).map((m) => m.monto)).toEqual(["$85"]);
+  });
+
+  test("con dos distintos de lo que nombra, pregunta cuál en vez de tocar el último", async () => {
+    const { ctx } = preparar();
+    crearMovimiento(ctx, { tipo: "gasto", monto: 300, comercio: "Uber", categoria: "Taxi y apps", fecha: "ayer" } as never);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 120, comercio: "Uber", categoria: "Taxi y apps" } as never);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café" } as never);
+    const r = await llamar(dictado(ctx, "Borra el Uber"), "eliminar_movimiento", { buscar: { mas_reciente: true } });
+    expect(r.error).toContain("Coinciden 2");
+    expect(todos(ctx)).toHaveLength(3);
+  });
+
+  test("si lo que nombra no está anotado, o habla de lo que viene, no toca el último", async () => {
+    const { ctx } = preparar();
+    crearMovimiento(ctx, { tipo: "gasto", monto: 8500, descripcion: "Renta", categoria: "Renta", fecha: "ayer" } as never);
+    crearMovimiento(ctx, { tipo: "gasto", monto: 85, categoria: "Café" } as never);
+    const sube = await llamar(dictado(ctx, "La renta subió a 9 mil"), "editar_movimiento", { buscar: { mas_reciente: true }, cambios: { monto: 9000 } });
+    expect(sube.error).toContain('buscar con texto "renta"');
+    const otro = preparar().ctx;
+    crearMovimiento(otro, { tipo: "gasto", monto: 85, categoria: "Café" } as never);
+    const r = await llamar(dictado(otro, "Borra la gasolina"), "eliminar_movimiento", { buscar: { mas_reciente: true } });
+    expect(r.error).toContain('"gasolina"');
+    expect(todos(ctx).map((m) => m.monto).sort()).toEqual(["$8,500", "$85"]);
+    expect(todos(otro)).toHaveLength(1);
   });
 
   test("si nombra lo que tiene el último, o lo que le va a poner, o nada, edita el último", async () => {
