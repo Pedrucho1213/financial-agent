@@ -70,3 +70,62 @@ describe("M3: editar el último solo si es de lo que habla la frase", () => {
     expect(movs.map((m: any) => m.montoCentavos / 100)).toEqual([8500]);
   });
 });
+
+// W3 (cae98a8, modelo real, 2/2): en una conversación con turnos previos la guardia no aplica (ctx.enConversacion =
+// historial.length > 0), así que un monto dicho para otra cosa ("tengo 20 mil en Revolut") se usa como quincena, y
+// "mi tarjeta de crédito" con dos tarjetas acepta la que eligió el modelo. Solo debería valer si el turno anterior
+// del asistente PREGUNTÓ ("¿de cuánto?", "¿cuál tarjeta?").
+async function conversacion(turnos: { frase: string; respuestas: unknown[] }[]) {
+  const { db, usuario } = preparar({ ahora: new Date() }) as any;
+  const token = crearDispositivo(db, usuario.id, "iPhone");
+  const cola: unknown[] = [];
+  const app = crearApp({ db, modelo: new MockLanguageModelV4({ doGenerate: async () => (cola.shift() ?? texto("¿De cuánto fue?")) as never }), zonaHoraria: "America/Mexico_City", monedaBase: "MXN" } as any);
+  let conversacion_id: string | undefined;
+  const salidas: string[] = [];
+  for (const t of turnos) {
+    cola.push(...t.respuestas);
+    const r = await app.request("/v1/hablar", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ texto: t.frase, client_id: `qa39c-${crypto.randomUUID()}`, conversacion_id }),
+    });
+    const c = (await r.json()) as { respuesta: string; conversacion_id: string };
+    conversacion_id = c.conversacion_id;
+    salidas.push(c.respuesta);
+    cola.length = 0;
+  }
+  const movs = db.select().from(movimientos).all().filter((m: any) => !m.eliminadoEn);
+  const ctx = (await import("../src/finanzas/contexto")).crearContexto({ db, usuarioId: usuario.id, zonaHoraria: "America/Mexico_City", monedaBase: "MXN" } as never);
+  const cuentas = (await import("../src/finanzas/cuentas")).estadosDeCuentas(ctx);
+  return { salidas, movs, cuentas };
+}
+
+describe("W3: la guardia vale también con turnos previos que no preguntaron", () => {
+  test("'Tengo 20 mil en Revolut…' y luego 'Me llegó la quincena': no guarda 20 mil de ingreso", async () => {
+    const { salidas, movs } = await conversacion([
+      { frase: "Tengo 20 mil pesos en mi cuenta de Revolut y 10 mil en Bancomer", respuestas: [llamada("cuentas", { cuentas: [{ cuenta: "Revolut", saldo: 20000 }, { cuenta: "Bancomer", saldo: 10000 }] }), texto("Listo.")] },
+      { frase: "Me llegó la quincena", respuestas: [llamada("registrar_movimientos", { movimientos: [{ tipo: "ingreso", monto: 20000, categoria: "Sueldo", descripcion: "Quincena" }] }), texto("Listo, registré tu quincena de $20,000.")] },
+    ]);
+    console.log(salidas, movs.map((m: any) => `${m.tipo}:${m.montoCentavos / 100}`));
+    expect(movs.filter((m: any) => m.tipo === "ingreso")).toHaveLength(0);
+  });
+
+  test("'¿De cuánto fue?' → '15 mil' sí guarda (el caso para el que existe la excepción)", async () => {
+    const { movs } = await conversacion([
+      { frase: "Me llegó la quincena", respuestas: [texto("¿De cuánto fue tu quincena?")] },
+      { frase: "15 mil", respuestas: [llamada("registrar_movimientos", { movimientos: [{ tipo: "ingreso", monto: 15000, categoria: "Sueldo" }] }), texto("Listo.")] },
+    ]);
+    expect(movs.map((m: any) => m.montoCentavos / 100)).toEqual([15000]);
+  });
+
+  test("dos tarjetas y 'Tengo 7000 disponibles en mi tarjeta de crédito': no se la asigna a la que eligió el modelo", async () => {
+    const { salidas, cuentas } = await conversacion([
+      { frase: "Mi tarjeta de crédito Nu tiene un límite de 30 mil y llevo usados 12 mil", respuestas: [llamada("cuentas", { cuentas: [{ cuenta: "Nu", tipo: "credito", limite: 30000, deuda: 12000 }] }), texto("Listo.")] },
+      { frase: "Mi BBVA Azul tiene límite de 20 mil", respuestas: [llamada("cuentas", { cuentas: [{ cuenta: "BBVA Azul", tipo: "credito", limite: 20000 }] }), texto("Listo.")] },
+      { frase: "Tengo 7000 disponibles en mi tarjeta de crédito", respuestas: [llamada("cuentas", { cuentas: [{ cuenta: "BBVA Azul", tipo: "credito", disponible: 7000, limite: 20000 }] }), texto("Listo, en BBVA Azul te quedan $7,000.")] },
+    ]);
+    const azul = cuentas.find((c: any) => c.nombre === "BBVA Azul");
+    console.log(salidas.at(-1), azul);
+    expect(azul?.disponibleCentavos ?? null).not.toBe(7000_00);
+  });
+});
