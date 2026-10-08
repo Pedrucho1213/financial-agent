@@ -178,6 +178,8 @@
   --animate-lente: lente 460ms cubic-bezier(0.32, 0.72, 0, 1);
   --animate-anillo: anillo 1s cubic-bezier(0.32, 0.72, 0, 1) both;
   --animate-empujar: empujar 340ms cubic-bezier(0.32, 0.72, 0, 1);
+  --animate-crecer: crecer 620ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  --animate-crecer-x: crecer-x 620ms cubic-bezier(0.32, 0.72, 0, 1) both;
 
   @keyframes subir {
     from { transform: translateY(100%); }
@@ -246,6 +248,15 @@
   }
   @keyframes girar {
     to { transform: rotate(360deg); }
+  }
+  /* Barras que crecen desde su base (Análisis). */
+  @keyframes crecer {
+    from { transform: scaleY(0); }
+    to { transform: scaleY(1); }
+  }
+  @keyframes crecer-x {
+    from { transform: scaleX(0); }
+    to { transform: scaleX(1); }
   }
   @keyframes punto {
     0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
@@ -488,4 +499,14 @@
     --elevated: #3a3a3c;
     --fill: rgb(118 118 128 / 0.28);
   }
+}
+
+/* Barras de Análisis: crecen desde la línea base, no desde el centro. */
+.fa-barra {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+.fa-barra-abajo {
+  transform-box: fill-box;
+  transform-origin: 50% 0%;
 }

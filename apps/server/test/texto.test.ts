@@ -85,3 +85,67 @@ test("reconoce órdenes de borrar o cambiar algo ya anotado (QA-029)", () => {
     expect(esOrdenSobreLoAnotado(frase)).toBe(false);
   }
 });
+
+test("reconoce correcciones que no dicen borra ni cambia, aunque traigan monto", () => {
+  for (const frase of [
+    "no eran 85, eran 95",
+    "No, fueron 120, no 85",
+    "eran 95 no 85",
+    "me equivoqué, el café fue de 95",
+    "perdón, me confundí, fueron 300",
+    "en realidad fue con la BBVA",
+    "en realidad pagué 450",
+    "no fue en efectivo, fue con la Nu",
+    "el Uber lo anotaste dos veces",
+    "el súper está repetido",
+    "actualiza el súper a 1,250",
+    "modifícalo a 300",
+    "ajusta la renta a 9 mil",
+    "agrégale 20 de propina al café",
+    "el último era de 150",
+    "ese de 85 no lo anotes",
+    "olvídalo",
+    // QA-081
+    "No, fueron 95",
+    "Siempre no, fueron 95",
+    "Error, eran 95",
+    "No, espera, eran 95",
+    "Te dije 85 pero fueron 95",
+    "Perdón, el café fue de 95",
+    "Ponle 95 al café",
+    "Mejor ponlo en 95",
+    "Eran 95 pesos y no 85",
+    "No fue 85, 95",
+    "En realidad fueron 1,350 del súper",
+    "El café de hace rato fue de 95, no de 85",
+    "Café 95 no 85",
+  ]) {
+    expect(esOrdenSobreLoAnotado(frase)).toBe(true);
+  }
+  for (const frase of [
+    "gasolina 700",
+    "tele de 8 mil",
+    "me pagaron 5000",
+    "no fue mucho, solo 50 de café",
+    "fue 85 de café",
+    "tacos 120 y eran para 3",
+    "se me olvida decirte que gasté 50 en café",
+    "se me olvidó anotar 200 de Uber",
+    "compré un arreglo de flores de 400",
+    // QA-082
+    "Pagué 500 de arreglar el coche",
+    "Pagué 80 de actualizar la app",
+    "Pagué 1,200 de modificar el traje",
+    "El último fue el café de 85",
+    "En realidad fue un buen día, gasté 200 en comida",
+    "Pagué 300 del cambio de aceite",
+    "Me cobraron 50 por cancelación",
+    "Le puse 500 de gasolina",
+    "Ponle 50 de gasolina al coche",
+    "Dije que iba a ahorrar pero gasté 500 en ropa",
+    "Perdón, fue un día caro, gasté 800 en ropa",
+    "gasté 1500 en la tele, no fue barata pero fue necesaria",
+  ]) {
+    expect(esOrdenSobreLoAnotado(frase)).toBe(false);
+  }
+});

@@ -7,6 +7,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
+    "test": "TZ=America/Mexico_City bun test test/",
     "e2e": "playwright test",
     "iconos": "bun scripts/iconos.mjs"
   },

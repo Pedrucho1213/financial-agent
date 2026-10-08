@@ -81,7 +81,7 @@ function Notificaciones() {
       titulo="Notificaciones"
       pie={
         <>
-          Al registrar con el Atajo, solo dice «Anotado» y termina; aquí te llega qué anotó y, al tocarla, el detalle.
+          Al registrar con el Atajo, solo dice «Anotado» o «Listo» y termina; aquí te llega qué anotó y, al tocarla, el detalle. Si corriges o borras algo, te dice en voz qué cambió.
           Las preguntas te las sigue contestando en voz. También te avisa en la mañana si encuentra algo en tus gastos.
         </>
       }

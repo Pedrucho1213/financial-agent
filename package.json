@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "bun run --cwd apps/server dev",
     "start": "bun run --cwd apps/server start",
-    "test": "bun run --cwd apps/server test",
+    "test": "bun run --cwd apps/server test && bun run --cwd apps/web test",
     "typecheck": "bun run --cwd apps/server typecheck && bun run --cwd apps/web typecheck",
     "setup": "bun run --cwd apps/server setup",
     "eval": "bun run --cwd apps/server eval",
@@ -15,6 +15,7 @@
     "web:build": "bun run --cwd apps/web build",
     "web:dev": "bun run --cwd apps/web dev",
     "web:typecheck": "bun run --cwd apps/web typecheck",
-    "web:e2e": "bun run --cwd apps/web e2e"
+    "web:e2e": "bun run --cwd apps/web e2e",
+    "web:test": "bun run --cwd apps/web test"
   }
 }
