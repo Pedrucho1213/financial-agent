@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
 import { ApiFalsa, prepararSesion } from "./api-falsa";
-import { conCuentas } from "./api-falsa-cuentas";
+import { conCuentas, cuentasComoPedro } from "./api-falsa-cuentas";
 
 // Capturas de cuentas, tarjetas y etiquetas en claro y oscuro. No validan nada más.
 const DIR = "e2e/capturas/cuentas";
@@ -16,6 +16,14 @@ for (const esquema of ["light", "dark"] as const) {
   const sufijo = esquema === "light" ? "claro" : "oscuro";
   test.describe(`capturas de cuentas ${sufijo}`, () => {
     test.use({ colorScheme: esquema });
+
+    test(`tarjeta sin límite (${sufijo})`, async ({ page }) => {
+      // Nu solo con lo disponible, como la de Pedro.
+      await prepararSesion(page, conCuentas(new ApiFalsa(), cuentasComoPedro()));
+      await page.goto("/#cuentas");
+      await expect(page.getByTestId("credito-disponible")).toBeVisible();
+      await capturar(page, `sin-limite-${sufijo}`, true);
+    });
 
     test(`cuentas (${sufijo})`, async ({ page }) => {
       await prepararSesion(page, conCuentas(new ApiFalsa()));

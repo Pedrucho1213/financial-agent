@@ -19,7 +19,11 @@ import { haptico } from "../lib/haptico";
 import { hashDe, navegar, volver } from "../lib/ruta";
 import {
   colorUso,
+  creditoDisponible,
   creditoTotal,
+  enLista,
+  fueraDeLaSuma,
+  sinDeudaConocida,
   diasEntreFechas,
   enCuantosDias,
   lineaCuenta,
@@ -46,7 +50,7 @@ export function Cuentas({ params }: { params: URLSearchParams }) {
   const conArchivadas = params.get("archivadas") === "1";
   const cuentas = useCuentas({ archivadas: conArchivadas });
   const enLinea = useEnLinea();
-  const [hojaCuenta, setHojaCuenta] = useState<{ nueva: TipoCuenta } | null>(null);
+  const [hojaCuenta, setHojaCuenta] = useState<EstadoCuenta | { nueva: TipoCuenta } | null>(null);
   const [hojaMover, setHojaMover] = useState<InicioMover | null>(null);
 
   const datos = cuentas.data;
@@ -88,7 +92,7 @@ export function Cuentas({ params }: { params: URLSearchParams }) {
         </Aviso>
       ) : datos ? (
         <div className="space-y-8 pt-2 pb-4">
-          <Resumen datos={datos} moneda={moneda} />
+          <Resumen datos={datos} moneda={moneda} alDecirLimite={enLinea ? setHojaCuenta : undefined} />
           {datos.observacion ? (
             <p data-testid="observacion" className="flex items-start gap-3 rounded-[20px] bg-card p-4 text-[15px] leading-snug">
               <Lightbulb aria-hidden className="mt-0.5 size-[18px] shrink-0 text-orange" />
@@ -182,8 +186,11 @@ function IconoAccion({ children }: { children: ReactNode }) {
 }
 
 /** Lo que suma todo: lo que tiene menos lo que debe, dónde está su dinero y cuánto crédito usa. */
-function Resumen({ datos, moneda }: { datos: CuentasApi; moneda: string }) {
+function Resumen({ datos, moneda, alDecirLimite }: { datos: CuentasApi; moneda: string; alDecirLimite?: (c: EstadoCuenta) => void }) {
   const t = datos.totales;
+  const sinDeuda = sinDeudaConocida(datos.cuentas);
+  const disponible = creditoDisponible(datos.cuentas);
+  const nota = fueraDeLaSuma(t.sinSaldo, sinDeuda.map((c) => c.nombre));
   const conocido = t.cuentasConSaldo > 0 || t.tarjetasConDeuda > 0;
   const colores = new Map(datos.cuentas.filter((c) => !c.esCredito).map((c, i) => [c.id, COLORES[i % COLORES.length]!]));
   const porciones = repartoDinero(datos.cuentas);
@@ -260,13 +267,38 @@ function Resumen({ datos, moneda }: { datos: CuentasApi; moneda: string }) {
             <span className="whitespace-nowrap tabular">{dinero(credito.limite, moneda)}</span>
             {credito.fuera.length ? ` · sin ${enLista(credito.fuera)}, que no ${credito.fuera.length === 1 ? "tiene" : "tienen"} límite dicho` : ""}
           </p>
+          {disponible?.sinLimite.length ? (
+            // Las que solo dicen lo disponible no caben en la barra (no se sabe cuánto usan), pero sí en el total.
+            <p data-testid="credito-disponible" className="mt-1 text-[13px] text-muted-foreground">
+              Con {enLista(disponible.sinLimite)}, te quedan <span className="whitespace-nowrap tabular font-medium text-foreground">{dinero(disponible.total, moneda)}</span> de crédito en total.
+            </p>
+          ) : null}
+        </div>
+      ) : disponible ? (
+        <div className="mt-4 pt-3 hairline-t" data-testid="credito-total">
+          <p className="text-[13px] font-medium text-muted-foreground">Crédito disponible</p>
+          <p data-testid="credito-disponible" className="mt-1 text-[13px] text-muted-foreground">
+            Te quedan <span className="whitespace-nowrap tabular font-medium text-foreground">{dinero(disponible.total, moneda)}</span> de crédito
+            {disponible.sinLimite.length ? ` en ${enLista(disponible.sinLimite)}` : ""}.
+          </p>
         </div>
       ) : null}
 
-      {t.sinSaldo.length ? (
-        <p className="mt-3 pt-3 text-[13px] leading-snug text-muted-foreground hairline-t" data-testid="sin-saldo">
-          No sé cuánto hay en {enLista(t.sinSaldo)}: no {t.sinSaldo.length === 1 ? "entra" : "entran"} en la suma.
-        </p>
+      {nota ? (
+        <div className="mt-3 pt-3 hairline-t">
+          <p className="text-[13px] leading-snug text-muted-foreground" data-testid="sin-saldo">
+            {nota}
+          </p>
+          {alDecirLimite && sinDeuda.length ? (
+            <div className="mt-1 flex flex-wrap gap-x-4">
+              {sinDeuda.map((c) => (
+                <Button key={c.id} variant="plain" size="text" className="text-[15px]" onClick={() => alDecirLimite(c)}>
+                  Decir el límite de {c.nombre}
+                </Button>
+              ))}
+            </div>
+          ) : null}
+        </div>
       ) : null}
     </section>
   );
@@ -274,11 +306,6 @@ function Resumen({ datos, moneda }: { datos: CuentasApi; moneda: string }) {
 
 /** Decenas de millones ("$99,000,000.00") no caben a 320 con la letra de 32. */
 const achicarSiNoCabe = (texto: string) => texto.length >= 14 && "max-[379px]:text-[26px]";
-
-function enLista(nombres: string[]) {
-  if (nombres.length <= 1) return nombres.join("");
-  return `${nombres.slice(0, -1).join(", ")} y ${nombres.at(-1)}`;
-}
 
 export function BarraUso({ uso, className }: { uso: number; className?: string }) {
   return (
