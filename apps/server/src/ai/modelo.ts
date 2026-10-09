@@ -64,7 +64,8 @@ function crearModeloNube(ia: Config["ia"], modelo: string, alUsar?: () => void):
   const respaldo = local ? crearModeloLocal(ia, local, alUsar) : undefined;
   const elegir = (params: Opciones) => {
     const pedido = (params.providerOptions?.local as { reasoningEffort?: unknown } | undefined)?.reasoningEffort;
-    return pedido && pedido !== "none" ? dificil : principal;
+    const marcado = (params.providerOptions?.nube as { dificil?: unknown } | undefined)?.dificil === true;
+    return marcado || (pedido && pedido !== "none") ? dificil : principal;
   };
   // Si la nube no contesta, el dictado no se pierde: lo contesta el modelo de la Mac, como antes.
   const conRespaldo = async <T>(params: Opciones, nube: () => PromiseLike<T>, enLocal: () => PromiseLike<T>) => {
@@ -112,6 +113,8 @@ export function paraClaude(params: Opciones, modelo: string, razonamiento: strin
   const effort = !apagado ? razonamiento : thinking.type === "adaptive" ? "low" : undefined;
   return {
     ...params,
+    // Lo que piensa cuenta en el límite de salida: con 600 se cortaría antes de contestar.
+    ...(thinking.type === "adaptive" ? { maxOutputTokens: Math.max(params.maxOutputTokens ?? 0, 4000) } : {}),
     temperature: undefined,
     topP: undefined,
     topK: undefined,

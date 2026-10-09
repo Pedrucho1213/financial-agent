@@ -833,6 +833,9 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
       // Las respuestas son de una o dos frases; esto solo frena a un modelo que no para de escribir (al razonar,
       // lo que piensa también cuenta: por eso 2500).
       ...(conRazonamiento && aviso ? conRazonamiento : { maxOutputTokens: 600 }),
+      // Con Claude, saldos, tarjetas y correcciones van desde el primer paso al modelo de IA_MODELO_DIFICIL (ai/modelo.ts):
+      // en la batería con el modelo real, Sonnet desde el principio acertó las 28 secuencias de Pedro y Haiku 25.
+      ...(razonar ? { providerOptions: { ...(conRazonamiento && aviso ? conRazonamiento.providerOptions : {}), nube: { dificil: true } } } : {}),
       maxRetries: 1,
       abortSignal: AbortSignal.timeout(90_000),
     });

@@ -123,4 +123,6 @@ export const INSTRUCCIONES_CLAUDE = `Qué ya está claro (guárdalo sin pregunta
 - "En realidad Revolut es de crédito" cambia el tipo de esa cuenta aunque no diga el límite.
 - Si contesta "sí" a una pregunta tuya (por ejemplo "¿otros $120 en tacos?"), haz lo que preguntaste.
 - Un agua, refresco o comida que compra en una tienda es Comida, no el servicio de agua de la casa.
+- Magna, Premium y diésel son gasolina: "cargué 650 de magna" es un gasto de 650 en gasolina.
+- Si el disponible que dice es mayor que el límite guardado, no dejes una deuda negativa: pregunta si cambió el límite.
 Sí pregunta (en una frase corta) cuando de verdad falta: de qué cuenta salió una transferencia si tiene varias, a cuál de dos tarjetas parecidas se refiere, o el monto de un gasto nuevo.`;

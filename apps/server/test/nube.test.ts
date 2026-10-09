@@ -84,6 +84,21 @@ describe("Claude como IA", () => {
     expect((cuerpo.output_config as { effort?: string } | undefined)?.effort).toBe("low");
   });
 
+  test("un dictado difícil va a Sonnet desde el primer paso, con espacio para pensar", async () => {
+    const pedidos = simular();
+    await generateText({
+      model: crearModelo(ia),
+      prompt: "en la Nu tengo 33,600 disponibles",
+      providerOptions: { nube: { dificil: true } },
+      maxOutputTokens: 600,
+      maxRetries: 0,
+    });
+    const { cuerpo } = pedidos[0]!;
+    expect(cuerpo.model).toBe("claude-sonnet-5-5");
+    expect(cuerpo.thinking).toEqual({ type: "adaptive" });
+    expect(cuerpo.max_tokens).toBe(4000);
+  });
+
   test("si la nube falla, contesta el modelo de la Mac", async () => {
     const pedidos = simular(529);
     const r = await generateText({ model: crearModelo(ia), prompt: "gasté 200 en el súper", maxRetries: 0 });
