@@ -94,6 +94,19 @@ test.describe("IA en tu Mac (Ajustes)", () => {
     await expect(ia.getByRole("button", { name: "Encender ahora" })).toBeDisabled();
   });
 
+  test("como respaldo de Claude: otro título, y apagada dice que entra sola si Claude falla", async ({ page }) => {
+    const api = new ApiFalsa();
+    ponerIa(api, { respaldo: true, siempre: false, cargada: false, memoria: null });
+    await prepararSesion(page, api);
+    await page.goto("/#ajustes");
+    const ia = page.getByRole("region", { name: "IA de respaldo en tu Mac" });
+    await expect(ia.getByText("Apagada", { exact: true })).toBeVisible();
+    await expect(ia.getByText("Se enciende sola si Claude no contesta.")).toBeVisible();
+    await expect(ia.getByText(/esta solo entra si Claude falla/)).toBeVisible();
+    await expect(ia.getByRole("switch", { name: "Siempre encendida" })).not.toBeChecked();
+    await expect(ia.getByRole("button", { name: "Encender ahora" })).toBeEnabled();
+  });
+
   test("quien no es la cuenta dueña no ve el interruptor ni lo pide", async ({ page }) => {
     const api = new ApiFalsa();
     ponerEstado(api, { servidor: null });

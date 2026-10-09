@@ -17,6 +17,7 @@ function describir(ia: ControlIa) {
     const plazo = ia.hasta ? `Hasta ${pegado(hora.format(new Date(ia.hasta)))}` : "Sin límite";
     return { color: "#34c759", texto: "Encendida", detalle: ia.memoria ? `${plazo} · ${gb(ia.memoria)}` : plazo };
   }
+  if (ia.respaldo && !ia.siempre) return { color: "#8e8e93", texto: "Apagada", detalle: "Se enciende sola si Claude no contesta." };
   if (ia.apagadaAMano) return { color: "#8e8e93", texto: "Apagada", detalle: "Se enciende con tu próximo dictado." };
   if (ia.siempre) return { color: "#ffcc00", texto: "Encendiéndose", detalle: "Tu Mac la carga en menos de un minuto." };
   return { color: "#8e8e93", texto: "Apagada", detalle: "Se enciende al dictar." };
@@ -37,11 +38,16 @@ export function AjustesIa({ habilitado }: { habilitado: boolean }) {
   const trabajando = cambiar.isPending && cambiar.variables?.tipo !== "modo";
   const bloqueado = !enLinea || cambiar.isPending;
 
+  const titulo = ia.respaldo ? "IA de respaldo en tu Mac" : "IA en tu Mac";
   return (
     <Grupo
-      titulo="IA en tu Mac"
-      aria-label="IA en tu Mac"
-      pie="Herramienta de desarrollo, solo la ves tú. Encendida contesta en unos 2 s y ocupa unos 8 GB de memoria; apagada, el primer dictado tarda unos 13 s."
+      titulo={titulo}
+      aria-label={titulo}
+      pie={
+        ia.respaldo
+          ? "Herramienta de desarrollo, solo la ves tú. Contesta Claude; esta solo entra si Claude falla. Apagada no ocupa memoria y ese primer dictado tarda unos 13 s; encendida ocupa unos 8 GB."
+          : "Herramienta de desarrollo, solo la ves tú. Encendida contesta en unos 2 s y ocupa unos 8 GB de memoria; apagada, el primer dictado tarda unos 13 s."
+      }
     >
       <Fila
         sangria="3.75rem"

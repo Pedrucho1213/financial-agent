@@ -1,6 +1,6 @@
 import { precalentar, reanudarPendientes, terminarEnCurso } from "./ai/asistente";
 import { crearControlIa, ollamaControl } from "./ai/encendido";
-import { crearModelo, esOllama, estadoModelo, modeloLocal } from "./ai/modelo";
+import { crearModelo, esNube, esOllama, estadoModelo, modeloLocal } from "./ai/modelo";
 import { crearApp } from "./app";
 import { config } from "./config";
 import { abrirBaseDatos } from "./db/client";
@@ -11,11 +11,19 @@ import { programarRevisor, revisarPendientes } from "./finanzas/revisor";
 
 const db = abrirBaseDatos(config.baseDatos);
 // Interruptor de la IA (desarrollo): solo con Ollama, que es al que se le puede decir cuánto mantenerla. Con Claude,
-// controla el modelo de respaldo.
+// controla el modelo de respaldo, que por omisión no ocupa memoria: se carga cuando Claude falla y se suelta
+// tras 10 min sin uso.
 const local = modeloLocal(config.ia);
+const respaldo = esNube(config.ia.modelo);
 const controlIa =
   config.ia.interruptor && esOllama(config.ia) && local
-    ? crearControlIa({ db, modelo: local, ollama: ollamaControl(config.ia.ollamaUrl, local) })
+    ? crearControlIa({
+        db,
+        modelo: local,
+        ollama: ollamaControl(config.ia.ollamaUrl, local),
+        respaldo,
+        porOmision: respaldo ? { siempre: false, minutos: 10 } : undefined,
+      })
     : undefined;
 const deps = {
   db,
@@ -39,11 +47,14 @@ const app = crearApp({
   version: versionDelCodigo(),
 });
 
-// En modo "siempre encendida", revisa cada minuto que siga en memoria (Ollama pudo reiniciarse).
+// En modo "siempre encendida", revisa cada minuto que siga en memoria (Ollama pudo reiniciarse); con plazo, que no
+// se quede cargada de más.
 const dejarDeVigilar = controlIa?.vigilar();
 if (controlIa) {
   const m = controlIa.modo();
-  console.log(`IA: ${m.siempre ? "siempre encendida" : `se apaga tras ${m.minutos} min sin uso`} (se cambia en Ajustes › Sistema).`);
+  const quien = respaldo ? `IA de respaldo (${local})` : "IA";
+  const cuando = m.siempre ? "siempre encendida" : respaldo ? `se carga si Claude falla y se apaga tras ${m.minutos} min sin uso` : `se apaga tras ${m.minutos} min sin uso`;
+  console.log(`${quien}: ${cuando} (se cambia en Ajustes › Sistema).`);
 }
 
 const servidor = Bun.serve({ hostname: config.host, port: config.puerto, fetch: app.fetch, idleTimeout: 120 });

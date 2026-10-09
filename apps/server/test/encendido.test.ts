@@ -136,6 +136,44 @@ describe("interruptor de la IA", () => {
     expect(pedidos).toEqual([]);
   });
 
+  test("con plazo, si Ollama la tiene sin límite (OLLAMA_KEEP_ALIVE=-1) el vigilante le pone el plazo, una vez", async () => {
+    const { control, pedidos, estado } = preparar([{ name: MODELO, expires_at: SIN_LIMITE }], { siempre: false, minutos: 10 });
+    const parar = control.vigilar(5);
+    await Bun.sleep(30);
+    parar();
+    expect(pedidos).toEqual(["10m"]);
+    expect(estado.memoria[0]?.expires_at).toBe(new Date(AHORA + 10 * 60_000).toISOString());
+  });
+
+  test("con plazo, apagada a mano y cargada sin límite, el vigilante también le pone el plazo", async () => {
+    const { db, control, pedidos } = preparar([{ name: MODELO, expires_at: SIN_LIMITE }], { siempre: false, minutos: 5 });
+    db.insert(configuracion).values({ clave: "ia_encendido", valor: { siempre: false, minutos: 5, apagadaAMano: true } }).run();
+    const parar = control.vigilar(5);
+    await Bun.sleep(30);
+    parar();
+    expect(pedidos).toEqual(["5m"]);
+  });
+
+  test("como respaldo de Claude no hereda el 'siempre encendida' de cuando era la IA principal", async () => {
+    const db = abrirBaseDatos(":memory:");
+    db.insert(configuracion).values({ clave: "ia_encendido", valor: { siempre: true, minutos: 10, apagadaAMano: false } }).run();
+    const { ollama, pedidos } = ollamaFalso([{ name: MODELO, expires_at: SIN_LIMITE }]);
+    const control = crearControlIa({ db, modelo: MODELO, ollama, respaldo: true, porOmision: { siempre: false, minutos: 10 }, ahora: () => AHORA });
+    expect(control.modo()).toEqual({ siempre: false, minutos: 10, apagadaAMano: false });
+    expect(await control.estado()).toMatchObject({ respaldo: true, siempre: false });
+    // La que quedó cargada por un año se suelta a los 10 min.
+    const parar = control.vigilar(5);
+    await Bun.sleep(30);
+    parar();
+    expect(pedidos).toEqual(["10m"]);
+    // Lo que se elija en Ajustes se guarda aparte y sobrevive a un reinicio; lo de antes no se toca.
+    await control.cambiar({ minutos: 30 });
+    const otra = crearControlIa({ db, modelo: MODELO, ollama, respaldo: true, porOmision: { siempre: false, minutos: 10 } });
+    expect(otra.modo()).toEqual({ siempre: false, minutos: 30, apagadaAMano: false });
+    const viejo = db.select().from(configuracion).all().find((f) => f.clave === "ia_encendido");
+    expect(viejo?.valor).toEqual({ siempre: true, minutos: 10, apagadaAMano: false });
+  });
+
   test("tras usar repite el keep_alive una sola vez aunque el dictado llame varias veces al modelo", async () => {
     const { control, pedidos } = preparar([], { siempre: false, minutos: 10 });
     control.trasUsar();

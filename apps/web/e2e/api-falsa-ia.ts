@@ -13,6 +13,7 @@ export type IaFalsa = {
   siempre: boolean;
   minutos: number;
   modelo: string;
+  respaldo?: boolean;
   apagadaAMano: boolean;
   disponible: boolean;
   cargada: boolean;
