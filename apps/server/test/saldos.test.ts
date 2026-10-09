@@ -585,3 +585,23 @@ describe("después del PR de cuentas", () => {
     expect(deTarjeta.every((a) => a.enlace === `#cuenta?id=${nu.id}`)).toBe(true);
   });
 });
+
+describe("tarjeta de la que solo se sabe el disponible", () => {
+  test("al comparar deuda contra dinero y al consultar, se dice que falta su deuda", async () => {
+    const { ctx } = preparar();
+    fijarCuenta(dictado(ctx, "efectivo"), { cuenta: "Efectivo", tipo: "efectivo", saldo: 500 });
+    fijarCuenta(dictado(ctx, "la BBVA Azul"), { cuenta: "BBVA Azul", tipo: "credito", limite: 10000, deuda: 2000 });
+    fijarCuenta(dictado(ctx, "tengo 7 mil disponibles en la Nu"), { cuenta: "Nu", tipo: "credito", disponible: 7000 });
+    expect(totalesDeCuentas(estadosDeCuentas(ctx)).sinDeuda).toEqual(["Nu"]);
+    expect(observacionDeCuentas(ctx, estadosDeCuentas(ctx))).toBe(
+      "Debes $1,500 más en tarjetas de lo que tienes en tus cuentas, sin contar Nu, de la que no sé cuánto debes.",
+    );
+    const r = await llamar(dictado(ctx, "¿cuánto tengo?"), "consultar_cuentas", {});
+    expect(r.respuesta).toContain("sin contar Nu, de la que no sé cuánto debes.");
+    expect(r.respuesta).not.toContain("dime su límite");
+    // Sin esa comparación, se dice aparte.
+    fijarCuenta(dictado(ctx, "tengo 5 mil en efectivo"), { cuenta: "Efectivo", saldo: 5000 });
+    const s = await llamar(dictado(ctx, "¿cuánto tengo?"), "consultar_cuentas", {});
+    expect(s.respuesta).toContain("De Nu no sé cuánto debes; dime su límite o cuánto debes.");
+  });
+});

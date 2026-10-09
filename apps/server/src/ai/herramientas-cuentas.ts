@@ -195,9 +195,11 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
         const credito = todas.filter((e) => e.esCredito && e.disponibleCentavos !== null);
         // Por voz cuenta también la tarjeta de la que solo se sabe el disponible.
         if (credito.length) partes.push(`te quedan ${$(credito.reduce((s, e) => s + e.disponibleCentavos!, 0))} de crédito disponible`);
-        const sinSaldo = t.sinSaldo.length ? ` De ${enLista(t.sinSaldo)} no sé cuánto tienes.` : "";
-        const detalle = todas.filter((e) => e.conocido).map((e) => describirSaldo(ctx, e));
         const nota = observacionDeCuentas(ctx, todas);
+        // La nota ya lo dice si compara deuda contra dinero.
+        const sinDeuda = t.sinDeuda.length && !nota?.includes("no sé cuánto debes") ? ` De ${enLista(t.sinDeuda)} no sé cuánto debes; dime su límite o cuánto debes.` : "";
+        const sinSaldo = `${t.sinSaldo.length ? ` De ${enLista(t.sinSaldo)} no sé cuánto tienes.` : ""}${sinDeuda}`;
+        const detalle = todas.filter((e) => e.conocido).map((e) => describirSaldo(ctx, e));
         const respuesta = partes.length
           ? `${enLista(partes).replace(/^./, (x) => x.toUpperCase())}.${detalle.length > 1 && detalle.length <= 3 ? ` ${enLista(detalle).replace(/^./, (x) => x.toUpperCase())}.` : ""}${nota ? ` ${nota}` : ""}${sinSaldo}`
           : `No sé cuánto tienes en ${enLista(t.sinSaldo)}. Dime "tengo tanto en ${t.sinSaldo[0]}" y desde ahí le sigo la cuenta.`;

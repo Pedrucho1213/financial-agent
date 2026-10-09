@@ -177,6 +177,8 @@ export function totalesDeCuentas(estados: EstadoCuenta[]) {
     cuentasConSaldo: debito.length,
     tarjetasConDeuda: credito.filter((e) => e.deudaCentavos !== null).length,
     sinSaldo: vigentes.filter((e) => !e.conocido).map((e) => e.nombre),
+    /** Tarjetas de las que solo se sabe el disponible: su deuda no entra en la suma ni en el neto. */
+    sinDeuda: credito.filter((e) => e.conocido && e.deudaCentavos === null).map((e) => e.nombre),
   };
 }
 
@@ -582,7 +584,8 @@ export function observacionDeCuentas(ctx: Contexto, estados: EstadoCuenta[]): st
   if (llena) return `Ojo, ${llena.nombre} va al ${Math.min(999, Math.round((llena.deudaCentavos! / llena.limiteCentavos!) * 100))}% de su límite.`;
   const t = totalesDeCuentas(estados);
   if (t.cuentasConSaldo && t.tarjetasConDeuda && t.deudaCentavos > t.dineroCentavos) {
-    return `Debes ${$(ctx, t.deudaCentavos - t.dineroCentavos)} más en tarjetas de lo que tienes en tus cuentas.`;
+    const sinContar = t.sinDeuda.length ? `, sin contar ${enLista(t.sinDeuda)}, de ${t.sinDeuda.length > 1 ? "las" : "la"} que no sé cuánto debes` : "";
+    return `Debes ${$(ctx, t.deudaCentavos - t.dineroCentavos)} más en tarjetas de lo que tienes en tus cuentas${sinContar}.`;
   }
   return undefined;
 }
