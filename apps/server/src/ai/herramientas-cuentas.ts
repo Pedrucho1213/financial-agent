@@ -104,12 +104,23 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
         if (texto) {
           const sueltas = [texto, ...(ctx.dichoAntes ?? [])].flatMap((t) => montosDelTexto(t));
           const oidas = [...sueltas, ...sueltas.flatMap((a, i) => sueltas.slice(i + 1).flatMap((b) => [a + b, Math.abs(a - b)]))];
+          // "No debo nada", "la tengo en ceros": el cero también se dijo.
+          if (/\b(nada|cero|ceros|liquidada|liquidado)\b/.test(normalizar(texto))) oidas.push(0);
           let inventadas = 0;
           const sinInventar = cuentas.map((c) => {
             const limpia = { ...c };
             for (const campo of ["saldo", "disponible", "deuda", "limite"] as const) {
               const valor = limpia[campo];
               if (valor !== undefined && !oidas.some((m) => Math.abs(m - valor) < 1)) {
+                delete limpia[campo];
+                inventadas++;
+              }
+            }
+            // "Mi límite es de 33,200 y tengo un disponible" (cortada): una cifra dicha una vez no es límite y
+            // disponible (o deuda) a la vez; se queda como límite.
+            for (const campo of ["disponible", "deuda"] as const) {
+              const valor = limpia[campo];
+              if (valor !== undefined && limpia.limite !== undefined && Math.abs(valor - limpia.limite) < 1 && sueltas.filter((m) => Math.abs(m - valor) < 1).length < 2) {
                 delete limpia[campo];
                 inventadas++;
               }

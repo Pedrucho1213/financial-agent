@@ -232,6 +232,9 @@ const diaValido = (dia: number | undefined, que: string) => {
  * de pago, su tipo o su nombre. El saldo dicho queda como punto de partida desde este momento. Se crea la
  * cuenta si no existe. Todo va a la bitácora: "deshaz eso" lo regresa.
  */
+// Cambiar una cuenta de débito a crédito (o al revés) se dice así; si no, es otra tarjeta del mismo banco.
+const CAMBIA_DE_TIPO = /\b(no es de (debito|credito)|no era de (debito|credito)|en realidad|cambia|cambiala|cambiale|es de (credito|debito),? no de)\b/;
+
 export function fijarCuenta(ctx: Contexto, datos: DatosCuenta): { estado: EstadoCuenta; nueva: boolean; dijo: string[] } {
   let saldo = montoValido(datos.saldo, "El saldo", true);
   let disponible = montoValido(datos.disponible, "El disponible", true);
@@ -247,8 +250,19 @@ export function fijarCuenta(ctx: Contexto, datos: DatosCuenta): { estado: Estado
   const deCredito = deuda !== undefined || !!limite || !!diaCorte || !!diaPago || (disponible !== undefined && diceCredito);
   // "La tarjeta de crédito" a secas: la única que tenga; si tiene varias, que diga cuál.
   const texto = deCredito && inferirTipoCuenta(datos.cuenta) === "otra" && /^(la |mi )?(tarjeta|tdc)$/i.test(datos.cuenta.trim()) ? `${datos.cuenta} de crédito` : datos.cuenta;
-  const encontrada = datos.id ? previas.get(datos.id) : encontrarOCrearCuenta(ctx.db, ctx.usuarioId, texto, { siAmbigua: "error" });
+  let encontrada = datos.id ? previas.get(datos.id) : encontrarOCrearCuenta(ctx.db, ctx.usuarioId, texto, { siAmbigua: "error" });
   if (!encontrada) throw new ErrorFinanzas("¿De qué cuenta o tarjeta?");
+  // "Tengo una tarjeta de crédito Revolut" con Revolut de débito: es otra tarjeta del mismo banco, no la de débito
+  // convertida (se perdía su saldo, 2026-10-09). Solo "no es de débito", "en realidad es de crédito" la cambia.
+  const tipoPedido = datos.tipo ?? (deCredito ? "credito" : undefined);
+  const opuesto = (a: string, b: string) => (a === "credito" && b === "debito") || (a === "debito" && b === "credito");
+  if (!datos.id && tipoPedido && opuesto(encontrada.tipo, tipoPedido) && !CAMBIA_DE_TIPO.test(plano)) {
+    const base = encontrada;
+    const etiqueta = tipoPedido === "credito" ? "crédito" : "débito";
+    encontrada =
+      cuentasDelUsuario(ctx).find((c) => c.id !== base.id && !c.archivada && c.tipo === tipoPedido && normalizar(c.nombre).startsWith(normalizar(base.nombre))) ??
+      ctx.db.insert(cuentas).values({ usuarioId: ctx.usuarioId, nombre: `${base.nombre} ${etiqueta}`, tipo: tipoPedido, institucion: base.institucion }).returning().get()!;
+  }
   const nueva = !previas.has(encontrada.id);
   // encontrarOCrearCuenta pudo ponerle tipo o desarchivarla: el "antes" de la bitácora es como estaba.
   const antes = previas.get(encontrada.id);
