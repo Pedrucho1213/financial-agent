@@ -15,6 +15,17 @@ import { type Contexto, crearContexto } from "../src/finanzas/contexto";
 import { crearMovimiento } from "../src/finanzas/movimientos";
 import { normalizar } from "../src/lib/texto";
 import { cuentaPorNombre, type Foto, fotografiar, type Mov } from "./bateria-datos";
+// fijarCuenta existe desde el #38; se importa así para que la batería corra también sobre versiones viejas.
+const modCuentas = (await import("../src/finanzas/cuentas").catch(() => null)) as {
+  fijarCuenta?: (ctx: Contexto, d: Record<string, unknown>) => unknown;
+  crearCuenta?: (ctx: Contexto, nombre: string, tipo?: string) => { id: string; nombre: string };
+} | null;
+/** Una cuenta con el nombre tal cual (como la renombra la app: fijarCuenta quitaría "Credito"), con sus datos. */
+const cuentaArmada = (ctx: Contexto, nombre: string, tipo: string, d: Record<string, unknown> = {}) => {
+  if (!modCuentas?.fijarCuenta || !modCuentas.crearCuenta) throw new Error("el servidor todavía no tiene crearCuenta/fijarCuenta");
+  const c = modCuentas.crearCuenta(ctx, nombre, tipo);
+  if (Object.keys(d).length) modCuentas.fijarCuenta(ctx, { id: c.id, cuenta: c.nombre, ...d });
+};
 
 const { values } = parseArgs({
   args: Bun.argv.slice(2),
@@ -315,6 +326,8 @@ const CASOS: Caso[] = [
   { grupo: "pedro", frase: "En realidad Revolut es de crédito", previos: [REVOLUT_PEDRO], verificar: (r) => no((r.cuentasCon("revolut", true).length === 1 && r.cuentasCon("revolut", false).length === 0) || (r.pregunta() && DEBITO_REVOLUT_INTACTA(r)), { cuentas: r.despues.cuentas.map((c) => `${c.nombre}:${c.tipo}`), resp: r.respuesta }), nota: "la convierte (o pregunta), sin crear otra" },
   { grupo: "pedro", frase: "No debo nada en la Nu", previos: NU, verificar: (r) => no(cerca(r.usado("nu"), 0) && cerca(r.disponible("nu"), 30000) && cerca(r.limite("nu"), 30000) && r.nuevos().length === 0, { u: r.usado("nu"), d: r.disponible("nu"), movs: r.nuevos().map((m) => m.tipo) }), nota: "deuda en cero, no un pago" },
   { grupo: "pedro", frase: "Le pagué mil a la tarjeta Revolut", previos: [REVOLUT_PEDRO, "Mi tarjeta de crédito Revolut tiene un límite de 34 mil y debo 5 mil"], verificar: (r) => { const t = r.cuentasCon("revolut", true); const d = r.cuentasCon("revolut", false); const deb = r.de(d[0], "saldo"); return no(t.length === 1 && d.length === 1 && ((cerca(r.de(t[0], "usado"), 4000) && (cerca(deb, 19291) || cerca(deb, 18291))) || (r.pregunta() && cerca(r.de(t[0], "usado"), 5000) && cerca(deb, 19291))) && r.nuevos("gasto").length === 0, { u: r.de(t[0], "usado"), deb, cuentas: r.despues.cuentas.map((c) => `${c.nombre}:${c.tipo}`), resp: r.respuesta }); }, nota: "el pago baja la deuda de Revolut crédito, no es un depósito a la de débito" },
+  // Pedro renombró su tarjeta "Mercado Pago Credito" (01:40Z): decir "Mercado Pago" debe encontrarla, no crear otra.
+  ...[MP_DISPONIBLE, "En mi tarjeta Mercado Pago me queda disponible 3607 pesos", "En Mercado pago de crédito tengo 3607 disponibles"].map((frase): Caso => ({ grupo: "pedro", frase, preparar: (c) => cuentaArmada(c, "Mercado Pago Credito", "credito", { limite: 33200 }), verificar: (r) => { const t = r.cuentasCon("mercado", true); return no(r.despues.cuentas.filter((c) => /mercado/i.test(c.nombre)).length === 1 && cerca(r.de(t[0], "disponible"), 3607) && cerca(r.de(t[0], "usado"), 29593), { cuentas: r.despues.cuentas.map((c) => `${c.nombre}:${c.tipo}`), d: r.de(t[0], "disponible"), u: r.de(t[0], "usado"), resp: r.respuesta }); }, nota: "la cuenta se llama 'Mercado Pago Credito': la encuentra, sin duplicar" })),
 ];
 
 // ── Corredor ─────────────────────────────────────────────────────────────────────────────────
