@@ -7,6 +7,8 @@ import { TituloSeccion } from "../ui/lista";
 // Lo que el asistente calcula del mes en curso (GET /v1/analisis): cómo cerraría y dónde ahorrar.
 // Es lo mismo que dice por voz; aquí se ve con números.
 
+const redondear = (centavos: number, a: number) => Math.round(centavos / a) * a;
+
 const Titulo = ({ children }: { children: string }) => (
   <TituloSeccion>
     <span className="flex items-center gap-1.5">
@@ -26,7 +28,8 @@ export function CierreDelMes({ datos, mes, moneda }: { datos: AnalisisAsistente;
   const llevas = Math.max(0, Math.min(datos.gastadoCentavos, p.cierreCentavos));
   const falta = Math.max(0, p.cierreCentavos - llevas);
   const tope = Math.max(p.cierreCentavos, p.ingresosCentavos, 1);
-  const margen = p.ingresosCentavos > 0 ? p.ingresosCentavos - p.cierreCentavos : null;
+  // Redondeado como lo dice la voz: el margen a cientos y el día normal a decenas.
+  const margen = p.ingresosCentavos > 0 ? redondear(p.ingresosCentavos - p.cierreCentavos, 10_000) : null;
 
   return (
     <section aria-label="Cómo cierras el mes">
@@ -81,7 +84,7 @@ export function CierreDelMes({ datos, mes, moneda }: { datos: AnalisisAsistente;
         <dl className="mt-3 grid grid-cols-2 gap-3 pt-3 hairline-t">
           <div className="min-w-0">
             <dt className="text-[13px] text-muted-foreground">Un día normal</dt>
-            <dd className="truncate text-[17px] font-semibold tabular">{$(p.ritmoDiarioCentavos)}</dd>
+            <dd className="truncate text-[17px] font-semibold tabular">{$(redondear(p.ritmoDiarioCentavos, 1_000))}</dd>
           </div>
           <div className="min-w-0">
             <dt className="text-[13px] text-muted-foreground">Fijos por pagar</dt>

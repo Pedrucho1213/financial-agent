@@ -62,6 +62,19 @@ test.describe("Análisis con lo que dice el asistente", () => {
     await expect(page.getByTestId("margen")).toHaveClass(/text-negative/);
   });
 
+  test("con centavos redondea como la voz: el margen a cientos y el día normal a decenas", async ({ page }) => {
+    await abrir(page, "#analisis", conAsistente(new ApiFalsa(), { ingresosCentavos: 45_123_45, ritmoDiarioCentavos: 520_37 }));
+    await expect(page.getByTestId("margen")).toHaveText("Te sobrarían unos $6,700");
+    await expect(page.getByRole("region", { name: "Cómo cierras el mes" })).toContainText("Un día normal$520");
+    await expect(page.getByRole("region", { name: "Cómo cierras el mes" })).not.toContainText("$520.37");
+  });
+
+  test("si lo que sobra o falta es menos de $50, dice que es justo lo que le entra", async ({ page }) => {
+    await abrir(page, "#analisis", conAsistente(new ApiFalsa(), { ingresosCentavos: 38_430_00 }));
+    await expect(page.getByTestId("margen")).toHaveText("Justo lo que te entra");
+    await expect(page.getByTestId("margen")).toHaveClass(/text-positive/);
+  });
+
   test("sin ingresos conocidos no adivina el margen", async ({ page }) => {
     await abrir(page, "#analisis", conAsistente(new ApiFalsa(), { ingresosCentavos: 0 }));
     await expect(page.getByTestId("cierre")).toHaveText("$38,400");
