@@ -699,6 +699,29 @@ describe("la Nu de Pedro oída como 'no' (2026-10-09)", () => {
   });
 });
 
+// W6, 2026-10-09: "límite de 30 mil" y luego "33,600 disponibles" quedaba como $3,600 a favor sin preguntar.
+describe("disponible mayor que el límite", () => {
+  test("no se guarda: se pregunta si cambió el límite; con el límite nuevo o un saldo a favor dicho, sí", async () => {
+    const { ctx } = preparar();
+    const previo = "Tengo una tarjeta de crédito Nu con límite de 30 mil";
+    await llamar(dictado(ctx, previo), "cuentas", { cuentas: [{ cuenta: "Nu", tipo: "credito", limite: 30000 }] });
+    const dicho = { ...dictado(ctx, "En la Nu tengo 33,600 disponibles"), dichoAntes: [previo] };
+    for (const args of [{ cuenta: "Nu", disponible: 33600 }, { cuenta: "Nu", disponible: 33600, limite: 30000 }]) {
+      const r = await llamar(dicho, "cuentas", { cuentas: [args] });
+      expect(r.error).toContain("no cuadra");
+    }
+    expect(estado(ctx, "Nu").conocido).toBe(false);
+    await llamar(dictado(ctx, "mi límite de la Nu ahora es de 40 mil y tengo 33,600 disponibles"), "cuentas", {
+      cuentas: [{ cuenta: "Nu", limite: 40000, disponible: 33600 }],
+    });
+    expect(pesos(estado(ctx, "Nu").deudaCentavos)).toBe(6400);
+    const { ctx: otro } = preparar();
+    await llamar(dictado(otro, previo), "cuentas", { cuentas: [{ cuenta: "Nu", tipo: "credito", limite: 30000 }] });
+    const r = await llamar(dictado(otro, "en la Nu tengo 500 a favor, o sea 30,500 disponibles"), "cuentas", { cuentas: [{ cuenta: "Nu", disponible: 30500 }] });
+    expect(r.error).toBeUndefined();
+  });
+});
+
 // 2026-10-09 01:2xZ: "tengo una tarjeta de crédito Revolut" convirtió su Revolut de débito en crédito y perdió su saldo.
 describe("Revolut de débito y de crédito (2026-10-09)", () => {
   const conDebito = () => {

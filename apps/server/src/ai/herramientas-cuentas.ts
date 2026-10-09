@@ -153,6 +153,23 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
             throw new ErrorFinanzas(`Nombró otra tarjeta ("${otra}"), no ${cuentas[0]!.cuenta}: pregúntale cuál es; si es nueva, se crea con el nombre que diga.`);
           else if (!ctx.enConversacion) throw new ErrorFinanzas(`No dijo en qué cuenta o tarjeta: pregúntale dónde (no la elijas tú, no era "${cuentas[0]!.cuenta}").`);
         }
+        // "Límite de 30 mil" y después "tengo 33,600 disponibles": no cuadra, y guardarlo dejaba $3,600 "a favor".
+        // Algo cambió o se oyó mal; se pregunta en lugar de elegir (W6, 2026-10-09). Un saldo a favor dicho sí vale.
+        if (texto && !/\ba favor\b/.test(normalizar(texto))) {
+          for (const c of cuentas) {
+            if (c.disponible === undefined) continue;
+            const existente = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, c.cuenta, { soloExistente: true, soloLeer: true, siAmbigua: "ninguna" });
+            const estado = existente && estadosDeCuentas(ctx).find((e) => e.id === existente.id);
+            const limite = c.limite ?? (estado?.esCredito && estado.limiteCentavos !== null ? estado.limiteCentavos / 100 : undefined);
+            if (limite !== undefined && c.disponible > limite + 1) {
+              const pesos = (n: number) => new Intl.NumberFormat("es-MX", { maximumFractionDigits: 2 }).format(n);
+              throw new ErrorFinanzas(
+                `Dijo ${pesos(c.disponible)} disponibles y el límite de ${estado?.nombre ?? c.cuenta} es de ${pesos(limite)}: no cuadra. ` +
+                  "No guardes nada; pregúntale si su límite cambió (y de cuánto es) o cuánto tiene disponible.",
+              );
+            }
+          }
+        }
         // "Tengo 300 dólares en Wise": los saldos se llevan en pesos; no se guardan 300 pesos (QA-087). Con pesos
         // en la misma frase ("y 10 mil en Bancomer"), esos sí se guardan: en otra moneda va solo la cifra dicha junto
         // a ella.
