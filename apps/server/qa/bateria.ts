@@ -24,6 +24,8 @@ const { values } = parseArgs({
     frase: { type: "string" },
     traza: { type: "boolean", default: false },
     veces: { type: "string", default: "1" },
+    // Razonamiento en saldos, tarjetas y correcciones (#44, IA_RAZONAMIENTO_DIFICIL). Por omisión, el de config.
+    dificil: { type: "string" },
   },
 });
 
@@ -141,6 +143,10 @@ const INVEX_CORRIGE = "Ese registro que acabas de hacer no es algo que debo si n
 const INVEX_LIMITE = "Mi límite de crédito de Invex es de 57,400 MXN";
 const INVEX_DISPONIBLE = "Corrige mi saldo disponible de Invex a 37,581.12 MXN";
 const NU_PEDRO = "En mi tarjeta de crédito Nu tengo un crédito disponible de 33600 MXN";
+// El dictado real de las 00:44Z: "Nu" se oyó "no", con Invex (límite 57,400, debe 19,818.88) como única tarjeta.
+const NU_OIDA_NO = "En mi tarjeta no de crédito tengo un límite disponible de 33,600 pesos";
+const INVEX_ESTADO = "Mi tarjeta de crédito Invex tiene un límite de 57,400 y debo 19,818.88";
+const INVEX_INTACTA = (r: Revision) => cerca(r.limite("invex"), 57400) && cerca(r.usado("invex"), 19818.88);
 const SIN_EFECTIVO = (r: Revision) => !r.existe("efectivo") || r.saldo("efectivo") == null;
 const CASOS: Caso[] = [
   // ── Saldos de cuentas por voz ──────────────────────────────────────────────────────────────
@@ -273,6 +279,8 @@ const CASOS: Caso[] = [
   { grupo: "pedro", frase: "En la Nu tengo 33,600 disponibles", previos: [REVOLUT_PEDRO, "Tengo una tarjeta de crédito Nu con límite de 40 mil"], verificar: (r) => no(cerca(r.disponible("nu"), 33600) && cerca(r.limite("nu"), 40000) && cerca(r.usado("nu"), 6400) && r.nuevos().length === 0, { d: r.disponible("nu"), l: r.limite("nu"), u: r.usado("nu") }), nota: "con límite conocido: debe 6,400" },
   { grupo: "pedro", frase: "En la Nu tengo 33,600 disponibles", previos: [REVOLUT_PEDRO, "Tengo una tarjeta de crédito Nu con límite de 30 mil"], verificar: (r) => no((r.pregunta() || cerca(r.limite("nu"), 33600) || (r.limite("nu") ?? 0) >= 33600) && !((r.usado("nu") ?? 0) < 0) && r.nuevos().length === 0, { d: r.disponible("nu"), l: r.limite("nu"), u: r.usado("nu"), resp: r.respuesta }), nota: "disponible mayor que el límite: no deja deuda negativa; pregunta o ajusta" },
 
+  { grupo: "pedro", frase: NU_OIDA_NO, previos: [REVOLUT_PEDRO, INVEX_ESTADO], verificar: (r) => no(INVEX_INTACTA(r) && (r.pregunta() || cerca(r.disponible("nu"), 33600)) && r.nuevos().length === 0, { l: r.limite("invex"), u: r.usado("invex"), nu: r.existe("nu") ? r.disponible("nu") : "no existe", resp: r.respuesta }), nota: "dictado real: 'Nu' oída 'no'; no toca Invex, pregunta cuál" },
+  { grupo: "pedro", frase: "Es la Nu", previos: [REVOLUT_PEDRO, INVEX_ESTADO, NU_OIDA_NO], verificar: (r) => no(INVEX_INTACTA(r) && cerca(r.disponible("nu"), 33600) && !(r.usado("nu") ?? 0) && r.nuevos().length === 0, { l: r.limite("invex"), u: r.usado("invex"), nu: r.disponible("nu"), resp: r.respuesta }), nota: "contesta cuál: crea la Nu con 33,600 disponibles" },
 ];
 
 // ── Corredor ─────────────────────────────────────────────────────────────────────────────────
@@ -315,7 +323,7 @@ for (let vuelta = 1; vuelta <= veces; vuelta++) {
     sembrarCategorias(db, u.id);
     const base = { db, usuarioId: u.id, zonaHoraria: config.zonaHoraria, monedaBase: config.moneda };
     caso.preparar?.(crearContexto({ ...base, entradaId: "previa" }));
-    const deps = { ...base, modelo };
+    const deps = { ...base, modelo, razonamientoDificil: values.dificil ?? (config.ia as { razonamientoDificil?: string }).razonamientoDificil };
     let estado: "ok" | "mal" | "pendiente";
     let detalle = "";
     let ms = 0;
