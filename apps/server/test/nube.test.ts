@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { generateText } from "ai";
 import { crearModelo, estadoModelo, modeloLocal, promptParaClaude } from "../src/ai/modelo";
-import type { Config } from "../src/config";
+import { type Config, modelosIa } from "../src/config";
 
 const ia: Config["ia"] = {
   url: "http://127.0.0.1:11434/v1",
@@ -152,5 +152,28 @@ describe("promptParaClaude", () => {
     ]);
     expect((prompt[1]!.content as { toolCallId: string }[])[0]!.toolCallId).toBe("call_1_a");
     expect((prompt[2]!.content as { toolCallId: string }[])[0]!.toolCallId).toBe("call_1_a");
+  });
+});
+
+describe("modelosIa", () => {
+  test("sin clave, todo sigue con el modelo de Ollama", () => {
+    expect(modelosIa({ IA_MODELO: "gemma4:12b-it-qat" })).toMatchObject({ modelo: "gemma4:12b-it-qat", claveNube: undefined });
+  });
+
+  test("con la clave en el .env, contesta Claude y gemma queda de respaldo", () => {
+    expect(modelosIa({ IA_MODELO: "gemma4:12b-it-qat", ANTHROPIC_API_KEY: "k" })).toEqual({
+      modelo: "claude-haiku-5-5",
+      claveNube: "k",
+      modeloDificil: "claude-sonnet-5-5",
+      respaldo: "gemma4:12b-it-qat",
+    });
+  });
+
+  test("IA_NUBE=0 apaga la nube aunque esté la clave", () => {
+    expect(modelosIa({ IA_MODELO: "gemma4:12b-it-qat", ANTHROPIC_API_KEY: "k", IA_NUBE: "0" }).modelo).toBe("gemma4:12b-it-qat");
+  });
+
+  test("IA_MODELO=claude-... se respeta, con gemma de respaldo", () => {
+    expect(modelosIa({ IA_MODELO: "claude-sonnet-5-5", ANTHROPIC_API_KEY: "k" })).toMatchObject({ modelo: "claude-sonnet-5-5", respaldo: "gemma4:12b-it-qat" });
   });
 });
