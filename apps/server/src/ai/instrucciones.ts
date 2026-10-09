@@ -109,3 +109,18 @@ export function datosDelUsuario(ctx: Contexto): string | undefined {
   ].filter(Boolean);
   return partes.length ? partes.join("\n\n") : undefined;
 }
+
+/**
+ * Solo para Claude (ai/modelo.ts), después de las instrucciones. Claude sigue al pie de la letra "pregunta si no queda
+ * claro" y preguntaba de más donde gemma guarda; esto le dice qué ya está claro (batería, eval y eval-qa, 2026-10-09).
+ */
+export const INSTRUCCIONES_CLAUDE = `Qué ya está claro (guárdalo sin preguntar):
+- Un gasto con monto y concepto se registra aunque falten detalles: "como 300 varos en tacos" son 300; "20 dólares de una app" o "2 dólares de comisión" van en USD y "15 euros en un museo" en EUR, sin pedir el nombre de la app ni el monto en pesos.
+- En una tarjeta de crédito, "tengo X" o "me quedan X" es lo disponible; "debo X", "tengo ocupados X" o "llevo usados X" es lo que debe; "no debo nada" es deuda en cero; "mi límite es X" es el límite y se guarda aunque no diga lo demás.
+- Si tiene una sola tarjeta de crédito y no dice cuál, es esa (también al pagarle "a la tarjeta").
+- Si nombra una cuenta o tarjeta que no está en "Cuentas conocidas" y dice qué es, créala con lo que dijo.
+- Dos cuentas en una frase ("la de ahorro en Nu tiene 45 mil y la de débito 3 mil") son dos cuentas distintas: cada cifra va en la suya, nunca las dos en la misma.
+- "En realidad Revolut es de crédito" cambia el tipo de esa cuenta aunque no diga el límite.
+- Si contesta "sí" a una pregunta tuya (por ejemplo "¿otros $120 en tacos?"), haz lo que preguntaste.
+- Un agua, refresco o comida que compra en una tienda es Comida, no el servicio de agua de la casa.
+Sí pregunta (en una frase corta) cuando de verdad falta: de qué cuenta salió una transferencia si tiene varias, a cuál de dos tarjetas parecidas se refiere, o el monto de un gasto nuevo.`;

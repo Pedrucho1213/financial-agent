@@ -2,6 +2,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { defaultSettingsMiddleware, wrapLanguageModel, type LanguageModel, type LanguageModelMiddleware } from "ai";
 import type { Config } from "../config";
+import { INSTRUCCIONES_CLAUDE } from "./instrucciones";
 
 type Modelo = ReturnType<typeof wrapLanguageModel>;
 type Opciones = Parameters<NonNullable<LanguageModelMiddleware["transformParams"]>>[0]["params"];
@@ -97,6 +98,7 @@ function motivo(error: unknown): string {
  * - Los mensajes de sistema que no van al principio (datos del usuario, resumen de los últimos días) pasan como
  *   texto del usuario: Claude solo acepta esos mensajes justo después de uno del usuario.
  * - Lo que razonó en turnos anteriores no se reenvía: solo vale dentro del mismo turno y del mismo modelo.
+ * - Después de las instrucciones va INSTRUCCIONES_CLAUDE: qué ya está claro, para que no pregunte de más.
  */
 export function paraClaude(params: Opciones, modelo: string, razonamiento: string): Opciones {
   const apagado = !razonamiento || razonamiento === "none" || razonamiento === "no";
@@ -134,7 +136,9 @@ export function promptParaClaude(prompt: Opciones["prompt"]): Opciones["prompt"]
   const salida: Mensaje[] = [];
   prompt.forEach((m, i) => {
     if (m.role === "system") {
-      if (inicio === -1 || i < inicio) salida.push(m);
+      // Lo de Claude va pegado a las instrucciones: no cambia entre dictados y queda en la caché.
+      if (i === 0) salida.push({ ...m, content: `${m.content}\n\n${INSTRUCCIONES_CLAUDE}` });
+      else if (inicio === -1 || i < inicio) salida.push(m);
       else salida.push({ role: "user", content: [{ type: "text", text: `<sistema>\n${m.content}\n</sistema>` }] });
       return;
     }

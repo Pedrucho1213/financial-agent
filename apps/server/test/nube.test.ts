@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { generateText } from "ai";
 import { crearModelo, estadoModelo, modeloLocal, promptParaClaude } from "../src/ai/modelo";
+import { INSTRUCCIONES_CLAUDE } from "../src/ai/instrucciones";
 import { type Config, modelosIa } from "../src/config";
 
 const ia: Config["ia"] = {
@@ -130,6 +131,9 @@ describe("promptParaClaude", () => {
     ]);
     expect(prompt.map((m) => m.role)).toEqual(["system", "system", "user", "assistant", "user", "user", "user"]);
     expect(prompt[4]).toEqual({ role: "user", content: [{ type: "text", text: "<sistema>\ndatos nuevos\n</sistema>" }] });
+    // Lo propio de Claude va pegado a las instrucciones, no a los datos.
+    expect(prompt[0]).toEqual({ role: "system", content: `instrucciones\n\n${INSTRUCCIONES_CLAUDE}` });
+    expect(prompt[1]).toEqual({ role: "system", content: "datos viejos" });
     // Lo que razonó en un turno anterior no se reenvía.
     expect(prompt[3]).toEqual({ role: "assistant", content: [{ type: "text", text: "Listo" }] });
   });
