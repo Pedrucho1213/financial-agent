@@ -17,6 +17,7 @@
     "atajo": "bun scripts/atajo.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.78",
     "@ai-sdk/openai-compatible": "^3.0.63",
     "ai": "^7.0.128",
     "drizzle-orm": "^0.45.3",

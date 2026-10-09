@@ -3,6 +3,25 @@ import { join } from "node:path";
 
 const env = (nombre: string, porDefecto: string) => process.env[nombre]?.trim() || porDefecto;
 
+/**
+ * Qué IA contesta. Con ANTHROPIC_API_KEY en el .env (e IA_NUBE distinto de 0), Claude: IA_MODELO_NUBE para todo e
+ * IA_MODELO_DIFICIL para saldos, tarjetas y correcciones; el modelo de Ollama de IA_MODELO queda de respaldo por si la
+ * nube falla. Sin la clave, todo sigue con IA_MODELO como antes.
+ */
+export function modelosIa(e: Record<string, string | undefined>) {
+  const valor = (nombre: string, porDefecto: string) => e[nombre]?.trim() || porDefecto;
+  const claveNube = e.ANTHROPIC_API_KEY?.trim() || undefined;
+  const elegido = valor("IA_MODELO", "gemma4:12b-it-qat");
+  const conNube = !elegido.startsWith("claude-") && claveNube !== undefined && valor("IA_NUBE", "1") !== "0";
+  return {
+    modelo: conNube ? valor("IA_MODELO_NUBE", "claude-haiku-5-5") : elegido,
+    claveNube,
+    modeloDificil: valor("IA_MODELO_DIFICIL", "claude-sonnet-5-5"),
+    // "no" para que nadie conteste si Claude falla.
+    respaldo: valor("IA_RESPALDO", elegido.startsWith("claude-") ? "gemma4:12b-it-qat" : elegido),
+  };
+}
+
 export const config = {
   host: env("HOST", "127.0.0.1"),
   puerto: Number(env("PUERTO", "8787")),
@@ -23,8 +42,9 @@ export const config = {
   ia: {
     // Cualquier API compatible con OpenAI: Ollama, LM Studio, Osaurus o un proveedor en la nube.
     url: env("IA_URL", "http://localhost:11434/v1"),
-    modelo: env("IA_MODELO", "gemma4:12b-it-qat"),
     apiKey: env("IA_API_KEY", "ollama"),
+    // modelo, claveNube, modeloDificil y respaldo (ver modelosIa).
+    ...modelosIa(process.env),
     // Solo para Ollama: permite despertar el modelo antes de que termines de dictar.
     ollamaUrl: process.env.OLLAMA_URL?.trim() || "http://localhost:11434",
     // Ollama 0.32.5 todavía ignora este valor en su API compatible con OpenAI y usa OLLAMA_KEEP_ALIVE
