@@ -381,11 +381,13 @@ for (let vuelta = 1; vuelta <= veces; vuelta++) {
     let ms = 0;
     let respuesta = "";
     let herramientas: string[] = [];
+    const trazaPrevios: string[] = [];
     try {
       let conversacionId: string | undefined;
       for (const p of caso.previos ?? []) {
         const r = await hablar(deps, u.id, { texto: p, clientId: crypto.randomUUID(), conversacionId: caso.separados ? undefined : conversacionId });
         conversacionId = caso.separados ? undefined : r.conversacion_id;
+        trazaPrevios.push(`"${p.slice(0, 50)}" → ${r.respuesta.slice(0, 160)} [${r.acciones.map((a) => `${a.herramienta} ${JSON.stringify(a.argumentos)}`.slice(0, 200)).join(" | ") || "ninguna"}]`);
       }
       const antes = await fotografiar(db, u.id, base);
       trazando = true;
@@ -409,7 +411,7 @@ for (let vuelta = 1; vuelta <= veces; vuelta++) {
     if (estado !== "pendiente") tiempos.push(ms);
     const marca = { ok: "✓", mal: "✗", pendiente: "·" }[estado];
     console.log(`${marca} ${String(ms).padStart(6)} ms ${String(llamadas).padStart(1)}ll [${caso.grupo}] ${caso.frase}${caso.nota ? `  (${caso.nota})` : ""}`);
-    if (estado !== "ok") console.log(`           ${detalle}\n           respuesta: ${respuesta}\n           herramientas: ${herramientas.join(" | ") || "ninguna"}`);
+    if (estado !== "ok") console.log(`           ${detalle}\n           respuesta: ${respuesta}\n           herramientas: ${herramientas.join(" | ") || "ninguna"}${trazaPrevios.map((t) => `\n           previo: ${t}`).join("")}`);
   }
 }
 tiempos.sort((a, b) => a - b);
