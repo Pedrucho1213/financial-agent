@@ -23,6 +23,7 @@ import { mensajeDeError } from "../lib/api";
 import { IconoCategoria } from "../lib/categorias";
 import { useEnLinea } from "../lib/conexion";
 import { abrirDetalle, useGastoPorDia, useTablero, useYo } from "../lib/consultas";
+import { useCuentas } from "../lib/cuentas";
 import { abrirEditor } from "../lib/editor";
 import {
   aFecha,
@@ -40,7 +41,7 @@ import {
 } from "../lib/formato";
 import { haptico } from "../lib/haptico";
 import { hashDe, navegar } from "../lib/ruta";
-import { faltan } from "../lib/saldos";
+import { faltan, sinDeudaConocida } from "../lib/saldos";
 import type { Tablero } from "../lib/tipos";
 import { cn } from "../lib/utils";
 
@@ -112,6 +113,9 @@ function Tablero({ t, esMesActual }: { t: Tablero; esMesActual: boolean }) {
   const fmt = (n: number) => dinero(n, moneda);
   // Saldos de hoy: solo tienen sentido en el mes actual y si dijo alguno.
   const saldos = esMesActual && t.cuentas && (t.cuentas.cuentasConSaldo || t.cuentas.tarjetasConDeuda) ? t.cuentas : null;
+  // Las que no suman: sin saldo, y tarjetas sin límite (no se sabe cuánto deben).
+  const cuentas = useCuentas();
+  const noSuman = [...(saldos?.sinSaldo ?? []), ...sinDeudaConocida(cuentas.data?.cuentas ?? []).map((c) => c.nombre)];
   const ritmo = useRitmo(t, esMesActual);
   const enLinea = useEnLinea();
   const destacados = useMemo(
@@ -155,7 +159,7 @@ function Tablero({ t, esMesActual }: { t: Tablero; esMesActual: boolean }) {
             // Con saldos dichos, lo que de verdad tiene (cuentas menos tarjetas), no ingresos menos gastos del mes.
             <button
               type="button"
-              aria-label={`Tienes ${dinero(saldos.netoCentavos, moneda)}${saldos.sinSaldo?.length ? `, ${faltan(saldos.sinSaldo)}` : ""}. Ver cuentas`}
+              aria-label={`Tienes ${dinero(saldos.netoCentavos, moneda)}${noSuman.length ? `, ${faltan(noSuman)}` : ""}. Ver cuentas`}
               onClick={() => navegar(hashDe("cuentas"))}
               className="fila-presionable min-w-0 rounded-[20px] bg-card p-4 text-left"
             >
@@ -171,9 +175,9 @@ function Tablero({ t, esMesActual }: { t: Tablero; esMesActual: boolean }) {
                   saldos.netoCentavos < 0 && "text-negative",
                 )}
               />
-              {saldos.sinSaldo?.length ? (
+              {noSuman.length ? (
                 <span aria-hidden data-testid="faltan" className="mt-0.5 block truncate text-[13px] text-muted-foreground">
-                  {faltan(saldos.sinSaldo).replace(/^f/, "F")}
+                  {faltan(noSuman).replace(/^f/, "F")}
                 </span>
               ) : null}
             </button>

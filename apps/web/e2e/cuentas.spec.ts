@@ -1,6 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import { ApiFalsa, prepararSesion } from "./api-falsa";
-import { conCuentas } from "./api-falsa-cuentas";
+import { conCuentas, cuentasComoPedro } from "./api-falsa-cuentas";
 
 // Cuentas, tarjetas, mover dinero y etiquetas contra la API falsa (contrato del PR #38).
 // Hoy es 6 de octubre de 2026. BBVA $18,450, Efectivo $1,200, Revolut sin saldo; Nu debe $4,500 de $30,000
@@ -570,5 +570,49 @@ test.describe("Lo que encontró la revisión del #42", () => {
     await page.waitForTimeout(600);
     expect(api.de("POST", "/v1/transferencias")).toHaveLength(1);
     expect(api.de("POST", "/v1/cuentas")).toHaveLength(1);
+  });
+});
+
+// Lo que vio Pedro (09-oct): Nu dicho solo con lo disponible ("tengo 33,600 disponibles"), sin límite.
+test.describe("Una tarjeta sin límite: no se sabe cuánto debe", () => {
+  const comoPedro = () => conCuentas(new ApiFalsa(), cuentasComoPedro());
+
+  test("dice que Nu no entra en la suma, suma todo el crédito disponible y deja decir su límite", async ({ page }) => {
+    const api = await abrir(page, "#cuentas", comoPedro());
+    await expect(page.getByTestId("neto")).toHaveText("−$527.88");
+    await expect(page.getByTestId("sin-saldo")).toHaveText("No sé cuánto hay en Efectivo ni cuánto debes en Nu: no entran en la suma.");
+    // La barra es de Invex (la única con límite); el total disponible cuenta las dos.
+    await expect(page.getByTestId("credito-total")).toContainText("Te quedan $37,581.12 de $57,400.00");
+    await expect(page.getByTestId("credito-disponible")).toHaveText("Con Nu, te quedan $71,181.12 de crédito en total.");
+    await expect(fila(page, "Nu")).toContainText("$33,600 disponible · falta el límite");
+
+    await page.getByRole("button", { name: "Decir el límite de Nu" }).click();
+    const hoja = page.getByRole("dialog");
+    await hoja.getByLabel("Límite", { exact: true }).fill("50000");
+    await hoja.getByRole("button", { name: "Guardar" }).click();
+    await expect(hoja).toBeHidden();
+    expect(api.de("PATCH", "/v1/cuentas/cta-nu").at(-1)?.cuerpo).toEqual({ limite: 50_000 });
+    // Con el límite ya se sabe la deuda (50,000 − 33,600) y entra en la suma.
+    await expect(page.getByTestId("neto")).toHaveText("−$16,927.88");
+    await expect(page.getByTestId("sin-saldo")).toHaveText("No sé cuánto hay en Efectivo: no entra en la suma.");
+    await expect(page.getByTestId("credito-total")).toContainText("Te quedan $71,181.12 de $107,400.00");
+    await expect(page.getByTestId("credito-disponible")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^Decir el límite/ })).toHaveCount(0);
+  });
+
+  test("en Inicio también dice que faltan", async ({ page }) => {
+    await abrir(page, "#inicio", comoPedro());
+    await expect(page.getByTestId("faltan")).toHaveText("Faltan Efectivo y Nu");
+    await expect(page.getByRole("button", { name: /^Cuentas y tarjetas .* · faltan Efectivo y Nu/ })).toBeVisible();
+  });
+
+  test("solo con tarjetas sin límite dice el crédito disponible y no inventa el uso", async ({ page }) => {
+    const soloNu = comoPedro();
+    soloNu.cuentas!.cuentas = soloNu.cuentas!.cuentas.filter((c) => c.nombre !== "Invex");
+    await abrir(page, "#cuentas", soloNu);
+    await expect(page.getByTestId("neto")).toHaveText("$19,291.00");
+    await expect(page.getByTestId("credito-total")).toContainText("Crédito disponible");
+    await expect(page.getByTestId("credito-disponible")).toHaveText("Te quedan $33,600.00 de crédito en Nu.");
+    await expect(page.getByText("Crédito usado")).toHaveCount(0);
   });
 });

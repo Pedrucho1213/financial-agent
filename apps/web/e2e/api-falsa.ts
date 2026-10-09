@@ -227,6 +227,8 @@ export class ApiFalsa {
   cuenta = { nombre: "Pedro Ramírez", usuario: "pedro", tieneCodigo: false, codigo: null as string | null };
   /** Cuentas, tarjetas y etiquetas (ver api-falsa-cuentas.ts); null = servidor sin ellas (404). */
   cuentas: DatosCuentas | null = null;
+  /** GET /v1/analisis por enfoque (lo que el asistente dice por voz); null = servidor sin él (404). */
+  asistente: Partial<Record<string, unknown>> | null = null;
 
   async instalar(page: Page) {
     await page.route(/\/v1\//, (route) => this.atender(route));
@@ -358,6 +360,11 @@ export class ApiFalsa {
     if (respondido) return;
     await atenderCuentas(this, { metodo, ruta, cuerpo, consulta: url.searchParams, json: responder });
     if (respondido) return;
+    if (metodo === "GET" && ruta === "/v1/analisis") {
+      if (!this.asistente) return json(404, { error: "No encontrado" });
+      const enfoque = url.searchParams.get("enfoque") ?? "como_voy";
+      return json(200, this.asistente[enfoque] ?? { enfoque, periodo: "mes", respuesta: "", hallazgos: [], gastadoCentavos: 0 });
+    }
     if (metodo === "GET" && ruta === "/v1/categorias") return json(200, { categorias: CATEGORIAS });
     if (metodo === "GET" && ruta === "/v1/movimientos") return json(200, this.buscar(url.searchParams));
     if (metodo === "POST" && ruta === "/v1/movimientos") {

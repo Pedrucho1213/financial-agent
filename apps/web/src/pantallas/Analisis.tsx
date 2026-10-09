@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { AsistenteDelMes } from "../components/analisis/Asistente";
 import { BarrasFlujo, BarrasPeriodo } from "../components/analisis/Barras";
 import { CalendarioCalor, LeyendaCalor, RejillaCalor } from "../components/analisis/Calor";
 import { Pantalla } from "../components/Pantalla";
@@ -246,6 +247,7 @@ function Contenido({
       ) : (
         <>
           <Insights items={insights} />
+          {periodo === "mes" && a.enCurso && !categoria ? <AsistenteDelMes mes={a.rango.desde.slice(0, 7)} moneda={moneda} gastado={a.totales.gasto} /> : null}
           <Categorias a={a} slots={slots} categoria={categoria} nombreCategoria={nombreCategoria} alFiltrar={alFiltrar} />
           <Calendario a={a} filas={filas} categorias={categorias} categoria={categoria} />
           <Cuando a={a} />
