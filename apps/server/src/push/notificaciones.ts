@@ -137,11 +137,17 @@ export async function notificar(db: Db, usuarioId: string, n: Notificacion, envi
   const mensaje = mensajeDe(n);
   const resultados = await Promise.all(
     lista.map(async (s) => {
+      let tema = n.etiqueta;
       const intento = () =>
-        enviar(s, mensaje, claves, s.contacto, { urgencia: n.urgencia, ttl: n.ttl, tema: n.etiqueta }).catch(
+        enviar(s, mensaje, claves, s.contacto, { urgencia: n.urgencia, ttl: n.ttl, tema }).catch(
           (error: Error): ResultadoEnvio => ({ ok: false, estado: 0, vencida: false, detalle: error.message }),
         );
       let r = await intento();
+      // Un 400 con tema puede ser el tema (Apple: BadWebPushTopic), no la suscripción: se manda sin él.
+      if (r.estado === 400 && tema) {
+        tema = undefined;
+        r = await intento();
+      }
       // Apple saturado (429) o con un error suyo (5xx): un reintento poco después.
       if (r.estado === 429 || r.estado >= 500) {
         await Bun.sleep(espera.reintentoMs);

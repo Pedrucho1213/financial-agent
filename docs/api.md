@@ -54,7 +54,7 @@ Web Push a la app instalada en la pantalla de inicio (iOS 16.4 o más reciente; 
 | `DELETE /v1/push/suscripcion` | | `{ ok: true }` |
 | `POST /v1/push/prueba` | | `{ enviadas }`; 502 si no llegó a ningún dispositivo; 429 si este dispositivo mandó otra hace menos de 15 s |
 
-El mensaje que recibe el service worker (`public/sw-push.js`) es `{ titulo, cuerpo, url, etiqueta? }`. Una suscripción que el servicio da por vencida (404 o 410) se borra; la de un dispositivo revocado ya no recibe. Un 429 o 5xx se reintenta una vez. Al cerrar sesión, la app quita la suscripción de ese dispositivo.
+El mensaje que recibe el service worker (`public/sw-push.js`) es `{ titulo, cuerpo, url, etiqueta? }`. Una suscripción que el servicio da por vencida (404 o 410) se borra; la de un dispositivo revocado ya no recibe. Un 429 o 5xx se reintenta una vez. El encabezado `Topic` son 32 caracteres hexadecimales sacados de la etiqueta (Apple rechazó "listo-version" con 400 BadWebPushTopic); si aun así hay un 400, se manda otra vez sin `Topic` y la suscripción no queda marcada con error. Al cerrar sesión, la app quita la suscripción de ese dispositivo.
 
 ## Avisos del día
 
