@@ -20,6 +20,7 @@ const deps = {
   modelo: crearModelo(config.ia, config.ia.modelo, controlIa?.trasUsar),
   zonaHoraria: config.zonaHoraria,
   monedaBase: config.moneda,
+  razonamientoDificil: config.ia.razonamientoDificil,
   // Lo que se termina sin que nadie lo espere (también lo retomado al arrancar) llega por notificación.
   alTerminarSinEspera: avisoDeDictado(db),
   notificaSinEspera: (usuarioId: string) => tienePush(db, usuarioId),

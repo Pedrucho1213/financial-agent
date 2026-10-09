@@ -328,10 +328,18 @@ export function encontrarOCrearCuenta(db: Db, usuarioId: string, texto: string |
   // El nombre exacto primero: "BBVA Azul" no es "BBVA" si existen las dos. Las activas antes que las archivadas.
   const nombres = (c: Cuenta) => [c.nombre, ...c.alias].map((n) => canonico(nombreBuscado(n) || normalizar(n)));
   const coincide = (c: Cuenta) => nombres(c).some((x) => x.split(" ").includes(buscado) || buscado.split(" ").includes(x));
+  // "La tarjeta de crédito Revolut" con Revolut de débito y Revolut crédito: la del tipo que dijo (2026-10-09).
+  const delTipo = (todas: Cuenta[]) =>
+    tipoDicho === "credito" || tipoDicho === "debito" ? (todas.find((c) => c.tipo === tipoDicho) ?? todas[0]) : todas[0];
+  const exacta = (c: Cuenta) => nombres(c).includes(buscado);
+  // "Mercado Pago" o "Mercado Pago de crédito" es "Mercado Pago Credito": el tipo al final no es parte del nombre.
+  const sinTipo = (n: string) => n.replace(/ (de )?(credito|debito)$/, "");
+  const casi = (c: Cuenta) => !exacta(c) && nombres(c).map(sinTipo).includes(sinTipo(buscado));
+  const parecida = (c: Cuenta) => !exacta(c) && !casi(c) && coincide(c);
   const existente =
-    activas.find((c) => nombres(c).includes(buscado)) ??
-    lista.find((c) => nombres(c).includes(buscado)) ??
-    activas.find(coincide) ??
+    delTipo([...activas.filter(exacta), ...activas.filter(casi), ...activas.filter(parecida)]) ??
+    lista.find(exacta) ??
+    lista.find(casi) ??
     lista.find(coincide);
   if (existente) return conTipo(existente);
   if (opciones.soloExistente) return undefined;
@@ -339,6 +347,8 @@ export function encontrarOCrearCuenta(db: Db, usuarioId: string, texto: string |
   while (/^(con|la|el|en|mi|mis|tarjeta|cuenta|de|del|cr[eé]dito|d[eé]bito|banco|nómina|nomina)\s+/i.test(nombre)) {
     nombre = nombre.replace(/^\S+\s+/, "");
   }
+  // "Mercado Pago de crédito": el tipo va en la cuenta, no en el nombre (2026-10-09).
+  nombre = nombre.replace(/\s+(de\s+)?(cr[eé]dito|d[eé]bito)$/i, "").trim() || nombre;
   nombre = nombre.charAt(0).toUpperCase() + nombre.slice(1);
   return db
     .insert(cuentas)

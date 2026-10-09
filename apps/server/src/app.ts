@@ -2,7 +2,7 @@ import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
 import { z } from "zod";
-import { consultarEntrada, type Dependencias, type Respuesta, ErrorEnProceso, ErrorIA, hablar } from "./ai/asistente";
+import { consultarEntrada, conversacionReciente, type Dependencias, type Respuesta, ErrorEnProceso, ErrorIA, hablar } from "./ai/asistente";
 import { guardarDescarga, limpiarDescargas, tomarDescarga } from "./atajo/descargas";
 import { ErrorFirma, firmarAtajo, generarAtajo, generarAtajoApplePay, guionBienvenida, NOMBRE_ATAJO_APPLE_PAY } from "./atajo/generar";
 import {
@@ -577,8 +577,10 @@ export function crearApp(opciones: OpcionesApp) {
         {
           texto: p.texto,
           clientId: p.client_id,
-          // Una pregunta que llegó por notificación se contesta con el siguiente dictado.
-          conversacionId: p.conversacion_id ?? (delAtajo ? conversacionPorContestar(usuarioId) : undefined),
+          // Una pregunta que llegó por notificación se contesta con el siguiente dictado, y lo que se dicta en
+          // la media hora siguiente sigue la conversación anterior.
+          conversacionId:
+            p.conversacion_id ?? (delAtajo ? (conversacionPorContestar(usuarioId) ?? conversacionReciente(db, usuarioId)) : undefined),
           lat: p.lat,
           lon: p.lon,
           lugar: p.lugar,

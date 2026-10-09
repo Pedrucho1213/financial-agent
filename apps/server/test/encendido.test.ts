@@ -162,6 +162,7 @@ describe("el modelo avisa al interruptor de cada uso", () => {
       apiKey: "x",
       mantenerCargado: "5m",
       razonamiento: "none",
+      razonamientoDificil: "no",
       paralelo: 1,
       interruptor: true,
     };
