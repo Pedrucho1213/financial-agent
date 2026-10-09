@@ -118,6 +118,8 @@ type Caso = {
   frase: string;
   /** Frases dictadas antes, en la misma conversación (arman el estado por voz). */
   previos?: string[];
+  /** Cada frase en su propia conversación, como el Atajo pasada la media hora: lo anterior solo llega en el resumen (#44). */
+  separados?: boolean;
   /** Estado armado directo en la base, para no depender del modelo en la preparación. */
   preparar?: (ctx: Contexto) => void;
   verificar: (r: Revision) => true | string | false;
@@ -133,6 +135,13 @@ const DOS_CUENTAS = ["Tengo 20 mil pesos en mi cuenta de Revolut y 10 mil en Ban
 const NU = ["Mi tarjeta de crédito Nu tiene un límite de 30 mil y llevo usados 12 mil"];
 const CUENTAS_Y_NU = [...DOS_CUENTAS, ...NU];
 
+const REVOLUT_PEDRO = "En Revolut tengo 19,291 pesos";
+const INVEX_DIJO = "Te aviso que en mi tarjeta de crédito Invex tengo un total de 37,581. 21 pesos";
+const INVEX_CORRIGE = "Ese registro que acabas de hacer no es algo que debo si no es lo que tengo actualmente disponible";
+const INVEX_LIMITE = "Mi límite de crédito de Invex es de 57,400 MXN";
+const INVEX_DISPONIBLE = "Corrige mi saldo disponible de Invex a 37,581.12 MXN";
+const NU_PEDRO = "En mi tarjeta de crédito Nu tengo un crédito disponible de 33600 MXN";
+const SIN_EFECTIVO = (r: Revision) => !r.existe("efectivo") || r.saldo("efectivo") == null;
 const CASOS: Caso[] = [
   // ── Saldos de cuentas por voz ──────────────────────────────────────────────────────────────
   { grupo: "saldos", frase: DOS_CUENTAS[0]!, verificar: (r) => no(cerca(r.saldo("revolut"), 20000) && cerca(r.saldo("bancomer"), 10000) && r.nuevos().length === 0, { rev: r.saldo("revolut"), ban: r.saldo("bancomer"), movs: r.nuevos().length, resp: r.respuesta }) },
@@ -248,6 +257,22 @@ const CASOS: Caso[] = [
   { grupo: "regresion", frase: "El súper de hoy fue con la tarjeta de crédito Nu", preparar: (c) => { gasto(c, 1850, "Súper", { comercio: "Walmart" }); }, verificar: (r) => no(r.nuevos().length === 0 && /nu/i.test(r.cuentaDe(r.despues.movs[0]) ?? ""), { cuenta: r.cuentaDe(r.despues.movs[0]), resp: r.respuesta }) },
   { grupo: "regresion", frase: "Pon un presupuesto de comida de 3 mil al mes", verificar: (r) => no(r.nuevos().length === 0 && !r.pregunta(), r.respuesta) },
   { grupo: "regresion", frase: "¿Cuánto puedo gastar hoy?", verificar: (r) => no(r.nuevos().length === 0, r.respuesta) },
+  // ── Secuencias reales de Pedro (2026-10-09, PR #44). Quedan en la batería para siempre ─────────────────
+  // Invex: "tengo un total de" quedó como deuda; al corregir en otro dictado inventó Revolut 20 mil, Invex límite
+  // 30 mil y Efectivo 5 mil. Luego quería decir el límite (57,400) y que sacara la deuda sola, y corregir el disponible.
+  { grupo: "pedro", frase: INVEX_DIJO, previos: [REVOLUT_PEDRO], verificar: (r) => no(cerca(r.disponible("invex"), 37581.21) && !(r.usado("invex") ?? 0) && cerca(r.saldo("revolut"), 19291) && r.nuevos().length === 0, { d: r.disponible("invex"), u: r.usado("invex"), rev: r.saldo("revolut"), movs: r.nuevos().length }), nota: "'tengo un total de' en crédito es disponible, no deuda" },
+  { grupo: "pedro", frase: INVEX_CORRIGE, previos: [REVOLUT_PEDRO, INVEX_DIJO], verificar: (r) => no(cerca(r.disponible("invex"), 37581.21) && !(r.usado("invex") ?? 0) && !cerca(r.limite("invex"), 30000) && cerca(r.saldo("revolut"), 19291) && SIN_EFECTIVO(r) && r.nuevos().length === 0, { d: r.disponible("invex"), u: r.usado("invex"), l: r.limite("invex"), rev: r.saldo("revolut"), ef: r.existe("efectivo") ? r.saldo("efectivo") : "no existe" }), nota: "misma conversación: corrige con su cifra y no inventa" },
+  { grupo: "pedro", separados: true, frase: INVEX_CORRIGE, previos: [REVOLUT_PEDRO, INVEX_DIJO], verificar: (r) => no(((cerca(r.disponible("invex"), 37581.21) && !(r.usado("invex") ?? 0)) || r.pregunta()) && !cerca(r.limite("invex"), 30000) && cerca(r.saldo("revolut"), 19291) && SIN_EFECTIVO(r) && r.nuevos().length === 0, { d: r.disponible("invex"), u: r.usado("invex"), l: r.limite("invex"), rev: r.saldo("revolut"), resp: r.respuesta }), nota: "otra conversación (resumen): corrige o pregunta, nunca inventa" },
+  { grupo: "pedro", frase: INVEX_LIMITE, previos: [REVOLUT_PEDRO, INVEX_DIJO, INVEX_CORRIGE], verificar: (r) => no(cerca(r.limite("invex"), 57400) && cerca(r.disponible("invex"), 37581.21) && cerca(r.usado("invex"), 19818.79) && cerca(r.saldo("revolut"), 19291), { l: r.limite("invex"), d: r.disponible("invex"), u: r.usado("invex") }), nota: "límite − disponible = deuda, sin que lo diga" },
+  { grupo: "pedro", separados: true, frase: INVEX_LIMITE, previos: [REVOLUT_PEDRO, "En mi tarjeta de crédito Invex tengo disponibles 37,581.21 pesos"], verificar: (r) => no(cerca(r.limite("invex"), 57400) && cerca(r.disponible("invex"), 37581.21) && cerca(r.usado("invex"), 19818.79), { l: r.limite("invex"), d: r.disponible("invex"), u: r.usado("invex") }), nota: "días después: el disponible ya guardado se conserva" },
+  { grupo: "pedro", frase: INVEX_DISPONIBLE, previos: [REVOLUT_PEDRO, INVEX_DIJO, INVEX_CORRIGE, INVEX_LIMITE], verificar: (r) => no(cerca(r.limite("invex"), 57400) && cerca(r.disponible("invex"), 37581.12) && cerca(r.usado("invex"), 19818.88) && cerca(r.saldo("revolut"), 19291) && r.nuevos().length === 0, { l: r.limite("invex"), d: r.disponible("invex"), u: r.usado("invex") }), nota: "corrige el disponible y la deuda se recalcula" },
+  { grupo: "pedro", frase: "Mi límite de crédito de Invex es de 57,400", previos: [REVOLUT_PEDRO, "Tengo 37,581.12 disponibles en mi tarjeta de crédito Invex"], verificar: (r) => no(cerca(r.limite("invex"), 57400) && cerca(r.disponible("invex"), 37581.12) && cerca(r.usado("invex"), 19818.88), { l: r.limite("invex"), d: r.disponible("invex"), u: r.usado("invex") }), nota: "lo que Pedro esperaba: debo 19,818.88" },
+  // Nu: "tengo un crédito disponible de 33600 mxn" hizo otra cosa.
+  { grupo: "pedro", frase: NU_PEDRO, previos: [REVOLUT_PEDRO], verificar: (r) => no(cerca(r.disponible("nu"), 33600) && !(r.usado("nu") ?? 0) && !cerca(r.saldo("nu") ?? 0, 33600) && cerca(r.saldo("revolut"), 19291) && r.nuevos().length === 0 && r.cuentasNuevas().every((c) => /nu/i.test(c.nombre)), { d: r.disponible("nu"), u: r.usado("nu"), s: r.saldo("nu"), nuevas: r.cuentasNuevas().map((c) => c.nombre), movs: r.nuevos().map((m) => m.tipo) }), nota: "crea la tarjeta Nu con 33,600 disponibles y nada más" },
+  { grupo: "pedro", frase: "En mi tarjeta de crédito Nu tengo 33,600 pesos disponibles", previos: [REVOLUT_PEDRO, INVEX_DIJO], verificar: (r) => no(cerca(r.disponible("nu"), 33600) && cerca(r.disponible("invex"), 37581.21) && cerca(r.saldo("revolut"), 19291) && r.nuevos().length === 0, { nu: r.disponible("nu"), invex: r.disponible("invex"), rev: r.saldo("revolut") }), nota: "con Invex ya guardada no la toca" },
+  { grupo: "pedro", frase: "En la Nu tengo 33,600 disponibles", previos: [REVOLUT_PEDRO, "Tengo una tarjeta de crédito Nu con límite de 40 mil"], verificar: (r) => no(cerca(r.disponible("nu"), 33600) && cerca(r.limite("nu"), 40000) && cerca(r.usado("nu"), 6400) && r.nuevos().length === 0, { d: r.disponible("nu"), l: r.limite("nu"), u: r.usado("nu") }), nota: "con límite conocido: debe 6,400" },
+  { grupo: "pedro", frase: "En la Nu tengo 33,600 disponibles", previos: [REVOLUT_PEDRO, "Tengo una tarjeta de crédito Nu con límite de 30 mil"], verificar: (r) => no((r.pregunta() || cerca(r.limite("nu"), 33600) || (r.limite("nu") ?? 0) >= 33600) && !((r.usado("nu") ?? 0) < 0) && r.nuevos().length === 0, { d: r.disponible("nu"), l: r.limite("nu"), u: r.usado("nu"), resp: r.respuesta }), nota: "disponible mayor que el límite: no deja deuda negativa; pregunta o ajusta" },
+
 ];
 
 // ── Corredor ─────────────────────────────────────────────────────────────────────────────────
@@ -298,7 +323,10 @@ for (let vuelta = 1; vuelta <= veces; vuelta++) {
     let herramientas: string[] = [];
     try {
       let conversacionId: string | undefined;
-      for (const p of caso.previos ?? []) conversacionId = (await hablar(deps, u.id, { texto: p, clientId: crypto.randomUUID(), conversacionId })).conversacion_id;
+      for (const p of caso.previos ?? []) {
+        const r = await hablar(deps, u.id, { texto: p, clientId: crypto.randomUUID(), conversacionId: caso.separados ? undefined : conversacionId });
+        conversacionId = caso.separados ? undefined : r.conversacion_id;
+      }
       const antes = await fotografiar(db, u.id, base);
       trazando = true;
       paso = 0;
