@@ -24,6 +24,8 @@ export type CuentaFalsa = {
   /** Crédito: lo usado. */
   deuda: number | null;
   limite: number | null;
+  /** Crédito: lo disponible cuando no se sabe el límite (así no se sabe la deuda). */
+  disponible?: number | null;
   diaCorte: number | null;
   diaPago: number | null;
   saldoEn: string | null;
@@ -41,7 +43,7 @@ const cuenta = (c: Partial<CuentaFalsa> & Pick<CuentaFalsa, "id" | "nombre" | "t
   limite: null,
   diaCorte: null,
   diaPago: null,
-  saldoEn: c.saldo !== undefined || c.deuda !== undefined ? "2026-10-04T18:00:00.000Z" : null,
+  saldoEn: c.saldo !== undefined || c.deuda !== undefined || c.disponible != null ? "2026-10-04T18:00:00.000Z" : null,
   mes: { entradaCentavos: 0, salidaCentavos: 0 },
   ...c,
 });
@@ -65,6 +67,20 @@ export function cuentasIniciales(): DatosCuentas {
     observacion: "Banamex Oro está al 92% de su límite y se paga en 2 días.",
     siguiente: 1,
   };
+}
+
+/** Lo que vio Pedro (09-oct): Revolut, Efectivo sin saldo, Invex con límite y Nu dicho solo con lo disponible. */
+export function cuentasComoPedro(): DatosCuentas {
+  const datos = cuentasIniciales();
+  const [, efectivo, , nu, banamex] = datos.cuentas as [CuentaFalsa, CuentaFalsa, CuentaFalsa, CuentaFalsa, CuentaFalsa];
+  datos.cuentas = [
+    { ...datos.cuentas[0]!, id: "cta-revolut", nombre: "Revolut", saldo: 19_291_00 },
+    { ...efectivo, saldo: null, saldoEn: null },
+    { ...banamex, id: "cta-invex", nombre: "Invex", deuda: 19_818_88, limite: 57_400_00 },
+    { ...nu, deuda: null, limite: null, disponible: 33_600_00, diaCorte: null, diaPago: null },
+  ];
+  datos.observacion = "Debes $527.88 más en tarjetas de lo que tienes en tus cuentas.";
+  return datos;
 }
 
 /** Prende cuentas y etiquetas en el servidor falso y le pone cuenta y etiquetas a unos movimientos. */
@@ -91,7 +107,9 @@ export function conCuentas(api: ApiFalsa, datos = cuentasIniciales()) {
 
 export function estadoDe(c: CuentaFalsa) {
   const esCredito = c.tipo === "credito";
-  const conocido = esCredito ? c.deuda !== null : c.saldo !== null;
+  // Como el servidor con saldoTipo "disponible" y sin límite: se sabe lo disponible, no la deuda.
+  const soloDisponible = esCredito && c.deuda === null && c.disponible != null;
+  const conocido = esCredito ? c.deuda !== null || soloDisponible : c.saldo !== null;
   return {
     id: c.id,
     nombre: c.nombre,
@@ -103,7 +121,7 @@ export function estadoDe(c: CuentaFalsa) {
     conocido,
     saldoCentavos: esCredito ? (c.deuda === null ? null : -c.deuda) : c.saldo,
     deudaCentavos: esCredito ? c.deuda : null,
-    disponibleCentavos: esCredito ? (c.limite !== null && c.deuda !== null ? c.limite - c.deuda : null) : c.saldo,
+    disponibleCentavos: soloDisponible ? c.disponible! : esCredito ? (c.limite !== null && c.deuda !== null ? c.limite - c.deuda : null) : c.saldo,
     limiteCentavos: c.limite,
     saldoEn: c.saldoEn,
     diaCorte: c.diaCorte,
@@ -194,6 +212,12 @@ function aplicar(c: CuentaFalsa, b: Record<string, unknown>) {
     c.saldoEn = ahora;
   }
   if (b.limite !== undefined) c.limite = b.limite === null ? null : centavos(b.limite);
+  // Con el límite, lo disponible ya dice la deuda (como cambiarCuenta del servidor).
+  if (c.limite !== null && c.deuda === null && c.disponible != null) {
+    c.deuda = c.limite - c.disponible;
+    c.disponible = null;
+    c.saldoEn = ahora;
+  }
   if (b.disponible !== undefined && c.limite !== null) {
     c.deuda = c.limite - centavos(b.disponible);
     c.saldoEn = ahora;
@@ -208,6 +232,7 @@ function mover(c: CuentaFalsa | undefined, monto: number, sale: boolean) {
   if (!c) return;
   if (c.tipo === "credito") {
     if (c.deuda !== null) c.deuda += sale ? monto : -monto;
+    else if (c.disponible != null) c.disponible += sale ? -monto : monto;
   } else if (c.saldo !== null) c.saldo += sale ? -monto : monto;
   if (sale) c.mes.salidaCentavos += monto;
   else c.mes.entradaCentavos += monto;

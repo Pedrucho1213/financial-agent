@@ -56,6 +56,17 @@ test.describe("Análisis con lo que dice el asistente", () => {
     expect(api.de("GET", "/v1/analisis").map((p) => p.consulta.get("enfoque")).sort()).toEqual(["ahorrar", "proyeccion"]);
   });
 
+  test("lo que lleva es el total del mes de Análisis, aunque el asistente compare solo los últimos 7 días", async ({ page }) => {
+    const api = conAsistente();
+    (api.asistente!.proyeccion as { gastadoCentavos: number }).gastadoCentavos = 4_531_98;
+    await abrir(page, "#analisis", api);
+    await expect(page.getByTestId("total-periodo")).toHaveText("$16,754.70");
+    const cierre = page.getByRole("region", { name: "Cómo cierras el mes" });
+    await expect(cierre.getByRole("img")).toHaveAttribute("aria-label", "Llevas $16,754.70, te faltarían $21,645.30; te entran $45,000");
+    await expect(cierre).toContainText("Llevas $16,754.70");
+    await expect(cierre).not.toContainText("$4,531.98");
+  });
+
   test("si no le alcanza, lo dice en rojo", async ({ page }) => {
     await abrir(page, "#analisis", conAsistente(new ApiFalsa(), { ingresosCentavos: 30_000_00 }));
     await expect(page.getByTestId("margen")).toHaveText("Te faltarían unos $8,400");

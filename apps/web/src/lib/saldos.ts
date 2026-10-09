@@ -73,6 +73,43 @@ export function creditoTotal(cuentas: EstadoCuenta[]) {
   return { uso: usado / limite, limite, disponible, fuera };
 }
 
+/**
+ * Tarjetas de las que sabe lo disponible pero no cuánto debe (le falta el límite): su deuda no entra
+ * en "Lo que tienes", y hay que decirlo.
+ */
+export function sinDeudaConocida(cuentas: EstadoCuenta[]): EstadoCuenta[] {
+  return cuentas.filter((c) => c.esCredito && !c.archivada && c.conocido && c.deudaCentavos === null);
+}
+
+/**
+ * El crédito que le queda en todas sus tarjetas, aunque de alguna no se sepa el límite. `sinLimite`: las
+ * que solo dicen lo disponible. null si de ninguna se sabe.
+ */
+export function creditoDisponible(cuentas: EstadoCuenta[]) {
+  const con = cuentas.filter((c) => c.esCredito && !c.archivada && c.disponibleCentavos !== null);
+  if (!con.length) return null;
+  return {
+    total: con.reduce((s, c) => s + Math.max(0, c.disponibleCentavos!), 0),
+    sinLimite: con.filter((c) => !c.limiteCentavos).map((c) => c.nombre),
+  };
+}
+
+/** "No sé cuánto hay en Efectivo ni cuánto debes en Nu: no entran en la suma." Vacío si todo entra. */
+export function fueraDeLaSuma(sinSaldo: string[], sinDeuda: string[]): string {
+  const total = sinSaldo.length + sinDeuda.length;
+  if (!total) return "";
+  const partes = [
+    sinSaldo.length ? `cuánto hay en ${enLista(sinSaldo)}` : "",
+    sinDeuda.length ? `cuánto debes en ${enLista(sinDeuda)}` : "",
+  ].filter(Boolean);
+  return `No sé ${partes.join(" ni ")}: no ${total === 1 ? "entra" : "entran"} en la suma.`;
+}
+
+export function enLista(nombres: string[]) {
+  if (nombres.length <= 1) return nombres.join("");
+  return `${nombres.slice(0, -1).join(", ")} y ${nombres.at(-1)}`;
+}
+
 /** Color del uso de una tarjeta: como el revisor, que avisa desde el 90%. */
 export function colorUso(uso: number) {
   if (uso >= 0.9) return "var(--negative)";
@@ -121,6 +158,8 @@ export function lineaCuenta(e: CuentaConMes, moneda: string): string {
     // Corto: el límite y las fechas están en su pantalla.
     if (e.deudaCentavos !== null && e.deudaCentavos < 0) return `${dineroCorto(-e.deudaCentavos, moneda)} a favor`;
     if (e.disponibleCentavos === null) return "Sin límite dicho";
+    // Sin límite no se sabe cuánto debe: que se note que falta algo.
+    if (e.deudaCentavos === null) return `${dineroCorto(e.disponibleCentavos, moneda)} disponible · falta el límite`;
     return e.disponibleCentavos >= 0
       ? `${dineroCorto(e.disponibleCentavos, moneda)} disponible`
       : `Te pasaste ${dineroCorto(-e.disponibleCentavos, moneda)}`;

@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   colorUso,
+  creditoDisponible,
   creditoTotal,
   describirCuentas,
   faltan,
+  fueraDeLaSuma,
+  sinDeudaConocida,
   enCuantosDias,
   leerCantidad,
   limpiarPesos,
@@ -193,5 +196,34 @@ describe("textos", () => {
     expect(faltan(["Nu"])).toBe("falta Nu");
     expect(faltan(["Nu", "Revolut"])).toBe("faltan Nu y Revolut");
     expect(faltan(["a", "b", "c"])).toBe("faltan 3");
+  });
+});
+
+// Lo que reportó Pedro (09-oct): Nu dicho solo con lo disponible, sin límite.
+const nuSoloDisponible = credito("Nu", null, null, { conocido: true, disponibleCentavos: 33_600_00 });
+
+describe("tarjetas sin límite (solo lo disponible)", () => {
+  const cuentas = [debito("Revolut", 19_291_00), debito("Efectivo", null), credito("Invex", 19_818_88, 57_400_00), nuSoloDisponible];
+
+  test("no se sabe cuánto debe: se dice, no se suma como 0 escondido", () => {
+    expect(sinDeudaConocida(cuentas).map((c) => c.nombre)).toEqual(["Nu"]);
+    expect(sinDeudaConocida([credito("t", null, 1000_00)])).toEqual([]); // sin nada dicho ya sale en sinSaldo
+    expect(sinDeudaConocida([{ ...nuSoloDisponible, archivada: true }])).toEqual([]);
+    expect(lineaCuenta(nuSoloDisponible, "MXN")).toBe("$33,600 disponible · falta el límite");
+  });
+
+  test("el crédito disponible suma todas las tarjetas; la barra de uso solo las que tienen límite", () => {
+    expect(creditoDisponible(cuentas)).toEqual({ total: 71_181_12, sinLimite: ["Nu"] });
+    expect(creditoTotal(cuentas)).toMatchObject({ limite: 57_400_00, disponible: 37_581_12 });
+    expect(creditoDisponible([debito("a", 100)])).toBeNull();
+    // Pasado del límite no resta del disponible de las demás.
+    expect(creditoDisponible([credito("a", 31_000_00, 30_000_00), nuSoloDisponible])?.total).toBe(33_600_00);
+  });
+
+  test("lo que no entra en la suma, en una frase", () => {
+    expect(fueraDeLaSuma(["Efectivo"], ["Nu"])).toBe("No sé cuánto hay en Efectivo ni cuánto debes en Nu: no entran en la suma.");
+    expect(fueraDeLaSuma(["Efectivo"], [])).toBe("No sé cuánto hay en Efectivo: no entra en la suma.");
+    expect(fueraDeLaSuma([], ["Nu", "Rappi"])).toBe("No sé cuánto debes en Nu y Rappi: no entran en la suma.");
+    expect(fueraDeLaSuma([], [])).toBe("");
   });
 });
