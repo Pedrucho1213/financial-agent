@@ -332,9 +332,14 @@ export function encontrarOCrearCuenta(db: Db, usuarioId: string, texto: string |
   const delTipo = (todas: Cuenta[]) =>
     tipoDicho === "credito" || tipoDicho === "debito" ? (todas.find((c) => c.tipo === tipoDicho) ?? todas[0]) : todas[0];
   const exacta = (c: Cuenta) => nombres(c).includes(buscado);
+  // "Mercado Pago" o "Mercado Pago de crédito" es "Mercado Pago Credito": el tipo al final no es parte del nombre.
+  const sinTipo = (n: string) => n.replace(/ (de )?(credito|debito)$/, "");
+  const casi = (c: Cuenta) => !exacta(c) && nombres(c).map(sinTipo).includes(sinTipo(buscado));
+  const parecida = (c: Cuenta) => !exacta(c) && !casi(c) && coincide(c);
   const existente =
-    delTipo(activas.filter(exacta).concat(activas.filter((c) => !exacta(c) && coincide(c)))) ??
+    delTipo([...activas.filter(exacta), ...activas.filter(casi), ...activas.filter(parecida)]) ??
     lista.find(exacta) ??
+    lista.find(casi) ??
     lista.find(coincide);
   if (existente) return conTipo(existente);
   if (opciones.soloExistente) return undefined;

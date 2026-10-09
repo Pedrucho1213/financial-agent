@@ -758,4 +758,23 @@ describe("Mercado Pago de Pedro (2026-10-09)", () => {
     await llamar(dictado(ctx, "en Mercado Pago no debo nada"), "cuentas", { cuentas: [{ cuenta: "Mercado Pago", deuda: 0 }] });
     expect(pesos(estado(ctx, "Mercado Pago").disponibleCentavos)).toBe(33200);
   });
+
+  // Investigación, 01:42Z: renombrada a "Mercado Pago Credito", "Mercado Pago" ya no la encontraba y se iba a duplicar.
+  test("'Mercado Pago Credito' se encuentra diciendo 'Mercado Pago', con o sin 'de crédito'; Revolut sigue siendo la de débito", () => {
+    const { ctx, db, usuario } = preparar();
+    // Así queda después de renombrarla (al crearla, el "de crédito" del final no va en el nombre).
+    db.insert(tablaCuentas).values({ usuarioId: usuario.id, nombre: "Mercado Pago Credito", tipo: "credito" }).run();
+    fijarCuenta(dictado(ctx), { cuenta: "Revolut", tipo: "debito", saldo: 19291 });
+    fijarCuenta(dictado(ctx), { cuenta: "Revolut crédito", tipo: "credito", limite: 34000 });
+    const nombre = (texto: string) => encontrarOCrearCuenta(db, usuario.id, texto, { soloExistente: true, soloLeer: true })?.nombre;
+    for (const texto of ["Mercado Pago", "mercado pago", "tarjeta de crédito Mercado Pago", "Mercado Pago de crédito", "mi tarjeta Mercado Pago Credito"]) {
+      expect([texto, nombre(texto)]).toEqual([texto, "Mercado Pago Credito"]);
+    }
+    expect(nombre("Revolut")).toBe("Revolut");
+    expect(nombre("mi cuenta de débito Revolut")).toBe("Revolut");
+    expect(nombre("tarjeta de crédito Revolut")).toBe("Revolut crédito");
+    expect(nombre("Revolut de crédito")).toBe("Revolut crédito");
+    expect(crearMovimiento(dictado(ctx, "gasté 200 con Mercado Pago"), { tipo: "gasto", monto: 200, cuenta: "Mercado Pago" }).cuenta).toBe("Mercado Pago Credito");
+    expect(estadosDeCuentas(ctx).map((e) => e.nombre).sort()).toEqual(["Mercado Pago Credito", "Revolut", "Revolut crédito"]);
+  });
 });
