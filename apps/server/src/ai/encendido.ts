@@ -18,6 +18,8 @@ export type ModoIa = { siempre: boolean; minutos: number };
 
 export type EstadoControlIa = ModoIa & {
   modelo: string;
+  /** Es el respaldo de Claude: solo contesta cuando Claude falla. */
+  respaldo: boolean;
   /** Apagada desde la app: el vigilante no la vuelve a cargar hasta el próximo dictado o "Encender". */
   apagadaAMano: boolean;
   /** Ollama contesta y tiene el modelo descargado. */
@@ -51,12 +53,17 @@ export type ControlIa = {
   apagar(): Promise<EstadoControlIa>;
   /** Después de cada llamada al modelo: le repite a Ollama cuánto mantenerlo. */
   trasUsar(): void;
-  /** Revisa cada `cadaMs` que siga cargada en modo "siempre". Devuelve cómo detenerlo. */
+  /** Revisa cada `cadaMs` que siga cargada en modo "siempre", o que no se quede de más con plazo. Devuelve cómo detenerlo. */
   vigilar(cadaMs?: number): () => void;
   estado(): Promise<EstadoControlIa>;
 };
 
 const CLAVE = "ia_encendido";
+/**
+ * Con Claude contestando, el modelo de la Mac es solo el respaldo y su modo se guarda aparte: lo que se eligió
+ * cuando era la IA principal (siempre encendida, 08-oct) no aplica a un modelo que casi nunca se usa.
+ */
+export const CLAVE_RESPALDO = "ia_respaldo_encendido";
 export const MINUTOS_MIN = 1;
 export const MINUTOS_MAX = 24 * 60;
 // "Siempre" es un año, como texto: medido en la Mac (Ollama 0.32.5), el número -1 no le cambia el plazo
@@ -64,6 +71,9 @@ export const MINUTOS_MAX = 24 * 60;
 export const SIEMPRE = "8760h";
 // Si Ollama la suelta antes de esto, en modo "siempre" se le vuelve a pedir el año.
 const MARGEN_SIEMPRE_MS = 24 * 3_600_000;
+// Con plazo, si Ollama la tiene para mucho más que eso (OLLAMA_KEEP_ALIVE=-1 tras un dictado por /v1),
+// se le repite el plazo. Este margen evita repetirlo por segundos de diferencia.
+const MARGEN_PLAZO_MS = 2 * 60_000;
 // Un plazo de más de 30 días se muestra como sin fecha (los plazos de la app son de una hora o menos).
 const SIN_FECHA_MS = 30 * 86_400_000;
 
@@ -75,6 +85,8 @@ export function crearControlIa(opciones: {
   ollama: OllamaControl;
   /** Sin nada guardado: siempre encendida (lo que pidió el dueño para desarrollo). */
   porOmision?: Partial<ModoIa>;
+  /** Es el respaldo de Claude: el modo se guarda en CLAVE_RESPALDO. */
+  respaldo?: boolean;
   /** Cuánto esperar sin más usos antes de repetir el keep_alive. */
   esperaTrasUsoMs?: number;
   ahora?: () => number;
@@ -82,9 +94,11 @@ export function crearControlIa(opciones: {
   const { db, modelo, ollama } = opciones;
   const ahora = opciones.ahora ?? Date.now;
   const base: Guardado = { siempre: true, minutos: 10, ...opciones.porOmision, apagadaAMano: false };
+  const respaldo = opciones.respaldo === true;
+  const clave = respaldo ? CLAVE_RESPALDO : CLAVE;
 
   const leer = (): Guardado => {
-    const fila = db.select().from(configuracion).where(eq(configuracion.clave, CLAVE)).get();
+    const fila = db.select().from(configuracion).where(eq(configuracion.clave, clave)).get();
     const v = (fila?.valor ?? {}) as Partial<Guardado>;
     return {
       siempre: typeof v.siempre === "boolean" ? v.siempre : base.siempre,
@@ -93,7 +107,7 @@ export function crearControlIa(opciones: {
     };
   };
   const guardar = (valor: Guardado) =>
-    db.insert(configuracion).values({ clave: CLAVE, valor }).onConflictDoUpdate({ target: configuracion.clave, set: { valor } }).run();
+    db.insert(configuracion).values({ clave, valor }).onConflictDoUpdate({ target: configuracion.clave, set: { valor } }).run();
 
   const keepAlive = (m: ModoIa = leer()) => (m.siempre ? SIEMPRE : `${m.minutos}m`);
 
@@ -107,6 +121,7 @@ export function crearControlIa(opciones: {
       minutos: m.minutos,
       apagadaAMano: m.apagadaAMano,
       modelo,
+      respaldo,
       disponible: !!tags?.includes(modelo),
       cargada: !!cargado,
       hasta: cargado && Number.isFinite(vence) && vence - ahora() < SIN_FECHA_MS ? new Date(vence).toISOString() : null,
@@ -138,11 +153,18 @@ export function crearControlIa(opciones: {
   const revisar = () =>
     enFila(async () => {
       const m = leer();
-      if (!m.siempre || m.apagadaAMano) return;
+      if (m.siempre && m.apagadaAMano) return;
       const ps = await ollama.enMemoria();
       if (ps === null) return; // Ollama no contesta: ya lo intentará la próxima vuelta.
       const cargado = ps.find((x) => x.name === modelo);
       const vence = cargado?.expires_at ? Date.parse(cargado.expires_at) : Number.NaN;
+      if (!m.siempre) {
+        // Con plazo no carga nada, pero tampoco la deja cargada de más: si quedó sin límite (OLLAMA_KEEP_ALIVE=-1,
+        // o el modo "siempre" de antes), le pone el plazo desde ahora y Ollama la suelta al vencer.
+        const restante = Number.isFinite(vence) ? vence - ahora() : Number.POSITIVE_INFINITY;
+        if (cargado && restante > m.minutos * 60_000 + MARGEN_PLAZO_MS) await ollama.cargar(keepAlive(m));
+        return;
+      }
       if (cargado && Number.isFinite(vence) && vence - ahora() > MARGEN_SIEMPRE_MS) return;
       await ollama.cargar(SIEMPRE);
     });

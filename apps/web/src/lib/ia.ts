@@ -10,6 +10,8 @@ export type ControlIa = {
   siempre: boolean;
   minutos: number;
   modelo: string;
+  /** Es el respaldo de Claude: solo contesta cuando Claude falla (servidores anteriores no lo mandan). */
+  respaldo?: boolean;
   apagadaAMano: boolean;
   disponible: boolean;
   cargada: boolean;
