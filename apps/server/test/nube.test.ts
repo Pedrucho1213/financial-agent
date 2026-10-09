@@ -107,6 +107,13 @@ describe("Claude como IA", () => {
     expect(pedidos[1]!.cuerpo.model).toBe("gemma4:12b-it-qat");
   });
 
+  test("lo que asistente.ts pide al de la Mac no pasa por Claude", async () => {
+    const pedidos = simular();
+    const r = await generateText({ model: crearModelo(ia), prompt: "gasté 50 en un café", providerOptions: { nube: { enLaMac: true } }, maxRetries: 0 });
+    expect(r.text).toBe("local");
+    expect(pedidos.map((p) => p.url.includes("anthropic.com"))).toEqual([false]);
+  });
+
   test("sin respaldo, el error llega como antes", async () => {
     simular(529);
     const sinRespaldo = { ...ia, respaldo: "no" };

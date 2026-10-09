@@ -77,11 +77,15 @@ function crearModeloNube(ia: Config["ia"], modelo: string, alUsar?: () => void):
       return enLocal();
     }
   };
+  // asistente.ts pide el de la Mac (`nube: { enLaMac: true }`) cuando Claude contestó algo que no se puede decir.
+  const enLaMac = (params: Opciones) => !!respaldo && (params.providerOptions?.nube as { enLaMac?: unknown } | undefined)?.enLaMac === true;
   return wrapLanguageModel({
     model: principal,
     middleware: {
-      wrapGenerate: ({ params }) => conRespaldo(params, () => elegir(params).doGenerate(params), () => respaldo!.doGenerate(params)),
-      wrapStream: ({ params }) => conRespaldo(params, () => elegir(params).doStream(params), () => respaldo!.doStream(params)),
+      wrapGenerate: ({ params }) =>
+        enLaMac(params) ? respaldo!.doGenerate(params) : conRespaldo(params, () => elegir(params).doGenerate(params), () => respaldo!.doGenerate(params)),
+      wrapStream: ({ params }) =>
+        enLaMac(params) ? respaldo!.doStream(params) : conRespaldo(params, () => elegir(params).doStream(params), () => respaldo!.doStream(params)),
     },
   });
 }
