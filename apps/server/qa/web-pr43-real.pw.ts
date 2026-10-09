@@ -71,6 +71,8 @@ test("PR #43 contra servidor real: sin ingresos, con ingresos, refresco y 320 px
   await page.setViewportSize({ width: 320, height: 800 });
   await page.reload();
   await expect(page.getByTestId("cierre")).toBeVisible();
+  // Tras recargar corre la animación de entrada (translate): se mide cuando termina.
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth), { timeout: 5_000 }).toBeLessThanOrEqual(320);
   const ancho = await page.evaluate(() => document.documentElement.scrollWidth);
   const culpables = await page.evaluate(() => [...document.querySelectorAll("body *")].filter((e) => e.getBoundingClientRect().right > 320.5).map((e) => `${e.tagName}.${(e.className?.toString?.() ?? "").slice(0, 60)} [${e.closest("section")?.getAttribute("aria-label") ?? "-"}] r=${Math.round(e.getBoundingClientRect().right)} «${(e.textContent ?? "").slice(0, 40)}»`).slice(0, 15));
   console.log("ANCHO", ancho, "\n" + culpables.join("\n"));
