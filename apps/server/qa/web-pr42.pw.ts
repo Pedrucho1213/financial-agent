@@ -193,7 +193,7 @@ test.describe("QA #42 · casos límite", () => {
       console.log(hash, "→", nu.replace(/\s+/g, " ").slice(0, 200));
       expect(nu, hash).not.toMatch(/100\s?%/);
       expect(nu, hash).not.toMatch(/\$0(\.00)? (disponible|de cr)/i);
-      if (hash === "#cuenta?id=cta-nu") expect(page.getByText("Te pasaste del límite")).toHaveCount(0);
+      if (hash === "#cuenta?id=cta-nu") await expect(page.getByText("Te pasaste del límite")).toHaveCount(0);
     }
   });
 
