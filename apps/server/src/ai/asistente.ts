@@ -18,7 +18,7 @@ import { crearHerramientas, type Accion } from "./herramientas";
 import { comoVoySinModelo, CONSULTAS_ANALISIS } from "./herramientas-analisis";
 import { CONSULTAS_PLANES } from "./herramientas-planes";
 import { CONSULTAS_CUENTAS } from "./herramientas-cuentas";
-import { datoDeCuentas } from "../finanzas/cuentas";
+import { datoDeCuentas, hablaDeCuentas, nombresDeTarjetas } from "../finanzas/cuentas";
 import { correccionDeCuenta } from "./respaldo";
 
 export type Peticion = {
@@ -66,6 +66,8 @@ export type Dependencias = {
   notificaSinEspera?: (usuarioId: string) => boolean;
   /** Cuántos usuarios atiende la IA a la vez (OLLAMA_NUM_PARALLEL). Por omisión, uno. */
   paralelo?: number;
+  /** Cuánto razona en saldos, tarjetas y correcciones (IA_RAZONAMIENTO_DIFICIL); sin valor o "no", como lo demás. */
+  razonamientoDificil?: string;
 };
 
 export type OpcionesHablar = {
@@ -157,6 +159,21 @@ function resumenDeAnteriores(anteriores: Anterior[], zonaHoraria: string): strin
     return `- ${cuando.format(new Date(a.creadoEn))}: «${corto(a.texto)}»${dicha ? ` → «${corto(dicha)}»` : ""}`;
   });
   return `Lo que te dijo en los últimos días y lo que contestaste (ya está hecho: no lo registres otra vez; úsalo solo si habla de eso):\n${lineas.join("\n")}`;
+}
+
+// Lo mismo que dura una pregunta que llegó por notificación (push/dictados.ts).
+const VIGENCIA_PREGUNTA_MS = 5 * 60_000;
+
+/** Si lo último de la conversación (la respuesta que preguntó) fue hace poco. */
+function preguntaReciente(db: Db, usuarioId: string, conversacionId: string): boolean {
+  const ultimo = db
+    .select({ creadoEn: mensajes.creadoEn })
+    .from(mensajes)
+    .where(and(eq(mensajes.usuarioId, usuarioId), eq(mensajes.conversacionId, conversacionId)))
+    .orderBy(desc(mensajes.creadoEn), desc(sql`rowid`))
+    .limit(1)
+    .get();
+  return !!ultimo && Date.now() - Date.parse(ultimo.creadoEn) < VIGENCIA_PREGUNTA_MS;
 }
 
 /** Los últimos datos del usuario que ya están en la conversación. */
@@ -739,7 +756,10 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   const anterior = textoDe(historial.findLast((m) => m.role === "assistant" && textoDe(m) !== ""));
   // Solo una respuesta a una pregunta trae el monto o la cuenta de antes ("¿de cuánto?" → "15 mil"). Un turno
   // anterior cualquiera no: "Tengo 20 mil en Revolut" y luego "me llegó la quincena" no son $20,000 (W3).
-  ctx.enConversacion = anterior.includes("?");
+  // La pregunta tiene que ser de hace poco: el Atajo sigue la conversación media hora, y un "¿de cuánto fue lo del
+  // súper?" sin contestar no debe pegarse a un "pagué 300 de luz" de 10 minutos después (W3).
+  const pregunto = anterior.includes("?") && preguntaReciente(db, usuarioId, conversacionId);
+  ctx.enConversacion = pregunto;
   // Un pago de Apple Pay solo se anota: no necesita lo de días anteriores.
   const anteriores = entrada.origen === "voz" ? dictadosAnteriores(db, entrada) : [];
   const resumen = resumenDeAnteriores(anteriores, deps.zonaHoraria);
@@ -749,7 +769,7 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
     ...historial.filter((m) => m.role === "user").map(textoDe),
     ...(ctx.enConversacion ? [anterior] : []),
   ];
-  ctx.confiarEnMasReciente = anterior.includes("?") && PIDE_ELEGIR.test(normalizar(anterior));
+  ctx.confiarEnMasReciente = pregunto && PIDE_ELEGIR.test(normalizar(anterior));
   // Si un paso solo guardó, corrigió o borró, la confirmación se arma aquí y el modelo no da otra vuelta.
   let confirmacion: string | undefined;
   // Lo que cambia mientras se usa va en un mensaje aparte, antes del dictado, y se guarda con la
@@ -766,6 +786,13 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   const nota =
     montosDelTexto(entrada.texto).length > 0 && !esPregunta(entrada.texto) && !esOrdenSobreLoAnotado(entrada.texto)
       ? notaDelGasto(ctx, entrada.texto)
+      : undefined;
+  // Saldos, tarjetas y correcciones razonan antes de guardar: "no es lo que debo, es lo disponible" o "mi límite es
+  // de 57,400" piden entender qué cambia. Un gasto o una pregunta sencilla siguen sin razonar, en segundos.
+  const razonar =
+    deps.razonamientoDificil && deps.razonamientoDificil !== "no" && entrada.origen === "voz" &&
+    (hablaDeCuentas(entrada.texto, nombresDeTarjetas(ctx)) || esOrdenSobreLoAnotado(entrada.texto))
+      ? deps.razonamientoDificil
       : undefined;
   const generar = (aviso = "") => {
     confirmacion = undefined;
@@ -794,8 +821,10 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
         },
       ],
       temperature: 0.2,
-      // Las respuestas son de una o dos frases; esto solo frena a un modelo que no para de escribir.
-      maxOutputTokens: 600,
+      ...(razonar ? { providerOptions: { local: { reasoningEffort: razonar } } } : {}),
+      // Las respuestas son de una o dos frases; esto solo frena a un modelo que no para de escribir (lo que
+      // razona también cuenta).
+      maxOutputTokens: razonar ? 2500 : 600,
       maxRetries: 1,
       abortSignal: AbortSignal.timeout(90_000),
     });

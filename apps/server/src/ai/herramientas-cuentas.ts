@@ -49,6 +49,18 @@ const MUCHOS_PARA_ETIQUETAR = 30;
 // Sin cifra en la frase vale si pagó todo ("pagué el total de la Nu") o confirma lo que se le preguntó.
 const SIN_CIFRA_VALE = /\b(total|completo|completa|todo lo que debo|todo)\b|^(si|correcto|exacto|eso|asi es|andale|va|ok|okay|claro)\b/;
 
+// Lo que suele seguir a "mi tarjeta de crédito" sin ser su nombre: "en mi tarjeta de crédito tengo 7 mil".
+const NO_ES_NOMBRE = new Set(
+  "a al con de del el en es esta hay la las le lo los me mi mis para por que quedan queda se son su sus tengo tiene traigo un una y ya ahorita actualmente debo disponible disponibles limite saldo total".split(" "),
+);
+
+/** "Mi tarjeta no de crédito", "la tarjeta de crédito Nu": la frase le pone nombre a la tarjeta. */
+function otraTarjetaNombrada(texto: string): string | undefined {
+  const plano = normalizar(texto);
+  const nombre = plano.match(/\btarjeta (\w+) de credito\b/)?.[1] ?? plano.match(/\btarjeta de credito (\w+)/)?.[1];
+  return nombre && !NO_ES_NOMBRE.has(nombre) && !/^\d/.test(nombre) ? nombre : undefined;
+}
+
 const cifrasDe = (c: { saldo?: number; disponible?: number; deuda?: number; limite?: number }) =>
   [c.saldo, c.disponible, c.deuda, c.limite].filter((x) => x !== undefined);
 
@@ -110,6 +122,8 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
         if (texto && montosDelTexto(texto).length) {
           // "Mi tarjeta de crédito" con una sola tarjeta: el modelo puede llamarla por su nombre.
           const unicaDelTipo = (nombre: string) => {
+            // "En mi tarjeta Nu de crédito" oída como "tarjeta no de crédito": nombra otra tarjeta, no la única que hay.
+            if (otraTarjetaNombrada(texto)) return false;
             const tipo = inferirTipoCuenta(texto);
             const cuenta = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, nombre, { soloExistente: true, siAmbigua: "ninguna", soloLeer: true });
             return tipo !== "otra" && cuenta?.tipo === tipo && estadosDeCuentas(ctx).filter((e) => e.tipo === tipo).length === 1;
@@ -117,7 +131,10 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
           const nombradas = cuentas.filter((c) => cuentaMencionada(texto, c.cuenta) || unicaDelTipo(c.cuenta));
           // "Ahora tengo 18 mil en Revolut": el modelo a veces repite las otras que ya conoce (QA-086); esas se
           // quedan como estaban. Sin ninguna nombrada, solo vale si contesta una pregunta ("¿en cuál?" → "son 5 mil").
+          const otra = otraTarjetaNombrada(texto);
           if (nombradas.length) cuentas = nombradas;
+          else if (otra && !ctx.enConversacion)
+            throw new ErrorFinanzas(`Nombró otra tarjeta ("${otra}"), no ${cuentas[0]!.cuenta}: pregúntale cuál es; si es nueva, se crea con el nombre que diga.`);
           else if (!ctx.enConversacion) throw new ErrorFinanzas(`No dijo en qué cuenta o tarjeta: pregúntale dónde (no la elijas tú, no era "${cuentas[0]!.cuenta}").`);
         }
         // "Tengo 300 dólares en Wise": los saldos se llevan en pesos; no se guardan 300 pesos (QA-087). Con pesos

@@ -654,3 +654,42 @@ describe("Invex de Pedro (2026-10-09)", () => {
     expect([pesos(invex.limiteCentavos), pesos(invex.disponibleCentavos), pesos(invex.deudaCentavos)]).toEqual([57400, 37581.12, 19818.88]);
   });
 });
+
+// 2026-10-09 00:44Z: "En mi tarjeta Nu de crédito..." se dictó como "tarjeta no de crédito"; con Invex como única
+// tarjeta, el modelo le puso a Invex los 33,600 de la Nu y pisó su deuda.
+describe("la Nu de Pedro oída como 'no' (2026-10-09)", () => {
+  const DIJO_NU = "En mi tarjeta no de crédito tengo un límite disponible de 33,600 pesos";
+  const conInvex = () => {
+    const { ctx } = preparar();
+    fijarCuenta(dictado(ctx), { cuenta: "Invex", tipo: "credito", limite: 57400, deuda: 19818.88 });
+    return ctx;
+  };
+
+  test("no se lo pone a la única tarjeta que tiene: pregunta cuál es", async () => {
+    const ctx = conInvex();
+    const r = await llamar(dictado(ctx, DIJO_NU), "cuentas", { cuentas: [{ cuenta: "Invex", tipo: "credito", disponible: 33600 }] });
+    expect(r.error).toContain('Nombró otra tarjeta ("no")');
+    expect(pesos(estado(ctx, "Invex").deudaCentavos)).toBe(19818.88);
+    // Contesta "es la Nu": se crea como tarjeta de crédito con lo disponible que ya había dicho.
+    const ok = await llamar({ ...dictado(ctx, "es la Nu"), enConversacion: true, dichoAntes: [DIJO_NU] }, "cuentas", {
+      cuentas: [{ cuenta: "Nu", tipo: "credito", disponible: 33600 }],
+    });
+    expect(ok.error).toBeUndefined();
+    expect([estado(ctx, "Nu").tipo, pesos(estado(ctx, "Nu").disponibleCentavos)]).toEqual(["credito", 33600]);
+    expect(pesos(estado(ctx, "Invex").deudaCentavos)).toBe(19818.88);
+  });
+
+  test("bien oída, 'mi tarjeta de crédito Nu' crea la Nu y no toca Invex", async () => {
+    const ctx = conInvex();
+    const frase = "en mi tarjeta de crédito Nu tengo un crédito disponible de 33600 mxn";
+    expect((await llamar(dictado(ctx, frase), "cuentas", { cuentas: [{ cuenta: "Invex", disponible: 33600 }] })).error).toContain("Nombró otra tarjeta");
+    const ok = await llamar(dictado(ctx, frase), "cuentas", { cuentas: [{ cuenta: "Nu", disponible: 33600 }] });
+    expect(ok.confirmacion).toBe("Listo, en Nu te quedan $33,600 disponibles.");
+    expect(pesos(estado(ctx, "Invex").deudaCentavos)).toBe(19818.88);
+    // "Mi tarjeta de crédito" a secas con una sola tarjeta sigue valiendo.
+    const { ctx: otro } = preparar();
+    fijarCuenta(dictado(otro), { cuenta: "Invex", tipo: "credito", limite: 57400, deuda: 0 });
+    const generica = await llamar(dictado(otro, "en mi tarjeta de crédito tengo 30 mil disponibles"), "cuentas", { cuentas: [{ cuenta: "Invex", disponible: 30000 }] });
+    expect(generica.error).toBeUndefined();
+  });
+});

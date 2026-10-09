@@ -4,15 +4,15 @@ import { expect, test } from "bun:test";
 import { MockLanguageModelV4 } from "ai/test";
 import { crearApp } from "../src/app";
 import { crearDispositivo } from "../src/auth";
-import { entradas } from "../src/db/schema";
+import { entradas, mensajes } from "../src/db/schema";
 import { estadosDeCuentas } from "../src/finanzas/cuentas";
 import { llamada, preparar, texto } from "./ayuda";
 
-function montar(respuestas: unknown[]) {
+function montar(respuestas: unknown[], razonamientoDificil?: string) {
   const { db, usuario, ctx } = preparar();
   const token = crearDispositivo(db, usuario.id, "iPhone");
   const modelo = new MockLanguageModelV4({ doGenerate: respuestas as never });
-  const app = crearApp({ db, modelo, zonaHoraria: "America/Mexico_City", monedaBase: "MXN" });
+  const app = crearApp({ db, modelo, zonaHoraria: "America/Mexico_City", monedaBase: "MXN", razonamientoDificil });
   let n = 0;
   // Como el Atajo: sin espera_ms y, al abrirse otra vez, sin conversacion_id.
   const hablar = async (frase: string, conversacion_id?: string) => {
@@ -74,4 +74,40 @@ test("un dictado pasada la media hora empieza otra conversación, con lo anterio
   const r = await hablar("¿qué opinas de mis gastos?");
   expect(r.conversacion_id).not.toBe("vieja");
   expect(prompt(0)).toContain("gasté 50 en café");
+});
+
+test("saldos, tarjetas y correcciones razonan; un gasto sencillo no", async () => {
+  const { hablar, modelo } = montar(
+    [
+      llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 50, descripcion: "tacos" }] }),
+      llamada("cuentas", { cuentas: [{ cuenta: "Invex", limite: 57400 }] }),
+      texto("¿Lo que corriges es lo disponible de Invex?"),
+    ],
+    "low",
+  );
+  await hablar("gasté 50 en tacos", "a");
+  await hablar("mi límite de crédito de Invex es de 57,400", "b");
+  await hablar(CORRIGE, "c");
+  const esfuerzo = (i: number) => (modelo.doGenerateCalls[i]?.providerOptions?.local as { reasoningEffort?: string } | undefined)?.reasoningEffort;
+  expect([esfuerzo(0), esfuerzo(1), esfuerzo(2)]).toEqual([undefined, "low", "low"]);
+  expect(modelo.doGenerateCalls[0]?.maxOutputTokens).toBe(600);
+});
+
+test("una pregunta de hace 10 minutos ya no se contesta sola con el siguiente dictado; una de hace un minuto sí", async () => {
+  for (const [minutos, guardo] of [[10, false], [1, true]] as const) {
+    const { db, usuario, ctx, hablar } = montar([llamada("cuentas", { cuentas: [{ cuenta: "Revolut", saldo: 5000 }] }), texto("¿En qué cuenta?")]);
+    const hace = new Date(Date.now() - minutos * 60_000).toISOString();
+    db.insert(entradas)
+      .values({ usuarioId: usuario.id, clientId: "antes", conversacionId: "conv", texto: "quiero darte mis saldos", capturadoEn: hace, creadoEn: hace, estado: "listo", respuesta: { respuesta: "¿Cuánto tienes en Revolut?", conversacion_id: "conv", acciones: [] } })
+      .run();
+    db.insert(mensajes)
+      .values([
+        { usuarioId: usuario.id, conversacionId: "conv", contenido: { role: "user", content: "quiero darte mis saldos" }, creadoEn: hace },
+        { usuarioId: usuario.id, conversacionId: "conv", contenido: { role: "assistant", content: "¿Cuánto tienes en Revolut?" }, creadoEn: hace },
+      ])
+      .run();
+    const r = await hablar("son 5 mil");
+    expect(r.conversacion_id).toBe("conv");
+    expect(estadosDeCuentas(ctx).some((e) => e.nombre === "Revolut" && e.saldoCentavos === 500000)).toBe(guardo);
+  }
 });
