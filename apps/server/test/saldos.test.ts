@@ -724,6 +724,11 @@ describe("lo que gemma manda sin razonar (W6)", () => {
       cuentas: [{ cuenta: "Hey", tipo: "credito", limite: 20000, deuda: 10000, disponible: 10000 }],
     });
     expect(r.error).toBeUndefined();
+    // Las tres cifras que no cuadran tampoco se guardan.
+    const mal = await llamar(dictado(otro, "en Hey tengo límite de 20 mil, debo 10 mil y me quedan 8 mil"), "cuentas", {
+      cuentas: [{ cuenta: "Hey", limite: 20000, deuda: 10000, disponible: 8000 }],
+    });
+    expect(mal.error).toContain("no da el límite");
   });
 
   test("'tarjeta no de crédito' no crea la cuenta 'No de crédito': pregunta si es la Nu", async () => {

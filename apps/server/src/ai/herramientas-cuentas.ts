@@ -144,6 +144,11 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
               `Mandaste ${c.deuda} como disponible y también como deuda de ${c.cuenta}: es solo una de las dos. Si es lo que tiene o le queda, manda solo disponible; ` +
                 "si es lo que debe, solo deuda; si dio el límite, con eso basta. Si no se entiende, pregúntale.",
             );
+          // "Límite 57,400, debo 19,818 y me quedan 37,581": las tres cifras tienen que cuadrar.
+          if (c.limite !== undefined && c.disponible !== undefined && c.deuda !== undefined && Math.abs(c.disponible + c.deuda - c.limite) >= 1)
+            throw new ErrorFinanzas(
+              `Disponible ${c.disponible} más deuda ${c.deuda} no da el límite ${c.limite} de ${c.cuenta}. Manda solo las cifras que dijo tal cual (con el límite y una de las otras basta); si no cuadra lo que dijo, pregúntale.`,
+            );
           const nombre = normalizar(c.cuenta).replace(/^((con|la|el|en|mi|mis|tarjeta|cuenta|de|del|credito|debito)\s+)+/, "");
           if (/^no\b/.test(nombre) && !encontrarOCrearCuenta(ctx.db, ctx.usuarioId, c.cuenta, { soloExistente: true, soloLeer: true, siAmbigua: "ninguna" }))
             throw new ErrorFinanzas(`"${c.cuenta}" no es un nombre de tarjeta: el dictado suele oír "Nu" como "no". No crees esa cuenta; pregúntale si es su tarjeta Nu.`);
