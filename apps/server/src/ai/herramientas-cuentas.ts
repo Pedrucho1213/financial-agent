@@ -49,16 +49,21 @@ const MUCHOS_PARA_ETIQUETAR = 30;
 // Sin cifra en la frase vale si pagó todo ("pagué el total de la Nu") o confirma lo que se le preguntó.
 const SIN_CIFRA_VALE = /\b(total|completo|completa|todo lo que debo|todo)\b|^(si|correcto|exacto|eso|asi es|andale|va|ok|okay|claro)\b/;
 
-// Lo que suele seguir a "mi tarjeta de crédito" sin ser su nombre: "en mi tarjeta de crédito tengo 7 mil".
-const NO_ES_NOMBRE = new Set(
-  "a al con de del el en es esta hay la las le lo los me mi mis para por que quedan queda se son su sus tengo tiene traigo un una y ya ahorita actualmente ahora hoy solo todavia aun apenas tambien pero casi debo disponible disponibles limite saldo total".split(" "),
+// Emisores de tarjetas: "la tarjeta de crédito Nu". Después de "tarjeta de crédito" solo cuenta como nombre uno de
+// estos o una cuenta que ya tiene; "en mi tarjeta de crédito ahora tengo 7 mil" no nombra nada (QA-100).
+const EMISORES = new Set(
+  "nu bbva bancomer invex amex banamex citibanamex santander hsbc banorte scotiabank inbursa azteca banregio afirme liverpool rappi rappicard stori klar hey didi mercado costco sears suburbia coppel plata vexi spin".split(" "),
 );
 
 /** "Mi tarjeta no de crédito", "la tarjeta de crédito Nu": la frase le pone nombre a la tarjeta. */
-function otraTarjetaNombrada(texto: string): string | undefined {
+function otraTarjetaNombrada(ctx: Contexto, texto: string): string | undefined {
   const plano = normalizar(texto);
-  const nombre = plano.match(/\btarjeta (\w+) de credito\b/)?.[1] ?? plano.match(/\btarjeta de credito (\w+)/)?.[1];
-  return nombre && !NO_ES_NOMBRE.has(nombre) && !/^\d/.test(nombre) ? nombre : undefined;
+  // "Tarjeta X de crédito" (así se oyó "Nu" como "no"): X es el nombre.
+  const antes = plano.match(/\btarjeta (\w+) de credito\b/)?.[1];
+  if (antes && !/^\d/.test(antes) && !["mi", "la", "de", "su"].includes(antes)) return antes;
+  const despues = plano.match(/\btarjeta de credito (\w+)/)?.[1];
+  const conocidas = new Set(estadosDeCuentas(ctx).flatMap((e) => [e.nombre, ...e.alias].map((n) => normalizar(n))));
+  return despues && (EMISORES.has(despues) || conocidas.has(despues)) ? despues : undefined;
 }
 
 const cifrasDe = (c: { saldo?: number; disponible?: number; deuda?: number; limite?: number }) =>
@@ -123,7 +128,7 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
           // "Mi tarjeta de crédito" con una sola tarjeta: el modelo puede llamarla por su nombre.
           const unicaDelTipo = (nombre: string) => {
             // "En mi tarjeta Nu de crédito" oída como "tarjeta no de crédito": nombra otra tarjeta, no la única que hay.
-            if (otraTarjetaNombrada(texto)) return false;
+            if (otraTarjetaNombrada(ctx, texto)) return false;
             const tipo = inferirTipoCuenta(texto);
             const cuenta = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, nombre, { soloExistente: true, siAmbigua: "ninguna", soloLeer: true });
             return tipo !== "otra" && cuenta?.tipo === tipo && estadosDeCuentas(ctx).filter((e) => e.tipo === tipo).length === 1;
@@ -131,7 +136,7 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
           const nombradas = cuentas.filter((c) => cuentaMencionada(texto, c.cuenta) || unicaDelTipo(c.cuenta));
           // "Ahora tengo 18 mil en Revolut": el modelo a veces repite las otras que ya conoce (QA-086); esas se
           // quedan como estaban. Sin ninguna nombrada, solo vale si contesta una pregunta ("¿en cuál?" → "son 5 mil").
-          const otra = otraTarjetaNombrada(texto);
+          const otra = otraTarjetaNombrada(ctx, texto);
           if (nombradas.length) cuentas = nombradas;
           else if (otra && !ctx.enConversacion)
             throw new ErrorFinanzas(`Nombró otra tarjeta ("${otra}"), no ${cuentas[0]!.cuenta}: pregúntale cuál es; si es nueva, se crea con el nombre que diga.`);
