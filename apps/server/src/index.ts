@@ -1,6 +1,6 @@
 import { precalentar, reanudarPendientes, terminarEnCurso } from "./ai/asistente";
 import { crearControlIa, ollamaControl } from "./ai/encendido";
-import { crearModelo, esOllama, estadoModelo } from "./ai/modelo";
+import { crearModelo, esOllama, estadoModelo, modeloLocal } from "./ai/modelo";
 import { crearApp } from "./app";
 import { config } from "./config";
 import { abrirBaseDatos } from "./db/client";
@@ -10,10 +10,12 @@ import { tienePush } from "./push/notificaciones";
 import { programarRevisor, revisarPendientes } from "./finanzas/revisor";
 
 const db = abrirBaseDatos(config.baseDatos);
-// Interruptor de la IA (desarrollo): solo con Ollama, que es al que se le puede decir cuánto mantenerla.
+// Interruptor de la IA (desarrollo): solo con Ollama, que es al que se le puede decir cuánto mantenerla. Con Claude,
+// controla el modelo de respaldo.
+const local = modeloLocal(config.ia);
 const controlIa =
-  config.ia.interruptor && esOllama(config.ia)
-    ? crearControlIa({ db, modelo: config.ia.modelo, ollama: ollamaControl(config.ia.ollamaUrl, config.ia.modelo) })
+  config.ia.interruptor && esOllama(config.ia) && local
+    ? crearControlIa({ db, modelo: local, ollama: ollamaControl(config.ia.ollamaUrl, local) })
     : undefined;
 const deps = {
   db,

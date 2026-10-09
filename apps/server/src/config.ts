@@ -25,6 +25,12 @@ export const config = {
     url: env("IA_URL", "http://localhost:11434/v1"),
     modelo: env("IA_MODELO", "gemma4:12b-it-qat"),
     apiKey: env("IA_API_KEY", "ollama"),
+    // Claude por la API de Anthropic: IA_MODELO=claude-... y la clave en ANTHROPIC_API_KEY (solo en el .env de la Mac).
+    claveNube: process.env.ANTHROPIC_API_KEY?.trim() || undefined,
+    // Con Claude, otro modelo para saldos, tarjetas y correcciones (por ejemplo claude-sonnet-5-5). Sin valor, el mismo.
+    modeloDificil: env("IA_MODELO_DIFICIL", ""),
+    // Con Claude, el modelo de Ollama que contesta si la nube falla (sin internet, sin créditos). "no" para ninguno.
+    respaldo: env("IA_RESPALDO", "gemma4:12b-it-qat"),
     // Solo para Ollama: permite despertar el modelo antes de que termines de dictar.
     ollamaUrl: process.env.OLLAMA_URL?.trim() || "http://localhost:11434",
     // Ollama 0.32.5 todavía ignora este valor en su API compatible con OpenAI y usa OLLAMA_KEEP_ALIVE
