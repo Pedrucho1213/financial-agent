@@ -263,12 +263,13 @@ function sinPreguntasDeMas(texto: string): string {
 // Lo que Claude a veces escribe antes de contestar (sin razonar, piensa en el texto): "This looks like a new
 // expense... I'll ask." o "Este mensaje es idéntico, así que pregunto, como indican las reglas." No se le dice a Pedro.
 const EN_INGLES =
-  /\b(the|this|that|these|those|is|are|was|were|it|its|it's|i|i'll|i'm|i've|should|would|will|whether|rather|than|user|looks|which|there|they|with|from|about|already|ask|asking|expense|amount|rules|per|and|or|not|be|have|of|to|in|on|if|let|now|at|an|same|message|shows|one|new|so|but|just|my|your|we|you|do|does|did|can|need|here|what|when|how|also|as|by|for|because|since|again|ago|seems|likely)\b/g;
+  /\b(the|this|that|these|those|is|are|was|were|it|its|it's|i|i'll|i'm|i've|should|would|will|whether|rather|than|user|looks|which|there|they|with|from|about|already|ask|asking|expense|amount|rules|per|and|or|not|be|have|of|to|in|on|if|let|now|at|an|same|message|shows|one|new|so|but|just|my|your|we|you|do|does|did|can|need|here|what|when|how|also|as|by|for|because|since|again|ago|seems|likely|identical|entry|recent|duplicate|log|logged|previous)\b/g;
 const HABLA_DE_SUS_REGLAS =
   /\b(las|mis|tus|estas|esas|sus) (reglas|instrucciones|indicaciones)\b|\binstrucciones\b|\bprompt\b|\beste mensaje\b/;
 
 function esRazonamiento(frase: string): boolean {
-  const limpia = normalizar(frase);
+  // Lo que cita entre comillas o paréntesis ("gasté 50 en un café", "jue 21:07") no cuenta como español.
+  const limpia = normalizar(frase.replace(/"[^"]*"|“[^”]*”|«[^»]*»|\([^)]*\)/g, " "));
   const palabras = limpia.split(/\s+/).filter((p) => /[a-zñ]/.test(p)).length;
   const ingles = limpia.match(EN_INGLES)?.length ?? 0;
   return /<\/?sistema>/.test(frase) || HABLA_DE_SUS_REGLAS.test(limpia) || (ingles >= 2 && ingles >= palabras * 0.3);

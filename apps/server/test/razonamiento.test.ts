@@ -18,4 +18,6 @@ test("se quita lo que piensa en voz alta y queda lo que se le dice", () => {
   expect(sinRazonamiento("The user repeated the same expense. I'll ask. ¿Otro café de $50?")).toBe("¿Otro café de $50?");
   expect(sinRazonamiento("Como indican mis instrucciones, pregunto primero. ¿Es otra compra?")).toBe("¿Es otra compra?");
   expect(sinRazonamiento("Let me check the balance first.")).toBe("");
+  // Lo que dio Claude en la Mac sobre f399037: la cita en español no la salva.
+  expect(sinRazonamiento('This is an identical recent entry (jue 21:07: "gasté 50 pesos en un café"). ¿Otro café de 50 pesos?')).toBe("¿Otro café de 50 pesos?");
 });
