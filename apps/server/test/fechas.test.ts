@@ -99,6 +99,10 @@ describe("montos dichos con palabras", () => {
     expect(montosDelTexto("Mil doscientos cincuenta de súper")).toEqual([1250]);
     expect(montosDelTexto("Dos mil quinientos de luz")).toEqual([2500]);
     expect(montosDelTexto("ochenta y cinco pesos en un café")).toEqual([85]);
+    // El dictado parte los centavos con un espacio (2026-10-09); "100. 20 personas" sigue siendo dos números.
+    expect(montosDelTexto("en Invex tengo un total de 37,581. 21 pesos")).toEqual([37581.21]);
+    expect(montosDelTexto("tengo 37,581. 21")).toEqual([37581.21]);
+    expect(montosDelTexto("pagué 100. 20 personas fueron")).toEqual([100, 20]);
     expect(montosDelTexto("veintitrés mil cuatrocientos")).toEqual([23400]);
     expect(montosDelTexto("Me pagaron la quincena, 12 mil")).toEqual([12000]);
     expect(montosDelTexto("Gasté 1.5k en ropa")).toEqual([1500]);

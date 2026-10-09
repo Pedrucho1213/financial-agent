@@ -1,5 +1,5 @@
 import { generateText, isStepCount, type LanguageModel, type ModelMessage } from "ai";
-import { and, asc, desc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { cuentas, entradas, mensajes, movimientos } from "../db/schema";
 import { type Contexto, crearContexto } from "../finanzas/contexto";
@@ -100,6 +100,63 @@ function cargarHistorial(db: Db, usuarioId: string, conversacionId: string): Mod
   const inicio = recientes.findIndex((m) => m.role === "user");
   if (inicio === -1) return [];
   return recientes.slice(inicio > 0 && recientes[inicio - 1]!.role === "system" ? inicio - 1 : inicio);
+}
+
+// Cada vez que se abre el Atajo empieza sin conversación. Si vuelve a dictar mientras la anterior sigue vigente,
+// casi siempre sigue con lo mismo ("ese registro que acabas de hacer no es lo que debo"): sin el turno anterior,
+// el modelo no sabía de qué hablaba y llegó a inventar saldos (2026-10-09).
+/** La conversación del último dictado por voz si sigue vigente, para seguirla. */
+export function conversacionReciente(db: Db, usuarioId: string, ahora = Date.now()): string | undefined {
+  const ultima = db
+    .select({ conversacionId: entradas.conversacionId, creadoEn: entradas.creadoEn })
+    .from(entradas)
+    .where(and(eq(entradas.usuarioId, usuarioId), eq(entradas.origen, "voz")))
+    .orderBy(desc(sql`rowid`))
+    .limit(1)
+    .get();
+  return ultima && ahora - Date.parse(ultima.creadoEn) < VIGENCIA_CONVERSACION_MS ? ultima.conversacionId : undefined;
+}
+
+// Lo de los últimos días que ya no está en el historial va resumido: qué dijo y qué contestó. Así entiende
+// "corrige el disponible de Invex" un día después sin cargar días de conversación, que con gemma4 es lento y la
+// confunde. Los pagos de Apple Pay no: su texto lo escribe el comercio.
+const DIAS_RESUMEN = 3;
+const MAX_RESUMEN = 12;
+
+type Anterior = { texto: string; respuesta: unknown; creadoEn: string };
+
+function dictadosAnteriores(db: Db, entrada: Entrada): Anterior[] {
+  const ahora = Date.parse(entrada.capturadoEn);
+  const enHistorial = new Date(Date.now() - VIGENCIA_CONVERSACION_MS).toISOString();
+  return db
+    .select({ texto: entradas.texto, respuesta: entradas.respuesta, creadoEn: entradas.creadoEn })
+    .from(entradas)
+    .where(
+      and(
+        eq(entradas.usuarioId, entrada.usuarioId),
+        eq(entradas.origen, "voz"),
+        eq(entradas.estado, "listo"),
+        ne(entradas.id, entrada.id),
+        gte(entradas.creadoEn, new Date(ahora - DIAS_RESUMEN * 86_400_000).toISOString()),
+        lt(entradas.creadoEn, entrada.creadoEn),
+        or(ne(entradas.conversacionId, entrada.conversacionId), lt(entradas.creadoEn, enHistorial)),
+      ),
+    )
+    .orderBy(desc(sql`rowid`))
+    .limit(MAX_RESUMEN)
+    .all()
+    .reverse();
+}
+
+function resumenDeAnteriores(anteriores: Anterior[], zonaHoraria: string): string | undefined {
+  if (!anteriores.length) return undefined;
+  const cuando = new Intl.DateTimeFormat("es-MX", { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: zonaHoraria });
+  const corto = (t: string) => (t.length > 200 ? `${t.slice(0, 200)}…` : t);
+  const lineas = anteriores.map((a) => {
+    const dicha = (a.respuesta as Respuesta | null)?.respuesta;
+    return `- ${cuando.format(new Date(a.creadoEn))}: «${corto(a.texto)}»${dicha ? ` → «${corto(dicha)}»` : ""}`;
+  });
+  return `Lo que te dijo en los últimos días y lo que contestaste (ya está hecho: no lo registres otra vez; úsalo solo si habla de eso):\n${lineas.join("\n")}`;
 }
 
 /** Los últimos datos del usuario que ya están en la conversación. */
@@ -683,6 +740,15 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   // Solo una respuesta a una pregunta trae el monto o la cuenta de antes ("¿de cuánto?" → "15 mil"). Un turno
   // anterior cualquiera no: "Tengo 20 mil en Revolut" y luego "me llegó la quincena" no son $20,000 (W3).
   ctx.enConversacion = anterior.includes("?");
+  // Un pago de Apple Pay solo se anota: no necesita lo de días anteriores.
+  const anteriores = entrada.origen === "voz" ? dictadosAnteriores(db, entrada) : [];
+  const resumen = resumenDeAnteriores(anteriores, deps.zonaHoraria);
+  // "Ese registro no es lo que debo, es lo que tengo disponible": la cifra la dijo en un turno anterior.
+  ctx.dichoAntes = [
+    ...anteriores.map((a) => a.texto),
+    ...historial.filter((m) => m.role === "user").map(textoDe),
+    ...(ctx.enConversacion ? [anterior] : []),
+  ];
   ctx.confiarEnMasReciente = anterior.includes("?") && PIDE_ELEGIR.test(normalizar(anterior));
   // Si un paso solo guardó, corrigió o borró, la confirmación se arma aquí y el modelo no da otra vuelta.
   let confirmacion: string | undefined;
@@ -708,7 +774,13 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
     return generateText({
       model: deps.modelo,
       instructions: construirInstrucciones(ctx),
-      messages: [...historialVigente, ...(datos ? [{ role: "system" as const, content: datos }] : []), mensajeUsuario],
+      // El resumen va aparte y no se guarda: cambia en cada turno y Ollama sigue reutilizando los datos de antes.
+      messages: [
+        ...historialVigente,
+        ...(datos ? [{ role: "system" as const, content: datos }] : []),
+        ...(resumen ? [{ role: "system" as const, content: resumen }] : []),
+        mensajeUsuario,
+      ],
       allowSystemInMessages: true,
       tools: herramientasPara(entrada, crearHerramientas(ctx, acciones)),
       stopWhen: [

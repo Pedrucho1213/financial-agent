@@ -235,7 +235,7 @@ const diaValido = (dia: number | undefined, que: string) => {
 export function fijarCuenta(ctx: Contexto, datos: DatosCuenta): { estado: EstadoCuenta; nueva: boolean; dijo: string[] } {
   let saldo = montoValido(datos.saldo, "El saldo", true);
   let disponible = montoValido(datos.disponible, "El disponible", true);
-  const deuda = montoValido(datos.deuda, "La deuda", true);
+  let deuda = montoValido(datos.deuda, "La deuda", true);
   const limite = datos.limite === null ? null : montoValido(datos.limite, "El límite");
   const diaCorte = datos.diaCorte === null ? null : diaValido(datos.diaCorte, "corte");
   const diaPago = datos.diaPago === null ? null : diaValido(datos.diaPago, "pago");
@@ -257,9 +257,16 @@ export function fijarCuenta(ctx: Contexto, datos: DatosCuenta): { estado: Estado
   let tipo = datos.tipo ?? encontrada.tipo;
   if (tipo !== "credito" && !deCredito && disponible !== undefined && saldo === undefined) [saldo, disponible] = [disponible, undefined];
   // En una tarjeta, "tengo 7 mil en la Invex" es lo disponible; "tengo un saldo de 3 mil" o "debo 3 mil", la deuda.
-  if ((tipo === "credito" || deCredito) && saldo !== undefined && disponible === undefined && deuda === undefined) {
-    const diceDeuda = /\b(debo|deuda|adeudo|ocupad[oa]s?|usad[oa]s?|saldo|gastad[oa]s?|corte)\b/.test(plano);
-    if (!diceDeuda && /\b(disponibles?|tengo|me quedan?|libres?|traigo)\b/.test(plano)) [disponible, saldo] = [saldo, undefined];
+  // El modelo también la manda como deuda: "en mi tarjeta Invex tengo un total de 37 mil" es lo disponible (2026-10-09).
+  // Con el límite en la misma frase no: "tengo 30 mil de límite y llevo 10 mil" sí es deuda.
+  const unaSola = saldo !== undefined ? deuda === undefined : deuda !== undefined && limite === undefined;
+  if ((tipo === "credito" || deCredito) && disponible === undefined && unaSola) {
+    const diceDeuda = /\b(debo|deuda|adeudo|ocupad[oa]s?|usad[oa]s?|saldo|gastad[oa]s?|corte|pagar)\b/.test(plano);
+    if (!diceDeuda && /\b(disponibles?|tengo|me quedan?|libres?|traigo)\b/.test(plano)) {
+      disponible = saldo ?? deuda;
+      saldo = undefined;
+      deuda = undefined;
+    }
   }
   // Límite, deuda o disponible solo los tiene una tarjeta de crédito.
   if (deCredito && tipo !== "credito") {

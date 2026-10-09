@@ -21,6 +21,8 @@ function plano(texto: string): string[] {
     .toLowerCase()
     // Conserva "1,899" y "47.50"; lo demás que no sea letra o número separa palabras.
     .replace(/(\d)[,](?=\d{3}\b)/g, "$1")
+    // El dictado parte los centavos: "37,581. 21 pesos" es 37581.21.
+    .replace(/(\d)\. (\d{2})(?= *(pesos|mxn)?\W*$| +pesos\b)/g, "$1.$2")
     .replace(/[^a-z0-9ñ. ]/g, " ")
     .replace(/\.(?!\d)/g, " ")
     .split(/\s+/)
