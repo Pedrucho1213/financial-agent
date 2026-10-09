@@ -70,6 +70,16 @@ class Revision {
   usado = (nombre: string) => this.credito(nombre, "usado");
   disponible = (nombre: string) => this.credito(nombre, "disponible");
   existe = (nombre: string) => cuentaPorNombre(this.despues, nombre) !== undefined;
+  /** Cuentas cuyo nombre contiene `nombre`, de crédito o no ("Revolut" débito y "Revolut crédito" a la vez). */
+  cuentasCon(nombre: string, credito: boolean) {
+    const b = normalizar(nombre);
+    return this.despues.cuentas.filter((c) => normalizar(c.nombre).includes(b) && (c.tipo === "credito") === credito);
+  }
+  /** Saldo, límite, usado o disponible de una cuenta concreta. */
+  de(c: { id: string; nombre: string } | undefined, campo: "saldo" | "limite" | "usado" | "disponible") {
+    if (!this.despues.credito) throw new Pendiente(`el servidor todavía no expone ${campo}`);
+    return c ? (this.despues.credito.get(c.id) ?? this.despues.credito.get(c.nombre))?.[campo] : undefined;
+  }
   cuentasNuevas() {
     const previas = new Set(this.antes.cuentas.map((c) => c.id));
     return this.despues.cuentas.filter((c) => !previas.has(c.id));
@@ -147,6 +157,14 @@ const NU_PEDRO = "En mi tarjeta de crédito Nu tengo un crédito disponible de 3
 const NU_OIDA_NO = "En mi tarjeta no de crédito tengo un límite disponible de 33,600 pesos";
 const INVEX_ESTADO = "Mi tarjeta de crédito Invex tiene un límite de 57,400 y debo 19,818.88";
 const INVEX_INTACTA = (r: Revision) => cerca(r.limite("invex"), 57400) && cerca(r.usado("invex"), 19818.88);
+// Revolut de crédito además de la de débito, y Mercado Pago (01:23–01:25Z, frases exactas de la base).
+const REVOLUT_LIMITE = "Tengo un límite de 34,000 pesos mexicanos en mi tarjeta de crédito de Revolut";
+const REVOLUT_LIMITE_2 = "El límite disponible de mi tarjeta de crédito Revolut de 34,000 pesos";
+const REVOLUT_DISPONIBLE = "En mi tarjeta de crédito Revolut tengo un saldo disponible de 6701.05 pesos";
+const MP_LIMITE = "En mi tarjeta de Mercado pago de crédito tengo un límite total de 33,200 pesos";
+const MP_CORTADA = "Mi límite total es de 33,200 pesos en mi tarjeta de crédito Mercado pago y tengo un disponible";
+const MP_DISPONIBLE = "En mi tarjeta de crédito de Mercado pago me queda disponible 3607 pesos";
+const DEBITO_REVOLUT_INTACTA = (r: Revision) => r.cuentasCon("revolut", false).length === 1 && cerca(r.de(r.cuentasCon("revolut", false)[0], "saldo"), 19291);
 const SIN_EFECTIVO = (r: Revision) => !r.existe("efectivo") || r.saldo("efectivo") == null;
 // Ningún saldo de los ejemplos de las instrucciones (Revolut 20 mil, Bancomer 10 mil, Efectivo 5 mil, Nu 7 mil) sin decirlo.
 const SIN_EJEMPLOS = (r: Revision) => SIN_EFECTIVO(r) && !r.existe("bancomer") && !r.existe("nu") && !cerca(r.saldo("revolut"), 20000);
@@ -285,6 +303,14 @@ const CASOS: Caso[] = [
   { grupo: "pedro", frase: "Es la Nu", previos: [REVOLUT_PEDRO, INVEX_ESTADO, NU_OIDA_NO], verificar: (r) => no(INVEX_INTACTA(r) && cerca(r.disponible("nu"), 33600) && !(r.usado("nu") ?? 0) && r.nuevos().length === 0, { l: r.limite("invex"), u: r.usado("invex"), nu: r.disponible("nu"), resp: r.respuesta }), nota: "contesta cuál: crea la Nu con 33,600 disponibles" },
   // Con una sola tarjeta, "mi tarjeta de crédito ahora/solo/todavía…" es esa: no preguntar de más (QA-100).
   ...["En mi tarjeta de crédito ahora tengo 7 mil disponibles", "En mi tarjeta de crédito solo tengo 7 mil disponibles", "En mi tarjeta de crédito todavía tengo 7 mil disponibles"].map((frase): Caso => ({ grupo: "pedro", frase, previos: NU, verificar: (r) => no(cerca(r.disponible("nu"), 7000) && cerca(r.limite("nu"), 30000) && r.cuentasNuevas().length === 0, { d: r.disponible("nu"), nuevas: r.cuentasNuevas().map((c) => c.nombre), resp: r.respuesta }), nota: "una sola tarjeta: es esa, sin preguntar ni crear otra" })),
+  // Revolut de crédito: no es la cuenta de débito (19,291 se queda).
+  { grupo: "pedro", frase: REVOLUT_LIMITE, previos: [REVOLUT_PEDRO], verificar: (r) => { const t = r.cuentasCon("revolut", true); return no(t.length === 1 && cerca(r.de(t[0], "limite"), 34000) && DEBITO_REVOLUT_INTACTA(r), { tarjetas: t.map((c) => c.nombre), l: r.de(t[0], "limite"), cuentas: r.despues.cuentas.map((c) => `${c.nombre}:${c.tipo}`) }); }, nota: "crea la tarjeta Revolut aparte de la de débito" },
+  { grupo: "pedro", frase: REVOLUT_DISPONIBLE, previos: [REVOLUT_PEDRO, REVOLUT_LIMITE, REVOLUT_LIMITE_2], verificar: (r) => { const t = r.cuentasCon("revolut", true); return no(t.length === 1 && cerca(r.de(t[0], "limite"), 34000) && cerca(r.de(t[0], "disponible"), 6701.05) && cerca(r.de(t[0], "usado"), 27298.95) && DEBITO_REVOLUT_INTACTA(r) && r.nuevos().length === 0, { tarjetas: t.map((c) => c.nombre), l: r.de(t[0], "limite"), d: r.de(t[0], "disponible"), u: r.de(t[0], "usado"), cuentas: r.despues.cuentas.map((c) => `${c.nombre}:${c.tipo}`) }); }, nota: "límite 34,000 y disponible 6,701.05: debe 27,298.95" },
+  // Mercado Pago: el nombre sin "de crédito"; una frase cortada no guarda disponible = límite.
+  { grupo: "pedro", frase: MP_LIMITE, previos: [REVOLUT_PEDRO], verificar: (r) => { const t = r.cuentasCon("mercado", true); return no(t.length === 1 && normalizar(t[0]!.nombre) === "mercado pago" && cerca(r.de(t[0], "limite"), 33200), { tarjetas: r.despues.cuentas.map((c) => `${c.nombre}:${c.tipo}`), l: r.de(t[0], "limite") }); }, nota: "se llama Mercado Pago" },
+  { grupo: "pedro", frase: MP_CORTADA, previos: [REVOLUT_PEDRO, MP_LIMITE], verificar: (r) => { const t = r.cuentasCon("mercado", true); return no(t.length === 1 && cerca(r.de(t[0], "limite"), 33200) && !cerca(r.de(t[0], "disponible"), 33200) && !(r.de(t[0], "usado") ?? 0), { l: r.de(t[0], "limite"), d: r.de(t[0], "disponible"), u: r.de(t[0], "usado"), resp: r.respuesta }); }, nota: "frase cortada: no inventa el disponible (pregunta cuánto)" },
+  { grupo: "pedro", frase: MP_DISPONIBLE, previos: [REVOLUT_PEDRO, MP_LIMITE, MP_CORTADA], verificar: (r) => { const t = r.cuentasCon("mercado", true); return no(t.length === 1 && cerca(r.de(t[0], "limite"), 33200) && cerca(r.de(t[0], "disponible"), 3607) && cerca(r.de(t[0], "usado"), 29593) && DEBITO_REVOLUT_INTACTA(r), { l: r.de(t[0], "limite"), d: r.de(t[0], "disponible"), u: r.de(t[0], "usado"), tarjetas: t.map((c) => c.nombre) }); }, nota: "disponible 3,607: debe 29,593" },
+  { grupo: "pedro", separados: true, frase: MP_DISPONIBLE, previos: [REVOLUT_PEDRO, MP_LIMITE], verificar: (r) => { const t = r.cuentasCon("mercado", true); return no(t.length === 1 && cerca(r.de(t[0], "disponible"), 3607) && cerca(r.de(t[0], "usado"), 29593), { d: r.de(t[0], "disponible"), u: r.de(t[0], "usado"), tarjetas: t.map((c) => c.nombre) }); }, nota: "otro día: encuentra Mercado Pago y calcula la deuda" },
 ];
 
 // ── Corredor ─────────────────────────────────────────────────────────────────────────────────
