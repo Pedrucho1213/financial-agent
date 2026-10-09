@@ -1,7 +1,7 @@
 // Web Push sin dependencias: cifrado del mensaje (RFC 8291, aes128gcm) y firma VAPID (RFC 8292).
 // Es lo que hace llegar una notificación a la app instalada en la pantalla de inicio del iPhone
 // (iOS 16.4+), que el servicio de Apple reenvía también al Apple Watch.
-import { createCipheriv, createECDH, createPrivateKey, generateKeyPairSync, hkdfSync, randomBytes, sign } from "node:crypto";
+import { createCipheriv, createECDH, createHash, createPrivateKey, generateKeyPairSync, hkdfSync, randomBytes, sign } from "node:crypto";
 
 /** Lo que el navegador entrega al suscribirse (PushSubscription.toJSON()). */
 export type Suscripcion = { endpoint: string; p256dh: string; auth: string };
@@ -106,6 +106,13 @@ export type OpcionesEnvio = {
   fetch?: typeof fetch;
 };
 
+/**
+ * El encabezado Topic que sale de una etiqueta. Apple contestó 400 BadWebPushTopic a "listo-version", que el
+ * RFC 8030 permite; 32 caracteres hexadecimales caben en cualquier lectura de la regla. La misma etiqueta da el
+ * mismo tema, así que un mensaje nuevo sigue reemplazando al anterior.
+ */
+export const temaPush = (etiqueta: string) => createHash("sha256").update(etiqueta).digest("hex").slice(0, 32);
+
 export type ResultadoEnvio = {
   ok: boolean;
   estado: number;
@@ -137,7 +144,7 @@ export async function enviarPush(
     TTL: String(opciones.ttl ?? 24 * 3600),
     Urgency: opciones.urgencia ?? "normal",
   };
-  if (opciones.tema) encabezados.Topic = opciones.tema.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32);
+  if (opciones.tema) encabezados.Topic = temaPush(opciones.tema);
   try {
     const res = await (opciones.fetch ?? fetch)(suscripcion.endpoint, {
       method: "POST",

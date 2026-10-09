@@ -8,8 +8,8 @@ import { avisos, dispositivos, movimientos, suscripcionesPush } from "../src/db/
 import { fraseDePago, montoDeWallet, pagoDeFrase, pagoDeTransaccion } from "../src/finanzas/applepay";
 import { enviarAvisosDelDia } from "../src/push/avisos-manana";
 import { notificacionDeDictado } from "../src/push/dictados";
-import { clavesVapid, type EnviarPush, ErrorSuscripcion, espera, notificar, suscribir } from "../src/push/notificaciones";
-import { cifrar, endpointValido, enviarPush, firmaVapid, generarClavesVapid } from "../src/push/webpush";
+import { clavesVapid, type EnviarPush, ErrorSuscripcion, espera, notificar, suscribir, tienePush } from "../src/push/notificaciones";
+import { cifrar, endpointValido, enviarPush, firmaVapid, generarClavesVapid, temaPush } from "../src/push/webpush";
 import { llamada, preparar, texto } from "./ayuda";
 
 const RESPUESTA_RAPIDA = RESPUESTAS_RAPIDAS[0];
@@ -85,7 +85,7 @@ describe("Web Push", () => {
     expect(h["Content-Encoding"]).toBe("aes128gcm");
     expect(h.Authorization).toMatch(/^vapid t=[\w-]+\.[\w-]+\.[\w-]+, k=[\w-]{87}$/);
     expect(h.Urgency).toBe("high");
-    expect(h.Topic).toBe("dictado-12");
+    expect(h.Topic).toBe(temaPush("dictado-1/2"));
     expect(Number(h.TTL)).toBeGreaterThan(0);
   });
 });
@@ -129,6 +129,44 @@ describe("suscripciones", () => {
     };
     expect(await notificar(db, usuario.id, { titulo: "t", cuerpo: "c" }, enviar)).toBe(1);
     expect(estados).toEqual([]);
+  });
+
+  test("el Topic siempre son 32 caracteres hexadecimales, y la misma etiqueta da el mismo", () => {
+    // Apple contestó 400 BadWebPushTopic a "listo-version"; "avisos-AAAA-MM-DD" tiene el mismo largo problemático.
+    for (const etiqueta of ["listo-version", "avisos-2026-10-07", "prueba", `dictado-${crypto.randomUUID()}`, "ñ/á?"]) {
+      expect(temaPush(etiqueta)).toMatch(/^[0-9a-f]{32}$/);
+      expect(temaPush(etiqueta)).toBe(temaPush(etiqueta));
+    }
+    expect(temaPush("avisos-2026-10-07")).not.toBe(temaPush("avisos-2026-10-08"));
+  });
+
+  test("un 400 con tema se reintenta sin tema y no marca la suscripción como rota", async () => {
+    const { db, usuario } = preparar();
+    suscribir(db, usuario.id, crearDispositivoConId(db, usuario.id, "iPhone"), {
+      endpoint: ENDPOINT,
+      ...LLAVES,
+      contacto: "mailto:a@b.mx",
+      enIphone: true,
+    });
+    const temas: (string | undefined)[] = [];
+    const enviar: EnviarPush = async (_s, _m, _c, _contacto, opciones) => {
+      temas.push(opciones?.tema);
+      return opciones?.tema
+        ? { ok: false, estado: 400, vencida: false, detalle: '{"reason":"BadWebPushTopic"}' }
+        : { ok: true, estado: 201, vencida: false };
+    };
+    expect(await notificar(db, usuario.id, { titulo: "t", cuerpo: "c", etiqueta: "listo-version" }, enviar)).toBe(1);
+    expect(temas).toEqual(["listo-version", undefined]);
+    expect(db.select().from(suscripcionesPush).get()!.ultimoError).toBeNull();
+    expect(tienePush(db, usuario.id)).toBe(true);
+    // Sin tema, un 400 no se reintenta: es de la suscripción o del mensaje.
+    temas.length = 0;
+    const siempre400: EnviarPush = async (_s, _m, _c, _contacto, opciones) => (
+      temas.push(opciones?.tema), { ok: false, estado: 400, vencida: false, detalle: "BadDeviceToken" }
+    );
+    expect(await notificar(db, usuario.id, { titulo: "t", cuerpo: "c" }, siempre400)).toBe(0);
+    expect(temas).toEqual([undefined]);
+    expect(db.select().from(suscripcionesPush).get()!.ultimoError).toContain("400");
   });
 
   test("las llaves VAPID se crean una vez y se conservan", () => {
