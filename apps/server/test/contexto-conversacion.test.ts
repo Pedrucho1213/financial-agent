@@ -76,21 +76,33 @@ test("un dictado pasada la media hora empieza otra conversación, con lo anterio
   expect(prompt(0)).toContain("gasté 50 en café");
 });
 
-test("saldos, tarjetas y correcciones razonan; un gasto sencillo no", async () => {
+test("saldos, tarjetas y correcciones razonan solo si la herramienta rechaza el primer intento; un gasto nunca", async () => {
   const { hablar, modelo } = montar(
     [
       llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 50, descripcion: "tacos" }] }),
+      // Cifras que no dijo: la guarda las rechaza y el siguiente paso ya razona.
+      llamada("cuentas", { cuentas: [{ cuenta: "Invex", limite: 30000, deuda: 10000 }] }),
+      texto("¿Cuánto tienes disponible en Invex?"),
       llamada("cuentas", { cuentas: [{ cuenta: "Invex", limite: 57400 }] }),
-      texto("¿Lo que corriges es lo disponible de Invex?"),
     ],
     "low",
   );
   await hablar("gasté 50 en tacos", "a");
   await hablar("mi límite de crédito de Invex es de 57,400", "b");
-  await hablar(CORRIGE, "c");
+  await hablar("mi límite de crédito de Invex es de 57,400", "c");
   const esfuerzo = (i: number) => (modelo.doGenerateCalls[i]?.providerOptions?.local as { reasoningEffort?: string } | undefined)?.reasoningEffort;
-  expect([esfuerzo(0), esfuerzo(1), esfuerzo(2)]).toEqual([undefined, "low", "low"]);
-  expect(modelo.doGenerateCalls[0]?.maxOutputTokens).toBe(600);
+  // QA, W6: razonar desde el primer paso hacía los saldos 3 o 4 veces más lentos.
+  expect([esfuerzo(0), esfuerzo(1), esfuerzo(2), esfuerzo(3)]).toEqual([undefined, undefined, "low", undefined]);
+  expect(modelo.doGenerateCalls.map((c) => c.maxOutputTokens)).toEqual([600, 600, 2500, 600]);
+});
+
+test("con IA_RAZONAMIENTO_DIFICIL=no, ni un rechazo hace razonar", async () => {
+  const { hablar, modelo } = montar(
+    [llamada("cuentas", { cuentas: [{ cuenta: "Invex", limite: 30000 }] }), texto("¿Cuál es tu límite de Invex?")],
+    "no",
+  );
+  await hablar("mi límite de crédito de Invex es de 57,400");
+  expect(modelo.doGenerateCalls.map((c) => c.providerOptions?.local)).toEqual([undefined, undefined]);
 });
 
 test("una pregunta de hace 10 minutos ya no se contesta sola con el siguiente dictado; una de hace un minuto sí", async () => {

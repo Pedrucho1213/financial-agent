@@ -66,7 +66,7 @@ export type Dependencias = {
   notificaSinEspera?: (usuarioId: string) => boolean;
   /** Cuántos usuarios atiende la IA a la vez (OLLAMA_NUM_PARALLEL). Por omisión, uno. */
   paralelo?: number;
-  /** Cuánto razona en saldos, tarjetas y correcciones (IA_RAZONAMIENTO_DIFICIL); sin valor o "no", como lo demás. */
+  /** Cuánto razona en saldos, tarjetas y correcciones cuando una herramienta rechaza el primer intento (IA_RAZONAMIENTO_DIFICIL); sin valor o "no", nunca. */
   razonamientoDificil?: string;
 };
 
@@ -227,6 +227,12 @@ function preguntoSinBorrar(pedido: string, respuesta: string, llamadas: number):
 const AVISO_BORRAR =
   "\n\nAviso: pidió borrar uno o dos movimientos y en tu intento anterior preguntaste sin buscarlos. " +
   "No pidas confirmación: bórralos con eliminar_movimiento, uno por uno. Solo pregunta si no los encuentras o si no sabes cuál es.";
+
+/** Si en ese paso una herramienta rechazó lo que mandó el modelo ("esas cifras no las dijo") o falló. */
+const fueRechazado = (paso: { content: readonly { type: string; output?: unknown }[] }) =>
+  paso.content.some(
+    (parte) => parte.type === "tool-error" || (parte.type === "tool-result" && typeof parte.output === "object" && parte.output !== null && "error" in parte.output),
+  );
 
 const RESPUESTA_NO_GUARDADA = "No alcancé a guardar nada. ¿Me lo repites?";
 const RESPUESTA_NO_CONSULTADA = "No alcancé a revisar tus movimientos. ¿Me lo preguntas otra vez?";
@@ -787,13 +793,15 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
     montosDelTexto(entrada.texto).length > 0 && !esPregunta(entrada.texto) && !esOrdenSobreLoAnotado(entrada.texto)
       ? notaDelGasto(ctx, entrada.texto)
       : undefined;
-  // Saldos, tarjetas y correcciones razonan antes de guardar: "no es lo que debo, es lo disponible" o "mi límite es
-  // de 57,400" piden entender qué cambia. Un gasto o una pregunta sencilla siguen sin razonar, en segundos.
+  // Saldos, tarjetas y correcciones razonan cuando el primer intento no basta: si una herramienta lo rechazó ("esas
+  // cifras no las dijo", "nombró otra tarjeta") o en el reintento. Razonar desde el principio los hacía 3 o 4 veces más
+  // lentos (QA, W6: mediana de 11 s en saldos). Un gasto o una pregunta sencilla nunca razonan.
   const razonar =
     deps.razonamientoDificil && deps.razonamientoDificil !== "no" && entrada.origen === "voz" &&
     (hablaDeCuentas(entrada.texto, nombresDeTarjetas(ctx)) || esOrdenSobreLoAnotado(entrada.texto))
       ? deps.razonamientoDificil
       : undefined;
+  const conRazonamiento = razonar ? { providerOptions: { local: { reasoningEffort: razonar } }, maxOutputTokens: 2500 } : undefined;
   const generar = (aviso = "") => {
     confirmacion = undefined;
     // El aviso de un reintento va con los datos, justo antes del dictado, no en las instrucciones.
@@ -820,11 +828,11 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
           return confirmacion !== undefined;
         },
       ],
+      prepareStep: ({ steps }) => (conRazonamiento && (aviso || steps.some(fueRechazado)) ? conRazonamiento : undefined),
       temperature: 0.2,
-      ...(razonar ? { providerOptions: { local: { reasoningEffort: razonar } } } : {}),
-      // Las respuestas son de una o dos frases; esto solo frena a un modelo que no para de escribir (lo que
-      // razona también cuenta).
-      maxOutputTokens: razonar ? 2500 : 600,
+      // Las respuestas son de una o dos frases; esto solo frena a un modelo que no para de escribir (al razonar,
+      // lo que piensa también cuenta: por eso 2500).
+      ...(conRazonamiento && aviso ? conRazonamiento : { maxOutputTokens: 600 }),
       maxRetries: 1,
       abortSignal: AbortSignal.timeout(90_000),
     });
