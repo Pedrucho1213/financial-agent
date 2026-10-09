@@ -699,6 +699,48 @@ describe("la Nu de Pedro oída como 'no' (2026-10-09)", () => {
   });
 });
 
+// W6 con el primer paso sin razonar: tres llamadas de gemma que antes se guardaban mal; ahora se rechazan y el
+// siguiente paso (que razona) lo arregla o pregunta.
+describe("lo que gemma manda sin razonar (W6)", () => {
+  const INVEX = "Te aviso que en mi tarjeta de crédito Invex tengo un total de 37,581. 21 pesos";
+  test("la misma cifra como disponible y como deuda se rechaza; con el límite que la duplica, no", async () => {
+    const { ctx } = preparar();
+    await llamar(dictado(ctx, INVEX), "cuentas", { cuentas: [{ cuenta: "Invex", tipo: "credito", disponible: 37581.21 }] });
+    const antes = estado(ctx, "Invex");
+    const casos: [string, object][] = [
+      ["Ese registro que acabas de hacer no es algo que debo si no es lo que tengo actualmente disponible", { cuenta: "Invex", tipo: "credito", disponible: 37581.21, deuda: 37581.21 }],
+      ["Mi límite de crédito de Invex es de 57,400 MXN", { cuenta: "Invex", disponible: 37581.21, deuda: 37581.21, limite: 57400 }],
+    ];
+    for (const [frase, args] of casos) {
+      const r = await llamar({ ...dictado(ctx, frase), dichoAntes: [INVEX] }, "cuentas", { cuentas: [args] });
+      expect(r.error).toContain("solo una de las dos");
+    }
+    expect(estado(ctx, "Invex")).toEqual(antes);
+    // Lo que manda el paso que razona: solo el límite. La deuda la saca el sistema.
+    await llamar({ ...dictado(ctx, "Mi límite de crédito de Invex es de 57,400 MXN"), dichoAntes: [INVEX] }, "cuentas", { cuentas: [{ cuenta: "Invex", limite: 57400 }] });
+    expect(pesos(estado(ctx, "Invex").deudaCentavos)).toBe(19818.79);
+    const { ctx: otro } = preparar();
+    const r = await llamar(dictado(otro, "en Hey tengo límite de 20 mil, debo 10 mil y me quedan 10 mil"), "cuentas", {
+      cuentas: [{ cuenta: "Hey", tipo: "credito", limite: 20000, deuda: 10000, disponible: 10000 }],
+    });
+    expect(r.error).toBeUndefined();
+  });
+
+  test("'tarjeta no de crédito' no crea la cuenta 'No de crédito': pregunta si es la Nu", async () => {
+    const { ctx } = preparar();
+    await llamar(dictado(ctx, INVEX), "cuentas", { cuentas: [{ cuenta: "Invex", tipo: "credito", disponible: 37581.21 }] });
+    const r = await llamar(dictado(ctx, "En mi tarjeta no de crédito tengo un límite disponible de 33,600 pesos"), "cuentas", {
+      cuentas: [{ cuenta: "tarjeta no de crédito", disponible: 33600 }],
+    });
+    expect(r.error).toContain("Nu");
+    expect(estadosDeCuentas(ctx).map((e) => e.nombre)).toEqual(["Invex"]);
+    // Una cuenta que de verdad se llama así sí se encuentra.
+    fijarCuenta(dictado(ctx), { cuenta: "Nomina BBVA", tipo: "debito" });
+    const n = await llamar(dictado(ctx, "en Nomina BBVA tengo 8 mil"), "cuentas", { cuentas: [{ cuenta: "Nomina BBVA", saldo: 8000 }] });
+    expect(n.error).toBeUndefined();
+  });
+});
+
 // W6, 2026-10-09: "límite de 30 mil" y luego "33,600 disponibles" quedaba como $3,600 a favor sin preguntar.
 describe("disponible mayor que el límite", () => {
   test("no se guarda: se pregunta si cambió el límite; con el límite nuevo o un saldo a favor dicho, sí", async () => {
