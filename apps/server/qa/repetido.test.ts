@@ -63,10 +63,12 @@ test("borrado el primero, repetir ya no pregunta y va al modelo", async () => {
   expect(cuenta(ctx)).toBe(1);
 });
 
-test("otra conversación (otra vez el Atajo) no pregunta", async () => {
+// Desde el #44 el Atajo sigue la conversación media hora: repetir ahí pregunta (lo cubre test/repetido.test.ts).
+// En otra conversación (la app, o el Atajo pasada la media hora) no pregunta.
+test("otra conversación no pregunta", async () => {
   const { ctx, hablar } = montar([tacos, tacos]);
-  await hablar("Gasté 120 en tacos");
-  const r2 = await hablar("Gasté 120 en tacos");
+  await hablar("Gasté 120 en tacos", "conv-a");
+  const r2 = await hablar("Gasté 120 en tacos", "conv-b");
   expect(r2.respuesta).not.toContain("otra compra");
   expect(cuenta(ctx)).toBe(2);
 });
