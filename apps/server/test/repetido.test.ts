@@ -71,7 +71,8 @@ test("un dictado igual se procesa normal si el anterior se borró, es de otra co
   expect(modelo.doGenerateCalls.length).toBe(2);
   expect(cuantos()).toBe(1);
 
-  await hablar("Gasté 120 en tacos", undefined, 2);
+  // Otra conversación (la app con su propio chat, o un Atajo pasada la media hora).
+  await hablar("Gasté 120 en tacos", "otra-conversacion", 2);
   expect(modelo.doGenerateCalls.length).toBe(3);
   expect(cuantos()).toBe(2);
 
@@ -79,4 +80,15 @@ test("un dictado igual se procesa normal si el anterior se borró, es de otra co
   expect(r4.respuesta).not.toContain("hace un momento");
   expect(modelo.doGenerateCalls.length).toBe(4);
   expect(cuantos()).toBe(3);
+});
+
+test("abrir el Atajo otra vez a los pocos minutos sigue la conversación: repetir el mismo dictado pregunta", async () => {
+  const { hablar, modelo, cuantos } = montar([tacos]);
+  const r1 = await hablar("Gasté 120 en tacos");
+  // El Atajo no manda conversacion_id al abrirse otra vez.
+  const r2 = await hablar("Gasté 120 en tacos", undefined, 1);
+  expect(r2.conversacion_id).toBe(r1.conversacion_id);
+  expect(r2.respuesta).toContain("¿Es otra compra?");
+  expect(modelo.doGenerateCalls.length).toBe(1);
+  expect(cuantos()).toBe(1);
 });

@@ -18,14 +18,15 @@ const Titulo = ({ children }: { children: string }) => (
 );
 
 /**
- * Cómo cerraría el mes: lo que lleva, lo que le falta por gastar a su ritmo (fijos incluidos) y, si se
+ * Cómo cerraría el mes: lo que lleva (el total del mes que ya calcula Análisis: el gastadoCentavos del
+ * asistente puede ser de los últimos 7 días), lo que le falta por gastar a su ritmo (fijos incluidos) y, si se
  * sabe lo que le entra, cuánto le sobraría o le faltaría. Una sola barra: llevas + falta, contra lo que entra.
  */
-export function CierreDelMes({ datos, mes, moneda }: { datos: AnalisisAsistente; mes: string; moneda: string }) {
+export function CierreDelMes({ datos, mes, moneda, gastado }: { datos: AnalisisAsistente; mes: string; moneda: string; gastado: number }) {
   const p = datos.proyeccion;
   if (!p) return null;
   const $ = (c: number) => dineroCorto(c, moneda);
-  const llevas = Math.max(0, Math.min(datos.gastadoCentavos, p.cierreCentavos));
+  const llevas = Math.max(0, Math.min(gastado, p.cierreCentavos));
   const falta = Math.max(0, p.cierreCentavos - llevas);
   const tope = Math.max(p.cierreCentavos, p.ingresosCentavos, 1);
   // Redondeado como lo dice la voz: el margen a cientos y el día normal a decenas.
@@ -140,12 +141,13 @@ export function DondeAhorrar({ datos, moneda }: { datos: AnalisisAsistente; mone
 }
 
 /** Las dos secciones del mes en curso. Sin datos, con error o con un servidor viejo (404) no sale nada. */
-export function AsistenteDelMes({ mes, moneda }: { mes: string; moneda: string }) {
+/** `gastado`: lo gastado en el mes (en la moneda principal), como lo suma Análisis. */
+export function AsistenteDelMes({ mes, moneda, gastado }: { mes: string; moneda: string; gastado: number }) {
   const cierre = useAsistente("proyeccion", mes);
   const ahorro = useAsistente("ahorrar", mes);
   return (
     <>
-      {cierre.data ? <CierreDelMes datos={cierre.data} mes={mes} moneda={moneda} /> : null}
+      {cierre.data ? <CierreDelMes datos={cierre.data} mes={mes} moneda={moneda} gastado={gastado} /> : null}
       {ahorro.data ? <DondeAhorrar datos={ahorro.data} moneda={moneda} /> : null}
     </>
   );

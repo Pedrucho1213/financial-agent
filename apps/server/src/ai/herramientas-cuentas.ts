@@ -49,6 +49,26 @@ const MUCHOS_PARA_ETIQUETAR = 30;
 // Sin cifra en la frase vale si pagó todo ("pagué el total de la Nu") o confirma lo que se le preguntó.
 const SIN_CIFRA_VALE = /\b(total|completo|completa|todo lo que debo|todo)\b|^(si|correcto|exacto|eso|asi es|andale|va|ok|okay|claro)\b/;
 
+// Emisores de tarjetas: "la tarjeta de crédito Nu". Después de "tarjeta de crédito" solo cuenta como nombre uno de
+// estos o una cuenta que ya tiene; "en mi tarjeta de crédito ahora tengo 7 mil" no nombra nada (QA-100).
+const EMISORES = new Set(
+  "nu bbva bancomer invex amex banamex citibanamex santander hsbc banorte scotiabank inbursa azteca banregio afirme liverpool rappi rappicard stori klar hey didi mercado costco sears suburbia coppel plata vexi spin".split(" "),
+);
+
+/** "Mi tarjeta no de crédito", "la tarjeta de crédito Nu": la frase le pone nombre a la tarjeta. */
+function otraTarjetaNombrada(ctx: Contexto, texto: string): string | undefined {
+  const plano = normalizar(texto);
+  // "Tarjeta X de crédito" (así se oyó "Nu" como "no"): X es el nombre.
+  const antes = plano.match(/\btarjeta (\w+) de credito\b/)?.[1];
+  if (antes && !/^\d/.test(antes) && !["mi", "la", "de", "su"].includes(antes)) return antes;
+  const despues = plano.match(/\btarjeta de credito (\w+)/)?.[1];
+  const conocidas = new Set(estadosDeCuentas(ctx).flatMap((e) => [e.nombre, ...e.alias].map((n) => normalizar(n))));
+  return despues && (EMISORES.has(despues) || conocidas.has(despues)) ? despues : undefined;
+}
+
+const cifrasDe = (c: { saldo?: number; disponible?: number; deuda?: number; limite?: number }) =>
+  [c.saldo, c.disponible, c.deuda, c.limite].filter((x) => x !== undefined);
+
 /** Cuentas y tarjetas con su saldo, dinero que se mueve entre ellas y etiquetas, por voz. */
 export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
   const $ = (centavos: number) => formatearMonto(centavos, ctx.monedaBase);
@@ -76,11 +96,50 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
       }),
       execute: ejecutar("cuentas", ({ cuentas: dichas }) => {
         let cuentas = dichas;
-        // "Tengo 5 mil": si dijo la cifra pero no la cuenta, el modelo no la elige por él.
         const texto = ctx.textoOriginal;
+        // Un saldo, disponible, deuda o límite que nunca dijo no se guarda: "ese registro no es lo que debo" sin
+        // el turno anterior llevó al modelo a guardar las cifras de los ejemplos (Revolut $20,000, Efectivo $5,000).
+        // Valen las de la frase y las de antes en esta conversación, y la suma o la resta de dos de ellas ("de 30 mil me
+        // quedan 20 mil" es una deuda de 10 mil). "37,581. 21" se oye partido: de ahí la holgura de un peso.
+        if (texto) {
+          const sueltas = [texto, ...(ctx.dichoAntes ?? [])].flatMap((t) => montosDelTexto(t));
+          const oidas = [...sueltas, ...sueltas.flatMap((a, i) => sueltas.slice(i + 1).flatMap((b) => [a + b, Math.abs(a - b)]))];
+          // "No debo nada", "la tengo en ceros": el cero también se dijo.
+          if (/\b(nada|cero|ceros|liquidada|liquidado)\b/.test(normalizar(texto))) oidas.push(0);
+          let inventadas = 0;
+          const sinInventar = cuentas.map((c) => {
+            const limpia = { ...c };
+            for (const campo of ["saldo", "disponible", "deuda", "limite"] as const) {
+              const valor = limpia[campo];
+              if (valor !== undefined && !oidas.some((m) => Math.abs(m - valor) < 1)) {
+                delete limpia[campo];
+                inventadas++;
+              }
+            }
+            // "Mi límite es de 33,200 y tengo un disponible" (cortada): una cifra dicha una vez no es límite y
+            // disponible (o deuda) a la vez; se queda como límite.
+            for (const campo of ["disponible", "deuda"] as const) {
+              const valor = limpia[campo];
+              if (valor !== undefined && limpia.limite !== undefined && Math.abs(valor - limpia.limite) < 1 && sueltas.filter((m) => Math.abs(m - valor) < 1).length < 2) {
+                delete limpia[campo];
+                inventadas++;
+              }
+            }
+            return { limpia, perdio: cifrasDe(c).length > 0 && cifrasDe(limpia).length === 0 };
+          });
+          if (inventadas) {
+            // La que se quedó sin ninguna cifra no se toca (el tipo solo lo repetía el modelo).
+            const quedan = sinInventar.filter((x) => !x.perdio || x.limpia.dia_corte || x.limpia.dia_pago || x.limpia.nuevo_nombre).map((x) => x.limpia);
+            if (!quedan.length) throw new ErrorFinanzas("Esas cifras no las dijo: no guardes saldos que no dijo. Pregúntale cuánto tiene.");
+            cuentas = quedan;
+          }
+        }
+        // "Tengo 5 mil": si dijo la cifra pero no la cuenta, el modelo no la elige por él.
         if (texto && montosDelTexto(texto).length) {
           // "Mi tarjeta de crédito" con una sola tarjeta: el modelo puede llamarla por su nombre.
           const unicaDelTipo = (nombre: string) => {
+            // "En mi tarjeta Nu de crédito" oída como "tarjeta no de crédito": nombra otra tarjeta, no la única que hay.
+            if (otraTarjetaNombrada(ctx, texto)) return false;
             const tipo = inferirTipoCuenta(texto);
             const cuenta = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, nombre, { soloExistente: true, siAmbigua: "ninguna", soloLeer: true });
             return tipo !== "otra" && cuenta?.tipo === tipo && estadosDeCuentas(ctx).filter((e) => e.tipo === tipo).length === 1;
@@ -88,13 +147,32 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
           const nombradas = cuentas.filter((c) => cuentaMencionada(texto, c.cuenta) || unicaDelTipo(c.cuenta));
           // "Ahora tengo 18 mil en Revolut": el modelo a veces repite las otras que ya conoce (QA-086); esas se
           // quedan como estaban. Sin ninguna nombrada, solo vale si contesta una pregunta ("¿en cuál?" → "son 5 mil").
+          const otra = otraTarjetaNombrada(ctx, texto);
           if (nombradas.length) cuentas = nombradas;
+          else if (otra && !ctx.enConversacion)
+            throw new ErrorFinanzas(`Nombró otra tarjeta ("${otra}"), no ${cuentas[0]!.cuenta}: pregúntale cuál es; si es nueva, se crea con el nombre que diga.`);
           else if (!ctx.enConversacion) throw new ErrorFinanzas(`No dijo en qué cuenta o tarjeta: pregúntale dónde (no la elijas tú, no era "${cuentas[0]!.cuenta}").`);
+        }
+        // "Límite de 30 mil" y después "tengo 33,600 disponibles": no cuadra, y guardarlo dejaba $3,600 "a favor".
+        // Algo cambió o se oyó mal; se pregunta en lugar de elegir (W6, 2026-10-09). Un saldo a favor dicho sí vale.
+        if (texto && !/\ba favor\b/.test(normalizar(texto))) {
+          for (const c of cuentas) {
+            if (c.disponible === undefined) continue;
+            const existente = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, c.cuenta, { soloExistente: true, soloLeer: true, siAmbigua: "ninguna" });
+            const estado = existente && estadosDeCuentas(ctx).find((e) => e.id === existente.id);
+            const limite = c.limite ?? (estado?.esCredito && estado.limiteCentavos !== null ? estado.limiteCentavos / 100 : undefined);
+            if (limite !== undefined && c.disponible > limite + 1) {
+              const pesos = (n: number) => new Intl.NumberFormat("es-MX", { maximumFractionDigits: 2 }).format(n);
+              throw new ErrorFinanzas(
+                `Dijo ${pesos(c.disponible)} disponibles y el límite de ${estado?.nombre ?? c.cuenta} es de ${pesos(limite)}: no cuadra. ` +
+                  "No guardes nada; pregúntale si su límite cambió (y de cuánto es) o cuánto tiene disponible.",
+              );
+            }
+          }
         }
         // "Tengo 300 dólares en Wise": los saldos se llevan en pesos; no se guardan 300 pesos (QA-087). Con pesos
         // en la misma frase ("y 10 mil en Bancomer"), esos sí se guardan: en otra moneda va solo la cifra dicha junto
         // a ella.
-        const cifras = (c: (typeof cuentas)[number]) => [c.saldo, c.disponible, c.deuda, c.limite].filter((x) => x !== undefined);
         // Cada parte de la frase con su moneda, sobre el texto tal cual: normalizado, "1,500" sería "1 500" y
         // saldrían dos cifras. "1,500 dólares en Wise y 10,000 pesos en Bancomer" dice dos monedas.
         const partes = (texto ?? "").split(/;|,\s+|\s+y\s+/i).map((parte) => ({ moneda: monedaDelTexto(parte), montos: montosDelTexto(parte) }));
@@ -103,10 +181,10 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
         let cifraEnOtra: number | undefined;
         if (moneda) {
           const dichas = partes.filter((p) => p.moneda === moneda).flatMap((p) => p.montos);
-          enOtra = cuentas.filter((c) => cifras(c).some((x) => dichas.includes(x)));
+          enOtra = cuentas.filter((c) => cifrasDe(c).some((x) => dichas.includes(x)));
           // "300 en Wise, en dólares": la cifra no va junto a la moneda; todas las que traen cifra.
-          if (!enOtra.length) enOtra = cuentas.filter((c) => cifras(c).length);
-          cifraEnOtra = dichas[0] ?? cifras(enOtra[0] ?? cuentas[0]!)[0];
+          if (!enOtra.length) enOtra = cuentas.filter((c) => cifrasDe(c).length);
+          cifraEnOtra = dichas[0] ?? cifrasDe(enOtra[0] ?? cuentas[0]!)[0];
         }
         const sinMoneda = enOtra.map((c) => fijarCuenta(ctx, { cuenta: c.cuenta, tipo: c.tipo }));
         const resultados = cuentas

@@ -21,6 +21,8 @@ export type Contexto = {
   confiarEnMasReciente?: boolean;
   /** La respuesta anterior preguntó algo: lo que se dice ahora la contesta y puede traer datos de ese turno. */
   enConversacion?: boolean;
+  /** Lo que dijo el usuario antes en esta conversación (y la pregunta que contesta): las cifras que ya dijo. */
+  dichoAntes?: string[];
   /** De dónde salen los movimientos que se registren (un dictado o un pago con Apple Pay). */
   origen?: "voz" | "apple_pay";
 };

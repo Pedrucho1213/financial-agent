@@ -1,5 +1,5 @@
 import { generateText, isStepCount, type LanguageModel, type ModelMessage } from "ai";
-import { and, asc, desc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { cuentas, entradas, mensajes, movimientos } from "../db/schema";
 import { type Contexto, crearContexto } from "../finanzas/contexto";
@@ -18,7 +18,7 @@ import { crearHerramientas, type Accion } from "./herramientas";
 import { comoVoySinModelo, CONSULTAS_ANALISIS } from "./herramientas-analisis";
 import { CONSULTAS_PLANES } from "./herramientas-planes";
 import { CONSULTAS_CUENTAS } from "./herramientas-cuentas";
-import { datoDeCuentas } from "../finanzas/cuentas";
+import { datoDeCuentas, hablaDeCuentas, nombresDeTarjetas } from "../finanzas/cuentas";
 import { correccionDeCuenta } from "./respaldo";
 
 export type Peticion = {
@@ -66,6 +66,8 @@ export type Dependencias = {
   notificaSinEspera?: (usuarioId: string) => boolean;
   /** Cuántos usuarios atiende la IA a la vez (OLLAMA_NUM_PARALLEL). Por omisión, uno. */
   paralelo?: number;
+  /** Cuánto razona en saldos, tarjetas y correcciones cuando una herramienta rechaza el primer intento (IA_RAZONAMIENTO_DIFICIL); sin valor o "no", nunca. */
+  razonamientoDificil?: string;
 };
 
 export type OpcionesHablar = {
@@ -100,6 +102,78 @@ function cargarHistorial(db: Db, usuarioId: string, conversacionId: string): Mod
   const inicio = recientes.findIndex((m) => m.role === "user");
   if (inicio === -1) return [];
   return recientes.slice(inicio > 0 && recientes[inicio - 1]!.role === "system" ? inicio - 1 : inicio);
+}
+
+// Cada vez que se abre el Atajo empieza sin conversación. Si vuelve a dictar mientras la anterior sigue vigente,
+// casi siempre sigue con lo mismo ("ese registro que acabas de hacer no es lo que debo"): sin el turno anterior,
+// el modelo no sabía de qué hablaba y llegó a inventar saldos (2026-10-09).
+/** La conversación del último dictado por voz si sigue vigente, para seguirla. */
+export function conversacionReciente(db: Db, usuarioId: string, ahora = Date.now()): string | undefined {
+  const ultima = db
+    .select({ conversacionId: entradas.conversacionId, creadoEn: entradas.creadoEn })
+    .from(entradas)
+    .where(and(eq(entradas.usuarioId, usuarioId), eq(entradas.origen, "voz")))
+    .orderBy(desc(sql`rowid`))
+    .limit(1)
+    .get();
+  return ultima && ahora - Date.parse(ultima.creadoEn) < VIGENCIA_CONVERSACION_MS ? ultima.conversacionId : undefined;
+}
+
+// Lo de los últimos días que ya no está en el historial va resumido: qué dijo y qué contestó. Así entiende
+// "corrige el disponible de Invex" un día después sin cargar días de conversación, que con gemma4 es lento y la
+// confunde. Los pagos de Apple Pay no: su texto lo escribe el comercio.
+const DIAS_RESUMEN = 3;
+const MAX_RESUMEN = 12;
+
+type Anterior = { texto: string; respuesta: unknown; creadoEn: string };
+
+function dictadosAnteriores(db: Db, entrada: Entrada): Anterior[] {
+  const ahora = Date.parse(entrada.capturadoEn);
+  const enHistorial = new Date(Date.now() - VIGENCIA_CONVERSACION_MS).toISOString();
+  return db
+    .select({ texto: entradas.texto, respuesta: entradas.respuesta, creadoEn: entradas.creadoEn })
+    .from(entradas)
+    .where(
+      and(
+        eq(entradas.usuarioId, entrada.usuarioId),
+        eq(entradas.origen, "voz"),
+        eq(entradas.estado, "listo"),
+        ne(entradas.id, entrada.id),
+        gte(entradas.creadoEn, new Date(ahora - DIAS_RESUMEN * 86_400_000).toISOString()),
+        lt(entradas.creadoEn, entrada.creadoEn),
+        or(ne(entradas.conversacionId, entrada.conversacionId), lt(entradas.creadoEn, enHistorial)),
+      ),
+    )
+    .orderBy(desc(sql`rowid`))
+    .limit(MAX_RESUMEN)
+    .all()
+    .reverse();
+}
+
+function resumenDeAnteriores(anteriores: Anterior[], zonaHoraria: string): string | undefined {
+  if (!anteriores.length) return undefined;
+  const cuando = new Intl.DateTimeFormat("es-MX", { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: zonaHoraria });
+  const corto = (t: string) => (t.length > 200 ? `${t.slice(0, 200)}…` : t);
+  const lineas = anteriores.map((a) => {
+    const dicha = (a.respuesta as Respuesta | null)?.respuesta;
+    return `- ${cuando.format(new Date(a.creadoEn))}: «${corto(a.texto)}»${dicha ? ` → «${corto(dicha)}»` : ""}`;
+  });
+  return `Lo que te dijo en los últimos días y lo que contestaste (ya está hecho: no lo registres otra vez; úsalo solo si habla de eso):\n${lineas.join("\n")}`;
+}
+
+// Lo mismo que dura una pregunta que llegó por notificación (push/dictados.ts).
+const VIGENCIA_PREGUNTA_MS = 5 * 60_000;
+
+/** Si lo último de la conversación (la respuesta que preguntó) fue hace poco. */
+function preguntaReciente(db: Db, usuarioId: string, conversacionId: string): boolean {
+  const ultimo = db
+    .select({ creadoEn: mensajes.creadoEn })
+    .from(mensajes)
+    .where(and(eq(mensajes.usuarioId, usuarioId), eq(mensajes.conversacionId, conversacionId)))
+    .orderBy(desc(mensajes.creadoEn), desc(sql`rowid`))
+    .limit(1)
+    .get();
+  return !!ultimo && Date.now() - Date.parse(ultimo.creadoEn) < VIGENCIA_PREGUNTA_MS;
 }
 
 /** Los últimos datos del usuario que ya están en la conversación. */
@@ -153,6 +227,12 @@ function preguntoSinBorrar(pedido: string, respuesta: string, llamadas: number):
 const AVISO_BORRAR =
   "\n\nAviso: pidió borrar uno o dos movimientos y en tu intento anterior preguntaste sin buscarlos. " +
   "No pidas confirmación: bórralos con eliminar_movimiento, uno por uno. Solo pregunta si no los encuentras o si no sabes cuál es.";
+
+/** Si en ese paso una herramienta rechazó lo que mandó el modelo ("esas cifras no las dijo") o falló. */
+const fueRechazado = (paso: { content: readonly { type: string; output?: unknown }[] }) =>
+  paso.content.some(
+    (parte) => parte.type === "tool-error" || (parte.type === "tool-result" && typeof parte.output === "object" && parte.output !== null && "error" in parte.output),
+  );
 
 const RESPUESTA_NO_GUARDADA = "No alcancé a guardar nada. ¿Me lo repites?";
 const RESPUESTA_NO_CONSULTADA = "No alcancé a revisar tus movimientos. ¿Me lo preguntas otra vez?";
@@ -682,8 +762,20 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   const anterior = textoDe(historial.findLast((m) => m.role === "assistant" && textoDe(m) !== ""));
   // Solo una respuesta a una pregunta trae el monto o la cuenta de antes ("¿de cuánto?" → "15 mil"). Un turno
   // anterior cualquiera no: "Tengo 20 mil en Revolut" y luego "me llegó la quincena" no son $20,000 (W3).
-  ctx.enConversacion = anterior.includes("?");
-  ctx.confiarEnMasReciente = anterior.includes("?") && PIDE_ELEGIR.test(normalizar(anterior));
+  // La pregunta tiene que ser de hace poco: el Atajo sigue la conversación media hora, y un "¿de cuánto fue lo del
+  // súper?" sin contestar no debe pegarse a un "pagué 300 de luz" de 10 minutos después (W3).
+  const pregunto = anterior.includes("?") && preguntaReciente(db, usuarioId, conversacionId);
+  ctx.enConversacion = pregunto;
+  // Un pago de Apple Pay solo se anota: no necesita lo de días anteriores.
+  const anteriores = entrada.origen === "voz" ? dictadosAnteriores(db, entrada) : [];
+  const resumen = resumenDeAnteriores(anteriores, deps.zonaHoraria);
+  // "Ese registro no es lo que debo, es lo que tengo disponible": la cifra la dijo en un turno anterior.
+  ctx.dichoAntes = [
+    ...anteriores.map((a) => a.texto),
+    ...historial.filter((m) => m.role === "user").map(textoDe),
+    ...(ctx.enConversacion ? [anterior] : []),
+  ];
+  ctx.confiarEnMasReciente = pregunto && PIDE_ELEGIR.test(normalizar(anterior));
   // Si un paso solo guardó, corrigió o borró, la confirmación se arma aquí y el modelo no da otra vuelta.
   let confirmacion: string | undefined;
   // Lo que cambia mientras se usa va en un mensaje aparte, antes del dictado, y se guarda con la
@@ -701,6 +793,15 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
     montosDelTexto(entrada.texto).length > 0 && !esPregunta(entrada.texto) && !esOrdenSobreLoAnotado(entrada.texto)
       ? notaDelGasto(ctx, entrada.texto)
       : undefined;
+  // Saldos, tarjetas y correcciones razonan cuando el primer intento no basta: si una herramienta lo rechazó ("esas
+  // cifras no las dijo", "nombró otra tarjeta") o en el reintento. Razonar desde el principio los hacía 3 o 4 veces más
+  // lentos (QA, W6: mediana de 11 s en saldos). Un gasto o una pregunta sencilla nunca razonan.
+  const razonar =
+    deps.razonamientoDificil && deps.razonamientoDificil !== "no" && entrada.origen === "voz" &&
+    (hablaDeCuentas(entrada.texto, nombresDeTarjetas(ctx)) || esOrdenSobreLoAnotado(entrada.texto))
+      ? deps.razonamientoDificil
+      : undefined;
+  const conRazonamiento = razonar ? { providerOptions: { local: { reasoningEffort: razonar } }, maxOutputTokens: 2500 } : undefined;
   const generar = (aviso = "") => {
     confirmacion = undefined;
     // El aviso de un reintento va con los datos, justo antes del dictado, no en las instrucciones.
@@ -708,7 +809,13 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
     return generateText({
       model: deps.modelo,
       instructions: construirInstrucciones(ctx),
-      messages: [...historialVigente, ...(datos ? [{ role: "system" as const, content: datos }] : []), mensajeUsuario],
+      // El resumen va aparte y no se guarda: cambia en cada turno y Ollama sigue reutilizando los datos de antes.
+      messages: [
+        ...historialVigente,
+        ...(datos ? [{ role: "system" as const, content: datos }] : []),
+        ...(resumen ? [{ role: "system" as const, content: resumen }] : []),
+        mensajeUsuario,
+      ],
       allowSystemInMessages: true,
       tools: herramientasPara(entrada, crearHerramientas(ctx, acciones)),
       stopWhen: [
@@ -721,9 +828,11 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
           return confirmacion !== undefined;
         },
       ],
+      prepareStep: ({ steps }) => (conRazonamiento && (aviso || steps.some(fueRechazado)) ? conRazonamiento : undefined),
       temperature: 0.2,
-      // Las respuestas son de una o dos frases; esto solo frena a un modelo que no para de escribir.
-      maxOutputTokens: 600,
+      // Las respuestas son de una o dos frases; esto solo frena a un modelo que no para de escribir (al razonar,
+      // lo que piensa también cuenta: por eso 2500).
+      ...(conRazonamiento && aviso ? conRazonamiento : { maxOutputTokens: 600 }),
       maxRetries: 1,
       abortSignal: AbortSignal.timeout(90_000),
     });

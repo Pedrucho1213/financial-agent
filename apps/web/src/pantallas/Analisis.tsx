@@ -247,7 +247,7 @@ function Contenido({
       ) : (
         <>
           <Insights items={insights} />
-          {periodo === "mes" && a.enCurso && !categoria ? <AsistenteDelMes mes={a.rango.desde.slice(0, 7)} moneda={moneda} /> : null}
+          {periodo === "mes" && a.enCurso && !categoria ? <AsistenteDelMes mes={a.rango.desde.slice(0, 7)} moneda={moneda} gastado={a.totales.gasto} /> : null}
           <Categorias a={a} slots={slots} categoria={categoria} nombreCategoria={nombreCategoria} alFiltrar={alFiltrar} />
           <Calendario a={a} filas={filas} categorias={categorias} categoria={categoria} />
           <Cuando a={a} />

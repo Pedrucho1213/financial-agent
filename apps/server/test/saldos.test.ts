@@ -316,7 +316,7 @@ describe("la IA no confunde un saldo con un ingreso", () => {
     expect(r.error).toContain("No dijo en qué cuenta");
     expect(pesos(estado(ctx, "Revolut").saldoCentavos)).toBe(1000);
     // Al contestar "en Revolut" ya la nombró.
-    const ok = await llamar(dictado(ctx, "en Revolut"), "cuentas", { cuentas: [{ cuenta: "Revolut", saldo: 5000 }] });
+    const ok = await llamar({ ...dictado(ctx, "en Revolut"), dichoAntes: ["Tengo 5 mil"] }, "cuentas", { cuentas: [{ cuenta: "Revolut", saldo: 5000 }] });
     expect(ok.confirmacion).toBe("Listo, Revolut tiene $5,000.");
     // "En BBVA tengo 4 mil" con Bancomer: es la misma cuenta, no otra.
     fijarCuenta(dictado(ctx), { cuenta: "Bancomer", tipo: "debito", saldo: 10000 });
@@ -603,5 +603,221 @@ describe("tarjeta de la que solo se sabe el disponible", () => {
     fijarCuenta(dictado(ctx, "tengo 5 mil en efectivo"), { cuenta: "Efectivo", saldo: 5000 });
     const s = await llamar(dictado(ctx, "¿cuánto tengo?"), "consultar_cuentas", {});
     expect(s.respuesta).toContain("De Nu no sé cuánto debes; dime su límite o cuánto debes.");
+  });
+});
+
+// Lo que le pasó a Pedro el 2026-10-09: "tengo un total de 37,581. 21" en Invex quedó como deuda, y al corregirlo
+// en otro dictado el modelo guardó las cifras de los ejemplos (Revolut $20,000, Invex límite $30,000, Efectivo $5,000).
+describe("Invex de Pedro (2026-10-09)", () => {
+  const preparado = () => {
+    const { ctx } = preparar();
+    fijarCuenta(dictado(ctx), { cuenta: "Revolut", tipo: "debito" });
+    fijarCuenta(dictado(ctx), { cuenta: "Invex", tipo: "credito" });
+    fijarCuenta(dictado(ctx), { cuenta: "Efectivo", tipo: "efectivo" });
+    return ctx;
+  };
+  const DIJO_INVEX = "Te aviso que en mi tarjeta de crédito Invex tengo un total de 37,581. 21 pesos";
+  const CORRIGE = "Ese registro que acabas de hacer no es algo que debo si no es lo que tengo actualmente disponible";
+
+  test("'tengo un total de' en una tarjeta de crédito es lo disponible, aunque el modelo lo mande como deuda", async () => {
+    const ctx = preparado();
+    const r = await llamar(dictado(ctx, DIJO_INVEX), "cuentas", { cuentas: [{ cuenta: "Invex", tipo: "credito", deuda: 37581.21 }] });
+    expect(r.error).toBeUndefined();
+    const invex = estado(ctx, "Invex");
+    expect(pesos(invex.disponibleCentavos)).toBe(37581.21);
+    expect(invex.deudaCentavos).toBeNull();
+    // Con el límite en la misma frase, lo que lleva usado sí es deuda.
+    await llamar(dictado(ctx, "en Invex tengo 57,400 de límite y llevo 10 mil"), "cuentas", { cuentas: [{ cuenta: "Invex", limite: 57400, deuda: 10000 }] });
+    expect(pesos(estado(ctx, "Invex").deudaCentavos)).toBe(10000);
+    // "Debo" sigue siendo deuda.
+    await llamar(dictado(ctx, "en Invex debo 5 mil"), "cuentas", { cuentas: [{ cuenta: "Invex", deuda: 5000 }] });
+    expect(pesos(estado(ctx, "Invex").deudaCentavos)).toBe(5000);
+  });
+
+  test("cifras que nunca dijo no se guardan: ni las de los ejemplos ni en otras cuentas", async () => {
+    const ctx = preparado();
+    fijarCuenta(dictado(ctx, "en Revolut tengo 19,291"), { cuenta: "Revolut", saldo: 19291 });
+    const inventado = {
+      cuentas: [
+        { cuenta: "Revolut", tipo: "debito", saldo: 20000, disponible: 20000 },
+        { cuenta: "Invex", tipo: "credito", disponible: 10000, deuda: 10000, limite: 30000 },
+        { cuenta: "Efectivo", tipo: "efectivo", saldo: 5000 },
+      ],
+    };
+    // Sin lo que dijo antes, no hay de dónde sacar una cifra: se pregunta.
+    const r = await llamar(dictado(ctx, CORRIGE), "cuentas", inventado);
+    expect(r.error).toContain("no las dijo");
+    expect(pesos(estado(ctx, "Revolut").saldoCentavos)).toBe(19291);
+    expect(estado(ctx, "Invex").conocido).toBe(false);
+    expect(estado(ctx, "Efectivo").conocido).toBe(false);
+  });
+
+  test("con lo que dijo antes en la conversación, corrige con su cifra y calcula la deuda al decir el límite", async () => {
+    const ctx = preparado();
+    await llamar(dictado(ctx, DIJO_INVEX), "cuentas", { cuentas: [{ cuenta: "Invex", deuda: 37581.21 }] });
+    // El modelo repite la cifra de antes, ahora como disponible, y de paso inventa un límite: el límite no se guarda.
+    const r = await llamar({ ...dictado(ctx, CORRIGE), dichoAntes: [DIJO_INVEX] }, "cuentas", {
+      cuentas: [{ cuenta: "Invex", disponible: 37581.21, limite: 30000 }],
+    });
+    expect(r.error).toBeUndefined();
+    expect(pesos(estado(ctx, "Invex").disponibleCentavos)).toBe(37581.21);
+    expect(estado(ctx, "Invex").limiteCentavos).toBeNull();
+    // "Mi límite es de 57,400": con lo disponible que ya sabía, sale lo que debe.
+    const LIMITE = "mi límite de crédito de Invex es de 57,400";
+    await llamar({ ...dictado(ctx, LIMITE), dichoAntes: [DIJO_INVEX, CORRIGE] }, "cuentas", { cuentas: [{ cuenta: "Invex", limite: 57400 }] });
+    expect(pesos(estado(ctx, "Invex").deudaCentavos)).toBe(19818.79);
+    // "Corrige mi disponible a 37,581.12": el modelo puede mandar también la deuda que calculó (57,400 − 37,581.12).
+    await llamar({ ...dictado(ctx, "corrige mi saldo disponible de Invex a 37,581.12"), dichoAntes: [DIJO_INVEX, CORRIGE, LIMITE] }, "cuentas", {
+      cuentas: [{ cuenta: "Invex", disponible: 37581.12, deuda: 19818.88 }],
+    });
+    const invex = estado(ctx, "Invex");
+    expect([pesos(invex.limiteCentavos), pesos(invex.disponibleCentavos), pesos(invex.deudaCentavos)]).toEqual([57400, 37581.12, 19818.88]);
+  });
+});
+
+// 2026-10-09 00:44Z: "En mi tarjeta Nu de crédito..." se dictó como "tarjeta no de crédito"; con Invex como única
+// tarjeta, el modelo le puso a Invex los 33,600 de la Nu y pisó su deuda.
+describe("la Nu de Pedro oída como 'no' (2026-10-09)", () => {
+  const DIJO_NU = "En mi tarjeta no de crédito tengo un límite disponible de 33,600 pesos";
+  const conInvex = () => {
+    const { ctx } = preparar();
+    fijarCuenta(dictado(ctx), { cuenta: "Invex", tipo: "credito", limite: 57400, deuda: 19818.88 });
+    return ctx;
+  };
+
+  test("no se lo pone a la única tarjeta que tiene: pregunta cuál es", async () => {
+    const ctx = conInvex();
+    const r = await llamar(dictado(ctx, DIJO_NU), "cuentas", { cuentas: [{ cuenta: "Invex", tipo: "credito", disponible: 33600 }] });
+    expect(r.error).toContain('Nombró otra tarjeta ("no")');
+    expect(pesos(estado(ctx, "Invex").deudaCentavos)).toBe(19818.88);
+    // Contesta "es la Nu": se crea como tarjeta de crédito con lo disponible que ya había dicho.
+    const ok = await llamar({ ...dictado(ctx, "es la Nu"), enConversacion: true, dichoAntes: [DIJO_NU] }, "cuentas", {
+      cuentas: [{ cuenta: "Nu", tipo: "credito", disponible: 33600 }],
+    });
+    expect(ok.error).toBeUndefined();
+    expect([estado(ctx, "Nu").tipo, pesos(estado(ctx, "Nu").disponibleCentavos)]).toEqual(["credito", 33600]);
+    expect(pesos(estado(ctx, "Invex").deudaCentavos)).toBe(19818.88);
+  });
+
+  test("bien oída, 'mi tarjeta de crédito Nu' crea la Nu y no toca Invex", async () => {
+    const ctx = conInvex();
+    const frase = "en mi tarjeta de crédito Nu tengo un crédito disponible de 33600 mxn";
+    expect((await llamar(dictado(ctx, frase), "cuentas", { cuentas: [{ cuenta: "Invex", disponible: 33600 }] })).error).toContain("Nombró otra tarjeta");
+    const ok = await llamar(dictado(ctx, frase), "cuentas", { cuentas: [{ cuenta: "Nu", disponible: 33600 }] });
+    expect(ok.confirmacion).toBe("Listo, en Nu te quedan $33,600 disponibles.");
+    expect(pesos(estado(ctx, "Invex").deudaCentavos)).toBe(19818.88);
+    // "Mi tarjeta de crédito" a secas con una sola tarjeta sigue valiendo.
+    const { ctx: otro } = preparar();
+    fijarCuenta(dictado(otro), { cuenta: "Invex", tipo: "credito", limite: 57400, deuda: 0 });
+    const generica = await llamar(dictado(otro, "en mi tarjeta de crédito tengo 30 mil disponibles"), "cuentas", { cuentas: [{ cuenta: "Invex", disponible: 30000 }] });
+    expect(generica.error).toBeUndefined();
+    // Palabras comunes después de "tarjeta de crédito" no son un nombre (QA-100).
+    for (const frase of ["ahora tengo 7 mil", "solo tengo 7 mil", "nada más tengo 7 mil", "todavía tengo 7 mil", "hoy tengo 7 mil", "apenas tengo 7 mil", "llevo 7 mil", "aún tengo 7 mil", "nomás tengo 7 mil"]) {
+      const r = await llamar(dictado(otro, `En mi tarjeta de crédito ${frase} disponibles`), "cuentas", { cuentas: [{ cuenta: "Invex", disponible: 7000 }] });
+      expect([frase, r.error]).toEqual([frase, undefined]);
+    }
+  });
+});
+
+// W6, 2026-10-09: "límite de 30 mil" y luego "33,600 disponibles" quedaba como $3,600 a favor sin preguntar.
+describe("disponible mayor que el límite", () => {
+  test("no se guarda: se pregunta si cambió el límite; con el límite nuevo o un saldo a favor dicho, sí", async () => {
+    const { ctx } = preparar();
+    const previo = "Tengo una tarjeta de crédito Nu con límite de 30 mil";
+    await llamar(dictado(ctx, previo), "cuentas", { cuentas: [{ cuenta: "Nu", tipo: "credito", limite: 30000 }] });
+    const dicho = { ...dictado(ctx, "En la Nu tengo 33,600 disponibles"), dichoAntes: [previo] };
+    for (const args of [{ cuenta: "Nu", disponible: 33600 }, { cuenta: "Nu", disponible: 33600, limite: 30000 }]) {
+      const r = await llamar(dicho, "cuentas", { cuentas: [args] });
+      expect(r.error).toContain("no cuadra");
+    }
+    expect(estado(ctx, "Nu").conocido).toBe(false);
+    await llamar(dictado(ctx, "mi límite de la Nu ahora es de 40 mil y tengo 33,600 disponibles"), "cuentas", {
+      cuentas: [{ cuenta: "Nu", limite: 40000, disponible: 33600 }],
+    });
+    expect(pesos(estado(ctx, "Nu").deudaCentavos)).toBe(6400);
+    const { ctx: otro } = preparar();
+    await llamar(dictado(otro, previo), "cuentas", { cuentas: [{ cuenta: "Nu", tipo: "credito", limite: 30000 }] });
+    const r = await llamar(dictado(otro, "en la Nu tengo 500 a favor, o sea 30,500 disponibles"), "cuentas", { cuentas: [{ cuenta: "Nu", disponible: 30500 }] });
+    expect(r.error).toBeUndefined();
+  });
+});
+
+// 2026-10-09 01:2xZ: "tengo una tarjeta de crédito Revolut" convirtió su Revolut de débito en crédito y perdió su saldo.
+describe("Revolut de débito y de crédito (2026-10-09)", () => {
+  const conDebito = () => {
+    const { ctx } = preparar();
+    fijarCuenta(dictado(ctx, "en Revolut tengo 19,291"), { cuenta: "Revolut", tipo: "debito", saldo: 19291 });
+    return ctx;
+  };
+
+  test("una tarjeta de crédito del mismo banco es otra cuenta; la de débito no se toca", async () => {
+    for (const args of [{ cuenta: "Revolut", tipo: "credito" }, { cuenta: "tarjeta de crédito Revolut", disponible: 10000 }, { cuenta: "Revolut", tipo: "credito", disponible: 10000 }]) {
+      const ctx = conDebito();
+      const frase = `Tengo una tarjeta de crédito Revolut${"disponible" in args ? " con 10 mil disponibles" : ""}`;
+      const r = await llamar(dictado(ctx, frase), "cuentas", { cuentas: [args] });
+      expect(r.error).toBeUndefined();
+      expect(estadosDeCuentas(ctx).map((e) => [e.nombre, e.tipo, pesos(e.disponibleCentavos)])).toEqual([
+        ["Revolut", "debito", 19291],
+        ["Revolut crédito", "credito", "disponible" in args ? 10000 : null],
+      ]);
+    }
+  });
+
+  test("después, cada frase va a la suya; 'en realidad es de crédito' sí cambia la cuenta", async () => {
+    const ctx = conDebito();
+    await llamar(dictado(ctx, "Tengo una tarjeta de crédito Revolut"), "cuentas", { cuentas: [{ cuenta: "Revolut", tipo: "credito" }] });
+    await llamar(dictado(ctx, "en mi tarjeta de crédito Revolut tengo 8 mil disponibles"), "cuentas", { cuentas: [{ cuenta: "Revolut", tipo: "credito", disponible: 8000 }] });
+    expect(pesos(estado(ctx, "Revolut crédito").disponibleCentavos)).toBe(8000);
+    const gasto = crearMovimiento(dictado(ctx, "gasté 300 con mi tarjeta de crédito Revolut"), { tipo: "gasto", monto: 300, cuenta: "tarjeta de crédito Revolut" });
+    expect(gasto.cuenta).toBe("Revolut crédito");
+    expect(crearMovimiento(dictado(ctx, "gasté 100 con Revolut"), { tipo: "gasto", monto: 100, cuenta: "Revolut" }).cuenta).toBe("Revolut");
+    // "Le pagué mil a la tarjeta Revolut": baja la deuda de la de crédito, no le suma al débito.
+    fijarCuenta(dictado(ctx), { cuenta: "Revolut crédito", tipo: "credito", limite: 34000, disponible: 7700 });
+    const debitoAntes = estado(ctx, "Revolut").saldoCentavos;
+    moverDinero(dictado(ctx, "le pagué mil a la tarjeta Revolut"), { tipo: "pago_tarjeta", monto: 1000, hacia: "Revolut" });
+    expect(pesos(estado(ctx, "Revolut crédito").deudaCentavos)).toBe(25300);
+    expect(estado(ctx, "Revolut").saldoCentavos).toBe(debitoAntes);
+    // Corregir el tipo de una sola cuenta sigue siendo posible.
+    const { ctx: otro } = preparar();
+    fijarCuenta(dictado(otro), { cuenta: "Hey", tipo: "debito" });
+    await llamar(dictado(otro, "mi Hey en realidad es de crédito"), "cuentas", { cuentas: [{ cuenta: "Hey", tipo: "credito" }] });
+    expect(estadosDeCuentas(otro).map((e) => [e.nombre, e.tipo])).toEqual([["Hey", "credito"]]);
+  });
+});
+
+describe("Mercado Pago de Pedro (2026-10-09)", () => {
+  test("'Mercado Pago de crédito' se llama Mercado Pago; un límite dicho una vez no es también lo disponible", async () => {
+    const { ctx } = preparar();
+    await llamar(dictado(ctx, "En mi tarjeta de Mercado pago de crédito tengo un límite total de 33,200 pesos"), "cuentas", {
+      cuentas: [{ cuenta: "Mercado Pago de crédito", tipo: "credito", limite: 33200 }],
+    });
+    expect(estadosDeCuentas(ctx).map((e) => [e.nombre, e.tipo])).toEqual([["Mercado Pago", "credito"]]);
+    // La frase se cortó: el modelo puso el límite también como disponible.
+    await llamar(dictado(ctx, "Mi límite total es de 33,200 pesos en mi tarjeta de crédito Mercado pago y tengo un disponible"), "cuentas", {
+      cuentas: [{ cuenta: "Mercado Pago", disponible: 33200, limite: 33200 }],
+    });
+    expect(estado(ctx, "Mercado Pago").conocido).toBe(false);
+    // "No debo nada": el cero sí lo dijo.
+    await llamar(dictado(ctx, "en Mercado Pago no debo nada"), "cuentas", { cuentas: [{ cuenta: "Mercado Pago", deuda: 0 }] });
+    expect(pesos(estado(ctx, "Mercado Pago").disponibleCentavos)).toBe(33200);
+  });
+
+  // Investigación, 01:42Z: renombrada a "Mercado Pago Credito", "Mercado Pago" ya no la encontraba y se iba a duplicar.
+  test("'Mercado Pago Credito' se encuentra diciendo 'Mercado Pago', con o sin 'de crédito'; Revolut sigue siendo la de débito", () => {
+    const { ctx, db, usuario } = preparar();
+    // Así queda después de renombrarla (al crearla, el "de crédito" del final no va en el nombre).
+    db.insert(tablaCuentas).values({ usuarioId: usuario.id, nombre: "Mercado Pago Credito", tipo: "credito" }).run();
+    fijarCuenta(dictado(ctx), { cuenta: "Revolut", tipo: "debito", saldo: 19291 });
+    fijarCuenta(dictado(ctx), { cuenta: "Revolut crédito", tipo: "credito", limite: 34000 });
+    const nombre = (texto: string) => encontrarOCrearCuenta(db, usuario.id, texto, { soloExistente: true, soloLeer: true })?.nombre;
+    for (const texto of ["Mercado Pago", "mercado pago", "tarjeta de crédito Mercado Pago", "Mercado Pago de crédito", "mi tarjeta Mercado Pago Credito"]) {
+      expect([texto, nombre(texto)]).toEqual([texto, "Mercado Pago Credito"]);
+    }
+    expect(nombre("Revolut")).toBe("Revolut");
+    expect(nombre("mi cuenta de débito Revolut")).toBe("Revolut");
+    expect(nombre("tarjeta de crédito Revolut")).toBe("Revolut crédito");
+    expect(nombre("Revolut de crédito")).toBe("Revolut crédito");
+    expect(crearMovimiento(dictado(ctx, "gasté 200 con Mercado Pago"), { tipo: "gasto", monto: 200, cuenta: "Mercado Pago" }).cuenta).toBe("Mercado Pago Credito");
+    expect(estadosDeCuentas(ctx).map((e) => e.nombre).sort()).toEqual(["Mercado Pago Credito", "Revolut", "Revolut crédito"]);
   });
 });
