@@ -679,7 +679,7 @@ async function anotarPagoDirecto(ctx: Contexto, texto: string, acciones: Accion[
 // (no se oyó la respuesta, o se repitió por si acaso): se pregunta antes de anotarlo dos veces.
 const VENTANA_REPETIDO_MS = 10 * 60_000;
 // El modelo contesta que ya lo tenía: "Ya registré los tacos hace un momento", "ya está anotado".
-const YA_LO_TENIA = /\bya (lo |la |los |las |te |tengo |tenia |habia |esta |estan |estaba |quedo |quedaron )?(registr|anot|guard|apunt)/;
+const YA_LO_TENIA = /\bya (lo |la |los |las |te |tengo |tenia |tienes |tenias |habia |esta |estan |estaba |quedo |quedaron )?(registr|anot|guard|apunt)/;
 
 /** Lo que registró un dictado reciente de esta conversación que cumple `coincide` y sigue ahí (no se borró). */
 function anotadoHaceUnMomento(ctx: Contexto, entrada: Entrada, coincide: (texto: string) => boolean): Movimiento[] | undefined {

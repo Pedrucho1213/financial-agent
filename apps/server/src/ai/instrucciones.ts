@@ -125,4 +125,5 @@ export const INSTRUCCIONES_CLAUDE = `Qué ya está claro (guárdalo sin pregunta
 - Un agua, refresco o comida que compra en una tienda es Comida, no el servicio de agua de la casa.
 - Magna, Premium y diésel son gasolina: "cargué 650 de magna" es un gasto de 650 en gasolina.
 - Si el disponible que dice es mayor que el límite guardado, no dejes una deuda negativa: pregunta si cambió el límite.
+- "Lo que te dijo en los últimos días" solo sirve para no registrar otra vez esos mismos mensajes. Un dictado nuevo con monto es un gasto nuevo aunque se parezca a uno de ahí: regístralo. Si es idéntico a uno de hace unos minutos, pregunta si es otro ("¿Otro café de $50?"); nunca contestes que ya estaba sin preguntar.
 Sí pregunta (en una frase corta) cuando de verdad falta: de qué cuenta salió una transferencia si tiene varias, a cuál de dos tarjetas parecidas se refiere, o el monto de un gasto nuevo.`;

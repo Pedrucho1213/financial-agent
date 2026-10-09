@@ -55,6 +55,15 @@ test("si el modelo dice que ya lo tenía y es cierto, pregunta en vez de reinten
   expect(cuantos()).toBe(1);
 });
 
+test("\"ya los tienes registrados\" (como lo dice Claude) también cuenta como que ya lo tenía", async () => {
+  const { hablar, modelo, cuantos } = montar([tacos, texto("Ya tienes registrados unos tacos de $120 de hace un momento."), tacos]);
+  const r1 = await hablar("Gasté 120 en tacos");
+  const r2 = await hablar("Gasté 120 pesos en unos tacos", r1.conversacion_id, 1);
+  expect(r2.respuesta).toContain("¿Es otra compra?");
+  expect(modelo.doGenerateCalls.length).toBe(2);
+  expect(cuantos()).toBe(1);
+});
+
 test("si el modelo dice que ya lo tenía y no hay nada igual, sí reintenta", async () => {
   const { hablar, modelo, cuantos } = montar([tacos, texto("Ya registré el café de $85 hace un momento."), llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 85, descripcion: "café" }] })]);
   const r1 = await hablar("Gasté 120 en tacos");
