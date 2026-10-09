@@ -291,6 +291,8 @@ export function obtenerPropio(ctx: Contexto, id: string): Movimiento {
 
 export type FiltroMovimientos = {
   texto?: string;
+  /** Lo que no cuenta: "sin contar la renta". Comercio, palabra o categoría. */
+  excluir?: string;
   categoria?: string;
   periodo?: string;
   tipo?: TipoMovimiento;
@@ -300,6 +302,8 @@ export type FiltroMovimientos = {
   etiqueta?: string;
   /** Nombre de una cuenta: los que salieron de ella o llegaron a ella. */
   cuenta?: string;
+  /** Del más grande al más chico, en lugar del más reciente primero. */
+  mas_grandes?: boolean;
 };
 
 // Palabras que no ayudan a encontrar un movimiento: "el Uber de ayer" busca solo "uber".
@@ -337,10 +341,13 @@ function filtrar(ctx: Contexto, filtro: FiltroMovimientos, cats: Categoria[]) {
     const ids = new Set(idsConHijas(cats, cat.id));
     filas = filas.filter((m) => m.categoriaId && ids.has(m.categoriaId));
   }
-  const palabras = normalizar(filtro.texto ?? "")
-    .split(" ")
-    .filter((p) => p && !PALABRAS_VACIAS.has(p));
-  if (palabras.length) {
+  const palabrasDe = (t?: string) =>
+    normalizar(t ?? "")
+      .split(" ")
+      .filter((p) => p && !PALABRAS_VACIAS.has(p));
+  const palabras = palabrasDe(filtro.texto);
+  const fuera = palabrasDe(filtro.excluir);
+  if (palabras.length || fuera.length) {
     const nombresComercio = new Map(
       ctx.db
         .select()
@@ -349,15 +356,15 @@ function filtrar(ctx: Contexto, filtro: FiltroMovimientos, cats: Categoria[]) {
         .all()
         .map((c) => [c.id, c.nombreNormalizado]),
     );
+    const planoDe = (m: Movimiento) =>
+      normalizar(
+        [m.comercioId ? nombresComercio.get(m.comercioId) : undefined, m.descripcion, m.textoOriginal, nombreCompleto(cats, m.categoriaId)]
+          .filter(Boolean)
+          .join(" "),
+      );
     filas = filas.filter((m) => {
-      const textos = [
-        m.comercioId ? nombresComercio.get(m.comercioId) : undefined,
-        m.descripcion,
-        m.textoOriginal,
-        nombreCompleto(cats, m.categoriaId),
-      ];
-      const plano = normalizar(textos.filter(Boolean).join(" "));
-      return palabras.every((p) => plano.includes(p));
+      const plano = planoDe(m);
+      return palabras.every((p) => plano.includes(p)) && !(fuera.length && fuera.every((p) => plano.includes(p)));
     });
   }
   return { filas, periodo };
@@ -365,7 +372,12 @@ function filtrar(ctx: Contexto, filtro: FiltroMovimientos, cats: Categoria[]) {
 
 export function buscarMovimientos(ctx: Contexto, filtro: FiltroMovimientos) {
   const cats = listarCategorias(ctx.db, ctx.usuarioId);
-  const { filas } = filtrar(ctx, filtro, cats);
+  let { filas } = filtrar(ctx, filtro, cats);
+  // "¿Cuál fue mi gasto más grande?": los de la moneda base primero, del más grande al más chico.
+  if (filtro.mas_grandes) {
+    const base = (m: Movimiento) => (m.moneda === ctx.monedaBase ? 0 : 1);
+    filas = [...filas].sort((a, b) => base(a) - base(b) || b.montoCentavos - a.montoCentavos);
+  }
   const limite = Math.min(Math.max(filtro.limite ?? 5, 1), 50);
   return { encontrados: filas.length, movimientos: filas.slice(0, limite).map((m) => describir(ctx, m, cats)) };
 }
@@ -400,11 +412,16 @@ function vinoDespues(ctx: Contexto): (fila: { entradaId: string | null; creadoEn
   return (fila) => (fila.entradaId ? posteriores.has(fila.entradaId) : fila.creadoEn > propia.creadoEn);
 }
 
+/** Lo que el usuario distingue de un movimiento: dos con la misma huella son el mismo dicho dos veces. */
+const huella = (m: Movimiento) =>
+  [m.tipo, m.montoCentavos, m.moneda, m.fecha, m.categoriaId, m.comercioId, m.cuentaId, m.descripcion].join("|");
+
 /**
  * El movimiento a editar o eliminar: por id, o con una búsqueda que deje uno solo. Con `varios` ("borra
  * los tacos"), si coinciden pocos el error le pide a la IA ir uno por uno con su id.
  */
-export function idDelMovimiento(ctx: Contexto, id?: string, buscar?: Busqueda, varios = false): string {
+/** `cuantos`: los que dijo la frase ("borra los dos cafés"); si coinciden justo esos, son ellos. */
+export function idDelMovimiento(ctx: Contexto, id?: string, buscar?: Busqueda, varios = false, cuantos?: number): string {
   if (id) return id;
   if (!buscar) throw new ErrorFinanzas("Indica el id o qué buscar.");
   const cats = listarCategorias(ctx.db, ctx.usuarioId);
@@ -415,7 +432,8 @@ export function idDelMovimiento(ctx: Contexto, id?: string, buscar?: Busqueda, v
   }
   if (filas.length === 1) return filas[0]!.id;
   // "El último" es lo último que anotó, aunque sea de ayer: no un gasto con fecha de hoy anotado antes.
-  if (buscar.mas_reciente) {
+  // "El café de 85 lo anotaste dos veces": si todos son idénticos no hay cuál preguntar; es el repetido.
+  if (buscar.mas_reciente || (!varios && new Set(filas.map(huella)).size === 1)) {
     return ctx.db
       .select({ id: movimientos.id })
       .from(movimientos)
@@ -428,12 +446,39 @@ export function idDelMovimiento(ctx: Contexto, id?: string, buscar?: Busqueda, v
     const d = describir(ctx, m, cats);
     return `${d.comercio ?? d.categoria ?? d.tipo} de ${d.monto} del ${d.fecha} (id ${d.id})`;
   });
-  const queHacer = !varios
+  const queHacer = !varios && cuantos === filas.length
+    ? `Son justo los ${cuantos} que pidió: hazlo con el id de cada uno, uno por uno, sin preguntar.`
+    : !varios
     ? "Pregunta cuál; si pidió borrar o cambiar varios, usa el id de cada uno."
     : filas.length <= 3
       ? "Pidió varios: hazlo con el id de cada uno, uno por uno, sin preguntar."
       : "Pidió varios y son muchos: pregunta si son todos o cuáles.";
   throw new ErrorFinanzas(`Coinciden ${filas.length}: ${opciones.join("; ")}. ${queHacer}`);
+}
+
+/**
+ * "Ajusta la renta a 9 mil" con solo mas_reciente: si la frase nombra una categoría o un comercio que el
+ * movimiento encontrado no tiene (el último era un café), es otro. Devuelve lo que nombra, o undefined si
+ * cuadra o no nombra nada. `nuevos` son los valores que se van a poner ("cámbialo a Regalos").
+ */
+export function nombraOtroMovimiento(ctx: Contexto, id: string, frase: string, nuevos: (string | undefined)[] = []): string | undefined {
+  const plano = ` ${normalizar(frase)} `;
+  const cats = listarCategorias(ctx.db, ctx.usuarioId);
+  const deComercios = ctx.db
+    .select({ nombre: comercios.nombreNormalizado })
+    .from(comercios)
+    .where(eq(comercios.usuarioId, ctx.usuarioId))
+    .all()
+    .map((c) => c.nombre);
+  const aPoner = nuevos.filter(Boolean).map((n) => normalizar(n!));
+  const nombrados = [...cats.map((c) => normalizar(c.nombre)), ...deComercios].filter(
+    (n) => n.length >= 3 && plano.includes(` ${n} `) && !aPoner.some((p) => p.includes(n)),
+  );
+  if (!nombrados.length) return undefined;
+  const m = obtenerPropio(ctx, id);
+  const comercio = m.comercioId ? ctx.db.select().from(comercios).where(eq(comercios.id, m.comercioId)).get()?.nombreNormalizado : undefined;
+  const delMovimiento = normalizar([comercio, m.descripcion, m.textoOriginal, nombreCompleto(cats, m.categoriaId)].filter(Boolean).join(" "));
+  return nombrados.some((n) => delMovimiento.includes(n)) ? undefined : nombrados[0];
 }
 
 export function editarMovimiento(ctx: Contexto, id: string, cambios: Partial<DatosMovimiento>) {

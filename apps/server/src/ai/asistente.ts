@@ -15,6 +15,7 @@ import { confirmacionDirecta, confirmarRegistro, type Ejecutada, type Movimiento
 import { construirInstrucciones, datosDelUsuario } from "./instrucciones";
 import { pagoDeFrase } from "../finanzas/applepay";
 import { crearHerramientas, type Accion } from "./herramientas";
+import { comoVoySinModelo, CONSULTAS_ANALISIS } from "./herramientas-analisis";
 import { CONSULTAS_PLANES } from "./herramientas-planes";
 import { CONSULTAS_CUENTAS } from "./herramientas-cuentas";
 import { datoDeCuentas } from "../finanzas/cuentas";
@@ -94,9 +95,17 @@ function cargarHistorial(db: Db, usuarioId: string, conversacionId: string): Mod
     .all()
     .map((m) => m.contenido as ModelMessage);
   const recientes = filas.slice(-MAX_MENSAJES_HISTORIAL);
-  // No empezar a media llamada de herramienta: el historial arranca en un mensaje del usuario.
+  // No empezar a media llamada de herramienta: el historial arranca en un mensaje del usuario, con los
+  // datos del usuario que iban justo antes (ver `procesar`).
   const inicio = recientes.findIndex((m) => m.role === "user");
-  return inicio === -1 ? [] : recientes.slice(inicio);
+  if (inicio === -1) return [];
+  return recientes.slice(inicio > 0 && recientes[inicio - 1]!.role === "system" ? inicio - 1 : inicio);
+}
+
+/** Los últimos datos del usuario que ya están en la conversación. */
+function ultimosDatos(historial: ModelMessage[]): string | undefined {
+  const m = historial.findLast((x) => x.role === "system");
+  return m && typeof m.content === "string" ? m.content : undefined;
 }
 
 // Palabras con las que el modelo dice que ya hizo algo ("Listo", "registré", "lo borré"), sin acentos.
@@ -131,6 +140,19 @@ const AVISO_SIN_HERRAMIENTAS =
   "\n\nAviso: en tu intento anterior respondiste sin usar ninguna herramienta, así que no se guardó ni se consultó nada. " +
   "Si el usuario dictó un gasto o ingreso que ya hizo, regístralo; si pidió corregir o borrar, hazlo; si preguntó por sus finanzas, consúltalas. " +
   "Si no pidió nada de eso, responde sin decir que guardaste algo.";
+
+// "Borra los dos cafés de ayer": pidió borrar uno o dos y el modelo preguntó si de verdad, sin buscar nada.
+// Las instrucciones piden borrarlos sin preguntar; solo "todo" o más de dos se confirman.
+const BORRA_POCOS =
+  /^(?:(?:oye|a ver|bueno|porfa|por favor|y) )*(borra|borrame|elimina|eliminame|quita|quitame)\b(?!.*\b(todo|todos|todas)\b)(?!.*\b(los|las) (tres|cuatro|cinco|seis|siete|ocho|nueve|diez|[3-9]|\d{2,})\b)/;
+
+function preguntoSinBorrar(pedido: string, respuesta: string, llamadas: number): boolean {
+  return llamadas === 0 && respuesta.includes("?") && BORRA_POCOS.test(normalizar(pedido));
+}
+
+const AVISO_BORRAR =
+  "\n\nAviso: pidió borrar uno o dos movimientos y en tu intento anterior preguntaste sin buscarlos. " +
+  "No pidas confirmación: bórralos con eliminar_movimiento, uno por uno. Solo pregunta si no los encuentras o si no sabes cuál es.";
 
 const RESPUESTA_NO_GUARDADA = "No alcancé a guardar nada. ¿Me lo repites?";
 const RESPUESTA_NO_CONSULTADA = "No alcancé a revisar tus movimientos. ¿Me lo preguntas otra vez?";
@@ -527,7 +549,7 @@ function loQuePago(acciones: Accion[]): string[] {
 }
 
 // Herramientas que solo leen: si el modelo solo usó estas, no cambió nada.
-const SOLO_CONSULTA = new Set(["buscar_movimientos", "consultar_gastos", "listar_recurrentes", ...CONSULTAS_PLANES, ...CONSULTAS_CUENTAS]);
+const SOLO_CONSULTA = new Set(["buscar_movimientos", "consultar_gastos", "listar_recurrentes", ...CONSULTAS_PLANES, ...CONSULTAS_CUENTAS, ...CONSULTAS_ANALISIS]);
 
 // La respuesta pide elegir entre varios: "¿Cuál café?", "¿El de Oxxo o el de Starbucks?".
 const PIDE_ELEGIR = /\b(cual|cuales)\b|\bo (el|la|los|las) de\b/;
@@ -654,14 +676,26 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   const acciones: Accion[] = [];
   const mensajeUsuario: ModelMessage = { role: "user", content: entrada.texto };
   const historial = cargarHistorial(db, usuarioId, conversacionId);
-  ctx.enConversacion = historial.length > 0;
   // Si la respuesta anterior pedía elegir ("¿cuál café, el de 60 o el de 85?"), lo que se dice ahora la
   // contesta y el modelo ya sabe de cuál se habla. Otra pregunta ("¿de cuánto fue?") o una conversación
   // sin pregunta (el chat de la app) no bastan.
   const anterior = textoDe(historial.findLast((m) => m.role === "assistant" && textoDe(m) !== ""));
+  // Solo una respuesta a una pregunta trae el monto o la cuenta de antes ("¿de cuánto?" → "15 mil"). Un turno
+  // anterior cualquiera no: "Tengo 20 mil en Revolut" y luego "me llegó la quincena" no son $20,000 (W3).
+  ctx.enConversacion = anterior.includes("?");
   ctx.confiarEnMasReciente = anterior.includes("?") && PIDE_ELEGIR.test(normalizar(anterior));
   // Si un paso solo guardó, corrigió o borró, la confirmación se arma aquí y el modelo no da otra vuelta.
   let confirmacion: string | undefined;
+  // Lo que cambia mientras se usa va en un mensaje aparte, antes del dictado, y se guarda con la
+  // conversación: el turno siguiente empieza igual que este y Ollama reutiliza lo ya procesado
+  // (instrucciones, herramientas, datos y lo dicho). Si no cambiaron desde el último turno, no se repiten.
+  // Solo los datos vigentes llegan al modelo: los de turnos anteriores que ya cambiaron (una memoria
+  // olvidada, otra cuenta) se quitan del historial para que no anote con algo que ya no existe.
+  const datosActuales = datosDelUsuario(ctx);
+  const vigentes = datosActuales !== undefined && datosActuales === ultimosDatos(historial);
+  const ultimoSistema = historial.findLastIndex((m) => m.role === "system");
+  const historialVigente = historial.filter((m, i) => m.role !== "system" || (vigentes && i === ultimoSistema));
+  const datosNuevos = vigentes ? undefined : datosActuales;
   // Lo que tiene de raro el gasto dictado, antes de que la IA lo anote (es lo que hace esperar al Atajo).
   const nota =
     montosDelTexto(entrada.texto).length > 0 && !esPregunta(entrada.texto) && !esOrdenSobreLoAnotado(entrada.texto)
@@ -669,13 +703,12 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
       : undefined;
   const generar = (aviso = "") => {
     confirmacion = undefined;
-    // Lo que cambia mientras se usa (y el aviso de un reintento) va justo antes del dictado, no en las
-    // instrucciones: así Ollama reutiliza lo ya procesado de instrucciones, herramientas e historial.
-    const datos = [datosDelUsuario(ctx), aviso.trim()].filter(Boolean).join("\n\n");
+    // El aviso de un reintento va con los datos, justo antes del dictado, no en las instrucciones.
+    const datos = [datosNuevos, aviso.trim()].filter(Boolean).join("\n\n");
     return generateText({
       model: deps.modelo,
       instructions: construirInstrucciones(ctx),
-      messages: [...historial, ...(datos ? [{ role: "system" as const, content: datos }] : []), mensajeUsuario],
+      messages: [...historialVigente, ...(datos ? [{ role: "system" as const, content: datos }] : []), mensajeUsuario],
       allowSystemInMessages: true,
       tools: herramientasPara(entrada, crearHerramientas(ctx, acciones)),
       stopWhen: [
@@ -699,7 +732,8 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   let mensajesRespuesta: ModelMessage[];
   // Lo que se resuelve sin el modelo: el mismo dictado repetido, o "el súper de hoy fue con la Nu"
   // cuando hay un solo súper que corregir (el modelo solía preguntar el monto antes, QA-080).
-  const directo = dictadoRepetido(ctx, entrada) ?? (await cuentaSinModelo(ctx, entrada.texto, acciones));
+  const directo =
+    dictadoRepetido(ctx, entrada) ?? comoVoySinModelo(ctx, entrada.texto, acciones) ?? (await cuentaSinModelo(ctx, entrada.texto, acciones));
   if (directo) {
     texto = directo;
     mensajesRespuesta = [{ role: "assistant", content: directo }];
@@ -713,6 +747,9 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
       // Un "Listo" sin haber llamado a ninguna herramienta es una confirmación falsa: se reintenta una vez.
       if (!yaEstaba && respuestaSinSustento(entrada.texto, texto, acciones)) {
         resultado = await generar(AVISO_SIN_HERRAMIENTAS);
+        texto = confirmacion ?? resultado.text;
+      } else if (preguntoSinBorrar(entrada.texto, texto, resultado.steps.flatMap((p) => p.toolCalls).length) && tieneMovimientos(ctx)) {
+        resultado = await generar(AVISO_BORRAR);
         texto = confirmacion ?? resultado.text;
       }
       mensajesRespuesta = resultado.response.messages;
@@ -789,7 +826,8 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
     ...(comentario ? { comentario } : {}),
   };
   db.transaction((tx) => {
-    for (const contenido of [mensajeUsuario, ...mensajesRespuesta]) {
+    const datosGuardados: ModelMessage[] = datosNuevos ? [{ role: "system", content: datosNuevos }] : [];
+    for (const contenido of [...datosGuardados, mensajeUsuario, ...mensajesRespuesta]) {
       tx.insert(mensajes).values({ usuarioId, conversacionId, contenido }).run();
     }
     tx.update(entradas).set({ estado: "listo", respuesta }).where(eq(entradas.id, entrada.id)).run();

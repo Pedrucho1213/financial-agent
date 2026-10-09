@@ -19,7 +19,7 @@ export type Contexto = {
    * reciente, `mas_reciente` se respeta aunque la frase no diga "el último".
    */
   confiarEnMasReciente?: boolean;
-  /** Hay mensajes anteriores en esta conversación: el modelo puede traer datos de turnos pasados. */
+  /** La respuesta anterior preguntó algo: lo que se dice ahora la contesta y puede traer datos de ese turno. */
   enConversacion?: boolean;
   /** De dónde salen los movimientos que se registren (un dictado o un pago con Apple Pay). */
   origen?: "voz" | "apple_pay";

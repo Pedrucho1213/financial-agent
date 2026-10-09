@@ -771,6 +771,48 @@ function yaSePago(
 }
 
 /**
+ * Lo que falta pagar de hoy al fin de mes: pagos fijos y mensualidades. Un cobro que ya se anotó en
+ * este ciclo (por su nombre) no se cuenta dos veces: la renta del 10 pagada el 5 ya está en lo gastado.
+ */
+export function porPagarEsteMes(ctx: Contexto, fijos = recurrentesActivosEnBase(ctx)): number {
+  const { desde, hasta } = limitesDelMes(ctx);
+  const pagados = pagosRecientes(ctx, sumarMeses(desde, -1));
+  const porPagarFijos = fijos
+    .filter((r) => r.tipo !== "ingreso")
+    .flatMap((r) => cobrosEntre(r, ctx.hoy, hasta).map((f, i) => ({ r, f, i })))
+    .filter(({ r, f, i }) => i > 0 || !yaSePago(r, inicioDelCiclo(r, f), ctx.hoy, pagados))
+    .reduce((s, { r }) => s + r.montoCentavos, 0);
+  const mensualidades = ctx.db
+    .select({ fecha: movimientos.fecha, msiId: movimientos.msiId })
+    .from(movimientos)
+    .where(and(eq(movimientos.usuarioId, ctx.usuarioId), isNotNull(movimientos.msiId), isNull(movimientos.eliminadoEn), gte(movimientos.fecha, ctx.hoy)))
+    .all();
+  const porPagarMsi = comprasActivas(ctx)
+    .flatMap((c) =>
+      Array.from({ length: c.meses }, (_, n) => ({ c, n, f: fechaDelCargo(c, n) })).filter(
+        ({ c, f }) => f >= ctx.hoy && f <= hasta && !mensualidades.some((m) => m.msiId === c.id && m.fecha === f),
+      ),
+    )
+    .reduce((s, { c, n }) => s + montoDelCargo(c, n), 0);
+  return porPagarFijos + porPagarMsi;
+}
+
+function recurrentesActivosEnBase(ctx: Contexto) {
+  return ctx.db
+    .select()
+    .from(recurrentes)
+    .where(
+      and(
+        eq(recurrentes.usuarioId, ctx.usuarioId),
+        eq(recurrentes.activo, true),
+        isNull(recurrentes.eliminadoEn),
+        eq(recurrentes.moneda, ctx.monedaBase),
+      ),
+    )
+    .all();
+}
+
+/**
  * Cuánto puede gastar hoy sin pasarse en el mes: lo que entra (ingresos registrados o la quincena
  * esperada, lo que sea mayor), menos lo gastado y lo que falta pagar (pagos fijos y mensualidades),
  * repartido entre los días que quedan. Sin ingresos, usa los presupuestos.
@@ -797,44 +839,13 @@ export function disponible(ctx: Contexto) {
     )
     .all()
     .reduce((s, m) => s + m.montoCentavos, 0);
-  const fijos = ctx.db
-    .select()
-    .from(recurrentes)
-    .where(
-      and(
-        eq(recurrentes.usuarioId, ctx.usuarioId),
-        eq(recurrentes.activo, true),
-        isNull(recurrentes.eliminadoEn),
-        eq(recurrentes.moneda, ctx.monedaBase),
-      ),
-    )
-    .all();
+  const fijos = recurrentesActivosEnBase(ctx);
   const ingresosEsperados = fijos
     .filter((r) => r.tipo === "ingreso")
     .reduce((s, r) => s + cobrosEntre(r, desde, hasta).length * r.montoCentavos, 0);
   const ingresos = Math.max(ingresosRegistrados, ingresosEsperados);
 
-  // Lo que falta pagar este mes. Un cobro que ya se anotó en este ciclo (por su nombre) no se cuenta
-  // dos veces: la renta del 10 pagada el 5 ya está en lo gastado.
-  const pagados = pagosRecientes(ctx, sumarMeses(desde, -1));
-  const porPagarFijos = fijos
-    .filter((r) => r.tipo !== "ingreso")
-    .flatMap((r) => cobrosEntre(r, ctx.hoy, hasta).map((f, i) => ({ r, f, i })))
-    .filter(({ r, f, i }) => i > 0 || !yaSePago(r, inicioDelCiclo(r, f), ctx.hoy, pagados))
-    .reduce((s, { r }) => s + r.montoCentavos, 0);
-  const mensualidades = ctx.db
-    .select({ fecha: movimientos.fecha, msiId: movimientos.msiId })
-    .from(movimientos)
-    .where(and(eq(movimientos.usuarioId, ctx.usuarioId), isNotNull(movimientos.msiId), isNull(movimientos.eliminadoEn), gte(movimientos.fecha, ctx.hoy)))
-    .all();
-  const porPagarMsi = comprasActivas(ctx)
-    .flatMap((c) =>
-      Array.from({ length: c.meses }, (_, n) => ({ c, n, f: fechaDelCargo(c, n) })).filter(
-        ({ c, f }) => f >= ctx.hoy && f <= hasta && !mensualidades.some((m) => m.msiId === c.id && m.fecha === f),
-      ),
-    )
-    .reduce((s, { c, n }) => s + montoDelCargo(c, n), 0);
-  let comprometido = porPagarFijos + porPagarMsi;
+  let comprometido = porPagarEsteMes(ctx, fijos);
 
   let base: "ingresos" | "presupuestos" | "saldos" | null = null;
   let libreMes = 0;

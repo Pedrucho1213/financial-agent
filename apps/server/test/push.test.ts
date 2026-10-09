@@ -282,7 +282,7 @@ describe("Atajo rápido", () => {
   });
 
   test("una pregunta se sigue contestando en voz, sin push", async () => {
-    const { pedir, activar, enviadas } = montar([llamada("consultar_gastos", { periodo: "este_mes" }), texto("Llevas $85 este mes.")]);
+    const { pedir, activar, enviadas } = montar([llamada("consultar_gastos", { periodo: "este_mes", agrupar_por: "dia" }), texto("Llevas $85 este mes.")]);
     await activar();
     const r = await pedir("/v1/hablar", "POST", { texto: "¿cuánto llevo este mes?", client_id: "pregunta-01" });
     expect(r.status).toBe(200);
@@ -333,7 +333,8 @@ describe("aviso del día", () => {
   const hoyEnMexico = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City" }).format(new Date());
 
   test("el Atajo lo dice una vez, el más importante, al final de la primera respuesta, en pesos", async () => {
-    const consulta = llamada("consultar_gastos", { periodo: "este_mes" });
+    // Por día: la respuesta la redacta el modelo (un total sencillo ya viene redactado, ver consultas.ts).
+    const consulta = llamada("consultar_gastos", { periodo: "este_mes", agrupar_por: "dia" });
     const { db, usuario, pedir } = montar([consulta, texto("Llevas $85 este mes."), consulta, texto("Llevas $85 este mes.")]);
     guardar(db, { usuarioId: usuario.id, titulo: "Meta", texto: "Vas bien con tu meta.", tipo: "meta", prioridad: 3 });
     guardar(db, { usuarioId: usuario.id, titulo: "Cafés", texto: "Llevas $400 en cafés esta semana.", prioridad: 1 });
