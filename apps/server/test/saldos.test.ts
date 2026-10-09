@@ -728,6 +728,12 @@ describe("Revolut de débito y de crédito (2026-10-09)", () => {
     const gasto = crearMovimiento(dictado(ctx, "gasté 300 con mi tarjeta de crédito Revolut"), { tipo: "gasto", monto: 300, cuenta: "tarjeta de crédito Revolut" });
     expect(gasto.cuenta).toBe("Revolut crédito");
     expect(crearMovimiento(dictado(ctx, "gasté 100 con Revolut"), { tipo: "gasto", monto: 100, cuenta: "Revolut" }).cuenta).toBe("Revolut");
+    // "Le pagué mil a la tarjeta Revolut": baja la deuda de la de crédito, no le suma al débito.
+    fijarCuenta(dictado(ctx), { cuenta: "Revolut crédito", tipo: "credito", limite: 34000, disponible: 7700 });
+    const debitoAntes = estado(ctx, "Revolut").saldoCentavos;
+    moverDinero(dictado(ctx, "le pagué mil a la tarjeta Revolut"), { tipo: "pago_tarjeta", monto: 1000, hacia: "Revolut" });
+    expect(pesos(estado(ctx, "Revolut crédito").deudaCentavos)).toBe(25300);
+    expect(estado(ctx, "Revolut").saldoCentavos).toBe(debitoAntes);
     // Corregir el tipo de una sola cuenta sigue siendo posible.
     const { ctx: otro } = preparar();
     fijarCuenta(dictado(otro), { cuenta: "Hey", tipo: "debito" });

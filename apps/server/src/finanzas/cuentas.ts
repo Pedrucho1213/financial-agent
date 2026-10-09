@@ -426,6 +426,11 @@ export function moverDinero(ctx: Contexto, datos: DatosMover) {
       else hacia = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, "tarjeta de crédito", { alCambiar: cambioDeCuenta(ctx) });
     }
   }
+  // "Le pagué mil a la tarjeta Revolut" con Revolut de débito y Revolut crédito: el pago va a la de crédito.
+  if (tipo === "pago_tarjeta" && hacia && hacia.tipo !== "credito" && datos.hacia && !datos.haciaId) {
+    const credito = encontrarOCrearCuenta(ctx.db, ctx.usuarioId, `tarjeta de crédito ${datos.hacia}`, { soloExistente: true, soloLeer: true, siAmbigua: "ninguna" });
+    if (credito?.tipo === "credito") hacia = credito;
+  }
   if (!desde && !hacia) throw new ErrorFinanzas("Pregunta de qué cuenta a qué cuenta movió el dinero.");
   if (desde && hacia && desde.id === hacia.id) throw new ErrorFinanzas("El dinero sale y llega a la misma cuenta: pregunta a cuál fue.");
   // Lo que llega a una tarjeta de crédito es un pago; una tarjeta de "otra" a la que se le paga es de crédito.
