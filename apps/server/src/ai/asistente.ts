@@ -1,4 +1,4 @@
-import { generateText, isStepCount, type LanguageModel, type ModelMessage } from "ai";
+import { generateText, isStepCount, type AssistantModelMessage, type LanguageModel, type ModelMessage } from "ai";
 import { and, asc, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { cuentas, entradas, mensajes, movimientos } from "../db/schema";
@@ -258,6 +258,43 @@ function sinPreguntasDeMas(texto: string): string {
   if (quedan.length) return quedan.join(" ");
   // Solo ofrecía ayuda ("¿En qué te ayudo?"); si solo preguntaba con qué pagó, mejor eso que nada.
   return frases.every((f) => OFRECE_AYUDA.test(f.trim())) ? "Aquí estoy." : texto;
+}
+
+// Lo que Claude a veces escribe antes de contestar (sin razonar, piensa en el texto): "This looks like a new
+// expense... I'll ask." o "Este mensaje es idéntico, así que pregunto, como indican las reglas." No se le dice a Pedro.
+const EN_INGLES =
+  /\b(the|this|that|these|those|is|are|was|were|it|its|it's|i|i'll|i'm|i've|should|would|will|whether|rather|than|user|looks|which|there|they|with|from|about|already|ask|asking|expense|amount|rules|per|and|or|not|be|have|of|to|in|on|if|let|now|at|an|same|message|shows|one|new|so|but|just|my|your|we|you|do|does|did|can|need|here|what|when|how|also|as|by|for|because|since|again|ago|seems|likely|identical|entry|recent|duplicate|log|logged|previous)\b/g;
+const HABLA_DE_SUS_REGLAS =
+  /\b(las|mis|tus|estas|esas|sus) (reglas|instrucciones|indicaciones)\b|\binstrucciones\b|\bprompt\b|\beste mensaje\b/;
+
+function esRazonamiento(frase: string): boolean {
+  // Lo que cita entre comillas o paréntesis ("gasté 50 en un café", "jue 21:07") no cuenta como español.
+  const limpia = normalizar(frase.replace(/"[^"]*"|“[^”]*”|«[^»]*»|\([^)]*\)/g, " "));
+  const palabras = limpia.split(/\s+/).filter((p) => /[a-zñ]/.test(p)).length;
+  const ingles = limpia.match(EN_INGLES)?.length ?? 0;
+  return /<\/?sistema>/.test(frase) || HABLA_DE_SUS_REGLAS.test(limpia) || (ingles >= 2 && ingles >= palabras * 0.3);
+}
+
+/** Quita del texto del modelo las frases que piensan en voz alta; lo que queda es lo que se le dice. */
+export function sinRazonamiento(texto: string): string {
+  const frases = texto.split(/\n+|(?<=[.!?…])\s+/);
+  if (!frases.some(esRazonamiento)) return texto;
+  return frases
+    .filter((frase) => frase.trim() && !esRazonamiento(frase))
+    .join(" ")
+    .trim();
+}
+
+/** Lo mismo en lo que se guarda de la conversación, para que el modelo no lo vea después y lo imite. */
+function mensajesSinRazonamiento(mensajes: ModelMessage[]): ModelMessage[] {
+  return mensajes.map((m) => {
+    if (m.role !== "assistant") return m;
+    if (typeof m.content === "string") return { ...m, content: sinRazonamiento(m.content) };
+    const content: AssistantModelMessage["content"] = m.content
+      .map((parte) => (parte.type === "text" ? { ...parte, text: sinRazonamiento(parte.text) } : parte))
+      .filter((parte) => parte.type !== "text" || parte.text);
+    return { ...m, content };
+  });
 }
 
 function limpiarParaVoz(texto: string): string {
@@ -679,10 +716,10 @@ async function anotarPagoDirecto(ctx: Contexto, texto: string, acciones: Accion[
 // (no se oyó la respuesta, o se repitió por si acaso): se pregunta antes de anotarlo dos veces.
 const VENTANA_REPETIDO_MS = 10 * 60_000;
 // El modelo contesta que ya lo tenía: "Ya registré los tacos hace un momento", "ya está anotado".
-const YA_LO_TENIA = /\bya (lo |la |los |las |te |tengo |tenia |habia |esta |estan |estaba |quedo |quedaron )?(registr|anot|guard|apunt)/;
+const YA_LO_TENIA = /\bya (lo |la |los |las |te |tengo |tenia |tienes |tenias |habia |esta |estan |estaba |quedo |quedaron )?(registr|anot|guard|apunt)/;
 
 /** Lo que registró un dictado reciente de esta conversación que cumple `coincide` y sigue ahí (no se borró). */
-function anotadoHaceUnMomento(ctx: Contexto, entrada: Entrada, coincide: (texto: string) => boolean): Movimiento[] | undefined {
+function anotadoHaceUnMomento(ctx: Contexto, entrada: Entrada, coincide: (texto: string) => boolean, enTodas = false): Movimiento[] | undefined {
   const ahora = Date.parse(entrada.capturadoEn);
   const previas = ctx.db
     .select({ id: entradas.id, texto: entradas.texto, capturadoEn: entradas.capturadoEn, respuesta: entradas.respuesta })
@@ -690,7 +727,7 @@ function anotadoHaceUnMomento(ctx: Contexto, entrada: Entrada, coincide: (texto:
     .where(
       and(
         eq(entradas.usuarioId, entrada.usuarioId),
-        eq(entradas.conversacionId, entrada.conversacionId),
+        enTodas ? undefined : eq(entradas.conversacionId, entrada.conversacionId),
         eq(entradas.estado, "listo"),
         ne(entradas.id, entrada.id),
       ),
@@ -726,12 +763,18 @@ function dictadoRepetido(ctx: Contexto, entrada: Entrada): string | undefined {
   return registrados ? preguntarSiRepite(registrados, ctx.hoy) : undefined;
 }
 
-/** El modelo dice que ya lo había anotado sin usar herramientas: si es cierto, se pregunta si es otro. */
+/**
+ * El modelo dice que ya lo había anotado sin usar herramientas: si es cierto, se pregunta si es otro. Se busca en
+ * todas sus conversaciones: el modelo ve los dictados recientes de las demás ("Lo que te dijo en los últimos días").
+ */
 function yaLoTenia(ctx: Contexto, entrada: Entrada, respuesta: string): string | undefined {
-  if (!YA_LO_TENIA.test(normalizar(respuesta))) return undefined;
+  return YA_LO_TENIA.test(normalizar(respuesta)) ? mismoMontoHaceUnMomento(ctx, entrada) : undefined;
+}
+
+function mismoMontoHaceUnMomento(ctx: Contexto, entrada: Entrada): string | undefined {
   const montos = montosDelTexto(entrada.texto);
-  if (montos.length === 0) return undefined;
-  const registrados = anotadoHaceUnMomento(ctx, entrada, (previo) => montosDelTexto(previo).some((m) => montos.includes(m)));
+  if (entrada.origen !== "voz" || montos.length === 0) return undefined;
+  const registrados = anotadoHaceUnMomento(ctx, entrada, (previo) => montosDelTexto(previo).some((m) => montos.includes(m)), true);
   return registrados ? preguntarSiRepite(registrados, ctx.hoy) : undefined;
 }
 
@@ -802,7 +845,7 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
       ? deps.razonamientoDificil
       : undefined;
   const conRazonamiento = razonar ? { providerOptions: { local: { reasoningEffort: razonar } }, maxOutputTokens: 2500 } : undefined;
-  const generar = (aviso = "") => {
+  const generar = (aviso = "", enLaMac = false) => {
     confirmacion = undefined;
     // El aviso de un reintento va con los datos, justo antes del dictado, no en las instrucciones.
     const datos = [datosNuevos, aviso.trim()].filter(Boolean).join("\n\n");
@@ -835,7 +878,10 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
       ...(conRazonamiento && aviso ? conRazonamiento : { maxOutputTokens: 600 }),
       // Con Claude, saldos, tarjetas y correcciones van desde el primer paso al modelo de IA_MODELO_DIFICIL (ai/modelo.ts):
       // en la batería con el modelo real, Sonnet desde el principio acertó las 28 secuencias de Pedro y Haiku 25.
-      ...(razonar ? { providerOptions: { ...(conRazonamiento && aviso ? conRazonamiento.providerOptions : {}), nube: { dificil: true } } } : {}),
+      // Si Claude solo pensó en voz alta (sin herramientas), se le pide al de la Mac (`enLaMac`, ai/modelo.ts).
+      ...(razonar || enLaMac
+        ? { providerOptions: { ...(conRazonamiento && aviso ? conRazonamiento.providerOptions : {}), nube: enLaMac ? { enLaMac: true } : { dificil: true } } }
+        : {}),
       maxRetries: 1,
       abortSignal: AbortSignal.timeout(90_000),
     });
@@ -852,19 +898,21 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   } else {
     try {
       let resultado = await generar();
-      texto = confirmacion ?? resultado.text;
+      // Si no hizo nada y todo lo que escribió era pensar en voz alta, contesta el modelo de la Mac.
+      if (!confirmacion && acciones.length === 0 && resultado.text.trim() && !sinRazonamiento(resultado.text)) resultado = await generar("", true);
+      texto = confirmacion ?? sinRazonamiento(resultado.text);
       // "Ya lo registré hace un momento" sin herramientas: si de verdad ya estaba, no se reintenta (el
       // reintento lo anotaría dos veces) ni se dice que no se guardó nada.
       const yaEstaba = acciones.length === 0 ? yaLoTenia(ctx, entrada, texto) : undefined;
       // Un "Listo" sin haber llamado a ninguna herramienta es una confirmación falsa: se reintenta una vez.
       if (!yaEstaba && respuestaSinSustento(entrada.texto, texto, acciones)) {
         resultado = await generar(AVISO_SIN_HERRAMIENTAS);
-        texto = confirmacion ?? resultado.text;
+        texto = confirmacion ?? sinRazonamiento(resultado.text);
       } else if (preguntoSinBorrar(entrada.texto, texto, resultado.steps.flatMap((p) => p.toolCalls).length) && tieneMovimientos(ctx)) {
         resultado = await generar(AVISO_BORRAR);
-        texto = confirmacion ?? resultado.text;
+        texto = confirmacion ?? sinRazonamiento(resultado.text);
       }
-      mensajesRespuesta = resultado.response.messages;
+      mensajesRespuesta = mensajesSinRazonamiento(resultado.response.messages);
       if (confirmacion) mensajesRespuesta = [...mensajesRespuesta, { role: "assistant", content: confirmacion }];
       // Una pregunta que ni en el reintento consultó nada: "no tienes gastos" solo es cierto si de verdad no hay
       // registros, y una cifra sin consultar nunca lo es.
@@ -900,7 +948,9 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
       // Una pregunta que sí consultó ("¿cuánto he gastado?" con la base vacía) no es un registro que se perdió.
       const consultoPregunta = esPregunta(entrada.texto) && acciones.some((a) => SOLO_CONSULTA.has(a.herramienta));
       if (nadaCambio() && !consultoPregunta && PIDE_ALGO.test(normalizar(entrada.texto)) && diceQueHizo(texto)) {
-        texto = RESPUESTA_NO_GUARDADA;
+        // Dijo que lo anotó sin anotarlo ni en el reintento: si hace un momento se anotó lo mismo (en esta u otra
+        // conversación), lo más seguro es que hable de eso, y se pregunta si es otro en vez de decir que no se guardó.
+        texto = mismoMontoHaceUnMomento(ctx, entrada) ?? RESPUESTA_NO_GUARDADA;
         mensajesRespuesta = [{ role: "assistant", content: texto }];
       }
     } catch (error) {
