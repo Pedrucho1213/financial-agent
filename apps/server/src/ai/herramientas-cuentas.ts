@@ -51,7 +51,7 @@ const SIN_CIFRA_VALE = /\b(total|completo|completa|todo lo que debo|todo)\b|^(si
 
 // Lo que suele seguir a "mi tarjeta de crédito" sin ser su nombre: "en mi tarjeta de crédito tengo 7 mil".
 const NO_ES_NOMBRE = new Set(
-  "a al con de del el en es esta hay la las le lo los me mi mis para por que quedan queda se son su sus tengo tiene traigo un una y ya ahorita actualmente debo disponible disponibles limite saldo total".split(" "),
+  "a al con de del el en es esta hay la las le lo los me mi mis para por que quedan queda se son su sus tengo tiene traigo un una y ya ahorita actualmente ahora hoy solo todavia aun apenas tambien pero casi debo disponible disponibles limite saldo total".split(" "),
 );
 
 /** "Mi tarjeta no de crédito", "la tarjeta de crédito Nu": la frase le pone nombre a la tarjeta. */

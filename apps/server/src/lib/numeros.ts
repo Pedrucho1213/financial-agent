@@ -21,9 +21,9 @@ function plano(texto: string): string[] {
     .toLowerCase()
     // Conserva "1,899" y "47.50"; lo demás que no sea letra o número separa palabras.
     .replace(/(\d)[,](?=\d{3}\b)/g, "$1")
-    // El dictado parte los centavos al final: "37,581. 21 pesos" es 37581.21. Solo con miles y al final de la
-    // frase: "Uber 100. 25 pesos de propina" son dos montos.
-    .replace(/(\d{4,})\. (\d{2})(?= *(pesos|mxn)?\W*$)/g, "$1.$2")
+    // El dictado parte los centavos al final: "37,581. 21" y "233. 37 pesos" son 37581.21 y 233.37. Solo al final de
+    // la frase (con miles, o con "pesos"): "Uber 100. 25 pesos de propina" son dos montos.
+    .replace(/(\d{4,})\. (\d{2})(?= *(pesos|mxn)?\W*$)|(\d+)\. (\d{2})(?= *(pesos|mxn)\W*$)/g, (_, a, b, _c, d, e) => (a ? `${a}.${b}` : `${d}.${e}`))
     .replace(/[^a-z0-9ñ. ]/g, " ")
     .replace(/\.(?!\d)/g, " ")
     .split(/\s+/)

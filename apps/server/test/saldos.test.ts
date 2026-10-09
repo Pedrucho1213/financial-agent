@@ -691,5 +691,8 @@ describe("la Nu de Pedro oída como 'no' (2026-10-09)", () => {
     fijarCuenta(dictado(otro), { cuenta: "Invex", tipo: "credito", limite: 57400, deuda: 0 });
     const generica = await llamar(dictado(otro, "en mi tarjeta de crédito tengo 30 mil disponibles"), "cuentas", { cuentas: [{ cuenta: "Invex", disponible: 30000 }] });
     expect(generica.error).toBeUndefined();
+    // Palabras comunes después de "tarjeta de crédito" no son un nombre.
+    const ahora = await llamar(dictado(otro, "en mi tarjeta de crédito ahora tengo 7 mil disponibles"), "cuentas", { cuentas: [{ cuenta: "Invex", disponible: 7000 }] });
+    expect(ahora.error).toBeUndefined();
   });
 });

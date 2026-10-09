@@ -105,6 +105,8 @@ describe("montos dichos con palabras", () => {
     expect(montosDelTexto("pagué 100. 20 personas fueron")).toEqual([100, 20]);
     expect(montosDelTexto("Uber 100. 25 pesos de propina")).toEqual([100, 25]);
     expect(montosDelTexto("café 45. 30 pesos el pan")).toEqual([45, 30]);
+    expect(montosDelTexto("Gasté 233. 37 pesos")).toEqual([233.37]);
+    expect(montosDelTexto("fueron 450. 50 MXN")).toEqual([450.5]);
     expect(montosDelTexto("veintitrés mil cuatrocientos")).toEqual([23400]);
     expect(montosDelTexto("Me pagaron la quincena, 12 mil")).toEqual([12000]);
     expect(montosDelTexto("Gasté 1.5k en ropa")).toEqual([1500]);
