@@ -78,8 +78,21 @@ test("cuentas, tarjeta, pago, etiqueta y un gasto que mueve el saldo", async ({ 
 
   await page.goto("/#etiquetas");
   await expect(page.locator('[data-etiqueta="Viaje"]')).toContainText("$250.00");
+  // Lo que dice el asistente (GET /v1/analisis) llega con la forma que la app espera.
+  const proyeccion = page.waitForResponse((r) => r.url().includes("/v1/analisis?enfoque=proyeccion"));
+  const ahorrar = page.waitForResponse((r) => r.url().includes("/v1/analisis?enfoque=ahorrar"));
   await page.goto("/#analisis");
   await expect(page.getByRole("region", { name: "Por etiqueta" })).toContainText("$250.00");
+  for (const r of [await proyeccion, await ahorrar]) {
+    expect(r.status()).toBe(200);
+    const datos = await r.json();
+    expect(Array.isArray(datos.hallazgos)).toBe(true);
+    expect(typeof datos.gastadoCentavos).toBe("number");
+    if (datos.proyeccion) {
+      for (const k of ["cierreCentavos", "ritmoDiarioCentavos", "porPagarCentavos", "ingresosCentavos"]) expect(typeof datos.proyeccion[k]).toBe("number");
+      await expect(page.getByRole("region", { name: "Cómo cierras el mes" })).toBeVisible();
+    }
+  }
 
   // Los movimientos de BBVA: el gasto y el pago.
   await page.goto("/#cuentas");
