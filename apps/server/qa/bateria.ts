@@ -155,7 +155,7 @@ const CASOS: Caso[] = [
   // ── Tarjetas de crédito: límite, usado y disponible ─────────────────────────────────────────
   { grupo: "credito", frase: NU[0]!, verificar: (r) => no(cerca(r.limite("nu"), 30000) && cerca(r.usado("nu"), 12000) && cerca(r.disponible("nu"), 18000), { l: r.limite("nu"), u: r.usado("nu"), d: r.disponible("nu") }) },
   { grupo: "credito", frase: "Oye, te recuerdo que tengo 7000 pesos disponibles en mi tarjeta de crédito", previos: NU, verificar: (r) => no(cerca(r.disponible("nu"), 7000) && cerca(r.limite("nu"), 30000), { d: r.disponible("nu"), l: r.limite("nu") }), nota: "una sola tarjeta: es esa" },
-  { grupo: "credito", frase: "Tengo 7000 disponibles en mi tarjeta de crédito", previos: [...NU, "Mi BBVA Azul tiene límite de 20 mil"], verificar: (r) => no(r.pregunta(), r.respuesta), nota: "dos tarjetas: pregunta cuál" },
+  { grupo: "credito", frase: "Tengo 7000 disponibles en mi tarjeta de crédito", previos: [...NU, "Mi BBVA Azul tiene límite de 20 mil"], verificar: (r) => no(r.pregunta() && !cerca(r.disponible("azul"), 7000) && !cerca(r.disponible("nu"), 7000) && cerca(r.disponible("nu"), 18000) && r.nuevos().length === 0, { resp: r.respuesta, azul: r.disponible("azul"), nu: r.disponible("nu"), movs: r.nuevos().length }), nota: "dos tarjetas: pregunta cuál y no toca ninguna (QA-096)" },
   { grupo: "credito", frase: "Tengo un límite de 50 mil en la Amex", verificar: (r) => no(cerca(r.limite("amex"), 50000), r.limite("amex")) },
   { grupo: "credito", frase: "Tengo ocupado 8 mil de la BBVA Azul", previos: ["Mi BBVA Azul tiene límite de 20 mil"], verificar: (r) => no(cerca(r.usado("azul"), 8000) && cerca(r.disponible("azul"), 12000), { u: r.usado("azul"), d: r.disponible("azul") }) },
   { grupo: "credito", frase: "Gasté 1,500 en el súper con la Nu", previos: NU, verificar: (r) => no(cerca(r.usado("nu"), 13500) && cerca(r.disponible("nu"), 16500) && r.nuevos("gasto").length === 1, { u: r.usado("nu"), d: r.disponible("nu") }) },
@@ -201,7 +201,7 @@ const CASOS: Caso[] = [
   // ── Ingresos ───────────────────────────────────────────────────────────────────────────────
   { grupo: "ingresos", frase: "Me llegó la quincena de 15 mil a Bancomer", previos: DOS_CUENTAS, verificar: (r) => no(cerca(r.saldo("bancomer"), 25000) && r.nuevos("ingreso").length === 1, { ban: r.saldo("bancomer"), n: r.nuevos("ingreso").length }) },
   { grupo: "ingresos", frase: "Me depositaron 2,500 de un freelance en Revolut", previos: DOS_CUENTAS, verificar: (r) => no(cerca(r.saldo("revolut"), 22500), r.saldo("revolut")) },
-  { grupo: "ingresos", frase: "Me llegó la quincena", previos: DOS_CUENTAS, verificar: (r) => no(r.pregunta() && r.nuevos().length === 0, r.respuesta) },
+  { grupo: "ingresos", frase: "Me llegó la quincena", previos: DOS_CUENTAS, verificar: (r) => no(r.pregunta() && r.nuevos().length === 0 && cerca(r.saldo("bancomer"), 10000) && cerca(r.saldo("revolut"), 20000), { resp: r.respuesta, movs: r.nuevos().length, ban: r.saldo("bancomer"), rev: r.saldo("revolut") }), nota: "sin monto: pregunta y no guarda nada (QA-097)" },
 
   // ── Tags ───────────────────────────────────────────────────────────────────────────────────
   { grupo: "tags", frase: "Gasté 500 en la cena, ponle la etiqueta viaje Oaxaca", verificar: (r) => no(r.nuevos("gasto").length === 1 && r.tagsDe(r.nuevos("gasto")[0]!).some((t) => t.includes("oaxaca")), r.nuevos().map((m) => r.tagsDe(m))) },
