@@ -47,7 +47,7 @@ const MONTO_EN_TEXTO =
 
 /**
  * Cuando el Atajo no pudo leer las propiedades de la transacción (la Cartera cambió un nombre), saca el monto
- * del texto completo de la transacción; el resto del texto queda como nombre para la IA.
+ * del nombre de la transacción; el resto del texto queda como nombre para la IA.
  */
 export function pagoDeTransaccion(entrada: string | undefined): PagoWallet | undefined {
   const m = entrada?.match(MONTO_EN_TEXTO);

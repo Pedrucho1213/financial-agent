@@ -137,7 +137,7 @@ const PERMITIDAS = new Set([
   "dictatetext", "text.match", "text.replace", "date", "format.date", "number.random",
   "dictionary", "setitemname", "documentpicker.save", "documentpicker.open", "detect.text", "text.split",
   "text.combine", "appendvariable", "getcurrentlocation", "properties.locations", "downloadurl", "getvalueforkey",
-  "speaktext", "getitemtype",
+  "speaktext", "getitemtype", "getitemname",
 ]);
 const BLOQUES = new Set(["conditional", "repeat.count", "repeat.each"]);
 
@@ -632,7 +632,7 @@ describe("Atajo de Apple Pay", () => {
     for (const a of pasos) {
       for (const [, v] of recorrer(parametros(a))) {
         if (v && typeof v === "object" && (v as Dict).Type === "ExtensionInput") {
-          // Sin propiedad: la transacción completa (como texto y su tipo).
+          // Sin propiedad: la transacción completa (su nombre y su tipo).
           const [agr] = ((v as Dict).Aggrandizements as Dict[] | undefined) ?? [];
           if (!agr) continue;
           expect(agr.Type).toBe("WFPropertyVariableAggrandizement");
@@ -641,6 +641,22 @@ describe("Atajo de Apple Pay", () => {
       }
     }
     expect([...propiedades].sort()).toEqual(Object.values(PROPIEDADES_TRANSACCION).sort());
+  });
+
+  test("nunca convierte la transacción ni la tarjeta a texto; solo les pide su nombre o su tipo", () => {
+    // En el iPhone, "Texto" con la transacción falla: "Atajos no pudo convertir de transacción a texto".
+    let usos = 0;
+    for (const a of pasos) {
+      for (const [, v] of recorrer(parametros(a))) {
+        if (!v || typeof v !== "object" || (v as Dict).Type !== "ExtensionInput") continue;
+        const [agr] = ((v as Dict).Aggrandizements as Dict[] | undefined) ?? [];
+        if (agr && agr.PropertyName !== PROPIEDADES_TRANSACCION.tarjeta) continue;
+        usos++;
+        expect(["getitemname", "getitemtype"]).toContain(id(a));
+        expect((parametros(a).WFInput as Dict).WFSerializationType).toBe("WFTextTokenAttachment");
+      }
+    }
+    expect(usos).toBe(3);
   });
 
   test("referencias y bloques bien formados", () => {

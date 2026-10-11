@@ -134,7 +134,7 @@ const esquemaApplePay = z.object({
   comercio: z.coerce.string().trim().max(200).optional(),
   nombre: z.coerce.string().trim().max(200).optional(),
   tarjeta: z.coerce.string().trim().max(200).optional(),
-  // La transacción completa como texto y su tipo, por si la Cartera cambia el nombre de una propiedad.
+  // El nombre de la transacción y su tipo, por si la Cartera cambia el nombre de una propiedad.
   entrada: z.coerce.string().transform((t) => t.trim().slice(0, 500)).optional(),
   tipo: z.coerce.string().transform((t) => t.trim().slice(0, 100)).optional(),
   lat: numeroOpcional(-90, 90),
@@ -629,7 +629,7 @@ export function crearApp(opciones: OpcionesApp) {
     }
     const p = cuerpo.data;
     const usuarioId = c.get("usuarioId");
-    // Si el monto no llegó como propiedad, puede venir en el texto completo de la transacción.
+    // Si el monto no llegó como propiedad, puede venir en el nombre de la transacción.
     const directo = fraseDePago(p, opciones.monedaBase);
     const respaldo = directo ? undefined : pagoDeTransaccion(p.entrada);
     const texto = directo ?? (respaldo && fraseDePago({ ...p, monto: respaldo.monto, nombre: p.nombre ?? respaldo.nombre }, opciones.monedaBase));
