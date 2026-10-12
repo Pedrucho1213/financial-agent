@@ -2,6 +2,7 @@
 // y terminó, o un pago con Apple Pay que se registró solo.
 import type { Db } from "../db/client";
 import type { Entrada, Respuesta } from "../ai/asistente";
+import { PREGUNTA_TARJETA } from "../finanzas/tarjeta-wallet";
 import { type EnviarPush, type Notificacion, notificar, tieneSuscripciones } from "./notificaciones";
 
 type Registrado = { id?: string; monto?: string; comercio?: string; descripcion?: string; categoria?: string };
@@ -53,8 +54,9 @@ export function notificacionDeDictado(entrada: Entrada, respuesta: Respuesta | u
     };
   }
   const movimientos = movimientosDe(respuesta).filter((m) => m.id);
-  // Un pago con Apple Pay no se contesta por voz (y su comercio puede traer "?": "WHY? CAFE").
-  const pregunta = !applePay && respuesta.respuesta.includes("?");
+  // Un pago con Apple Pay no se contesta por voz (y su comercio puede traer "?": "WHY? CAFE"): solo pregunta
+  // con qué tarjeta pagó cuando la Cartera no lo dejó claro.
+  const pregunta = applePay ? respuesta.respuesta.includes(PREGUNTA_TARJETA) : respuesta.respuesta.includes("?");
   const prefijo = applePay ? "Apple Pay · " : "";
   const [primero] = movimientos;
   const titulo =

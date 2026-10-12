@@ -643,20 +643,27 @@ describe("Atajo de Apple Pay", () => {
     expect([...propiedades].sort()).toEqual(Object.values(PROPIEDADES_TRANSACCION).sort());
   });
 
-  test("nunca convierte la transacción ni la tarjeta a texto; solo les pide su nombre o su tipo", () => {
+  test("nunca convierte la transacción a texto; solo le pide su nombre o su tipo", () => {
     // En el iPhone, "Texto" con la transacción falla: "Atajos no pudo convertir de transacción a texto".
     let usos = 0;
     for (const a of pasos) {
       for (const [, v] of recorrer(parametros(a))) {
         if (!v || typeof v !== "object" || (v as Dict).Type !== "ExtensionInput") continue;
-        const [agr] = ((v as Dict).Aggrandizements as Dict[] | undefined) ?? [];
-        if (agr && agr.PropertyName !== PROPIEDADES_TRANSACCION.tarjeta) continue;
+        if (((v as Dict).Aggrandizements as Dict[] | undefined)?.length) continue;
         usos++;
         expect(["getitemname", "getitemtype"]).toContain(id(a));
         expect((parametros(a).WFInput as Dict).WFSerializationType).toBe("WFTextTokenAttachment");
       }
     }
-    expect(usos).toBe(3);
+    expect(usos).toBe(2);
+  });
+
+  test("la tarjeta va como texto de su propiedad, no con Obtener nombre (daría \"Forma de pago\")", () => {
+    const nombres = pasos.filter((a) => id(a) === "getitemname");
+    expect(nombres).toHaveLength(1);
+    expect(JSON.stringify(parametros(nombres[0]!))).not.toContain(PROPIEDADES_TRANSACCION.tarjeta);
+    const peticion = pasos.find((a) => parametros(a).CustomOutputName === "Petición")!;
+    expect(JSON.stringify(parametros(peticion))).toContain(`"PropertyName":"${PROPIEDADES_TRANSACCION.tarjeta}"`);
   });
 
   test("referencias y bloques bien formados", () => {

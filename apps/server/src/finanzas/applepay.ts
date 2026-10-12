@@ -1,6 +1,8 @@
 // Un pago con Apple Pay que manda el Atajo "Finanzas Apple Pay" (automatización "Transacción" de la Cartera)
 // se vuelve una frase como las dictadas, para que la IA lo registre igual: comercio, categoría y tarjeta.
 
+import { tarjetaSinNombre } from "./tarjeta-wallet";
+
 export type PagoWallet = {
   /** Como lo da la Cartera: "$85.00", "MX$1,234.50", "US$12.00", "12,50 €" o un número. */
   monto?: string;
@@ -91,12 +93,13 @@ const NOMBRES_MONEDA: Record<string, string> = {
  * El monto y la moneda de una frase armada por fraseDePago. Con eso el pago se anota con lo que dijo la
  * Cartera aunque el modelo copie mal el monto.
  */
-export function pagoDeFrase(texto: string | undefined): { monto: number; moneda: string; comercio?: string } | undefined {
+export function pagoDeFrase(texto: string | undefined): { monto: number; moneda: string; comercio?: string; tarjeta?: string } | undefined {
   const nombres = Object.entries(NOMBRES_MONEDA).sort(([, a], [, b]) => b.length - a.length);
   const m = texto?.match(new RegExp(`^Pagué (\\d+(?:\\.\\d+)?) (${nombres.map(([, n]) => n).join("|")}|[A-Z]{3})\\b(?: en "([^"]+)")?`));
   if (!m) return undefined;
   const moneda = nombres.find(([, n]) => n === m[2])?.[0] ?? m[2]!;
-  return { monto: Number(m[1]), moneda, ...(m[3] ? { comercio: m[3] } : {}) };
+  const tarjeta = texto!.match(/ con la tarjeta "([^"]+)" \(Apple Pay\)$/)?.[1];
+  return { monto: Number(m[1]), moneda, ...(m[3] ? { comercio: m[3] } : {}), ...(tarjeta && !tarjetaSinNombre(tarjeta) ? { tarjeta } : {}) };
 }
 
 /**
@@ -107,7 +110,8 @@ export function fraseDePago(pago: PagoWallet, monedaBase = "MXN"): string | unde
   const monto = montoDeWallet(pago.monto, monedaBase);
   if (!monto) return undefined;
   const comercio = sinNumeros(pago.comercio) ?? sinNumeros(pago.nombre);
-  const tarjeta = sinNumeros(pago.tarjeta);
+  // "Forma de pago" es lo que da Atajos cuando no pudo leer la tarjeta: no es una tarjeta.
+  const tarjeta = tarjetaSinNombre(pago.tarjeta) ? undefined : sinNumeros(pago.tarjeta);
   const cifra = Number.isInteger(monto.monto) ? String(monto.monto) : monto.monto.toFixed(2);
   return (
     `Pagué ${cifra} ${NOMBRES_MONEDA[monto.moneda] ?? monto.moneda}` +

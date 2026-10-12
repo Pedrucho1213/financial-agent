@@ -15,6 +15,7 @@ import {
   nombraOtroMovimiento,
   resumir,
 } from "../finanzas/movimientos";
+import { cuentaDeTarjeta } from "../finanzas/tarjeta-wallet";
 import { pagoDeFrase } from "../finanzas/applepay";
 import { listarCategorias } from "../finanzas/catalogos";
 import {
@@ -217,6 +218,13 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
           }
           movimientos = [{ ...movimientos[0]!, tipo: "gasto", monto: pago.monto, moneda: pago.moneda }];
         }
+        // La tarjeta la dice la Cartera, no el modelo: o empata con una de sus cuentas o se le pregunta cuál fue,
+        // sin crear una cuenta con ese nombre ni ponerle la de siempre ("Forma de pago (Apple Pay)", 2026-10-12).
+        const deTarjeta = pago?.tarjeta ? cuentaDeTarjeta(ctx.db, ctx.usuarioId, pago.tarjeta) : undefined;
+        if (pago) {
+          movimientos = [{ ...movimientos[0]!, cuenta: deTarjeta?.cuenta?.nombre }];
+          ctx.tarjetaPorAclarar = deTarjeta && !deTarjeta.cuenta && deTarjeta.opciones.length ? deTarjeta.opciones.map((c) => c.nombre) : undefined;
+        }
         // Préstamos, metas y meses sin intereses tienen su herramienta. Con varios montos en la frase
         // ("200 de tacos y le presté 100 a Juan") puede haber gastos de verdad: ahí no se frena.
         // En un pago de Apple Pay la frase la armó el servidor: "MSI STORE" o "TACOS EL LUNES" son el comercio.
@@ -326,13 +334,14 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
             // Decir con qué pagó es opcional: se pone sola si pidió recordarlo ("el Oxxo lo pago en efectivo")
             // o si en ese comercio, o en esa categoría, siempre paga con lo mismo.
             const recordada = tipo === "gasto" ? cuentaRecordada(ctx, [comercio, m.categoria, m.descripcion]) : undefined;
-            const cuenta =
-              m.cuenta ||
+            const cuenta = deTarjeta
+              ? m.cuenta
+              : m.cuenta ||
               nombreDeCuenta(ctx, habito?.cuentaId ?? null) ||
               (recordada && !recordada.paraTodo ? recordada.cuenta : undefined) ||
               cuentaHabitual(ctx, comercio);
             const cuentaSegunCategoria = (categoriaId: string | null) => {
-              if (tipo !== "gasto") return undefined;
+              if (tipo !== "gasto" || deTarjeta) return undefined;
               const hoja = categoriaId ? listarCategorias(ctx.db, ctx.usuarioId).find((c) => c.id === categoriaId)?.nombre : undefined;
               const deLaCategoria = hoja ? cuentaRecordada(ctx, [hoja]) : undefined;
               if (deLaCategoria && !deLaCategoria.paraTodo) return deLaCategoria.cuenta;

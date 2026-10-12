@@ -14,6 +14,7 @@ import { esOrdenSobreLoAnotado, esPregunta, normalizar, pideInformacion, tipoDel
 import { confirmacionDirecta, confirmarRegistro, type Ejecutada, type Movimiento, preguntarSiRepite } from "./confirmacion";
 import { construirInstrucciones, datosDelUsuario } from "./instrucciones";
 import { pagoDeFrase } from "../finanzas/applepay";
+import { preguntaDeTarjeta } from "../finanzas/tarjeta-wallet";
 import { crearHerramientas, type Accion } from "./herramientas";
 import { comoVoySinModelo, CONSULTAS_ANALISIS } from "./herramientas-analisis";
 import { CONSULTAS_PLANES } from "./herramientas-planes";
@@ -1015,7 +1016,13 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   // 100% de un presupuesto; si no, lo que tiene de raro el gasto; si no, un cobro que
   // viene. Si el iPhone ya recibió "Anotado", nadie lo va a oír: el aviso del cobro se deja para el
   // próximo dictado.
-  const puedeAgregar = acciones.length > 0 && !texto.includes("?");
+  // Un pago de Apple Pay con una tarjeta que no se supo cuál es: se anotó sin cuenta y se le pregunta.
+  const anotoPago = acciones.some(
+    (a) => a.herramienta === "registrar_movimientos" && Array.isArray((a.resultado as { registrados?: unknown } | null)?.registrados),
+  );
+  const preguntaTarjeta = anotoPago && ctx.tarjetaPorAclarar ? preguntaDeTarjeta(ctx.tarjetaPorAclarar) : undefined;
+  if (preguntaTarjeta) mensajesRespuesta = [...mensajesRespuesta, { role: "assistant", content: preguntaTarjeta }];
+  const puedeAgregar = acciones.length > 0 && !texto.includes("?") && !preguntaTarjeta;
   // Un gasto que deja la tarjeta casi sin crédito o la cuenta en poco o en negativo también es un dato que importa.
   const nuevos = puedeAgregar ? gastosNuevos(ctx, entrada.id) : [];
   const dato = puedeAgregar ? (datoDePresupuesto(ctx, nuevos) ?? datoDeCuentas(ctx, nuevos)) : undefined;
@@ -1028,7 +1035,8 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   const alguienLoVe = !enSegundoPlano.has(entrada.id) || !!deps.notificaSinEspera?.(usuarioId);
   const cobros =
     puedeAgregar && !dato && !comentario && !hablaDeCobros && alguienLoVe ? cobrosPorAvisar(ctx, loQuePago(acciones)) : undefined;
-  const hablado = limpiarParaVoz(sinPreguntasDeMas(texto)) || respuestaPorOmision(acciones);
+  const contestado = limpiarParaVoz(sinPreguntasDeMas(texto)) || respuestaPorOmision(acciones);
+  const hablado = preguntaTarjeta ? `${contestado} ${preguntaTarjeta}` : contestado;
   const extra = dato ?? comentario ?? cobros?.aviso;
 
   const respuesta: Respuesta = {

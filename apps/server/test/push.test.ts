@@ -4,10 +4,12 @@ import { MockLanguageModelV4 } from "ai/test";
 import { crearApp, RESPUESTAS_RAPIDAS } from "../src/app";
 import { crearDispositivo, crearUsuario, revocarDispositivo } from "../src/auth";
 import type { Db } from "../src/db/client";
-import { avisos, dispositivos, entradas as entradasTabla, mensajes as mensajesTabla, movimientos, suscripcionesPush } from "../src/db/schema";
+import { avisos, cuentas, dispositivos, entradas as entradasTabla, mensajes as mensajesTabla, movimientos, suscripcionesPush } from "../src/db/schema";
 import { fraseDePago, montoDeWallet, pagoDeFrase, pagoDeTransaccion } from "../src/finanzas/applepay";
 import { enviarAvisosDelDia } from "../src/push/avisos-manana";
 import { notificacionDeDictado } from "../src/push/dictados";
+import { cuentaDeTarjeta, preguntaDeTarjeta } from "../src/finanzas/tarjeta-wallet";
+import { eq } from "drizzle-orm";
 import { clavesVapid, type EnviarPush, ErrorSuscripcion, espera, notificar, suscribir, tienePush } from "../src/push/notificaciones";
 import { cifrar, endpointValido, enviarPush, firmaVapid, generarClavesVapid, temaPush } from "../src/push/webpush";
 import { llamada, preparar, texto } from "./ayuda";
@@ -584,6 +586,66 @@ describe("Apple Pay", () => {
     const otra = await pedir("/v1/hablar", "POST", { origen: "apple_pay", client_id: "applepay-20261007-123456", monto: "$85.00" });
     expect(otra.status).toBe(200);
     expect(db.select().from(movimientos).all()).toHaveLength(1);
+  });
+
+  const cuentasDePedro = (db: Db, usuarioId: string) => {
+    const nuevas = [
+      { nombre: "Revolut", tipo: "debito" },
+      { nombre: "Revolut crédito", tipo: "credito" },
+      { nombre: "Nu", tipo: "credito" },
+      { nombre: "Invex", tipo: "credito" },
+      { nombre: "Mercado Pago Credito", tipo: "credito" },
+      { nombre: "Efectivo", tipo: "efectivo" },
+    ] as const;
+    return Object.fromEntries(nuevas.map((c) => [c.nombre, db.insert(cuentas).values({ usuarioId, ...c }).returning().get().id]));
+  };
+
+  test("la tarjeta de la Cartera se empata con sus cuentas; si no es clara, da las opciones", () => {
+    const { db, usuario } = montar([]);
+    const ids = cuentasDePedro(db, usuario.id);
+    const de = (t: string) => {
+      const r = cuentaDeTarjeta(db, usuario.id, t);
+      return { cuenta: r.cuenta?.nombre, opciones: r.opciones.map((c) => c.nombre) };
+    };
+    expect(de("Nu")).toEqual({ cuenta: "Nu", opciones: [] });
+    expect(de("Tarjeta de crédito Nu")).toEqual({ cuenta: "Nu", opciones: [] });
+    expect(de("Mercado Pago")).toEqual({ cuenta: "Mercado Pago Credito", opciones: [] });
+    expect(de("INVEX Visa")).toEqual({ cuenta: "Invex", opciones: [] });
+    expect(de("Revolut Credit")).toEqual({ cuenta: "Revolut crédito", opciones: [] });
+    expect(de("Revolut")).toEqual({ cuenta: undefined, opciones: ["Revolut", "Revolut crédito"] });
+    expect(de("Forma de pago")).toEqual({ cuenta: undefined, opciones: [] });
+    expect(de("Banamex Oro").opciones).toEqual(["Revolut", "Revolut crédito", "Nu", "Invex", "Mercado Pago Credito"]);
+    // Un alias igual al nombre de la Cartera decide.
+    db.update(cuentas).set({ alias: ["Revolut"] }).where(eq(cuentas.id, ids["Revolut crédito"]!)).run();
+    expect(de("Revolut")).toEqual({ cuenta: "Revolut crédito", opciones: [] });
+    expect(preguntaDeTarjeta(["Revolut", "Revolut crédito"])).toBe("¿Con cuál tarjeta pagaste: Revolut o Revolut crédito?");
+    expect(fraseDePago({ monto: "$334", comercio: "Tacos Noreste", tarjeta: "Forma de pago" })).toBe('Pagué 334 pesos en "Tacos Noreste" (Apple Pay)');
+    expect(pagoDeFrase('Pagué 334 pesos en "Tacos Noreste" con la tarjeta "Revolut" (Apple Pay)')?.tarjeta).toBe("Revolut");
+  });
+
+  test("con la tarjeta clara el pago va a esa cuenta, aunque el modelo invente otra", async () => {
+    const conCuenta = llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 85, comercio: "Starbucks", categoria: "Café", cuenta: "Forma de pago (Apple Pay)" }] });
+    const { pedir, activar, enviadas, db, usuario } = montar([conCuenta]);
+    const ids = cuentasDePedro(db, usuario.id);
+    await activar();
+    await pedir("/v1/hablar", "POST", { origen: "apple_pay", client_id: "applepay-tarjeta-nu-01", monto: "$85.00", comercio: "STARBUCKS", tarjeta: "Nu" });
+    await hasta(() => enviadas.length > 0);
+    expect(db.select().from(movimientos).get()!.cuentaId).toBe(ids.Nu!);
+    expect(db.select().from(cuentas).all()).toHaveLength(6);
+    expect(enviadas[0]!.url).toStartWith("/#movimientos?detalle=");
+  });
+
+  test("con dos Revolut anota sin cuenta y pregunta cuál; la push abre el chat", async () => {
+    const conCuenta = llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 334, comercio: "Tacos Noreste", categoria: "Restaurantes", cuenta: "Revolut" }] });
+    const { pedir, activar, enviadas, db, usuario } = montar([conCuenta, texto("Listo, Tacos Noreste de $334.")]);
+    cuentasDePedro(db, usuario.id);
+    await activar();
+    await pedir("/v1/hablar", "POST", { origen: "apple_pay", client_id: "applepay-tarjeta-rev-01", monto: "$334.00", comercio: "Tacos Noreste", tarjeta: "Revolut" });
+    await hasta(() => enviadas.length > 0);
+    expect(db.select().from(movimientos).get()!.cuentaId).toBeNull();
+    expect(enviadas[0]!.cuerpo).toContain("¿Con cuál tarjeta pagaste: Revolut o Revolut crédito?");
+    expect(enviadas[0]!.cuerpo).toEndWith("Toca para contestarme.");
+    expect(enviadas[0]!.url).toStartWith("/#chat?conversacion=");
   });
 
   test("el nombre del comercio no puede dar órdenes: la IA solo puede anotar", async () => {
