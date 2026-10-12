@@ -155,10 +155,59 @@ function resumenDeAnteriores(anteriores: Anterior[], zonaHoraria: string): strin
   const cuando = new Intl.DateTimeFormat("es-MX", { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: zonaHoraria });
   const corto = (t: string) => (t.length > 200 ? `${t.slice(0, 200)}…` : t);
   const lineas = anteriores.map((a) => {
-    const dicha = (a.respuesta as Respuesta | null)?.respuesta;
-    return `- ${cuando.format(new Date(a.creadoEn))}: «${corto(a.texto)}»${dicha ? ` → «${corto(dicha)}»` : ""}`;
+    const r = a.respuesta as Respuesta | null;
+    // "¿Cuánto fue el total exacto?" sin registrar nada: eso no está hecho, quedó esperando su respuesta.
+    const sinHacer = !!r && preguntoSinHacer(r);
+    return `- ${cuando.format(new Date(a.creadoEn))}: «${corto(a.texto)}»${r?.respuesta ? ` → «${corto(r.respuesta)}»` : ""}${sinHacer ? " (PREGUNTASTE y no se registró nada: si ahora contesta, regístralo)" : ""}`;
   });
-  return `Lo que te dijo en los últimos días y lo que contestaste (ya está hecho: no lo registres otra vez; úsalo solo si habla de eso):\n${lineas.join("\n")}`;
+  return `Lo que te dijo en los últimos días y lo que contestaste (ya está hecho, salvo lo marcado PREGUNTASTE: no lo registres otra vez; úsalo solo si habla de eso):\n${lineas.join("\n")}`;
+}
+
+/** Contestó con una pregunta y no hizo nada: el dictado quedó esperando. */
+const preguntoSinHacer = (r: Respuesta) => r.respuesta.trim().endsWith("?") && !r.acciones?.some((a) => !SOLO_CONSULTA.has(a.herramienta));
+
+// "¿Tienes algún registro pendiente?", "¿quedó algo pendiente?", "creí que tenías una pregunta". Los pagos, deudas,
+// préstamos o meses pendientes son otra cosa: esa la contesta el modelo con sus herramientas.
+const PREGUNTA_POR_PENDIENTE =
+  /\b(pendiente|pendientes)\b|\b(tenias|tienes|tenias tu) (una|alguna) (pregunta|duda)\b|\bme (preguntaste|ibas a preguntar)\b|\bque paso con (el|mi|lo) ultim[oa]\b/;
+const PENDIENTE_DE_PAGO = /\b(pago|pagos|pagar|deuda|deudas|debo|prestamo|prestamos|meses|msi|cobro|cobros|recibo|recibos|meta|metas|presupuesto)\b/;
+const VIGENCIA_PENDIENTE_MS = 24 * 60 * 60_000;
+
+/**
+ * Si pregunta si quedó algo pendiente: la última pregunta que le hizo y que nadie contestó (en cualquier
+ * conversación del último día), o que no hay nada. El 10 y el 11 de octubre el modelo contestó "No alcancé a
+ * revisar tus movimientos" y luego "no tienes préstamos ni metas", sin ver que el monto de X24 seguía en el aire.
+ */
+function pendienteSinModelo(ctx: Contexto, entrada: Entrada): string | undefined {
+  const plano = normalizar(entrada.texto);
+  if (!PREGUNTA_POR_PENDIENTE.test(plano) || PENDIENTE_DE_PAGO.test(plano) || montosDelTexto(entrada.texto).length) return undefined;
+  if (plano.split(" ").length > 16) return undefined;
+  const previas = ctx.db
+    .select({ texto: entradas.texto, respuesta: entradas.respuesta, conversacionId: entradas.conversacionId, estado: entradas.estado, origen: entradas.origen })
+    .from(entradas)
+    .where(
+      and(
+        eq(entradas.usuarioId, entrada.usuarioId),
+        ne(entradas.id, entrada.id),
+        gte(entradas.creadoEn, new Date(Date.parse(entrada.creadoEn) - VIGENCIA_PENDIENTE_MS).toISOString()),
+        lt(entradas.creadoEn, entrada.creadoEn),
+      ),
+    )
+    .orderBy(desc(entradas.creadoEn), desc(sql`rowid`))
+    .limit(20)
+    .all();
+  const sinProcesar = previas.filter((p) => p.estado !== "listo").length;
+  // La pregunta más reciente que nadie contestó: después de ella no hubo otro dictado en su conversación.
+  const abierta = previas.find(
+    (p, i) => p.estado === "listo" && p.origen !== "apple_pay" && !!p.respuesta && preguntoSinHacer(p.respuesta as Respuesta) && !previas.slice(0, i).some((q) => q.conversacionId === p.conversacionId),
+  );
+  if (abierta) {
+    const pregunta = (abierta.respuesta as Respuesta).respuesta.trim().split(/(?<=[.!])\s+/).filter((f) => f.includes("?")).join(" ");
+    const dicho = abierta.texto.length > 120 ? `${abierta.texto.slice(0, 120).replace(/\s+\S*$/, "")}…` : abierta.texto;
+    return `Sí. Cuando me dijiste «${dicho}», te pregunté: ${pregunta}`;
+  }
+  if (sinProcesar) return `Tengo ${sinProcesar === 1 ? "un dictado que no alcancé" : `${sinProcesar} dictados que no alcancé`} a procesar; lo reintento yo solo.`;
+  return "No, no tengo nada pendiente: todo lo que me dictaste quedó anotado y no te debo ninguna pregunta.";
 }
 
 // Lo mismo que dura una pregunta que llegó por notificación (push/dictados.ts).
@@ -891,7 +940,10 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   // Lo que se resuelve sin el modelo: el mismo dictado repetido, o "el súper de hoy fue con la Nu"
   // cuando hay un solo súper que corregir (el modelo solía preguntar el monto antes, QA-080).
   const directo =
-    dictadoRepetido(ctx, entrada) ?? comoVoySinModelo(ctx, entrada.texto, acciones) ?? (await cuentaSinModelo(ctx, entrada.texto, acciones));
+    dictadoRepetido(ctx, entrada) ??
+    pendienteSinModelo(ctx, entrada) ??
+    comoVoySinModelo(ctx, entrada.texto, acciones) ??
+    (await cuentaSinModelo(ctx, entrada.texto, acciones));
   if (directo) {
     texto = directo;
     mensajesRespuesta = [{ role: "assistant", content: directo }];

@@ -578,9 +578,9 @@ export function crearApp(opciones: OpcionesApp) {
           texto: p.texto,
           clientId: p.client_id,
           // Una pregunta que llegó por notificación se contesta con el siguiente dictado, y lo que se dicta en
-          // la media hora siguiente sigue la conversación anterior.
-          conversacionId:
-            p.conversacion_id ?? (delAtajo ? (conversacionPorContestar(usuarioId) ?? conversacionReciente(db, usuarioId)) : undefined),
+          // la media hora siguiente sigue la conversación anterior. También desde el chat de la app: el 11-oct,
+          // "¿quedó algo pendiente?" escrito ahí un minuto después de una pregunta del Atajo empezó otra conversación.
+          conversacionId: p.conversacion_id ?? conversacionPorContestar(usuarioId) ?? conversacionReciente(db, usuarioId),
           lat: p.lat,
           lon: p.lon,
           lugar: p.lugar,
