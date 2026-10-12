@@ -87,8 +87,14 @@ Los avisos del revisor nocturno (ver "Avisos (revisor nocturno)") se entregan de
 | `DELETE /v1/movimientos/:id` | | `{ ok: true }` |
 | `POST /v1/deshacer` | | `{ deshecho, mensaje? }`; revierte el último cambio |
 | `GET /v1/tablero?mes=YYYY-MM` | mes actual por omisión | ver abajo |
-| `GET /v1/recurrentes` | | `{ recurrentes: [...], total_mensual_gastos, total_mensual_otras_monedas? }`; el total solo suma la moneda base |
+| `GET /v1/recurrentes` | | `{ recurrentes: [...], total_mensual_gastos, total_mensual_otras_monedas?, pausadas? }`; solo las activas, como las ve la IA; el total solo suma la moneda base |
+| `GET /v1/recurrentes?todos=1` | | `{ recurrentes: RecurrenteApp[], mensualCentavos, moneda }`: todas en cualquier estado, activas primero por próximo cobro. `mensualCentavos` suma solo gastos activos en la moneda base |
+| `POST /v1/recurrentes` | `{ nombre, tipo, monto, frecuencia, dia, mes?, cuenta_id? }` | 201 `RecurrenteApp` |
+| `PATCH /v1/recurrentes/:id` | los mismos campos, todos opcionales, y `estado`: `activa\|pausada\|cancelada\|archivada` | `RecurrenteApp`; se edita en su lugar y queda en la bitácora, así que «deshaz eso» lo regresa |
+| `DELETE /v1/recurrentes/:id` | | `{ ok: true }` |
 | `GET /v1/resumen` | `?periodo=este_mes`, `tipo=gasto\|ingreso` (gasto por omisión), `agrupar=categoria\|subcategoria\|comercio\|dia\|ninguno` | `{ tipo, desde, hasta, total, cantidad, grupos?, otras_monedas? }` con montos en texto |
+
+`RecurrenteApp`: `{ id, nombre, tipo, montoCentavos, moneda, frecuencia, dia, mes, categoriaId, categoria, cuentaId, cuenta, estado, estadoEn, proximoCobro, mensualCentavos, creadoEn }`; `proximoCobro` es `null` si no está activa. Solo las activas se cobran, se recuerdan (voz, avisos y push) y se suman; al pausar, cancelar o archivar se descartan sus avisos de cobro pendientes. La app las muestra en `/#suscripciones` (`?id=<id>` abre una).
 
 En la app, el detalle de un registro está en `/#movimientos?detalle=<id>`; con `<id1>,<id2>` muestra primero la lista de esos registros y con `&editar=1` abre el editor. Ahí llevan las notificaciones.
 

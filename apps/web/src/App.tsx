@@ -25,6 +25,7 @@ const cargas = {
   analisis: () => import("./pantallas/Analisis"),
   cuentas: () => import("./pantallas/Cuentas"),
   etiquetas: () => import("./pantallas/Etiquetas"),
+  suscripciones: () => import("./pantallas/Suscripciones"),
 };
 const Chat = lazy(() => cargas.chat().then((m) => ({ default: m.Chat })));
 const Ajustes = lazy(() => cargas.ajustes().then((m) => ({ default: m.Ajustes })));
@@ -38,6 +39,7 @@ const Analisis = lazy(() => cargas.analisis().then((m) => ({ default: m.Analisis
 const Cuentas = lazy(() => cargas.cuentas().then((m) => ({ default: m.Cuentas })));
 const Cuenta = lazy(() => cargas.cuentas().then((m) => ({ default: m.Cuenta })));
 const Etiquetas = lazy(() => cargas.etiquetas().then((m) => ({ default: m.Etiquetas })));
+const Suscripciones = lazy(() => cargas.suscripciones().then((m) => ({ default: m.Suscripciones })));
 
 // /instalar?codigo=X instala el Atajo sin sesión: va antes de pedir la entrada y no toca el token.
 const EN_INSTALAR = /^\/instalar\/?$/.test(window.location.pathname);
@@ -166,6 +168,7 @@ function Aplicacion() {
             {pagina === "cuentas" ? <Cuentas params={params} /> : null}
             {pagina === "cuenta" ? <Cuenta params={params} /> : null}
             {pagina === "etiquetas" ? <Etiquetas params={params} /> : null}
+            {pagina === "suscripciones" ? <Suscripciones params={params} /> : null}
           </Suspense>
         ) : (
           <>

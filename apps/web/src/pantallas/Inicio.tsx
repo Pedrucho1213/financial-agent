@@ -262,19 +262,29 @@ function Tablero({ t, esMesActual }: { t: Tablero; esMesActual: boolean }) {
       ) : null}
 
       <section>
-        <TituloSeccion>Próximos cobros</TituloSeccion>
+        <TituloSeccion
+          accion={
+            <Button variant="plain" size="text" className="text-[15px]" onClick={() => navegar(hashDe("suscripciones"))}>
+              Suscripciones
+            </Button>
+          }
+        >
+          Próximos cobros
+        </TituloSeccion>
         {t.recurrentesProximos.length ? (
           <Grupo>
             {t.recurrentesProximos.map((r) => {
               const dias = diasHasta(r.proximoCobro, t.hoy);
               return (
-                <Fila
+                <FilaBoton
                   key={r.id}
                   sangria="4rem"
                   icono={<HojaCalendario fecha={r.proximoCobro} />}
                   titulo={r.nombre}
                   subtitulo={`${FRECUENCIAS[r.frecuencia] ?? r.frecuencia} · ${dias <= 0 ? "hoy" : dias === 1 ? "mañana" : `en ${dias} días`}`}
                   valor={<span className="font-medium text-foreground tabular">{dinero(r.montoCentavos, r.moneda)}</span>}
+                  chevron
+                  onClick={() => navegar(hashDe("suscripciones", { id: r.id }))}
                 />
               );
             })}

@@ -228,6 +228,9 @@ export const TIPOS_RECURRENTE = [
   "otro",
 ] as const;
 
+// Pausada: se reanuda después. Cancelada: ya no se paga, pero se ve en la app. Archivada: ya no se ve.
+export const ESTADOS_RECURRENTE = ["activa", "pausada", "cancelada", "archivada"] as const;
+
 export const recurrentes = sqliteTable("recurrentes", {
   id: id(),
   usuarioId: text("usuario_id")
@@ -247,7 +250,10 @@ export const recurrentes = sqliteTable("recurrentes", {
   avisarDiasAntes: integer("avisar_dias_antes").notNull().default(1),
   // El cobro (YYYY-MM-DD) del que la IA ya avisó, para no repetirlo en cada dictado.
   avisadoPara: text("avisado_para"),
+  // Siempre igual a estado === "activa": solo las activas se cobran, se recuerdan y se suman.
   activo: integer("activo", { mode: "boolean" }).notNull().default(true),
+  estado: text("estado", { enum: ESTADOS_RECURRENTE }).notNull().default("activa"),
+  estadoEn: text("estado_en"),
   entradaId: text("entrada_id"),
   creadoEn: creadoEn(),
   eliminadoEn: text("eliminado_en"),

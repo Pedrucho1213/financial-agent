@@ -657,6 +657,12 @@ export function resumir(
 
 type CambioBitacora = typeof bitacora.$inferSelect;
 
+/** Una fila de recurrentes guardada en la bitácora, lista para escribirse de nuevo (sin su id). */
+function filaRecurrente(guardada: unknown) {
+  const { id: _, ...valores } = guardada as typeof recurrentes.$inferSelect;
+  return valores;
+}
+
 /** `por`: la entrada que pidió deshacer, para poder rehacerlo si esa entrada falla. */
 function revertir(ctx: Contexto, grupo: CambioBitacora[], por?: string) {
   const ahora = new Date().toISOString();
@@ -672,10 +678,12 @@ function revertir(ctx: Contexto, grupo: CambioBitacora[], por?: string) {
           tx.update(movimientos).set(valores).where(eq(movimientos.id, cambio.registroId)).run();
         }
       } else if (cambio.tabla === "recurrentes") {
-        tx.update(recurrentes)
-          .set({ eliminadoEn: cambio.accion === "crear" ? ahora : null })
-          .where(eq(recurrentes.id, cambio.registroId))
-          .run();
+        // Una edición (de la app, o pausar y cancelar) regresa la fila completa como estaba.
+        const valores =
+          cambio.accion === "editar" && cambio.antes
+            ? filaRecurrente(cambio.antes)
+            : { eliminadoEn: cambio.accion === "crear" ? ahora : null };
+        tx.update(recurrentes).set(valores).where(eq(recurrentes.id, cambio.registroId)).run();
       } else {
         const tabla = TABLAS_PLANES[cambio.tabla];
         const valores =
@@ -711,10 +719,11 @@ function rehacer(ctx: Contexto, grupo: CambioBitacora[]) {
           tx.update(movimientos).set(valores).where(eq(movimientos.id, cambio.registroId)).run();
         }
       } else if (cambio.tabla === "recurrentes") {
-        tx.update(recurrentes)
-          .set({ eliminadoEn: cambio.accion === "crear" ? null : (despues.eliminadoEn ?? new Date().toISOString()) })
-          .where(eq(recurrentes.id, cambio.registroId))
-          .run();
+        const valores =
+          cambio.accion === "editar" && cambio.despues
+            ? filaRecurrente(cambio.despues)
+            : { eliminadoEn: cambio.accion === "crear" ? null : (despues.eliminadoEn ?? new Date().toISOString()) };
+        tx.update(recurrentes).set(valores).where(eq(recurrentes.id, cambio.registroId)).run();
       } else {
         const tabla = TABLAS_PLANES[cambio.tabla];
         const valores =

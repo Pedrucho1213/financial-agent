@@ -64,6 +64,13 @@
       "when": 1791483980273,
       "tag": "0008_cuentas_y_etiquetas",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1791773617071,
+      "tag": "0009_estado_recurrentes",
+      "breakpoints": true
     }
   ]
 }

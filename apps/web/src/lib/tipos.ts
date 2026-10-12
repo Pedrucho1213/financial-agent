@@ -338,3 +338,44 @@ export type Aviso = {
   enlace: string | null;
   leidoEn: string | null;
 };
+
+export type EstadoRecurrente = "activa" | "pausada" | "cancelada" | "archivada";
+export type TipoRecurrente = "suscripcion" | "renta" | "servicio" | "prestamo" | "ingreso" | "otro";
+export type Frecuencia = "semanal" | "quincenal" | "mensual" | "anual";
+
+/** Una suscripción o pago fijo (GET /v1/recurrentes?todos=1). */
+export type Recurrente = {
+  id: string;
+  nombre: string;
+  tipo: TipoRecurrente;
+  montoCentavos: number;
+  moneda: string;
+  frecuencia: Frecuencia;
+  /** Día del mes (1-31); en semanal, día de la semana (1 lunes ... 7 domingo). */
+  dia: number;
+  /** Solo en anual (1-12). */
+  mes: number | null;
+  categoriaId: string | null;
+  categoria: string | null;
+  cuentaId: string | null;
+  cuenta: string | null;
+  estado: EstadoRecurrente;
+  estadoEn: string | null;
+  /** Solo de las activas. */
+  proximoCobro: string | null;
+  mensualCentavos: number;
+  creadoEn: string;
+};
+
+export type Recurrentes = { recurrentes: Recurrente[]; mensualCentavos: number; moneda: string };
+
+export type DatosRecurrente = {
+  nombre?: string;
+  tipo?: TipoRecurrente;
+  monto?: number;
+  frecuencia?: Frecuencia;
+  dia?: number;
+  mes?: number | null;
+  cuenta_id?: string | null;
+  estado?: EstadoRecurrente;
+};
