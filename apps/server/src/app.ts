@@ -123,6 +123,8 @@ const esquemaHablar = z.object({
   equipo: z.string().trim().max(60).optional(),
   // Para clientes que prefieren esperar otra cantidad (la prueba de modelos espera todo).
   espera_ms: z.coerce.number().int().min(0).max(MAX_ESPERA_MS).optional(),
+  /** La app, al primer mensaje después de "Nueva conversación": no seguir la de los últimos minutos. */
+  nueva: z.boolean().optional(),
 });
 
 // Lo que manda el Atajo de Apple Pay. Va por /v1/hablar para que la cola sin conexión del Atajo
@@ -580,7 +582,8 @@ export function crearApp(opciones: OpcionesApp) {
           // Una pregunta que llegó por notificación se contesta con el siguiente dictado, y lo que se dicta en
           // la media hora siguiente sigue la conversación anterior. También desde el chat de la app: el 11-oct,
           // "¿quedó algo pendiente?" escrito ahí un minuto después de una pregunta del Atajo empezó otra conversación.
-          conversacionId: p.conversacion_id ?? conversacionPorContestar(usuarioId) ?? conversacionReciente(db, usuarioId),
+          // Salvo que en la app haya tocado "Nueva conversación".
+          conversacionId: p.conversacion_id ?? (p.nueva ? undefined : (conversacionPorContestar(usuarioId) ?? conversacionReciente(db, usuarioId))),
           lat: p.lat,
           lon: p.lon,
           lugar: p.lugar,

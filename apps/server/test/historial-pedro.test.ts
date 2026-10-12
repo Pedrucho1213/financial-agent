@@ -57,10 +57,26 @@ test("sin preguntas abiertas no hay nada pendiente; una pregunta ya contestada t
   expect(modelo.doGenerateCalls).toHaveLength(0);
 });
 
-test("los pagos pendientes son otra pregunta: esa la contesta el modelo", async () => {
-  const { hablar, modelo } = montar([llamada("consultar_planes", { que: "msi" }), texto("No tienes compras a meses.")]);
-  await hablar("¿tengo pagos pendientes?");
-  expect(modelo.doGenerateCalls.length).toBeGreaterThan(0);
+test("lo pendiente de su dinero es otra pregunta: esa la contesta el modelo", async () => {
+  for (const frase of [
+    "¿tengo pagos pendientes?",
+    "¿cuánto tengo pendiente en la tarjeta?",
+    "¿tengo algo pendiente con la tarjeta Nu?",
+    "¿qué me queda pendiente de la renta?",
+    "¿qué suscripciones tengo pendientes este mes?",
+    "¿qué servicios tengo pendientes?",
+  ]) {
+    const { hablar, modelo } = montar([texto("No tienes nada por pagar."), texto("No tienes nada por pagar.")]);
+    await hablar(frase);
+    expect([frase, modelo.doGenerateCalls.length > 0]).toEqual([frase, true]);
+  }
+});
+
+test("después de 'Nueva conversación' en la app, empieza de cero", async () => {
+  const { hablar } = montar([texto("¿Cuánto fue el total?"), texto("¿Cuánto fue el total?"), texto("¿De qué fue?"), texto("¿De qué fue?")]);
+  const r1 = await hablar("gasté algo en X24");
+  const r2 = await hablar("¿cómo voy?", { espera_ms: 5000, nueva: true });
+  expect(r2.conversacion_id).not.toBe(r1.conversacion_id);
 });
 
 test("el resumen marca la pregunta sin contestar: no está hecha", async () => {

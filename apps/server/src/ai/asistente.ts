@@ -166,11 +166,13 @@ function resumenDeAnteriores(anteriores: Anterior[], zonaHoraria: string): strin
 /** Contestó con una pregunta y no hizo nada: el dictado quedó esperando. */
 const preguntoSinHacer = (r: Respuesta) => r.respuesta.trim().endsWith("?") && !r.acciones?.some((a) => !SOLO_CONSULTA.has(a.herramienta));
 
-// "¿Tienes algún registro pendiente?", "¿quedó algo pendiente?", "creí que tenías una pregunta". Los pagos, deudas,
-// préstamos o meses pendientes son otra cosa: esa la contesta el modelo con sus herramientas.
+// "¿Tienes algún registro pendiente?", "¿quedó algo pendiente?", "creí que tenías una pregunta": preguntas sobre lo
+// que el asistente dejó a medias, no sobre su dinero. "¿Cuánto tengo pendiente en la tarjeta?", "¿qué suscripciones tengo
+// pendientes?" o "¿qué me queda pendiente de la renta?" las contesta el modelo con sus herramientas.
 const PREGUNTA_POR_PENDIENTE =
-  /\b(pendiente|pendientes)\b|\b(tenias|tienes|tenias tu) (una|alguna) (pregunta|duda)\b|\bme (preguntaste|ibas a preguntar)\b|\bque paso con (el|mi|lo) ultim[oa]\b/;
-const PENDIENTE_DE_PAGO = /\b(pago|pagos|pagar|deuda|deudas|debo|prestamo|prestamos|meses|msi|cobro|cobros|recibo|recibos|meta|metas|presupuesto)\b/;
+  /\b(quedo|quedaron) (algo|nada|alg\w+)( \w+)? pendientes?\b|\b(tienes|tenias) (algo|nada|alg\w+)( \w+){0,2} pendientes?\b|\b(tienes|tenias) (una|alguna) (pregunta|duda)\b|\bme (preguntaste|ibas a preguntar)\b|\bque paso con (el|mi|lo) ultim[oa]\b/;
+const PENDIENTE_DE_PAGO =
+  /\b(pago|pagos|pagar|deuda|deudas|debo|prestamo|prestamos|meses|msi|cobro|cobros|recibo|recibos|meta|metas|presupuesto|tarjeta|tarjetas|renta|suscripcion|suscripciones|servicio|servicios|credito|saldo|corte|cuanto)\b/;
 const VIGENCIA_PENDIENTE_MS = 24 * 60 * 60_000;
 
 /**
