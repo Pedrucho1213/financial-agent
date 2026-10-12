@@ -576,16 +576,22 @@ export function eliminarMovimiento(ctx: Contexto, id: string) {
   return describir(ctx, antes);
 }
 
-export type AgruparPor = "ninguno" | "categoria" | "subcategoria" | "comercio" | "dia" | "etiqueta" | "cuenta";
+export type AgruparPor = "ninguno" | "categoria" | "subcategoria" | "comercio" | "dia" | "dia_semana" | "etiqueta" | "cuenta";
+
+const DIAS_SEMANA = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 
 /** Sumas y conteos calculados por código: la IA nunca suma por su cuenta. */
 export function resumir(
   ctx: Contexto,
-  opciones: FiltroMovimientos & { agruparPor?: AgruparPor },
+  opciones: FiltroMovimientos & { agruparPor?: AgruparPor; diaSemana?: string },
 ) {
   const cats = listarCategorias(ctx.db, ctx.usuarioId);
   const tipo = opciones.tipo ?? "gasto";
-  const { filas, periodo } = filtrar(ctx, { ...opciones, tipo, periodo: opciones.periodo ?? "este_mes" }, cats);
+  const filtradas = filtrar(ctx, { ...opciones, tipo, periodo: opciones.periodo ?? "este_mes" }, cats);
+  const periodo = filtradas.periodo;
+  // "¿En qué gasto más los sábados?": solo ese día de la semana.
+  const dia = opciones.diaSemana ? DIAS_SEMANA.findIndex((d) => normalizar(d) === normalizar(opciones.diaSemana!)) : -1;
+  const filas = dia < 0 ? filtradas.filas : filtradas.filas.filter((m) => new Date(`${m.fecha}T12:00:00Z`).getUTCDay() === dia);
   const enBase = filas.filter((m) => m.moneda === ctx.monedaBase);
   const total = enBase.reduce((s, m) => s + m.montoCentavos, 0);
 
@@ -612,6 +618,9 @@ export function resumir(
         return nombreComercio(m.comercioId) ?? "Sin comercio";
       case "dia":
         return m.fecha;
+      // "¿En qué día gasto más?", "¿cuánto gasto los sábados?" (11-oct: antes agrupaba por categoría y pedía permiso).
+      case "dia_semana":
+        return DIAS_SEMANA[new Date(`${m.fecha}T12:00:00Z`).getUTCDay()]!;
       default:
         return "";
     }

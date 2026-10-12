@@ -23,7 +23,8 @@ export type Mensaje = {
   incierto?: boolean;
 };
 
-type Estado = { mensajes: Mensaje[]; conversacionId?: string };
+/** nueva: tocó "Nueva conversación"; el servidor no la une a la de los últimos minutos. */
+type Estado = { mensajes: Mensaje[]; conversacionId?: string; nueva?: boolean };
 
 const CLAVE = "fa_chat";
 const ESPERA_HABLAR_MS = 60_000;
@@ -78,7 +79,7 @@ function refrescarSiHizoAlgo(acciones: Accion[] | undefined) {
 }
 
 export function nuevaConversacion() {
-  emitir({ mensajes: [] });
+  emitir({ mensajes: [], nueva: true });
 }
 
 alCerrarSesion(() => {
@@ -173,7 +174,7 @@ async function pedir(idRespuesta: string) {
       body: {
         texto: pregunta,
         client_id: clientId,
-        ...(estado.conversacionId ? { conversacion_id: estado.conversacionId } : {}),
+        ...(estado.conversacionId ? { conversacion_id: estado.conversacionId } : estado.nueva ? { nueva: true } : {}),
         espera_ms: ESPERA_HABLAR_MS,
       },
     });

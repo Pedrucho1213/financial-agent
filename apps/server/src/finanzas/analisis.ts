@@ -264,7 +264,12 @@ function ideasDeAhorro(ctx: Contexto, cats: Categoria[]): Hallazgo[] {
     if (ahorro < 20_000) continue;
     ideas.push({
       tipo: "recortable",
-      texto: `En ${nombre} se te van unos ${$(redondear(mensual))} al mes; bajarle un tercio te deja ${$(ahorro)}.`,
+      // Con pocos días de datos, el "al mes" es una cuenta y se dice de dónde sale (Pedro, 11-oct: $5,300 al mes
+      // de restaurantes con seis días registrados).
+      texto:
+        dias < 14
+          ? `En ${nombre} llevas ${$(centavos)} en ${dias} días; a ese ritmo serían unos ${$(redondear(mensual))} al mes, y bajarle un tercio te dejaría ${$(ahorro)}.`
+          : `En ${nombre} se te van unos ${$(redondear(mensual))} al mes; bajarle un tercio te deja ${$(ahorro)}.`,
       ahorroMensualCentavos: ahorro,
     });
   }
