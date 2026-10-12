@@ -23,8 +23,9 @@ export type Mensaje = {
   incierto?: boolean;
 };
 
+/** nueva: tocó "Nueva conversación"; el servidor no la une a la de los últimos minutos. */
 /** retomada: se abrió desde una notificación; la Mac le da su historial y su pregunta aunque sean de hace horas. */
-type Estado = { mensajes: Mensaje[]; conversacionId?: string; retomada?: boolean };
+type Estado = { mensajes: Mensaje[]; conversacionId?: string; nueva?: boolean; retomada?: boolean };
 
 const CLAVE = "fa_chat";
 const ESPERA_HABLAR_MS = 60_000;
@@ -79,7 +80,7 @@ function refrescarSiHizoAlgo(acciones: Accion[] | undefined) {
 }
 
 export function nuevaConversacion() {
-  emitir({ mensajes: [] });
+  emitir({ mensajes: [], nueva: true });
 }
 
 alCerrarSesion(() => {
@@ -174,7 +175,7 @@ async function pedir(idRespuesta: string) {
       body: {
         texto: pregunta,
         client_id: clientId,
-        ...(estado.conversacionId ? { conversacion_id: estado.conversacionId } : {}),
+        ...(estado.conversacionId ? { conversacion_id: estado.conversacionId } : estado.nueva ? { nueva: true } : {}),
         ...(estado.retomada ? { retomar: true } : {}),
         espera_ms: ESPERA_HABLAR_MS,
       },

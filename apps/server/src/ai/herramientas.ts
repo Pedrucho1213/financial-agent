@@ -134,6 +134,14 @@ function ultimoAnotado(ctx: Contexto, nombre: string) {
   return m && { id: m.id, fecha: m.fecha, descripcion: `${m.comercio ?? m.descripcion ?? m.categoria} de ${m.monto} del ${m.fecha}` };
 }
 
+const COBRO_DE_HOY = /\b(hoy|acaba de cobrar|acaban de cobrar|se acaba de cobrar|me acaba de cobrar|me acaban de cobrar)\b/;
+
+/** El día de hoy como lo pide un recurrente: del mes, o de la semana (1 lunes ... 7 domingo) si es semanal. */
+function diaDeHoy(hoy: string, frecuencia: string): number {
+  if (frecuencia === "semanal") return ((new Date(`${hoy}T12:00:00Z`).getUTCDay() + 6) % 7) + 1;
+  return Number(hoy.slice(8, 10));
+}
+
 export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
   // Una frase que parece préstamo, meta o compra a meses se desvía a su herramienta una sola vez: si el
   // modelo insiste en que es un gasto, se registra (la regla puede equivocarse con "me prestaron el coche").
@@ -444,11 +452,18 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         excluir: z.string().optional().describe('Lo que no cuenta: "sin contar la renta" es renta.'),
         etiqueta: z.string().optional().describe("Solo lo que lleva esa etiqueta: viaje, trabajo."),
         cuenta: z.string().optional().describe("Solo lo pagado con esa cuenta o tarjeta."),
-        agrupar_por: z.enum(["ninguno", "categoria", "subcategoria", "comercio", "dia", "etiqueta", "cuenta"]).optional(),
+        agrupar_por: z
+          .enum(["ninguno", "categoria", "subcategoria", "comercio", "dia", "dia_semana", "etiqueta", "cuenta"])
+          .optional()
+          .describe('dia_semana para "¿qué día de la semana gasto más?".'),
+        dia_semana: z
+          .enum(["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"])
+          .optional()
+          .describe('Solo ese día de la semana: "¿en qué gasto más los sábados?" es dia_semana sábado con agrupar_por categoria.'),
       }),
       execute: ejecutar("consultar_gastos", (args) => {
-        const { agrupar_por, ...filtro } = args;
-        const resumen = resumir(ctx, { ...filtro, agruparPor: agrupar_por });
+        const { agrupar_por, dia_semana, ...filtro } = args;
+        const resumen = resumir(ctx, { ...filtro, agruparPor: agrupar_por, diaSemana: dia_semana });
         // Sin gastos registrados, la pregunta suele ser por pagos fijos ("¿cuánto pago de suscripciones?").
         if (resumen.cantidad === 0 && !resumen.otras_monedas && listarRecurrentes(ctx).recurrentes.length > 0) {
           return { ...resumen, nota: "No hay movimientos registrados; si pregunta por pagos fijos o suscripciones, usa listar_recurrentes." };
@@ -468,14 +483,23 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         monto: z.number().positive(),
         moneda: z.string().optional().describe("Solo si no es MXN, por ejemplo USD."),
         frecuencia: z.enum(FRECUENCIAS),
-        dia: z.number().int().describe("Día del mes (1-31); en semanal, día de la semana (1 lunes ... 7 domingo)."),
+        dia: z
+          .number()
+          .int()
+          .optional()
+          .describe('Día del mes (1-31); en semanal, día de la semana (1 lunes ... 7 domingo). Si dijo "hoy" o que se acaba de cobrar, omítelo: es el de hoy.'),
         mes: z.number().int().optional().describe("Solo para anual (1-12)."),
         categoria: z.string().optional(),
         cuenta: z.string().optional(),
       }),
-      execute: ejecutar("registrar_recurrente", (datos) => ({
-        registrado: crearRecurrente(ctx, { ...datos, moneda: monedaDicha(datos.moneda) }),
-      })),
+      execute: ejecutar("registrar_recurrente", (datos) => {
+        // "Se cobra hoy", "pues hoy", "se acaba de cobrar": el día es el de hoy, no se pregunta (Spotify, 11-oct).
+        const deHoy = datos.dia === undefined && COBRO_DE_HOY.test(normalizar([ctx.textoOriginal ?? "", ...(ctx.dichoAntes ?? [])].join(" ")));
+        const dia = datos.dia ?? (deHoy ? diaDeHoy(ctx.hoy, datos.frecuencia) : undefined);
+        if (dia === undefined) return { error: "Falta el día en que se cobra. Pregúntalo." };
+        const mes = datos.mes ?? (deHoy && datos.frecuencia === "anual" ? Number(ctx.hoy.slice(5, 7)) : undefined);
+        return { registrado: crearRecurrente(ctx, { ...datos, dia, mes, moneda: monedaDicha(datos.moneda) }) };
+      }),
     }),
 
     editar_recurrente: tool({
