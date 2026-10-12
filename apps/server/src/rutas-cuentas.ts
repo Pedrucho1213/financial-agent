@@ -13,6 +13,7 @@ import {
   moverDinero,
   observacionDeCuentas,
   totalesDeCuentas,
+  usosPorCuenta,
 } from "./finanzas/cuentas";
 import {
   activarEtiqueta,
@@ -26,7 +27,7 @@ import {
 import { ErrorFinanzas } from "./finanzas/movimientos";
 import { listarMovimientosApp, movimientoApp } from "./finanzas/vista";
 import { obtenerPropio } from "./finanzas/movimientos";
-import { resolverPeriodo } from "./lib/fechas";
+import { resolverPeriodo, sumarDias } from "./lib/fechas";
 import { normalizar } from "./lib/texto";
 
 const monto = z.coerce.number().min(-1e10).max(1e10);
@@ -83,8 +84,10 @@ export function rutasCuentas(v1: Hono<{ Variables: VariablesAuth }>, contextoBas
     const estados = estadosDeCuentas(ctx, { archivadas: c.req.query("archivadas") === "1" });
     const mes = resolverPeriodo("este_mes", ctx.hoy)!;
     const flujo = flujoPorCuenta(ctx, mes.desde, mes.hasta);
+    // Movimientos de los últimos 90 días: al editar uno, la app ofrece primero las cuentas que más usa.
+    const usos = usosPorCuenta(ctx, sumarDias(ctx.hoy, -90));
     return c.json({
-      cuentas: estados.map((e) => ({ ...e, mes: flujo.get(e.id) ?? { entradaCentavos: 0, salidaCentavos: 0 } })),
+      cuentas: estados.map((e) => ({ ...e, mes: flujo.get(e.id) ?? { entradaCentavos: 0, salidaCentavos: 0 }, usos: usos.get(e.id) ?? 0 })),
       totales: totalesDeCuentas(estados.filter((e) => !e.archivada)),
       observacion: observacionDeCuentas(ctx, estados.filter((e) => !e.archivada)) ?? null,
     });

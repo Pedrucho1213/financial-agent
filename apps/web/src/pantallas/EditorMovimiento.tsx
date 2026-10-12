@@ -1,6 +1,7 @@
 import { ChevronRight, Mic, Trash } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { FilaCuenta } from "../components/cuentas/FilaCuenta";
 import { Spinner } from "../components/Spinner";
 import { Button } from "../components/ui/button";
 import { CampoFila } from "../components/ui/input";
@@ -77,10 +78,10 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
   const poner = <K extends keyof Formulario>(k: K, v: Formulario[K]) => setF((x) => ({ ...x, [k]: v }));
   const conCategoria = f.tipo === "gasto" || f.tipo === "ingreso";
   const mueve = !conCategoria;
-  // Con un servidor que tiene cuentas y etiquetas: sugerir sus cuentas y elegir etiquetas.
+  // Con un servidor que tiene cuentas y etiquetas: elegir de sus cuentas (las más usadas primero) y sus etiquetas.
   const cuentas = useCuentas();
   const etiquetas = useEtiquetas("todo");
-  const nombresCuentas = (cuentas.data?.cuentas ?? []).filter((c) => !c.archivada).map((c) => c.nombre);
+  const listaCuentas = cuentas.data?.cuentas ?? [];
   const categoriasDelTipo = useMemo(
     () => (categorias.data ?? []).filter((c) => conCategoria && c.tipo === f.tipo),
     [categorias.data, conCategoria, f.tipo],
@@ -297,42 +298,26 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
               />
             </div>
           </Fila>
-          <Fila>
-            <label htmlFor="cuenta" className="shrink-0">
-              {mueve ? "Desde" : "Cuenta"}
-            </label>
-            <CampoFila
-              id="cuenta"
-              value={f.cuenta}
-              onChange={(e) => poner("cuenta", e.target.value)}
-              placeholder="Efectivo, BBVA, Nu…"
-              enterKeyHint="done"
-              list={nombresCuentas.length ? "lista-cuentas" : undefined}
-            />
-          </Fila>
+          <FilaCuenta
+            id="cuenta"
+            etiqueta={mueve ? "Desde" : "Cuenta"}
+            valor={f.cuenta}
+            alCambiar={(v) => poner("cuenta", v)}
+            cuentas={listaCuentas}
+            placeholder="Efectivo, BBVA, Nu…"
+          />
           {mueve ? (
-            <Fila>
-              <label htmlFor="destino" className="shrink-0">
-                {f.tipo === "pago_tarjeta" ? "Tarjeta" : "Hacia"}
-              </label>
-              <CampoFila
-                id="destino"
-                value={f.destino}
-                onChange={(e) => poner("destino", e.target.value)}
-                placeholder={f.tipo === "pago_tarjeta" ? "Nu, Banamex…" : "Otra cuenta tuya"}
-                enterKeyHint="done"
-                list={nombresCuentas.length ? "lista-cuentas" : undefined}
-              />
-            </Fila>
+            <FilaCuenta
+              id="destino"
+              etiqueta={f.tipo === "pago_tarjeta" ? "Tarjeta" : "Hacia"}
+              valor={f.destino}
+              alCambiar={(v) => poner("destino", v)}
+              cuentas={listaCuentas}
+              placeholder={f.tipo === "pago_tarjeta" ? "Nu, Banamex…" : "Otra cuenta tuya"}
+              primeroCredito={f.tipo === "pago_tarjeta"}
+            />
           ) : null}
         </Grupo>
-        {nombresCuentas.length ? (
-          <datalist id="lista-cuentas">
-            {nombresCuentas.map((n) => (
-              <option key={n} value={n} />
-            ))}
-          </datalist>
-        ) : null}
 
         {etiquetas.data || f.etiquetas.length ? (
           <ElegirEtiquetas

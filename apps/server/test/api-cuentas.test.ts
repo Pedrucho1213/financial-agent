@@ -51,6 +51,8 @@ describe("API de cuentas", () => {
     expect(porNombre.BBVA.saldoCentavos).toBe(370000);
     expect(porNombre.BBVA.mes).toEqual({ entradaCentavos: 0, salidaCentavos: 130000 });
     expect(porNombre.Nu.deudaCentavos).toBe(100000);
+    // Cuántas veces se usó cada una (lo borrado no cuenta): la app pone primero las más usadas.
+    expect([porNombre.BBVA.usos, porNombre["BBVA Azul"].usos]).toEqual([2, 0]);
     expect(lista.cuerpo.totales).toMatchObject({ dineroCentavos: 370000, deudaCentavos: 100000, disponibleCreditoCentavos: 2900000, sinSaldo: ["BBVA Azul"] });
 
     // Detalle con sus movimientos, y el filtro de movimientos por cuenta.
