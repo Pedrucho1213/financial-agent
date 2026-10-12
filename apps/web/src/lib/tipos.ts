@@ -168,7 +168,11 @@ export type EstadoCuenta = {
   diaPago: number | null;
 };
 
-export type CuentaConMes = EstadoCuenta & { mes: { entradaCentavos: number; salidaCentavos: number } };
+export type CuentaConMes = EstadoCuenta & {
+  mes: { entradaCentavos: number; salidaCentavos: number };
+  /** Movimientos de los últimos 90 días con esta cuenta (falta en un servidor viejo). */
+  usos?: number;
+};
 
 export type TotalesCuentas = {
   dineroCentavos: number;

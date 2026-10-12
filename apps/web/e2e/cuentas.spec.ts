@@ -413,11 +413,52 @@ test.describe("Etiquetas", () => {
     await hoja.getByRole("radio", { name: "Traspaso" }).click();
     await expect(hoja.getByLabel("Categoría")).toHaveCount(0);
     await expect(hoja.locator("label[for=cuenta]")).toHaveText("Desde");
-    await hoja.getByLabel("Hacia").fill("Revolut");
+    await hoja.getByLabel("Hacia").selectOption("Revolut");
     await hoja.getByRole("button", { name: "Guardar" }).click();
     await expect(hoja).toBeHidden();
     expect(api.de("PATCH", `/v1/movimientos/${pemex.id}`)[1]?.cuerpo).toEqual({ tipo: "transferencia", categoria_id: null, cuenta_destino: "Revolut" });
     await expect(page.getByRole("main")).toContainText("HaciaRevolut");
+  });
+
+  test("editar: la cuenta se elige de una lista, las más usadas primero, y se puede escribir otra", async ({ page }) => {
+    const api = conCuentas(new ApiFalsa());
+    const walmart = api.movimientos.find((m) => m.comercio === "Walmart")!;
+    await abrir(page, `#movimientos?detalle=${walmart.id}`, api);
+    await page.getByRole("button", { name: "Editar" }).click();
+    const hoja = page.getByRole("dialog");
+    const cuenta = hoja.getByLabel("Cuenta");
+    await expect(cuenta).toHaveValue("Nu");
+    // BBVA y Nu tienen movimientos; las demás van como las manda el servidor. Liverpool está archivada.
+    await expect(cuenta.locator("option")).toHaveText(["Ninguna", "BBVA · Débito", "Nu · Crédito", "Efectivo", "Revolut · Débito", "Banamex Oro · Crédito", "Otra…"]);
+    await expect(hoja.getByRole("textbox", { name: "Cuenta" })).toHaveCount(0);
+    await cuenta.selectOption("BBVA");
+    await expect(hoja).toContainText("BBVA · Débito");
+    await hoja.getByRole("button", { name: "Guardar" }).click();
+    await expect(hoja).toBeHidden();
+    expect(api.de("PATCH", `/v1/movimientos/${walmart.id}`)[0]?.cuerpo).toEqual({ cuenta: "BBVA" });
+
+    // "Otra…" deja escribir una nueva; si escribe una que ya tiene, vuelve a la lista con ese nombre.
+    await page.getByRole("button", { name: "Editar" }).click();
+    await hoja.getByLabel("Cuenta").selectOption("Otra…");
+    const campo = hoja.getByRole("textbox", { name: "Cuenta" });
+    await campo.fill("revolut");
+    await campo.blur();
+    await expect(hoja.getByLabel("Cuenta")).toHaveValue("Revolut");
+    await hoja.getByLabel("Cuenta").selectOption("Otra…");
+    await hoja.getByRole("textbox", { name: "Cuenta" }).fill("HSBC");
+    await hoja.getByRole("button", { name: "Guardar" }).click();
+    await expect(hoja).toBeHidden();
+    expect(api.de("PATCH", `/v1/movimientos/${walmart.id}`)[1]?.cuerpo).toEqual({ cuenta: "HSBC" });
+  });
+
+  test("pago de tarjeta: las tarjetas de crédito van primero en la lista", async ({ page }) => {
+    const api = conCuentas(new ApiFalsa());
+    const walmart = api.movimientos.find((m) => m.comercio === "Walmart")!;
+    await abrir(page, `#movimientos?detalle=${walmart.id}`, api);
+    await page.getByRole("button", { name: "Editar" }).click();
+    const hoja = page.getByRole("dialog");
+    await hoja.getByRole("radio", { name: "Pago tarjeta" }).click();
+    await expect(hoja.getByLabel("Tarjeta").locator("option")).toHaveText(["Ninguna", "Nu · Crédito", "Banamex Oro · Crédito", "BBVA · Débito", "Efectivo", "Revolut · Débito", "Otra…"]);
   });
 
   test("Análisis suma por etiqueta y lleva a sus movimientos", async ({ page }) => {

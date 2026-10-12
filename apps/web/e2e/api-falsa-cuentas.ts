@@ -247,7 +247,12 @@ export async function atenderCuentas(api: ApiFalsa, { metodo, ruta, cuerpo, cons
     const con = consulta.get("archivadas") === "1";
     const lista = datos.cuentas.filter((c) => con || !c.archivada);
     return json(200, {
-      cuentas: lista.map((c) => ({ ...estadoDe(c), mes: c.mes })),
+      // Como el servidor: cuántos movimientos (vivos) usan cada cuenta, de origen o de destino.
+      cuentas: lista.map((c) => ({
+        ...estadoDe(c),
+        mes: c.mes,
+        usos: api.movimientos.filter((m) => m.cuenta === c.nombre || m.cuentaDestino === c.nombre).length,
+      })),
       totales: totales(datos.cuentas),
       observacion: datos.observacion,
     });

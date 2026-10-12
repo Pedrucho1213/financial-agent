@@ -651,6 +651,21 @@ export function flujoPorCuenta(ctx: Contexto, desde: string, hasta: string) {
   return flujo;
 }
 
+/** Cuántos movimientos usaron cada cuenta (de origen o de destino) desde `desde`: la app pone primero las más usadas. */
+export function usosPorCuenta(ctx: Contexto, desde: string) {
+  const filas = ctx.db
+    .select({ cuentaId: movimientos.cuentaId, cuentaDestinoId: movimientos.cuentaDestinoId, fecha: movimientos.fecha })
+    .from(movimientos)
+    .where(and(eq(movimientos.usuarioId, ctx.usuarioId), isNull(movimientos.eliminadoEn)))
+    .all();
+  const usos = new Map<string, number>();
+  for (const m of filas) {
+    if (m.fecha < desde) continue;
+    for (const id of new Set([m.cuentaId, m.cuentaDestinoId])) if (id) usos.set(id, (usos.get(id) ?? 0) + 1);
+  }
+  return usos;
+}
+
 /** Una cuenta nueva desde la app, con el nombre tal cual (sin buscar una parecida). */
 export function crearCuenta(ctx: Contexto, nombre: string, tipo: TipoCuenta = "otra"): EstadoCuenta {
   const fila = ctx.db.insert(cuentas).values({ usuarioId: ctx.usuarioId, nombre: nombre.trim().slice(0, 60), tipo }).returning().get();
