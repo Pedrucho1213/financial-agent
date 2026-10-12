@@ -1,4 +1,4 @@
-import { ArrowUp, Check, CircleAlert, Clock, MessageCircle, Mic, RotateCw, Search, SquarePen, Square } from "lucide-react";
+import { ArrowUp, AudioLines, Check, CircleAlert, Clock, MessageCircle, Mic, RotateCw, Search, SquarePen, Volume2, VolumeX, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Pantalla } from "../components/Pantalla";
@@ -12,10 +12,13 @@ import {
   nuevaConversacion,
   reintentar,
   useChat,
+  yaSeLeyo,
 } from "../lib/chat";
 import { useEnLinea } from "../lib/conexion";
+import { useDictado } from "../lib/dictado";
 import { useTeclado } from "../lib/teclado";
 import { cn } from "../lib/utils";
+import { callar, cambiarLeerEnVoz, desbloquearLectura, lecturaDisponible, leer, useVoz } from "../lib/voz";
 
 const SUGERENCIAS = [
   "¿Cómo voy este mes?",
@@ -23,26 +26,6 @@ const SUGERENCIAS = [
   "Gasté 85 en café con débito",
   "¿Qué pagos fijos tengo?",
 ];
-
-// Web Speech API: solo existe en algunos navegadores (Safari y Chrome la tienen con prefijo).
-type ResultadoVoz = { isFinal: boolean; 0: { transcript: string } };
-type EventoVoz = { results: ArrayLike<ResultadoVoz> };
-type Reconocedor = {
-  lang: string;
-  interimResults: boolean;
-  continuous: boolean;
-  onresult: ((e: EventoVoz) => void) | null;
-  onerror: ((e: { error: string }) => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-};
-type ConstructorReconocedor = new () => Reconocedor;
-
-function reconocedorDisponible(): ConstructorReconocedor | null {
-  const w = window as unknown as { SpeechRecognition?: ConstructorReconocedor; webkitSpeechRecognition?: ConstructorReconocedor };
-  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
-}
 
 export function Chat() {
   const { mensajes } = useChat();
@@ -52,6 +35,8 @@ export function Chat() {
   const campo = useRef<HTMLTextAreaElement>(null);
   const final = useRef<HTMLDivElement>(null);
   const ocupado = mensajes.some((m) => m.estado === "pensando");
+  const { leerEnVoz, leyendo } = useVoz();
+  const dictado = useDictado({ alTexto: setTexto, alTerminar: (t) => enviar(t, true) });
 
   // Bajar al último mensaje cuando llega algo nuevo.
   const ultimo = mensajes.at(-1);
@@ -67,10 +52,41 @@ export function Chat() {
     el.style.height = `${Math.min(el.scrollHeight, 22 * 5 + 14)}px`;
   }, [texto]);
 
-  const enviar = (t = texto) => {
+  const enviar = (t = texto, porVoz = false) => {
     if (!t.trim() || !enLinea || ocupado) return;
     setTexto("");
-    void enviarMensaje(t);
+    callar();
+    void enviarMensaje(t, { porVoz });
+  };
+
+  const dictar = () => {
+    callar();
+    desbloquearLectura();
+    campo.current?.blur();
+    dictado.empezar(texto);
+  };
+
+  // Lo que se dictó se contesta en voz alta, como Siri. Si la IA pregunta algo, al terminar de leer
+  // vuelve a escuchar para contestarle sin tocar nada (igual que el Atajo).
+  const ahora = useRef({ enLinea, ultimoId: ultimo?.id, texto, dictado });
+  ahora.current = { enLinea, ultimoId: ultimo?.id, texto, dictado };
+  useEffect(() => {
+    const m = mensajes.find((x) => x.porVoz && x.estado !== "pensando" && x.estado !== "esperando");
+    if (!m) return;
+    yaSeLeyo(m.id);
+    if (!leerEnVoz || !lecturaDisponible() || document.visibilityState !== "visible") return;
+    const pregunta = !m.estado && m.texto.includes("?");
+    leer(m.id, m.texto, () => {
+      const a = ahora.current;
+      if (pregunta && a.enLinea && a.ultimoId === m.id && !a.texto.trim()) a.dictado.empezar("", true);
+    });
+  }, [mensajes, leerEnVoz]);
+  // Al salir del chat se calla (lo que llegue mientras tanto se lee al volver).
+  useEffect(() => () => callar(), []);
+
+  const alternarLectura = () => {
+    cambiarLeerEnVoz(!leerEnVoz);
+    toast(leerEnVoz ? "Ya no leeré las respuestas en voz alta." : "Te leeré en voz alta lo que me dictes.");
   };
 
   return (
@@ -79,11 +95,33 @@ export function Chat() {
       barraFija
       className="bg-card dark:bg-background"
       derecha={
-        mensajes.length ? (
-          <Button variant="plain" size="icon" aria-label="Nueva conversación" onClick={nuevaConversacion}>
-            <SquarePen className="size-[22px]" />
-          </Button>
-        ) : null
+        <div className="flex items-center">
+          {dictado.disponible && lecturaDisponible() ? (
+            <Button
+              variant="plain"
+              size="icon"
+              aria-label="Leer respuestas en voz alta"
+              aria-pressed={leerEnVoz}
+              onClick={alternarLectura}
+            >
+              {leerEnVoz ? <Volume2 className="size-[22px]" /> : <VolumeX className="size-[22px] text-muted-foreground" />}
+            </Button>
+          ) : null}
+          {mensajes.length ? (
+            <Button
+              variant="plain"
+              size="icon"
+              aria-label="Nueva conversación"
+              onClick={() => {
+                callar();
+                dictado.cancelar();
+                nuevaConversacion();
+              }}
+            >
+              <SquarePen className="size-[22px]" />
+            </Button>
+          ) : null}
+        </div>
       }
     >
       <div className="pb-24">
@@ -97,7 +135,9 @@ export function Chat() {
             </span>
             <h1 className="mt-5 text-[28px] leading-tight font-bold tracking-[-0.02em]">¿En qué te ayudo?</h1>
             <p className="mt-2 max-w-[18rem] text-[17px] leading-snug text-balance text-muted-foreground">
-              Pregunta por tus gastos o dime lo que compraste.
+              {dictado.disponible
+                ? "Pregunta por tus gastos o dime lo que compraste. Toca el micrófono para hablar."
+                : "Pregunta por tus gastos o dime lo que compraste."}
             </p>
             <Grupo className="mt-8 w-full text-left">
               {SUGERENCIAS.map((s) => (
@@ -115,7 +155,7 @@ export function Chat() {
         ) : (
           <ol className="flex flex-col pt-2" aria-live="polite">
             {mensajes.map((m, i) => (
-              <Burbuja key={m.id} m={m} pegada={mensajes[i - 1]?.rol === m.rol} enLinea={enLinea} />
+              <Burbuja key={m.id} m={m} pegada={mensajes[i - 1]?.rol === m.rol} enLinea={enLinea} leyendo={leyendo === m.id} />
             ))}
           </ol>
         )}
@@ -125,7 +165,9 @@ export function Chat() {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          enviar();
+          // Mientras escucha, Enviar deja de escuchar y manda lo dicho (una sola vez).
+          if (dictado.escuchando) dictado.terminar();
+          else enviar();
         }}
         className={cn(
           "pointer-events-none fixed inset-x-0 z-30 transition-[bottom] duration-300 ease-ios",
@@ -133,12 +175,32 @@ export function Chat() {
         )}
       >
         <div className="pointer-events-auto mx-auto flex max-w-3xl items-end gap-2 px-safe">
-          <BotonMicrofono
-            deshabilitado={!enLinea || ocupado}
-            alTexto={setTexto}
-            alTerminar={(t) => enviar(t)}
-          />
+          {dictado.disponible ? (
+            dictado.escuchando ? (
+              <button
+                type="button"
+                onClick={dictado.cancelar}
+                aria-label="Cancelar dictado"
+                className="vidrio flex size-11 shrink-0 animate-escalar items-center justify-center rounded-full text-muted-foreground transition-transform duration-200 ease-ios active:scale-90"
+              >
+                <X className="size-[22px]" strokeWidth={2.25} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={dictar}
+                disabled={!enLinea || ocupado}
+                aria-label="Dictar"
+                className="vidrio flex size-11 shrink-0 items-center justify-center rounded-full text-tint transition-[transform,opacity] duration-200 ease-ios active:scale-90 disabled:opacity-40"
+              >
+                <Mic className="size-[22px]" />
+              </button>
+            )
+          ) : null}
           <div className={cn("vidrio relative flex min-h-11 min-w-0 flex-1 items-end rounded-[22px]", ocupado && "brillo-ia")}>
+            {dictado.escuchando ? (
+              <span aria-hidden className="pointer-events-none absolute inset-0 animate-aparecer rounded-[inherit] bg-tint/8 ring-[1.5px] ring-tint/45" />
+            ) : null}
             <label htmlFor="mensaje" className="sr-only">
               Mensaje
             </label>
@@ -147,22 +209,41 @@ export function Chat() {
               id="mensaje"
               rows={1}
               value={texto}
-              onChange={(e) => setTexto(e.target.value)}
+              readOnly={dictado.escuchando}
+              onChange={(e) => {
+                callar();
+                setTexto(e.target.value);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
-                  enviar();
+                  e.currentTarget.form?.requestSubmit();
                 }
               }}
               enterKeyHint="send"
-              placeholder={enLinea ? "Pregunta o dime un gasto" : "Sin conexión"}
+              placeholder={dictado.escuchando ? "Te escucho…" : enLinea ? "Pregunta o dime un gasto" : "Sin conexión"}
               disabled={!enLinea}
-              className="block max-h-[124px] min-h-11 w-full resize-none bg-transparent py-[11px] pr-12 pl-4 text-[17px] leading-[22px] outline-none placeholder:text-placeholder"
+              className={cn(
+                "relative block max-h-[124px] min-h-11 w-full resize-none bg-transparent py-[11px] pl-4 text-[17px] leading-[22px] outline-none placeholder:text-placeholder",
+                dictado.escuchando && texto.trim() ? "pr-[84px]" : "pr-12",
+              )}
             />
+            {dictado.escuchando ? (
+              <span
+                role="status"
+                aria-label="Escuchando"
+                className={cn(
+                  "absolute bottom-[5px] flex h-[34px] w-[34px] items-center justify-center transition-[right] duration-300 ease-ios",
+                  texto.trim() ? "right-[42px]" : "right-[5px]",
+                )}
+              >
+                <Onda fuerte={dictado.oyendo} />
+              </span>
+            ) : null}
             <button
               type="submit"
               aria-label="Enviar"
-              disabled={!texto.trim() || !enLinea || ocupado}
+              disabled={!texto.trim() || !enLinea || (ocupado && !dictado.escuchando)}
               className="absolute right-[5px] bottom-[5px] flex size-[34px] items-center justify-center rounded-full bg-primary text-white transition-[transform,opacity] duration-200 ease-ios active:scale-90 disabled:scale-75 disabled:opacity-0"
             >
               <ArrowUp className="size-[19px]" strokeWidth={3} />
@@ -174,7 +255,7 @@ export function Chat() {
   );
 }
 
-function Burbuja({ m, pegada, enLinea }: { m: Mensaje; pegada: boolean; enLinea: boolean }) {
+function Burbuja({ m, pegada, enLinea, leyendo }: { m: Mensaje; pegada: boolean; enLinea: boolean; leyendo: boolean }) {
   const mia = m.rol === "yo";
   return (
     <li className={cn("flex flex-col animate-burbuja", mia ? "items-end" : "items-start", pegada ? "mt-1" : "mt-3")}>
@@ -200,6 +281,17 @@ function Burbuja({ m, pegada, enLinea }: { m: Mensaje; pegada: boolean; enLinea:
           {m.texto}
         </div>
       )}
+      {leyendo ? (
+        <button
+          type="button"
+          onClick={callar}
+          aria-label="Dejar de leer"
+          className="relative mt-1 flex animate-aparecer items-center gap-1.5 rounded-full px-2 py-0.5 text-[12px] font-semibold text-tint after:absolute after:-inset-x-1 after:-inset-y-2 after:content-[''] active:opacity-60"
+        >
+          <AudioLines className="size-3.5 animate-pulse" strokeWidth={2.5} />
+          Leyendo · Toca para callar
+        </button>
+      ) : null}
       {m.estado === "esperando" ? (
         <span className="mt-1 flex items-center gap-1.5 px-2 text-[12px] text-muted-foreground">
           <span className="flex gap-0.5">
@@ -256,77 +348,17 @@ function Burbuja({ m, pegada, enLinea }: { m: Mensaje; pegada: boolean; enLinea:
   );
 }
 
-function BotonMicrofono({
-  deshabilitado,
-  alTexto,
-  alTerminar,
-}: {
-  deshabilitado: boolean;
-  alTexto: (t: string) => void;
-  alTerminar: (t: string) => void;
-}) {
-  const [Reconocimiento] = useState(reconocedorDisponible);
-  const [escuchando, setEscuchando] = useState(false);
-  const activo = useRef<Reconocedor | null>(null);
-
-  useEffect(() => () => activo.current?.stop(), []);
-
-  if (!Reconocimiento) return null;
-
-  const alternar = () => {
-    if (escuchando) {
-      activo.current?.stop();
-      return;
-    }
-    const rec = new Reconocimiento();
-    rec.lang = "es-MX";
-    rec.interimResults = true;
-    rec.continuous = false;
-    let dicho = "";
-    let terminado = false;
-    rec.onresult = (e) => {
-      dicho = Array.from(e.results)
-        .map((r) => r[0].transcript)
-        .join("")
-        .trim();
-      terminado = Array.from(e.results).every((r) => r.isFinal);
-      alTexto(dicho);
-    };
-    rec.onerror = (e) => {
-      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-        toast.error("Permite el micrófono para dictar.");
-      }
-    };
-    rec.onend = () => {
-      setEscuchando(false);
-      activo.current = null;
-      if (dicho && terminado) alTerminar(dicho);
-    };
-    activo.current = rec;
-    setEscuchando(true);
-    rec.start();
-  };
-
+/** Barras que se mueven mientras escucha; más altas cuando ya te está oyendo. */
+function Onda({ fuerte }: { fuerte: boolean }) {
   return (
-    <button
-      type="button"
-      onClick={alternar}
-      disabled={deshabilitado && !escuchando}
-      aria-label={escuchando ? "Dejar de escuchar" : "Dictar"}
-      aria-pressed={escuchando}
-      className={cn(
-        "relative flex size-11 shrink-0 items-center justify-center rounded-full transition-[transform,background-color] duration-200 ease-ios active:scale-90 disabled:opacity-40",
-        escuchando ? "bg-destructive text-white" : "vidrio text-tint",
-      )}
-    >
-      {escuchando ? (
-        <>
-          <span aria-hidden className="absolute inset-0 animate-ping rounded-full bg-destructive/50" />
-          <Square className="relative size-3.5" fill="currentColor" />
-        </>
-      ) : (
-        <Mic className="size-[22px]" />
-      )}
-    </button>
+    <span aria-hidden className="flex h-[18px] items-center gap-[3px] text-tint">
+      {[0.55, 0.85, 1, 0.75, 0.5].map((alto, i) => (
+        <span
+          key={i}
+          className="w-[3px] animate-onda rounded-full bg-current transition-[height] duration-300 ease-ios"
+          style={{ height: `${(fuerte ? alto : alto * 0.45) * 18}px`, animationDelay: `${i * 0.12}s` }}
+        />
+      ))}
+    </span>
   );
 }
