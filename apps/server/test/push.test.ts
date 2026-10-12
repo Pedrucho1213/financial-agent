@@ -4,7 +4,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { crearApp, RESPUESTAS_RAPIDAS } from "../src/app";
 import { crearDispositivo, crearUsuario, revocarDispositivo } from "../src/auth";
 import type { Db } from "../src/db/client";
-import { avisos, dispositivos, movimientos, suscripcionesPush } from "../src/db/schema";
+import { avisos, dispositivos, entradas as entradasTabla, mensajes as mensajesTabla, movimientos, suscripcionesPush } from "../src/db/schema";
 import { fraseDePago, montoDeWallet, pagoDeFrase, pagoDeTransaccion } from "../src/finanzas/applepay";
 import { enviarAvisosDelDia } from "../src/push/avisos-manana";
 import { notificacionDeDictado } from "../src/push/dictados";
@@ -353,11 +353,38 @@ describe("Atajo rápido", () => {
     };
     await hasta(() => enviadas.length > 0);
     expect(enviadas[0]!.titulo).toBe("Tengo una pregunta");
-    expect(enviadas[0]!.cuerpo).toContain("Contéstame en el Atajo");
+    expect(enviadas[0]!.cuerpo).toEndWith("Toca para contestarme.");
+    expect(enviadas[0]!.url).toBe(`/#chat?conversacion=${r.conversacion_id}`);
     const r2 = (await (await pedir("/v1/hablar", "POST", { texto: "en Starbucks", client_id: "pregunta-push-2" })).json()) as {
       conversacion_id: string;
     };
     expect(r2.conversacion_id).toBe(r.conversacion_id);
+  });
+
+  test("el chat que abre la push muestra la pregunta y, contestada horas después, la IA aún la tiene", async () => {
+    const vistos: string[] = [];
+    const respuestas = [texto("¿Fueron 85 en Starbucks o en Oxxo?"), texto("Va.")];
+    const { pedir, activar, enviadas, db } = montar(async (o) => (vistos.push(JSON.stringify(o.prompt)), await Bun.sleep(20), respuestas.shift()!), 5);
+    await activar();
+    const { conversacion_id: id } = (await (await pedir("/v1/hablar", "POST", { texto: "gasté 85 en café", client_id: "chat-push-01" })).json()) as {
+      conversacion_id: string;
+    };
+    await hasta(() => enviadas.length > 0);
+    const chat = (await (await pedir(`/v1/conversaciones/${id}`)).json()) as { mensajes: { rol: string; texto: string }[] };
+    expect(chat.mensajes).toEqual([
+      { rol: "yo", texto: "gasté 85 en café" },
+      expect.objectContaining({ rol: "asistente", texto: "¿Fueron 85 en Starbucks o en Oxxo?" }),
+    ]);
+    expect((await pedir("/v1/conversaciones/otra")).status).toBe(404);
+    // Pasaron dos horas: el Atajo ya no seguiría esa conversación, pero el chat abierto desde la push sí.
+    const antes = new Date(Date.now() - 2 * 3600_000).toISOString();
+    db.update(mensajesTabla).set({ creadoEn: antes }).run();
+    db.update(entradasTabla).set({ creadoEn: antes }).run();
+    const r = await pedir("/v1/hablar", "POST", { texto: "en Starbucks", client_id: "chat-push-02", conversacion_id: id, retomar: true, espera_ms: 5000 });
+    expect(((await r.json()) as { conversacion_id: string }).conversacion_id).toBe(id);
+    // La pregunta va como turno de la conversación (no solo en el resumen de días anteriores).
+    const turnos = JSON.parse(vistos.at(-1)!) as { role: string; content: unknown }[];
+    expect(turnos.some((t) => t.role === "assistant" && JSON.stringify(t.content).includes("¿Fueron 85 en Starbucks o en Oxxo?"))).toBe(true);
   });
 });
 

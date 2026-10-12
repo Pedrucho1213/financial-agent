@@ -2,7 +2,7 @@ import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
 import { z } from "zod";
-import { consultarEntrada, conversacionReciente, type Dependencias, type Respuesta, ErrorEnProceso, ErrorIA, hablar } from "./ai/asistente";
+import { consultarEntrada, conversacionParaChat, conversacionReciente, type Dependencias, type Respuesta, ErrorEnProceso, ErrorIA, hablar } from "./ai/asistente";
 import { guardarDescarga, limpiarDescargas, tomarDescarga } from "./atajo/descargas";
 import { ErrorFirma, firmarAtajo, generarAtajo, generarAtajoApplePay, guionBienvenida, NOMBRE_ATAJO_APPLE_PAY } from "./atajo/generar";
 import {
@@ -123,6 +123,8 @@ const esquemaHablar = z.object({
   equipo: z.string().trim().max(60).optional(),
   // Para clientes que prefieren esperar otra cantidad (la prueba de modelos espera todo).
   espera_ms: z.coerce.number().int().min(0).max(MAX_ESPERA_MS).optional(),
+  // La app contesta en el chat una conversación que abrió desde una notificación (ver Peticion.retomar).
+  retomar: z.boolean().optional(),
 });
 
 // Lo que manda el Atajo de Apple Pay. Va por /v1/hablar para que la cola sin conexión del Atajo
@@ -585,6 +587,7 @@ export function crearApp(opciones: OpcionesApp) {
           lon: p.lon,
           lugar: p.lugar,
           capturadoEn: p.capturado_en,
+          retomar: p.retomar && !!p.conversacion_id,
         },
         { esperaMs, esPregunta: pregunta || actualizaCuentas },
       );
@@ -775,6 +778,13 @@ export function crearApp(opciones: OpcionesApp) {
     const estado = await consultarEntrada(db, c.get("usuarioId"), c.req.param("client_id"), esperaMs);
     if (!estado) return c.json({ error: "No conozco ese dictado." }, 404);
     return c.json(paraVoz(estado));
+  });
+
+  // Lo dicho y contestado en una conversación: el chat de la app la abre desde una notificación.
+  v1.get("/conversaciones/:id", (c) => {
+    const lista = conversacionParaChat(db, c.get("usuarioId"), c.req.param("id"));
+    if (!lista) return c.json({ error: "No conozco esa conversación." }, 404);
+    return c.json({ conversacion_id: c.req.param("id"), mensajes: lista.map((m) => (m.rol === "asistente" ? { ...m, texto: montosParaVoz(m.texto, opciones.monedaBase) } : m)) });
   });
 
   // El Atajo lo llama al abrirse para que el modelo ya esté cargado cuando termines de hablar.

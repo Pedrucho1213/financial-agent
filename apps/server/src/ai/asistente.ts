@@ -33,6 +33,11 @@ export type Peticion = {
   capturadoEn?: string;
   /** Un pago con Apple Pay que mandó el Atajo de la Cartera; por omisión, un dictado. */
   origen?: Entrada["origen"];
+  /**
+   * Contesta una conversación que se abrió desde una notificación (la app, en el chat): su historial y su
+   * pregunta siguen valiendo aunque sean de hace horas.
+   */
+  retomar?: boolean;
 };
 
 export type Respuesta = {
@@ -83,10 +88,12 @@ export class ErrorEnProceso extends Error {}
 
 // Una conversación se retoma si su último mensaje tiene menos de 30 minutos.
 const VIGENCIA_CONVERSACION_MS = 30 * 60_000;
+// Abierta desde una notificación, la conversación vale días: se contesta cuando se pueda (2026-10-12).
+const VIGENCIA_RETOMADA_MS = 3 * 86_400_000;
 const MAX_MENSAJES_HISTORIAL = 24;
 
-function cargarHistorial(db: Db, usuarioId: string, conversacionId: string): ModelMessage[] {
-  const desde = new Date(Date.now() - VIGENCIA_CONVERSACION_MS).toISOString();
+function cargarHistorial(db: Db, usuarioId: string, conversacionId: string, vigenciaMs = VIGENCIA_CONVERSACION_MS): ModelMessage[] {
+  const desde = new Date(Date.now() - vigenciaMs).toISOString();
   const filas = db
     .select()
     .from(mensajes)
@@ -165,7 +172,7 @@ function resumenDeAnteriores(anteriores: Anterior[], zonaHoraria: string): strin
 const VIGENCIA_PREGUNTA_MS = 5 * 60_000;
 
 /** Si lo último de la conversación (la respuesta que preguntó) fue hace poco. */
-function preguntaReciente(db: Db, usuarioId: string, conversacionId: string): boolean {
+function preguntaReciente(db: Db, usuarioId: string, conversacionId: string, vigenciaMs = VIGENCIA_PREGUNTA_MS): boolean {
   const ultimo = db
     .select({ creadoEn: mensajes.creadoEn })
     .from(mensajes)
@@ -173,7 +180,7 @@ function preguntaReciente(db: Db, usuarioId: string, conversacionId: string): bo
     .orderBy(desc(mensajes.creadoEn), desc(sql`rowid`))
     .limit(1)
     .get();
-  return !!ultimo && Date.now() - Date.parse(ultimo.creadoEn) < VIGENCIA_PREGUNTA_MS;
+  return !!ultimo && Date.now() - Date.parse(ultimo.creadoEn) < vigenciaMs;
 }
 
 /** Los últimos datos del usuario que ya están en la conversación. */
@@ -410,6 +417,7 @@ export async function hablar(
       .returning()
       .get();
   if (previa && !existente) db.update(entradas).set({ estado: "procesando" }).where(eq(entradas.id, previa.id)).run();
+  if (peticion.retomar) retomadas.add(entrada.id);
   const trabajo = existente ?? encolar(deps, entrada);
   if (opciones.esperaMs === undefined) return trabajo;
 
@@ -426,6 +434,8 @@ export type Entrada = typeof entradas.$inferSelect;
 
 /** Dictados que nadie está esperando: si fallan, la Mac los reintenta sola más tarde. */
 const enSegundoPlano = new Set<string>();
+/** Dictados que contestan una conversación abierta desde una notificación (Peticion.retomar). */
+const retomadas = new Set<string>();
 /** Cuántas consultas (/v1/entradas con espera) están esperando cada dictado en este momento. */
 const esperandoRespuesta = new Map<string, number>();
 
@@ -455,6 +465,7 @@ function encolar(deps: Dependencias, entrada: Entrada, intento = 0, exitosAlFall
   trabajo.then(
     (respuesta) => {
       enCurso.delete(entrada.id);
+      retomadas.delete(entrada.id);
       if (enSegundoPlano.has(entrada.id)) terminoSinEspera(deps, entrada, respuesta);
       enSegundoPlano.delete(entrada.id);
       exitosPorBase.set(deps.db, exitos(deps.db) + 1);
@@ -469,6 +480,7 @@ function encolar(deps: Dependencias, entrada: Entrada, intento = 0, exitosAlFall
       if (pausa === undefined || iaFunciona || Date.now() - Date.parse(entrada.creadoEn) > VIGENCIA_REINTENTOS_MS) {
         console.error(`Dictado ${entrada.clientId} sin procesar después de ${intento + 1} intentos; queda en error.`);
         enSegundoPlano.delete(entrada.id);
+        retomadas.delete(entrada.id);
         terminoSinEspera(deps, entrada, undefined);
         return;
       }
@@ -576,6 +588,43 @@ export async function consultarEntrada(
   }
   const e = buscar() ?? inicial;
   return e.estado === "listo" ? { ...(e.respuesta as Respuesta), estado: e.estado } : { estado: e.estado };
+}
+
+export type MensajeDeConversacion = {
+  rol: "yo" | "asistente";
+  texto: string;
+  acciones?: Accion[];
+  /** Del asistente: "pendiente" si la Mac lo sigue procesando (se consulta con client_id), "error" si no pudo. */
+  estado?: "pendiente" | "error";
+  client_id?: string;
+};
+
+const MAX_MENSAJES_CONVERSACION = 20;
+
+/**
+ * Lo dicho y contestado en una conversación, para que el chat de la app la muestre al abrir una notificación
+ * y se pueda contestar ahí mismo. Sale de `entradas`: cada dictado (o pago de Apple Pay) con su respuesta.
+ */
+export function conversacionParaChat(db: Db, usuarioId: string, conversacionId: string): MensajeDeConversacion[] | undefined {
+  const filas = db
+    .select()
+    .from(entradas)
+    .where(and(eq(entradas.usuarioId, usuarioId), eq(entradas.conversacionId, conversacionId)))
+    .orderBy(desc(sql`rowid`))
+    .limit(MAX_MENSAJES_CONVERSACION)
+    .all()
+    .reverse();
+  if (!filas.length) return undefined;
+  return filas.flatMap((e): MensajeDeConversacion[] => {
+    const respuesta = e.estado === "listo" ? (e.respuesta as Respuesta | null) : null;
+    const asistente: MensajeDeConversacion =
+      e.estado === "error" || (e.estado === "listo" && !respuesta)
+        ? { rol: "asistente", texto: "No pude procesarlo. Dímelo otra vez aquí.", estado: "error" }
+        : respuesta
+          ? { rol: "asistente", texto: respuesta.respuesta, acciones: respuesta.acciones }
+          : { rol: "asistente", texto: "Sigue en proceso.", estado: "pendiente", client_id: e.clientId };
+    return [{ rol: "yo", texto: e.texto }, asistente];
+  });
 }
 
 /** Corrige la cuenta de un gasto ya registrado sin el modelo (ver `correccionDeCuenta`). */
@@ -798,7 +847,8 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
 
   const acciones: Accion[] = [];
   const mensajeUsuario: ModelMessage = { role: "user", content: entrada.texto };
-  const historial = cargarHistorial(db, usuarioId, conversacionId);
+  const retomada = retomadas.has(entrada.id);
+  const historial = cargarHistorial(db, usuarioId, conversacionId, retomada ? VIGENCIA_RETOMADA_MS : undefined);
   // Si la respuesta anterior pedía elegir ("¿cuál café, el de 60 o el de 85?"), lo que se dice ahora la
   // contesta y el modelo ya sabe de cuál se habla. Otra pregunta ("¿de cuánto fue?") o una conversación
   // sin pregunta (el chat de la app) no bastan.
@@ -807,7 +857,8 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   // anterior cualquiera no: "Tengo 20 mil en Revolut" y luego "me llegó la quincena" no son $20,000 (W3).
   // La pregunta tiene que ser de hace poco: el Atajo sigue la conversación media hora, y un "¿de cuánto fue lo del
   // súper?" sin contestar no debe pegarse a un "pagué 300 de luz" de 10 minutos después (W3).
-  const pregunto = anterior.includes("?") && preguntaReciente(db, usuarioId, conversacionId);
+  // Contestada desde el chat que abrió la notificación, la pregunta vale aunque sea de hace horas.
+  const pregunto = anterior.includes("?") && preguntaReciente(db, usuarioId, conversacionId, retomada ? VIGENCIA_RETOMADA_MS : undefined);
   ctx.enConversacion = pregunto;
   // Un pago de Apple Pay solo se anota: no necesita lo de días anteriores.
   const anteriores = entrada.origen === "voz" ? dictadosAnteriores(db, entrada) : [];

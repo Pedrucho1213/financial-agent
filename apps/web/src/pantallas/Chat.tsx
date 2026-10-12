@@ -11,8 +11,11 @@ import {
   type Mensaje,
   nuevaConversacion,
   reintentar,
+  abrirConversacion,
   useChat,
 } from "../lib/chat";
+import { mensajeDeError } from "../lib/api";
+import { hashDe, navegar, useRuta } from "../lib/ruta";
 import { useEnLinea } from "../lib/conexion";
 import { useTeclado } from "../lib/teclado";
 import { cn } from "../lib/utils";
@@ -52,6 +55,15 @@ export function Chat() {
   const campo = useRef<HTMLTextAreaElement>(null);
   const final = useRef<HTMLDivElement>(null);
   const ocupado = mensajes.some((m) => m.estado === "pensando");
+
+  // Una notificación con una pregunta o un problema abre #chat?conversacion=<id>: se carga esa conversación
+  // para leer el mensaje y contestar ahí. El parámetro se quita para no recargarla al volver a la pestaña.
+  const conversacion = useRuta().params.get("conversacion");
+  useEffect(() => {
+    if (!conversacion) return;
+    navegar(hashDe("chat"), { reemplazar: true });
+    abrirConversacion(conversacion).catch((error) => toast.error(mensajeDeError(error)));
+  }, [conversacion]);
 
   // Bajar al último mensaje cuando llega algo nuevo.
   const ultimo = mensajes.at(-1);

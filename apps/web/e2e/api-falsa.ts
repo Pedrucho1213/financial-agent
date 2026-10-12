@@ -211,6 +211,8 @@ export class ApiFalsa {
    * - "ia": 503, la IA no respondió; reenviarlo con el mismo client_id lo procesa de nuevo.
    */
   fallasHablar: ("corte" | "perdido" | "procesando" | "ia")[] = [];
+  /** Conversaciones de la Mac por id (GET /v1/conversaciones/:id): las abre una notificación. */
+  conversaciones = new Map<string, object[]>();
   /** Lo que la Mac sabe de cada dictado, por client_id (lo que responde /v1/entradas/:client_id). */
   dictados = new Map<string, { estado: "procesando" | "listo" | "error"; respuesta?: object }>();
   /** Códigos de invitación ya canjeados (responden 410). */
@@ -442,6 +444,13 @@ export class ApiFalsa {
       this.dictados.set(id, estado === 202 ? { estado: "procesando" } : { estado: "listo", respuesta: datos });
       if (falla === "corte") return route.abort("connectionreset");
       return json(estado, datos);
+    }
+    m = ruta.match(/^\/v1\/conversaciones\/(.+)$/);
+    if (metodo === "GET" && m) {
+      const id = decodeURIComponent(m[1] ?? "");
+      const mensajes = this.conversaciones.get(id);
+      if (!mensajes) return json(404, { error: "No conozco esa conversación." });
+      return json(200, { conversacion_id: id, mensajes });
     }
     m = ruta.match(/^\/v1\/entradas\/(.+)$/);
     if (metodo === "GET" && m) {
