@@ -5,7 +5,7 @@ import { and, eq } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { cuentas } from "../db/schema";
 import { normalizar } from "../lib/texto";
-import type { Cuenta } from "./catalogos";
+import { conBancoCanonico, type Cuenta } from "./catalogos";
 
 // Lo que da Atajos cuando no puede leer la tarjeta: el nombre de la propiedad, no el de la tarjeta.
 const ETIQUETA_GENERICA = /^(forma de pago|tarjeta o pase|card or pass|payment method|apple pay|tarjeta|pase|pass|card)$/;
@@ -13,10 +13,11 @@ const ETIQUETA_GENERICA = /^(forma de pago|tarjeta o pase|card or pass|payment m
 /** El texto de la Cartera no dice qué tarjeta fue ("Forma de pago"). */
 export const tarjetaSinNombre = (tarjeta: string | undefined) => !tarjeta || ETIQUETA_GENERICA.test(normalizar(tarjeta));
 
-// Palabras que no distinguen una tarjeta de otra: "Tarjeta de crédito Nu Visa" es "nu".
+// Palabras que no distinguen una tarjeta de otra: "Tarjeta de crédito Nu Visa" es "nu". El banco con dos nombres
+// es uno, como al buscar cuentas por voz: "BBVA Bancomer" es la cuenta "Bancomer".
 const RELLENO =
-  /\b(tarjeta|tarjetas|card|cuenta|de|del|la|el|mi|credito|credit|debito|debit|visa|mastercard|master|amex|american|express|oro|gold|platino|platinum|clasica|classic|black|signature|world|elite)\b/g;
-const base = (texto: string) => normalizar(texto).replace(RELLENO, " ").replace(/\s+/g, " ").trim();
+  /\b(tarjeta|tarjetas|card|cuenta|de|del|la|el|mi|credito|credit|debito|debit|visa|mastercard|master|oro|gold|platino|platinum|clasica|classic|black|signature|world|elite)\b/g;
+const base = (texto: string) => conBancoCanonico(normalizar(texto)).replace(RELLENO, " ").replace(/\s+/g, " ").trim();
 const palabras = (texto: string) => base(texto).split(" ").filter((p) => p.length >= 2);
 
 function tipoDicho(texto: string): "credito" | "debito" | undefined {

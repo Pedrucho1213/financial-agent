@@ -246,6 +246,11 @@ export function inferirTipoCuenta(texto: string): TipoCuenta {
 // El mismo banco con dos nombres: "Bancomer" es BBVA, "Citibanamex" es Banamex.
 const MISMO_BANCO: Record<string, string> = { bancomer: "bbva", "bbva bancomer": "bbva", citibanamex: "banamex", "citi banamex": "banamex", "nu bank": "nu", nubank: "nu", "american express": "amex" };
 const canonico = (nombre: string) => MISMO_BANCO[nombre] ?? nombre;
+/** "bbva bancomer" → "bbva", "citibanamex" → "banamex", en un texto ya normalizado. */
+export function conBancoCanonico(plano: string): string {
+  for (const [otro, banco] of Object.entries(MISMO_BANCO)) plano = plano.replace(new RegExp(`\\b${otro}\\b`, "g"), banco);
+  return plano;
+}
 
 // Palabras que no son el nombre de la cuenta: "con la tarjeta de crédito", "mi cuenta de".
 const RELLENO_CUENTA = /^(con|la|el|en|mi|mis|tu|tarjeta|tarjetas|cuenta|cuentas|de|del|credito|debito|banco|tdc|tdd|nomina)\s+/;

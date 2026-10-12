@@ -612,6 +612,9 @@ describe("Apple Pay", () => {
     expect(de("Mercado Pago")).toEqual({ cuenta: "Mercado Pago Credito", opciones: [] });
     expect(de("INVEX Visa")).toEqual({ cuenta: "Invex", opciones: [] });
     expect(de("Revolut Credit")).toEqual({ cuenta: "Revolut crédito", opciones: [] });
+    db.insert(cuentas).values({ usuarioId: usuario.id, nombre: "Bancomer", tipo: "debito" }).run();
+    expect(de("BBVA Bancomer")).toEqual({ cuenta: "Bancomer", opciones: [] });
+    db.update(cuentas).set({ archivada: true }).where(eq(cuentas.nombre, "Bancomer")).run();
     expect(de("Revolut")).toEqual({ cuenta: undefined, opciones: ["Revolut", "Revolut crédito"] });
     expect(de("Forma de pago")).toEqual({ cuenta: undefined, opciones: [] });
     expect(de("Banamex Oro").opciones).toEqual(["Revolut", "Revolut crédito", "Nu", "Invex", "Mercado Pago Credito"]);
