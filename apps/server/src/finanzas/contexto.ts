@@ -25,6 +25,8 @@ export type Contexto = {
   dichoAntes?: string[];
   /** De dónde salen los movimientos que se registren (un dictado o un pago con Apple Pay). */
   origen?: "voz" | "apple_pay";
+  /** Un pago con Apple Pay cuya tarjeta no se supo con certeza: las cuentas que podrían ser, para preguntarle. */
+  tarjetaPorAclarar?: string[];
 };
 
 export function crearContexto(

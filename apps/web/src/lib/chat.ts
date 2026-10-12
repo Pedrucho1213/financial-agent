@@ -26,7 +26,8 @@ export type Mensaje = {
 };
 
 /** nueva: tocó "Nueva conversación"; el servidor no la une a la de los últimos minutos. */
-type Estado = { mensajes: Mensaje[]; conversacionId?: string; nueva?: boolean };
+/** retomada: se abrió desde una notificación; la Mac le da su historial y su pregunta aunque sean de hace horas. */
+type Estado = { mensajes: Mensaje[]; conversacionId?: string; nueva?: boolean; retomada?: boolean };
 
 const CLAVE = "fa_chat";
 const ESPERA_HABLAR_MS = 60_000;
@@ -177,6 +178,7 @@ async function pedir(idRespuesta: string) {
         texto: pregunta,
         client_id: clientId,
         ...(estado.conversacionId ? { conversacion_id: estado.conversacionId } : estado.nueva ? { nueva: true } : {}),
+        ...(estado.retomada ? { retomar: true } : {}),
         espera_ms: ESPERA_HABLAR_MS,
       },
     });
@@ -246,6 +248,36 @@ export function retomarPendientes() {
     const esperando = m.estado === "esperando" || m.estado === "pendiente" || m.estado === "pensando";
     if (esperando || (m.estado === "error" && m.incierto)) void esperarEntrada(m.id, m.clientId);
   }
+}
+
+type MensajeDeConversacion = {
+  rol: "yo" | "asistente";
+  texto: string;
+  acciones?: Accion[];
+  estado?: "pendiente" | "error";
+  client_id?: string;
+};
+
+/**
+ * Abre una conversación de la Mac (la de una notificación: una pregunta o algo que no pudo anotar) para
+ * leer el mensaje y contestar ahí mismo. Lo que dices después sigue esa conversación.
+ */
+export async function abrirConversacion(conversacionId: string) {
+  const r = await api<{ mensajes: MensajeDeConversacion[] }>(`/v1/conversaciones/${encodeURIComponent(conversacionId)}`);
+  emitir({
+    conversacionId,
+    retomada: true,
+    mensajes: r.mensajes.map((m, i) => ({
+      id: `c-${conversacionId}-${i}`,
+      rol: m.rol,
+      texto: m.texto,
+      ...(m.acciones?.length ? { acciones: m.acciones } : {}),
+      ...(m.estado ? { estado: m.estado } : {}),
+      ...(m.client_id ? { clientId: m.client_id } : {}),
+    })),
+  });
+  // Si la Mac lo sigue procesando, se espera aquí su respuesta.
+  retomarPendientes();
 }
 
 export function useChat() {

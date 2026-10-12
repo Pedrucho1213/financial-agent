@@ -579,11 +579,10 @@ export function construirAtajoApplePay(opciones: Omit<OpcionesAtajo, "nombre">):
   const folio = a.texto("Folio", "applepay-", sello, "-", azar);
 
   // El nombre de la transacción y su tipo: si la Cartera cambia el nombre de una propiedad, el servidor
-  // todavía saca el monto de aquí y la Mac registra qué llegó. La transacción y la tarjeta no se convierten a
-  // texto (Atajos falla con "no pudo convertir de transacción a texto"); "Obtener nombre" sirve con cualquiera.
-  const nombreDe = (nombre: string, ref: Ref) => a.conSalida("getitemname", nombre, { WFInput: adjunto(ref) });
-  const transaccion = nombreDe("Nombre de la transacción", { entrada: null });
-  const tarjeta = nombreDe("Nombre de la tarjeta", pago("tarjeta"));
+  // todavía saca el monto de aquí y la Mac registra qué llegó. La transacción no se convierte a texto (Atajos
+  // falla con "no pudo convertir de transacción a texto"); "Obtener nombre" sirve con cualquiera. La tarjeta sí va
+  // como texto: "Obtener nombre" de ella da el nombre de la propiedad ("Forma de pago"), no el de la tarjeta.
+  const transaccion = a.conSalida("getitemname", "Nombre de la transacción", { WFInput: adjunto({ entrada: null }) });
   const tipo = a.conSalida("getitemtype", "Tipo de la entrada", { WFInput: adjunto({ entrada: null }) });
 
   const basicos: [string, Parte][] = [
@@ -593,7 +592,7 @@ export function construirAtajoApplePay(opciones: Omit<OpcionesAtajo, "nombre">):
     ["monto", pago("monto")],
     ["comercio", pago("comercio")],
     ["nombre", pago("nombre")],
-    ["tarjeta", tarjeta],
+    ["tarjeta", pago("tarjeta")],
     ["entrada", transaccion],
     ["tipo", tipo],
   ];

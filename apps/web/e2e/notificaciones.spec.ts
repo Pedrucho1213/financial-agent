@@ -16,6 +16,26 @@ test.describe("Tocar una notificación con la app abierta", () => {
     await expect(page).toHaveURL(new RegExp(`#movimientos\\?detalle=${pemex.id}&editar=1$`));
     await expect(page.getByRole("dialog").getByRole("heading", { name: "Movimiento" })).toBeVisible();
   });
+
+  test("una pregunta abre el chat en esa conversación y se contesta ahí mismo", async ({ page }) => {
+    const api = await prepararSesion(page);
+    api.conversaciones.set("conv-pregunta", [
+      { rol: "yo", texto: "gasté 300 en la tienda" },
+      { rol: "asistente", texto: "¿Con cuál Revolut pagaste: la de crédito o la de débito?" },
+    ]);
+    api.hablar = [200, { respuesta: "Listo, lo puse en Revolut crédito.", conversacion_id: "conv-pregunta", acciones: [] }];
+    await page.goto("/#inicio");
+    await page.evaluate((url) => {
+      navigator.serviceWorker.dispatchEvent(new MessageEvent("message", { data: { tipo: "fa:abrir", url } }));
+    }, `${new URL(page.url()).origin}/#chat?conversacion=conv-pregunta`);
+    await expect(page.getByText("¿Con cuál Revolut pagaste: la de crédito o la de débito?")).toBeVisible();
+    // El parámetro se quita: volver a la pestaña no recarga la conversación.
+    await expect(page).toHaveURL(/#chat$/);
+    await page.getByRole("textbox").fill("la de crédito");
+    await page.getByRole("textbox").press("Enter");
+    await expect(page.getByText("Listo, lo puse en Revolut crédito.")).toBeVisible();
+    expect(api.de("POST", "/v1/hablar")[0]?.cuerpo).toMatchObject({ texto: "la de crédito", conversacion_id: "conv-pregunta", retomar: true });
+  });
 });
 
 test.describe("Notificaciones en Ajustes", () => {
