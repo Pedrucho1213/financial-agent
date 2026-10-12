@@ -170,6 +170,7 @@
   --animate-entrar: entrar 320ms cubic-bezier(0.32, 0.72, 0, 1);
   --animate-burbuja: burbuja 320ms cubic-bezier(0.32, 0.72, 0, 1);
   --animate-punto: punto 1.2s ease-in-out infinite;
+  --animate-onda: onda 0.9s ease-in-out infinite;
   --animate-sacudir: sacudir 420ms cubic-bezier(0.36, 0.07, 0.19, 0.97);
   --animate-girar: girar 0.9s steps(8) infinite;
   --animate-rebote: rebote 420ms cubic-bezier(0.32, 0.72, 0, 1);
@@ -257,6 +258,11 @@
   @keyframes crecer-x {
     from { transform: scaleX(0); }
     to { transform: scaleX(1); }
+  }
+  /* Barras del dictado: suben y bajan desde el centro. */
+  @keyframes onda {
+    0%, 100% { transform: scaleY(0.45); }
+    50% { transform: scaleY(1); }
   }
   @keyframes punto {
     0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }

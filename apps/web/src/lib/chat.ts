@@ -21,6 +21,8 @@ export type Mensaje = {
   reintentable?: boolean;
   /** No se sabe si llegó a la Mac: al volver a la app se pregunta antes de ofrecer reenviarlo. */
   incierto?: boolean;
+  /** Se dictó: la respuesta se lee en voz alta cuando llegue (y luego se quita la marca). */
+  porVoz?: boolean;
 };
 
 type Estado = { mensajes: Mensaje[]; conversacionId?: string };
@@ -206,7 +208,7 @@ async function pedir(idRespuesta: string) {
   }
 }
 
-export function enviarMensaje(texto: string) {
+export function enviarMensaje(texto: string, { porVoz = false }: { porVoz?: boolean } = {}) {
   const limpio = texto.trim();
   if (!limpio) return Promise.resolve();
   const clientId = uuid();
@@ -216,10 +218,16 @@ export function enviarMensaje(texto: string) {
     mensajes: [
       ...estado.mensajes,
       { id: `u-${clientId}`, rol: "yo", texto: limpio },
-      { id: idRespuesta, rol: "asistente", texto: "", estado: "pensando", clientId, pregunta: limpio },
+      { id: idRespuesta, rol: "asistente", texto: "", estado: "pensando", clientId, pregunta: limpio, ...(porVoz ? { porVoz } : {}) },
     ],
   });
   return pedir(idRespuesta);
+}
+
+/** La respuesta dictada ya se leyó (o ya no toca leerla): no se vuelve a leer. */
+export function yaSeLeyo(id: string) {
+  const m = estado.mensajes.find((x) => x.id === id);
+  if (m?.porVoz) cambiarMensaje(id, { porVoz: undefined });
 }
 
 /** Reenvía con el MISMO client_id: si la Mac ya lo tenía, responde lo mismo sin duplicarlo. */
