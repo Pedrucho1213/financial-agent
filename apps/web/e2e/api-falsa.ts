@@ -3,6 +3,7 @@ import { atenderCuenta } from "./api-falsa-cuenta";
 import { atenderCuentas, type DatosCuentas, extraMovimiento, extraTablero } from "./api-falsa-cuentas";
 import { atenderIa } from "./api-falsa-ia";
 import { atenderPlan, planInicial } from "./api-falsa-plan";
+import { atenderRecurrentes } from "./api-falsa-recurrentes";
 
 // API falsa que sigue docs/api.md, para probar la app sin el servidor.
 
@@ -359,6 +360,8 @@ export class ApiFalsa {
     await atenderPlan(this, { metodo, ruta, cuerpo, consulta: url.searchParams, json: responder });
     if (respondido) return;
     await atenderCuentas(this, { metodo, ruta, cuerpo, consulta: url.searchParams, json: responder });
+    if (respondido) return;
+    await atenderRecurrentes(this, { metodo, ruta, cuerpo, consulta: url.searchParams, json: responder });
     if (respondido) return;
     if (metodo === "GET" && ruta === "/v1/analisis") {
       if (!this.asistente) return json(404, { error: "No encontrado" });

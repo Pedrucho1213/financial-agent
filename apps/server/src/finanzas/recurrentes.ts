@@ -1,5 +1,5 @@
-import { and, eq, isNull } from "drizzle-orm";
-import { avisos, FRECUENCIAS, recurrentes, TIPOS_RECURRENTE } from "../db/schema";
+import { and, eq, isNull, like } from "drizzle-orm";
+import { avisos, cuentas, ESTADOS_RECURRENTE, FRECUENCIAS, recurrentes, TIPOS_RECURRENTE } from "../db/schema";
 import { aCentavos, formatearMonto } from "../lib/dinero";
 import { armarFecha, diaSemana, partes, sumarDias, sumarMeses } from "../lib/fechas";
 import { normalizar } from "../lib/texto";
@@ -8,6 +8,7 @@ import type { Contexto } from "./contexto";
 import { cambioDeCuenta, ErrorFinanzas, registrarEnBitacora } from "./movimientos";
 
 export type Recurrente = typeof recurrentes.$inferSelect;
+export type EstadoRecurrente = (typeof ESTADOS_RECURRENTE)[number];
 
 export type DatosRecurrente = {
   nombre: string;
@@ -82,7 +83,8 @@ function validar(datos: Pick<DatosRecurrente, "monto" | "frecuencia" | "dia">) {
   }
 }
 
-export function crearRecurrente(ctx: Contexto, datos: DatosRecurrente) {
+/** `cuentaId`: la app ya eligió la cuenta (o ninguna, con null); la voz la busca por nombre. */
+export function crearRecurrente(ctx: Contexto, datos: DatosRecurrente, cuentaId?: string | null) {
   validar(datos);
   const cats = listarCategorias(ctx.db, ctx.usuarioId);
   const tipoCat = datos.tipo === "ingreso" ? "ingreso" : "gasto";
@@ -103,7 +105,8 @@ export function crearRecurrente(ctx: Contexto, datos: DatosRecurrente) {
       dia: datos.dia,
       mes: datos.mes,
       categoriaId: categoria?.id,
-      cuentaId: encontrarOCrearCuenta(ctx.db, ctx.usuarioId, datos.cuenta, { alCambiar: cambioDeCuenta(ctx) })?.id,
+      cuentaId:
+        cuentaId !== undefined ? cuentaId : encontrarOCrearCuenta(ctx.db, ctx.usuarioId, datos.cuenta, { alCambiar: cambioDeCuenta(ctx) })?.id,
       entradaId: ctx.entradaId,
     })
     .returning()
@@ -120,6 +123,15 @@ function activos(ctx: Contexto) {
     .all();
 }
 
+/** Todos los que no se borraron, en cualquier estado. */
+function delUsuario(ctx: Contexto) {
+  return ctx.db
+    .select()
+    .from(recurrentes)
+    .where(and(eq(recurrentes.usuarioId, ctx.usuarioId), isNull(recurrentes.eliminadoEn)))
+    .all();
+}
+
 /** Recurrentes activos ordenados por próximo cobro; con `dias`, solo los que vencen en ese plazo. */
 export function listarRecurrentes(ctx: Contexto, opciones: { dias?: number; tipo?: Recurrente["tipo"] } = {}) {
   let filas = activos(ctx);
@@ -133,16 +145,25 @@ export function listarRecurrentes(ctx: Contexto, opciones: { dias?: number; tipo
     .map((r) => describir(ctx, r))
     .filter((r) => !limite || r.proximo_cobro <= limite)
     .sort((a, b) => a.proximo_cobro.localeCompare(b.proximo_cobro));
+  // Las pausadas no se cobran ni suman, pero se dicen si pregunta qué suscripciones tiene.
+  const pausadas = delUsuario(ctx)
+    .filter((r) => r.estado === "pausada" && (!opciones.tipo || r.tipo === opciones.tipo))
+    .map((r) => r.nombre);
   return {
     recurrentes: lista,
     total_mensual_gastos: formatearMonto(enBase.reduce((s, r) => s + montoMensual(r), 0), ctx.monedaBase),
     total_mensual_otras_monedas: otras.length ? otras : undefined,
+    pausadas: pausadas.length ? pausadas : undefined,
   };
 }
 
 /** El recurrente que el usuario nombra ("Netflix", "la renta"), o un error que dice cuáles hay. */
-function encontrarRecurrente(ctx: Contexto, nombre: string): Recurrente {
-  const filas = activos(ctx);
+function encontrarRecurrente(
+  ctx: Contexto,
+  nombre: string,
+  estados: readonly EstadoRecurrente[] = ["activa", "pausada"],
+): Recurrente {
+  const filas = delUsuario(ctx).filter((r) => estados.includes(r.estado));
   const buscado = normalizar(nombre).replace(/^(el|la|los|las|mi|mis) /, "");
   const exactos = filas.filter((r) => normalizar(r.nombre) === buscado);
   const parecidos = exactos.length ? exactos : filas.filter((r) => normalizar(r.nombre).includes(buscado) || buscado.includes(normalizar(r.nombre)));
@@ -164,11 +185,43 @@ function darDeBaja(ctx: Contexto, antes: Recurrente) {
   registrarEnBitacora(ctx, "recurrentes", antes.id, "eliminar", antes, despues);
 }
 
-/** "Cancelé Netflix": deja de contarse y de recordarse. Se puede deshacer. */
+/**
+ * Pausar, cancelar o archivar deja de cobrarlo, recordarlo y sumarlo; activar lo regresa. Los avisos
+ * de cobro que ya había para él se descartan, para que no llegue una push de algo pausado.
+ */
+function cambiarEstado(ctx: Contexto, antes: Recurrente, estado: EstadoRecurrente): Recurrente {
+  if (antes.estado === estado) return antes;
+  const despues = ctx.db
+    .update(recurrentes)
+    .set({ estado, activo: estado === "activa", estadoEn: new Date().toISOString() })
+    .where(eq(recurrentes.id, antes.id))
+    .returning()
+    .get()!;
+  if (estado !== "activa") {
+    ctx.db
+      .update(avisos)
+      .set({ descartadoEn: new Date().toISOString() })
+      .where(and(eq(avisos.usuarioId, ctx.usuarioId), like(avisos.clave, `cobro:${antes.id}:%`), isNull(avisos.descartadoEn)))
+      .run();
+  }
+  registrarEnBitacora(ctx, "recurrentes", antes.id, "editar", antes, despues);
+  return despues;
+}
+
+/** "Cancelé Netflix": deja de contarse y de recordarse, y queda en Canceladas en la app. Se puede deshacer. */
 export function cancelarRecurrente(ctx: Contexto, nombre: string) {
   const antes = encontrarRecurrente(ctx, nombre);
-  darDeBaja(ctx, antes);
+  cambiarEstado(ctx, antes, "cancelada");
   return { nombre: antes.nombre, monto: formatearMonto(antes.montoCentavos, antes.moneda), frecuencia: antes.frecuencia };
+}
+
+/** "Pausa Spotify" (pausar) o "reactiva Spotify" (reanudar, también una cancelada). */
+export function pausarRecurrente(ctx: Contexto, nombre: string, pausar: boolean) {
+  const antes = encontrarRecurrente(ctx, nombre, pausar ? ["activa"] : ["pausada", "cancelada"]);
+  const despues = cambiarEstado(ctx, antes, pausar ? "pausada" : "activa");
+  return pausar
+    ? { pausado: antes.nombre }
+    : { reanudado: describir(ctx, despues) };
 }
 
 /**
@@ -258,4 +311,168 @@ export function cobrosPorAvisar(ctx: Contexto, pagados: string[] = []): { aviso?
       ? `Ojo: ${cuando(a.fecha)} se cobran ${cobro(a)} y ${cobro(b)}.`
       : `Ojo: ${cuando(a.fecha)} se cobra ${cobro(a)} y ${cuando(b.fecha)}, ${cobro(b)}.`;
   return { aviso, marcar };
+}
+
+// ---------------------------------------------------------------- La app (#suscripciones)
+
+export type RecurrenteApp = {
+  id: string;
+  nombre: string;
+  tipo: Recurrente["tipo"];
+  montoCentavos: number;
+  moneda: string;
+  frecuencia: Recurrente["frecuencia"];
+  dia: number;
+  mes: number | null;
+  categoriaId: string | null;
+  categoria: string | null;
+  cuentaId: string | null;
+  cuenta: string | null;
+  estado: EstadoRecurrente;
+  estadoEn: string | null;
+  /** Solo de las activas. */
+  proximoCobro: string | null;
+  mensualCentavos: number;
+  creadoEn: string;
+};
+
+function nombresDe(ctx: Contexto) {
+  const cats = new Map(listarCategorias(ctx.db, ctx.usuarioId).map((c) => [c.id, c.nombre]));
+  const ctas = new Map(
+    ctx.db
+      .select({ id: cuentas.id, nombre: cuentas.nombre })
+      .from(cuentas)
+      .where(eq(cuentas.usuarioId, ctx.usuarioId))
+      .all()
+      .map((c) => [c.id, c.nombre]),
+  );
+  return { cats, ctas };
+}
+
+function recurrenteApp(ctx: Contexto, r: Recurrente, nombres = nombresDe(ctx)): RecurrenteApp {
+  return {
+    id: r.id,
+    nombre: r.nombre,
+    tipo: r.tipo,
+    montoCentavos: r.montoCentavos,
+    moneda: r.moneda,
+    frecuencia: r.frecuencia,
+    dia: r.dia,
+    mes: r.mes,
+    categoriaId: r.categoriaId,
+    categoria: (r.categoriaId && nombres.cats.get(r.categoriaId)) || null,
+    cuentaId: r.cuentaId,
+    cuenta: (r.cuentaId && nombres.ctas.get(r.cuentaId)) || null,
+    estado: r.estado,
+    estadoEn: r.estadoEn,
+    proximoCobro: r.estado === "activa" ? proximoCobro(r, ctx.hoy) : null,
+    mensualCentavos: montoMensual(r),
+    creadoEn: r.creadoEn,
+  };
+}
+
+/** Todos los pagos fijos en cualquier estado; las activas primero, por próximo cobro. */
+export function recurrentesApp(ctx: Contexto) {
+  const nombres = nombresDe(ctx);
+  const orden: Record<EstadoRecurrente, number> = { activa: 0, pausada: 1, cancelada: 2, archivada: 3 };
+  const lista = delUsuario(ctx)
+    .map((r) => recurrenteApp(ctx, r, nombres))
+    .sort(
+      (a, b) =>
+        orden[a.estado] - orden[b.estado] ||
+        (a.proximoCobro ?? "").localeCompare(b.proximoCobro ?? "") ||
+        (b.estadoEn ?? "").localeCompare(a.estadoEn ?? "") ||
+        a.nombre.localeCompare(b.nombre),
+    );
+  // Lo que se va al mes en la moneda base: solo gastos activos.
+  const mensualCentavos = lista
+    .filter((r) => r.estado === "activa" && r.tipo !== "ingreso" && r.moneda === ctx.monedaBase)
+    .reduce((s, r) => s + r.mensualCentavos, 0);
+  return { recurrentes: lista, mensualCentavos, moneda: ctx.monedaBase };
+}
+
+function propio(ctx: Contexto, id: string): Recurrente {
+  const r = ctx.db
+    .select()
+    .from(recurrentes)
+    .where(and(eq(recurrentes.id, id), eq(recurrentes.usuarioId, ctx.usuarioId), isNull(recurrentes.eliminadoEn)))
+    .get();
+  if (!r) throw new ErrorFinanzas("Ese pago fijo no existe.");
+  return r;
+}
+
+function cuentaPropia(ctx: Contexto, id: string | null | undefined): string | null | undefined {
+  if (!id) return id === undefined ? undefined : null;
+  const c = ctx.db
+    .select({ id: cuentas.id })
+    .from(cuentas)
+    .where(and(eq(cuentas.id, id), eq(cuentas.usuarioId, ctx.usuarioId)))
+    .get();
+  if (!c) throw new ErrorFinanzas("Esa cuenta no existe.");
+  return c.id;
+}
+
+export type DatosRecurrenteApp = {
+  nombre: string;
+  tipo: Recurrente["tipo"];
+  monto: number;
+  frecuencia: Recurrente["frecuencia"];
+  dia: number;
+  mes?: number | null;
+  cuentaId?: string | null;
+};
+
+export function crearRecurrenteApp(ctx: Contexto, datos: DatosRecurrenteApp) {
+  validar(datos);
+  if (datos.frecuencia === "anual" && !datos.mes) throw new ErrorFinanzas("Di en qué mes se cobra.");
+  const { cuentaId, mes, ...resto } = datos;
+  const creado = crearRecurrente(ctx, { ...resto, mes: mes ?? undefined }, cuentaPropia(ctx, cuentaId) ?? null);
+  return recurrenteApp(ctx, propio(ctx, creado.id));
+}
+
+/** Edita en su lugar; `estado` pausa, cancela, archiva o reactiva. */
+export function editarRecurrenteApp(
+  ctx: Contexto,
+  id: string,
+  cambios: Partial<DatosRecurrenteApp> & { estado?: EstadoRecurrente },
+) {
+  let fila = propio(ctx, id);
+  const { estado, ...resto } = cambios;
+  if (Object.values(resto).some((v) => v !== undefined)) {
+    const datos = {
+      nombre: resto.nombre?.trim() || fila.nombre,
+      tipo: resto.tipo ?? fila.tipo,
+      monto: resto.monto ?? fila.montoCentavos / 100,
+      frecuencia: resto.frecuencia ?? fila.frecuencia,
+      dia: resto.dia ?? fila.dia,
+      mes: resto.mes === undefined ? fila.mes : resto.mes,
+    };
+    validar(datos);
+    if (datos.frecuencia === "anual" && !datos.mes) throw new ErrorFinanzas("Di en qué mes se cobra.");
+    const cuentaId = cuentaPropia(ctx, resto.cuentaId);
+    const despues = ctx.db
+      .update(recurrentes)
+      .set({
+        nombre: datos.nombre,
+        tipo: datos.tipo,
+        montoCentavos: aCentavos(datos.monto),
+        frecuencia: datos.frecuencia,
+        dia: datos.dia,
+        mes: datos.frecuencia === "anual" ? datos.mes : null,
+        ...(cuentaId !== undefined ? { cuentaId } : {}),
+        // Cambió el cobro: el aviso de "mañana se cobra" vuelve a valer.
+        avisadoPara: null,
+      })
+      .where(eq(recurrentes.id, fila.id))
+      .returning()
+      .get()!;
+    registrarEnBitacora(ctx, "recurrentes", fila.id, "editar", fila, despues);
+    fila = despues;
+  }
+  if (estado) fila = cambiarEstado(ctx, fila, estado);
+  return recurrenteApp(ctx, fila);
+}
+
+export function eliminarRecurrenteApp(ctx: Contexto, id: string) {
+  darDeBaja(ctx, propio(ctx, id));
 }

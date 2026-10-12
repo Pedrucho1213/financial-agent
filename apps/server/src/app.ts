@@ -44,7 +44,6 @@ import {
   obtenerPropio,
   resumir,
 } from "./finanzas/movimientos";
-import { listarRecurrentes } from "./finanzas/recurrentes";
 import { listarMovimientosApp, movimientoApp, tablero } from "./finanzas/vista";
 import { montosParaVoz } from "./lib/dinero";
 import { hostsDeLaPeticion, ipDelCliente, LimiteIntentos } from "./lib/limites";
@@ -56,6 +55,7 @@ import { desuscribir, type EnviarPush, ErrorSuscripcion, estadoPush, notificar, 
 import { notaDelGasto } from "./finanzas/comentario";
 import { rutasIa } from "./rutas-ia";
 import { rutasPlanes } from "./rutas-planes";
+import { rutasRecurrentes } from "./rutas-recurrentes";
 import { rutasCuentas } from "./rutas-cuentas";
 import { servirApp } from "./web";
 import type { EstadoIa } from "./ai/modelo";
@@ -1026,8 +1026,6 @@ export function crearApp(opciones: OpcionesApp) {
 
   v1.get("/tablero", (c) => c.json(tablero(contexto(c.get("usuarioId")), c.req.query("mes") || undefined)));
 
-  v1.get("/recurrentes", (c) => c.json(listarRecurrentes(contexto(c.get("usuarioId")))));
-
   const AGRUPACIONES = ["ninguno", "categoria", "subcategoria", "comercio", "dia"] as const;
   // ?tipo=ingreso resume ingresos; ?agrupar= cambia la agrupación (categoría por omisión).
   v1.get("/resumen", (c) => {
@@ -1037,6 +1035,7 @@ export function crearApp(opciones: OpcionesApp) {
   });
 
   rutasPlanes(v1, contexto);
+  rutasRecurrentes(v1, contexto);
   rutasCuentas(v1, contexto);
   // Al encender o apagar, Ajustes ve el estado nuevo de la IA sin esperar los 10 s del caché.
   if (opciones.controlIa) rutasIa(v1, { control: opciones.controlIa, esDueno, alCambiar: () => (iaReciente = null) });

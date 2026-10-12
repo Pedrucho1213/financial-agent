@@ -27,7 +27,7 @@ import {
   nombreDeCuenta,
 } from "../finanzas/habitos";
 import { listarMemorias, olvidar, recordar } from "../finanzas/memorias";
-import { cancelarRecurrente, crearRecurrente, editarRecurrente, listarRecurrentes } from "../finanzas/recurrentes";
+import { cancelarRecurrente, crearRecurrente, editarRecurrente, listarRecurrentes, pausarRecurrente } from "../finanzas/recurrentes";
 import { fechaDelTexto, fechasDelTexto, mencionaFecha, resolverFecha, sumarDias } from "../lib/fechas";
 import { aCentavos, formatearMonto } from "../lib/dinero";
 import { montoConPalabras, montosDelTexto } from "../lib/numeros";
@@ -471,10 +471,14 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
 
     editar_recurrente: tool({
       description:
-        'Cambia o cancela un cobro o ingreso que se repite: "cancelé Netflix", "Spotify subió a 129", "la renta ahora se paga el día 5".',
+        'Cambia, pausa o cancela un cobro o ingreso que se repite: "cancelé Netflix", "pausa Spotify", "reactiva Spotify", "Spotify subió a 129", "la renta ahora se paga el día 5".',
       inputSchema: z.object({
         nombre: z.string().describe("Cuál: Netflix, Renta, Quincena"),
         cancelar: z.boolean().optional().describe("true si lo canceló o ya no lo paga"),
+        pausar: z
+          .boolean()
+          .optional()
+          .describe("true si lo pausa por un tiempo; false si lo reactiva o lo vuelve a pagar (también uno cancelado)."),
         cambios: z
           .object({
             nombre: z.string().optional(),
@@ -487,8 +491,9 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
           .optional()
           .describe("Solo lo que cambia, con su valor nuevo."),
       }),
-      execute: ejecutar("editar_recurrente", ({ nombre, cancelar, cambios }) => {
+      execute: ejecutar("editar_recurrente", ({ nombre, cancelar, pausar, cambios }) => {
         try {
+          if (pausar !== undefined && !cancelar) return pausarRecurrente(ctx, nombre, pausar);
           return cancelar
             ? { cancelado: cancelarRecurrente(ctx, nombre) }
             : {
@@ -501,7 +506,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
           // "Ajusta la renta a 9 mil" sin una renta fija guardada: corrige la renta que sí anotó.
           // Si habla de ahora en adelante ("subió", "el próximo mes") o lo anotado es viejo, puede querer
           // guardarla como pago fijo: que pregunte antes de reescribir el pasado.
-          const anotado = !cancelar && error instanceof ErrorFinanzas && error.message.startsWith("No tengo") ? ultimoAnotado(ctx, nombre) : undefined;
+          const anotado = !cancelar && pausar === undefined && error instanceof ErrorFinanzas && error.message.startsWith("No tengo") ? ultimoAnotado(ctx, nombre) : undefined;
           if (!anotado) throw error;
           const reciente = anotado.fecha >= sumarDias(ctx.hoy, -7) || anotado.fecha.slice(0, 7) === ctx.hoy.slice(0, 7);
           const haciaAdelante = HACIA_ADELANTE.test(normalizar(ctx.textoOriginal ?? ""));

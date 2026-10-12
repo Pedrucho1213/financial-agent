@@ -265,7 +265,7 @@ export function useFilasAnalisis(desde: string, hasta: string) {
  * saldo, y uno con etiqueta lo que lleva. También para lo que no es hook (deshacer, el chat).
  */
 export function refrescarDatos(qc: QueryClient = clienteConsultas) {
-  return Promise.all(["tablero", "movimientos", "plan", "cuentas", "etiquetas"].map((k) => qc.invalidateQueries({ queryKey: [k] })));
+  return Promise.all(["tablero", "movimientos", "plan", "cuentas", "etiquetas", "recurrentes"].map((k) => qc.invalidateQueries({ queryKey: [k] })));
 }
 
 export function useRefrescarDatos() {

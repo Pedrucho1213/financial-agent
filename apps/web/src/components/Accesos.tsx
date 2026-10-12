@@ -1,10 +1,11 @@
-import { ChartColumnBig, ChevronRight, MapPin, Tag, Target, Wallet } from "lucide-react";
+import { ChartColumnBig, ChevronRight, MapPin, Repeat, Tag, Target, Wallet } from "lucide-react";
 import type { ReactNode } from "react";
 import { ErrorApi } from "../lib/api";
 import { useCuentas } from "../lib/cuentas";
 import { dinero } from "../lib/formato";
 import { haptico } from "../lib/haptico";
 import { useMetas, usePresupuestos } from "../lib/plan";
+import { useRecurrentes } from "../lib/recurrentes";
 import { hashDe, navegar } from "../lib/ruta";
 import { faltan, sinDeudaConocida } from "../lib/saldos";
 import { cn } from "../lib/utils";
@@ -42,6 +43,26 @@ export function Accesos({ mes, moneda }: { mes: string; moneda: string }) {
     const noSuman = [...t.sinSaldo, ...sinDeudaConocida(cuentas.data!.cuentas).map((c) => c.nombre)];
     if (noSuman.length) detalleCuentas += ` · ${faltan(noSuman)}`;
   } else if (cuentas.data?.cuentas.length) detalleCuentas = "No sé cuánto tienes todavía";
+
+  // Suscripciones: solo con un servidor que ya las sabe pausar (uno viejo ignora ?todos=1 y no manda mensualCentavos).
+  const recurrentes = useRecurrentes(conCuentas);
+  const fijos = recurrentes.data && typeof recurrentes.data.mensualCentavos === "number" ? recurrentes.data : null;
+  const activas = fijos?.recurrentes.filter((r) => r.estado === "activa" && r.tipo !== "ingreso").length ?? 0;
+  const suscripciones = fijos ? (
+    <Tarjeta
+      key="suscripciones"
+      titulo="Suscripciones"
+      detalle={fijos.mensualCentavos ? `${dinero(fijos.mensualCentavos, fijos.moneda)} al mes · ${activas}` : "Pausa, cancela o edita"}
+      alTocar={() => navegar(hashDe("suscripciones"))}
+      icono={
+        <span aria-hidden className="flex size-[52px] items-center justify-center rounded-full bg-[var(--serie-7)]/15 text-[var(--serie-7)]">
+          <Repeat className="size-[22px]" />
+        </span>
+      }
+    />
+  ) : null;
+  // Las tarjetas chicas van de dos en dos: si el mapa quedaría solo en su renglón, va a lo ancho.
+  const chicas = 2 + (sinPlan ? 0 : 1) + (suscripciones ? 1 : 0);
 
   const analisis = (ancha: boolean) => (
     <Tarjeta
@@ -139,7 +160,8 @@ export function Accesos({ mes, moneda }: { mes: string; moneda: string }) {
         }
       />
       {plan}
-      {sinPlan ? <div className="col-span-2 grid">{mapa}</div> : mapa}
+      {suscripciones}
+      {chicas % 2 === 0 ? <div className="col-span-2 grid">{mapa}</div> : mapa}
     </div>
   );
 }
