@@ -299,7 +299,8 @@ function Prestamos({ datos, moneda }: { datos: PrestamosApi | undefined; moneda:
         {personas.map((d) => (
           <FilaBoton
             key={`${d.persona}-${d.direccion}`}
-            sangria="4.25rem"
+            // En pantallas angostas la inicial se quita para que los montos del subtítulo no se corten.
+            className="[--sangria:4.25rem] max-[359px]:[--sangria:1rem]"
             icono={<Inicial nombre={d.persona} />}
             titulo={d.persona}
             subtitulo={enVariasLineas(
@@ -339,7 +340,7 @@ function Inicial({ nombre }: { nombre: string }) {
   return (
     <span
       aria-hidden
-      className="flex size-10 shrink-0 items-center justify-center rounded-full text-[17px] font-semibold text-white"
+      className="flex size-10 shrink-0 items-center justify-center rounded-full text-[17px] font-semibold text-white max-[359px]:hidden"
       style={{ background: COLORES_INICIAL[n % COLORES_INICIAL.length] }}
     >
       {nombre.trim().charAt(0).toUpperCase()}
