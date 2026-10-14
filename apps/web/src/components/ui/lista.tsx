@@ -56,8 +56,8 @@ function ContenidoFila({ icono, titulo, subtitulo, valor, chevron }: Omit<PropsF
       <div className="min-w-0 flex-1 py-2.5">
         {/* En 320 px un «…» a media frase deja la fila sin sentido: el título usa hasta dos renglones
             y el subtítulo los que necesite. */}
-        <div className="line-clamp-2 break-words">{titulo}</div>
-        {subtitulo ? <div className="break-words text-[15px] leading-snug text-muted-foreground text-pretty">{subtitulo}</div> : null}
+        <div className="line-clamp-2 break-words hyphens-auto">{titulo}</div>
+        {subtitulo ? <div className="break-words hyphens-auto text-[15px] leading-snug text-muted-foreground text-pretty">{subtitulo}</div> : null}
       </div>
       {valor !== undefined ? <div className="shrink-0 text-right text-muted-foreground">{valor}</div> : null}
       {chevron ? <ChevronRight aria-hidden className="-mr-1 size-5 shrink-0 text-muted-foreground/60" /> : null}

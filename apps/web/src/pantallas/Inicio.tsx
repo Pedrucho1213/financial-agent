@@ -261,8 +261,9 @@ function ProximosCobros({ t }: { t: Tablero }) {
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[17px]">{r.nombre}</span>
                   <span className="block text-[15px] leading-snug text-muted-foreground text-pretty">
-                    {diaCorto(r.proximoCobro)} · {dias <= 0 ? "hoy" : dias === 1 ? "mañana" : `en ${dias} días`}
-                    {r.frecuencia ? ` · ${FRECUENCIAS[r.frecuencia] ?? r.frecuencia}` : ""}
+                    {diaCorto(r.proximoCobro)} · {dias <= 0 ? "hoy" : dias === 1 ? "mañana" : `en ${dias}\u00a0días`}
+                    {/* Cada cuánto, si cabe (en 320 px está en Suscripciones). */}
+                    {r.frecuencia ? <span className="max-[359px]:hidden"> · {FRECUENCIAS[r.frecuencia] ?? r.frecuencia}</span> : null}
                   </span>
                 </span>
                 <span className="shrink-0 text-[17px] tabular">{dinero(r.montoCentavos, r.moneda)}</span>

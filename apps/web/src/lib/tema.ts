@@ -33,6 +33,9 @@ export function aplicarTema(tema: Tema = actual) {
     const delOscuro = meta.media.includes("dark");
     meta.content = tema === "auto" ? (delOscuro ? FONDO.oscuro : FONDO.claro) : FONDO[tema];
   }
+  // Igual que public/tema.js: en oscuro la barra de estado es transparente y el vidrio de arriba pasa debajo de la hora.
+  const oscuro = tema === "oscuro" || (tema === "auto" && !!consulta?.matches);
+  document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.setAttribute("content", oscuro ? "black-translucent" : "default");
 }
 
 export function guardarTema(tema: Tema) {
@@ -72,3 +75,6 @@ export function useModoOscuro() {
     () => false,
   );
 }
+
+// En Automático, si el teléfono cambia de claro a oscuro con la app abierta, la barra de estado lo sigue.
+consulta?.addEventListener("change", () => aplicarTema());

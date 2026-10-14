@@ -242,7 +242,8 @@ function subtituloMeta(m: Meta, hoy: string, moneda: string) {
   return enVariasLineas(m.mensualSugeridoCentavos ? <>{base} · {pesos(m.mensualSugeridoCentavos, moneda)}/mes</> : base);
 }
 
-const fCorto = (iso: string) => fDia.format(aFecha(iso)).replace(".", "");
+// «15 oct» no se parte en dos renglones.
+const fCorto = (iso: string) => fDia.format(aFecha(iso)).replace(".", "").replace(" ", "\u00a0");
 
 /** "¿Cuánto puedo gastar hoy?", lo mismo que contesta la voz. */
 function TarjetaDisponible({ d, moneda }: { d: Disponible; moneda: string }) {
