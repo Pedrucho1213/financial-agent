@@ -182,8 +182,7 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
 
   return (
     <SheetContent
-      // En 320 px el título no cabe entre Cancelar y Agregar: solo lo oye VoiceOver.
-      titulo={editando ? "Movimiento" : <span className="max-[359px]:sr-only">Nuevo movimiento</span>}
+      titulo={editando ? "Movimiento" : "Nuevo movimiento"}
       descripcion={editando ? "Edita el movimiento" : "Agrega un movimiento"}
       izquierda={
         <Button variant="plain" size="text" onClick={cerrarEditor}>
