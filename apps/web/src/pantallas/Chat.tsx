@@ -48,6 +48,9 @@ export function Chat() {
   const [texto, setTexto] = useState("");
   const campo = useRef<HTMLTextAreaElement>(null);
   const final = useRef<HTMLDivElement>(null);
+  const formulario = useRef<HTMLFormElement>(null);
+  // Alto de la caja de texto (crece hasta 5 líneas, con el contador encima): la conversación deja ese espacio abajo.
+  const [altoEntrada, setAltoEntrada] = useState(54);
   const ocupado = mensajes.some((m) => m.estado === "pensando");
   const { leerEnVoz, leyendo } = useVoz();
   const dictado = useDictado({ alTexto: setTexto, alTerminar: (t) => enviar(t, true) });
@@ -71,6 +74,19 @@ export function Chat() {
   useLayoutEffect(() => {
     final.current?.scrollIntoView({ block: "end", behavior: mensajes.length > 2 ? "smooth" : "auto" });
   }, [mensajes.length, ultimo?.texto, ultimo?.estado]);
+
+  useLayoutEffect(() => {
+    const el = formulario.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setAltoEntrada(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  // Si la caja crece mientras escribes, lo último se sigue viendo arriba de ella.
+  const hayMensajes = mensajes.length > 0;
+  useEffect(() => {
+    if (hayMensajes) final.current?.scrollIntoView({ block: "end" });
+  }, [altoEntrada, hayMensajes]);
 
   // El campo crece con el texto, hasta 5 líneas.
   useLayoutEffect(() => {
@@ -159,7 +175,7 @@ export function Chat() {
         </div>
       }
     >
-      <div className="pb-24">
+      <div style={{ paddingBottom: Math.max(96, altoEntrada + 24) }}>
         {mensajes.length === 0 ? (
           <div className="flex flex-col items-center pt-7 text-center animate-entrar">
             <span
@@ -214,10 +230,11 @@ export function Chat() {
           </>
         )}
         {/* Al bajar, lo último queda arriba de la caja de texto, no detrás. */}
-        <div ref={final} className="scroll-mb-[calc(var(--barra-inferior)+64px)]" />
+        <div ref={final} style={{ scrollMarginBottom: `calc(var(--barra-inferior) + ${altoEntrada + 20}px)` }} />
       </div>
 
       <form
+        ref={formulario}
         onSubmit={(e) => {
           e.preventDefault();
           // Mientras escucha, Enviar deja de escuchar y manda lo dicho (una sola vez).
@@ -332,31 +349,36 @@ const usd = (n: number) => `$${n.toFixed(2)}`;
  * por qué no hay IA. La cuenta dueña, que no tiene tope, ve lo gastado del mes contra el presupuesto.
  */
 function TituloIa({ uso }: { uso: EstadoSistema["uso"] }) {
-  const linea = !uso
+  // [larga, corta]: a menos de 360 px el título tiene unos 128 px, así que va la versión corta.
+  const lineas: [string, string] | undefined = !uso
     ? undefined
     : uso.modoBasico
-      ? "Modo básico hasta mañana"
+      ? ["Modo básico hasta mañana", "Modo básico"]
       : uso.aviso
-        ? "Sin IA por ahora"
+        ? ["Sin IA por ahora", "Sin IA por ahora"]
         : uso.quedan != null
           ? uso.quedan === 1
-            ? "Te queda 1 consulta hoy"
-            : `Te quedan ${uso.quedan} consultas hoy`
+            ? ["Te queda 1 consulta hoy", "Queda 1 consulta"]
+            : [`Te quedan ${uso.quedan} consultas hoy`, `Quedan ${uso.quedan} consultas`]
           : uso.mes?.presupuestoUsd
-            ? `${usd(uso.mes.costoUsd)} de ${usd(uso.mes.presupuestoUsd)} USD este mes`
+            ? [
+                `${usd(uso.mes.costoUsd)} de ${usd(uso.mes.presupuestoUsd)} USD este mes`,
+                `${usd(uso.mes.costoUsd)} de $${Math.round(uso.mes.presupuestoUsd)} USD`,
+              ]
             : undefined;
   const alerta = !!uso?.aviso && !uso.modoBasico;
   return (
     <span className="flex flex-col items-center leading-tight">
       <span>IA</span>
-      {linea ? (
+      {lineas ? (
         <span
           className={cn(
-            "animate-aparecer text-[11px] font-normal tabular-nums",
+            "max-w-full animate-aparecer truncate text-[11px] font-normal tabular-nums",
             alerta ? "text-negative" : "text-muted-foreground",
           )}
         >
-          {linea}
+          <span className="max-[359px]:hidden">{lineas[0]}</span>
+          <span className="hidden max-[359px]:inline">{lineas[1]}</span>
         </span>
       ) : null}
     </span>
@@ -381,12 +403,12 @@ function Burbuja({ m, pegada, enLinea, leyendo }: { m: Mensaje; pegada: boolean;
       ) : (
         <div
           className={cn(
-            "max-w-[82%] rounded-[19px] px-[13px] py-[9px] text-[16px] leading-[21px] break-words",
+            "max-w-[82%] rounded-[19px] px-[13px] py-[9px] text-[16px] leading-[21px]",
             mia ? "rounded-br-md bg-primary text-primary-foreground" : cn("rounded-bl-md bg-card text-foreground", SOMBRA),
-            registrados.length ? "w-[82%] max-[359px]:w-full max-[359px]:max-w-full" : null,
+            registrados.length ? "w-[88%] max-w-[88%] max-[359px]:w-full max-[359px]:max-w-full" : null,
           )}
         >
-          <div data-seleccionable className={cn("whitespace-pre-wrap", m.estado === "esperando" && "text-muted-foreground")}>
+          <div data-seleccionable className={cn("break-words whitespace-pre-wrap", m.estado === "esperando" && "text-muted-foreground")}>
             {m.texto}
           </div>
           {registrados.length ? (
@@ -479,7 +501,11 @@ function Registrado({ id }: { id: string }) {
       type="button"
       onClick={() => abrirDetalle(m)}
       aria-label={`Ver ${m.comercio ?? m.descripcion ?? "el movimiento"}`}
-      className="block w-full text-left transition-colors active:bg-fill [&+&]:border-t [&+&]:border-separator [&_[data-movimiento]]:gap-2.5 [&_[data-movimiento]]:px-2.5"
+      className={cn(
+        "block w-full text-left transition-colors active:bg-fill [&+&]:border-t [&+&]:border-separator",
+        // Un poco más chica que en Movimientos: dentro de la burbuja hay menos ancho y los montos grandes no deben apretar el nombre.
+        "[&_[data-movimiento]]:gap-2.5 [&_[data-movimiento]]:px-2.5 [&_[data-movimiento]_.line-clamp-2]:text-[14px] [&_[data-movimiento]_.tabular]:text-[15px] [&_[data-movimiento]_.truncate]:text-[16px]",
+      )}
     >
       <ContenidoMovimiento m={m} />
     </button>
