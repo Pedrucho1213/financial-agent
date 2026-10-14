@@ -105,9 +105,9 @@ export function herramientasPlanes(ctx: Contexto, ejecutar: Ejecutar) {
         'Préstamos y deudas con personas: "le presté 500 a Juan" le_preste; "Ana me prestó mil" o "le debo 30 mil a mi mamá" me_prestaron; "Juan me pagó 200" me_pagaron; "le pagué a Ana" o "le transferí 2 mil a mi mamá desde Revolut" le_pague (un abono). Sin monto al pagar, salda todo.',
       inputSchema: z.object({
         accion: z.enum(["le_preste", "me_prestaron", "me_pagaron", "le_pague"]),
-        persona: z.string(),
+        persona: z.string().describe('A quién, como lo dijo: "Juan", "mi hermano", "mi mamá". Con eso basta: no preguntes su nombre.'),
         monto: z.number().positive().optional(),
-        cuenta: z.string().optional().describe('De qué cuenta salió o a cuál llegó el dinero, solo si lo dijo: "de mi efectivo", "desde mi cuenta Revolut", "me los depositó a Bancomer".'),
+        cuenta: z.string().optional().describe('De qué cuenta salió o a cuál llegó el dinero, solo si lo dijo: "de mi efectivo", "desde mi cuenta Revolut", "me los depositó a Bancomer". Si no la dijo, omítela sin preguntar.'),
         descripcion: z.string().optional(),
       }),
       execute: ejecutar("prestamo", ({ accion, persona, monto, cuenta, descripcion }) => {

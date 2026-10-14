@@ -176,3 +176,14 @@ describe("fechas de las tarjetas por voz", () => {
     expect(r.respuesta).not.toContain("corta");
   });
 });
+
+describe("familiares sin nombre", () => {
+  test('"mi hermano" basta: se guarda como Hermano y la voz dice "tu hermano"', async () => {
+    const { ctx } = preparar();
+    let r = await llamar(dictado(ctx, "Mi hermano me prestó 5 mil"), "prestamo", { accion: "me_prestaron", persona: "mi hermano", monto: 5000 });
+    expect(r.confirmacion).toBe("Listo, anoté que tu hermano te prestó $5,000.");
+    r = await llamar(dictado(ctx, "Ya le pagué 2 mil a mi hermano"), "prestamo", { accion: "le_pague", persona: "hermano", monto: 2000 });
+    expect(r.confirmacion).toBe("Listo, abono de $2,000. Todavía le debes a tu hermano $3,000.");
+    expect(listarPrestamos(ctx).prestamos.map((p) => p.persona)).toEqual(["Hermano"]);
+  });
+});

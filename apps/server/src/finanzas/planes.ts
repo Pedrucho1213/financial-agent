@@ -447,7 +447,22 @@ export function clavePersona(persona: string): string {
     .join(" ");
 }
 
-const COMO_SE_ESCRIBE: Record<string, string> = { mama: "Mamá", papa: "Papá", abuela: "Abuela", abuelo: "Abuelo", esposa: "Esposa", esposo: "Esposo" };
+const COMO_SE_ESCRIBE: Record<string, string> = {
+  mama: "Mamá",
+  papa: "Papá",
+  abuela: "Abuela",
+  abuelo: "Abuelo",
+  esposa: "Esposa",
+  esposo: "Esposo",
+  hermano: "Hermano",
+  hermana: "Hermana",
+  tio: "Tío",
+  tia: "Tía",
+  primo: "Primo",
+  prima: "Prima",
+  suegro: "Suegro",
+  suegra: "Suegra",
+};
 const esParentesco = (persona: string) => !!COMO_SE_ESCRIBE[clavePersona(persona)];
 
 /** Cómo se le dice al usuario: "tu mamá" para un parentesco, el nombre para los demás. */

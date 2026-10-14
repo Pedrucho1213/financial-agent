@@ -340,7 +340,7 @@ function Prestamos({ datos, moneda }: { datos: PrestamosApi | undefined; moneda:
 }
 
 // "Mamá" se dice «a mi mamá»; un nombre, tal cual.
-const PARENTESCOS = new Set(["Mamá", "Papá", "Abuela", "Abuelo", "Esposa", "Esposo"]);
+const PARENTESCOS = new Set(["Mamá", "Papá", "Abuela", "Abuelo", "Esposa", "Esposo", "Hermano", "Hermana", "Tío", "Tía", "Primo", "Prima", "Suegro", "Suegra"]);
 const comoSeDice = (persona: string) => (PARENTESCOS.has(persona) ? `mi ${persona.toLowerCase()}` : persona);
 
 function HojaDeuda({ deuda, moneda, alCerrar }: { deuda: DeudaPersona | null; moneda: string; alCerrar: () => void }) {
