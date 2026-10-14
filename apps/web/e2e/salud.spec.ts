@@ -82,6 +82,8 @@ test("la página no se pasa de ancho en un teléfono de 320", async ({ page }) =
   await page.setViewportSize({ width: 320, height: 640 });
   await abrir(page, "#salud", FIXTURA.conIngreso);
   await expect(page.getByTestId("titulo-salud")).toBeVisible();
+  // La página entra deslizándose desde la derecha (animate-empujar): se mide ya quieta, no a media animación.
+  await page.locator("main").evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
   const ancho = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(ancho).toBeLessThanOrEqual(320);
 });
