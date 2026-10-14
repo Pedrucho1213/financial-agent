@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
-import { ApiFalsa, prepararSesion } from "./api-falsa";
+import { ApiFalsa, pantallaQuieta, prepararSesion } from "./api-falsa";
 import { conCuentas } from "./api-falsa-cuentas";
 
 // #salud y su tarjeta en Inicio contra la API falsa. Las respuestas de salud-falsa.json salen del servidor real
@@ -82,8 +82,7 @@ test("la página no se pasa de ancho en un teléfono de 320", async ({ page }) =
   await page.setViewportSize({ width: 320, height: 640 });
   await abrir(page, "#salud", FIXTURA.conIngreso);
   await expect(page.getByTestId("titulo-salud")).toBeVisible();
-  // La página entra deslizándose desde la derecha (animate-empujar): se mide ya quieta, no a media animación.
-  await page.locator("main").evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+  await pantallaQuieta(page);
   const ancho = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(ancho).toBeLessThanOrEqual(320);
 });

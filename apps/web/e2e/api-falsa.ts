@@ -575,6 +575,14 @@ export class ApiFalsa {
   }
 }
 
+/**
+ * Espera a que la pantalla termine de entrar: las páginas llegan deslizándose desde la derecha (animate-empujar) y
+ * medir posiciones o anchos a media animación da números corridos.
+ */
+export async function pantallaQuieta(page: Page) {
+  await page.locator("main").evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+}
+
 /** Entra con sesión ya guardada y la fecha fija en el 6 de octubre de 2026. */
 export async function prepararSesion(page: Page, api = new ApiFalsa()) {
   await page.clock.setFixedTime(new Date("2026-10-06T12:30:00-06:00"));
