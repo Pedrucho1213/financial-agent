@@ -17,7 +17,10 @@ export const SIEMPRE_INNECESARIO = new Set(["antojos", "delivery"]);
 /** Comer fuera no es innecesario solo por ser restaurante: solo si él lo dice. */
 export const SOLO_SI_LO_DICE = new Set(["restaurantes"]);
 /** La frase dice que fue innecesario: "fue un antojo", "por impulso", "no lo necesitaba". */
-export const diceInnecesario = (texto: string | undefined) => /innecesari|antojo|capricho|impulso|no lo necesitaba|no me hac[ií]a falta/i.test(texto ?? "");
+export const diceInnecesario = (texto: string | undefined) =>
+  !diceQueNo(texto) && /innecesari|antojo|capricho|impulso|no lo necesitaba|no me hac[ií]a falta/i.test(texto ?? "");
+/** "No fue innecesario", "no era un antojo". */
+const diceQueNo = (texto: string | undefined) => /\bno (fue|era|es|lo fue)( (un|una|nada))? (innecesari|antojo|capricho)/i.test(texto ?? "");
 
 /**
  * Si las etiquetas automáticas están abiertas para este usuario. Abiertas a todas las cuentas (Pedro, 14-oct-2026);
@@ -324,7 +327,10 @@ export function ajustarInnecesario(
   const dicho = diceInnecesario(ctx.textoOriginal);
   let [id] = idsDeEtiquetas(ctx, [INNECESARIO], { soloExistentes: true });
   let quiere = !!id && ids.includes(id);
-  if (SIEMPRE_INNECESARIO.has(hoja)) quiere = true;
+  // Si borró la etiqueta, la regla no la revive.
+  const borrada = !id && !!ctx.db.select({ id: etiquetas.id }).from(etiquetas).where(and(eq(etiquetas.usuarioId, ctx.usuarioId), eq(etiquetas.nombreNormalizado, normalizar(INNECESARIO)))).get();
+  if (SIEMPRE_INNECESARIO.has(hoja) && !borrada) quiere = true;
+  if (diceQueNo(ctx.textoOriginal)) quiere = false;
   if (SOLO_SI_LO_DICE.has(hoja) && !dicho) quiere = false;
   if (quiere && id && innecesarioRechazado(ctx, id, de)) quiere = false;
   if (!quiere) return id ? ids.filter((e) => e !== id) : ids;

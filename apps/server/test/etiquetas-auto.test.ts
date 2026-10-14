@@ -116,6 +116,10 @@ describe("etiquetas automáticas", () => {
     expect(gasto(en(ctx), 250, "Rappi", { categoria: "Delivery" }).etiquetas).toEqual(["Innecesario"]);
     expect(gasto(en(ctx), 700, "La Lola", { categoria: "Restaurantes", etiquetas: ["Innecesario"] }).etiquetas).toBeUndefined();
     expect(gasto(en(ctx, undefined, "una cena por puro antojo"), 900, "Sonora Grill", { categoria: "Restaurantes", etiquetas: ["Innecesario"] }).etiquetas).toEqual(["Innecesario"]);
+    expect(gasto(en(ctx, undefined, "unos churros, y no fue un antojo"), 50, "Churrería", { categoria: "Antojos" }).etiquetas).toBeUndefined();
+    // Si borró la etiqueta, la regla no la revive.
+    eliminarEtiqueta(en(ctx), { nombre: "Innecesario" });
+    expect(gasto(en(ctx), 90, "Didi Food", { categoria: "Delivery" }).etiquetas).toBeUndefined();
     // Con las automáticas apagadas no se pone sola.
     process.env.ETIQUETAS_AUTO = "0";
     try {
