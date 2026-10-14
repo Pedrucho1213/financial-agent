@@ -14,6 +14,7 @@ export const PAGINAS = {
   etiquetas: "inicio",
   suscripciones: "inicio",
   salud: "inicio",
+  avisos: "inicio",
 } as const satisfies Record<string, Pestana>;
 // El detalle de un registro es #movimientos?detalle=<id> (o <id1>,<id2>): así lo abren las notificaciones,
 // y una app vieja que no lo conoce simplemente muestra Movimientos.

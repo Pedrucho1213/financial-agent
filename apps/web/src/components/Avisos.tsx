@@ -4,7 +4,7 @@ import { useAvisos, useQuitarAviso } from "../lib/plan";
 import { navegar } from "../lib/ruta";
 import type { Aviso } from "../lib/tipos";
 
-const ICONOS: Record<Aviso["tipo"], [typeof Coffee, string]> = {
+export const ICONOS: Record<Aviso["tipo"], [typeof Coffee, string]> = {
   hormiga: [Coffee, "var(--orange)"],
   suscripcion_olvidada: [Repeat, "var(--tint)"],
   suscripcion_duplicada: [Copy, "var(--tint)"],

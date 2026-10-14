@@ -164,6 +164,31 @@ test.describe("service worker de notificaciones", () => {
     expect(abierta.abiertas).toEqual([]);
   });
 
+  test("pone el número del ícono que manda el servidor; 0 lo quita y sin él no lo toca", async () => {
+    const insignias: (number | null)[] = [];
+    const sw = cargar();
+    const navegador = { setAppBadge: async (n: number) => void insignias.push(n), clearAppBadge: async () => void insignias.push(null) };
+    // El `self` de cargar() no tiene navigator (como un navegador sin la API): no truena.
+    sw.manejadores.push!(sw.evento({ data: { json: () => ({ titulo: "¿Ya se cobró Netflix?", insignia: 2 }) } }));
+    await sw.listo();
+    expect(sw.mostradas).toHaveLength(1);
+
+    const manejadores: Record<string, (e: unknown) => void> = {};
+    const self = {
+      location: { origin: "https://finanzas.ejemplo.ts.net" },
+      navigator: navegador,
+      addEventListener: (tipo: string, fn: (e: unknown) => void) => (manejadores[tipo] = fn),
+      registration: { showNotification: async () => {} },
+      clients: { matchAll: async () => [], openWindow: async () => {} },
+    };
+    runInNewContext(readFileSync(new URL("../public/sw-push.js", import.meta.url), "utf8"), { self, URL });
+    const esperar: Promise<unknown>[] = [];
+    for (const datos of [{ insignia: 2 }, {}, { insignia: 0 }])
+      manejadores.push!({ data: { json: () => ({ titulo: "x", ...datos }) }, waitUntil: (p: Promise<unknown>) => esperar.push(p) });
+    await Promise.all(esperar);
+    expect(insignias).toEqual([2, null]);
+  });
+
   test("no abre direcciones de otro sitio", async () => {
     const sw = cargar();
     sw.manejadores.notificationclick!(sw.evento({ notification: { data: { url: "https://otro.com/x" }, close() {} } }));

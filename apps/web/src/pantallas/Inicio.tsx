@@ -12,7 +12,9 @@ import { lazy, Suspense, useMemo, useState } from "react";
 import { agruparCategorias } from "../components/graficas/colores";
 import { Accesos } from "../components/Accesos";
 import { Avisos } from "../components/Avisos";
+import { Campana, PorConfirmar } from "../components/cobros/PorConfirmar";
 import { construirDestacados, Destacados } from "../components/Destacados";
+import { HojaCalendario } from "../components/HojaCalendario";
 import { NumeroAnimado } from "../components/NumeroAnimado";
 import { Pantalla } from "../components/Pantalla";
 import { acumular, Ritmo } from "../components/Ritmo";
@@ -64,7 +66,7 @@ export function Inicio({ params }: { params: URLSearchParams }) {
   const [anio] = mes.split("-");
   const titulo = (
     <>
-      {nombreMes(mes, false)} <span className="font-semibold text-muted-foreground">{anio}</span>
+      {nombreMes(mes, false)} <span className="font-semibold text-muted-foreground max-[359px]:hidden">{anio}</span>
     </>
   );
 
@@ -76,6 +78,7 @@ export function Inicio({ params }: { params: URLSearchParams }) {
       alRefrescar={() => tablero.refetch()}
       junto={
         <div className="mb-0.5 flex shrink-0 gap-2">
+          <Campana />
           <Button variant="gray" size="icon-sm" aria-label="Mes anterior" onClick={() => irAMes(sumarMeses(mes, -1))}>
             <ChevronLeft strokeWidth={2.5} />
           </Button>
@@ -126,6 +129,8 @@ function Tablero({ t, esMesActual }: { t: Tablero; esMesActual: boolean }) {
   return (
     <div className="space-y-8 pt-2 pb-4">
       <div className="space-y-3">
+        {esMesActual ? <PorConfirmar /> : null}
+
         {t.porRevisar > 0 ? (
           <Grupo>
             <FilaBoton
@@ -609,16 +614,6 @@ function PorCategoria({ t }: { t: Tablero }) {
         </div>
       )}
     </section>
-  );
-}
-
-function HojaCalendario({ fecha }: { fecha: string }) {
-  const f = aFecha(fecha);
-  return (
-    <span aria-hidden className="flex size-9 shrink-0 flex-col overflow-hidden rounded-[8px] bg-elevated text-center ring-[0.5px] ring-separator">
-      <span className="bg-[#ff3b30] text-[8px] leading-[11px] font-bold text-white uppercase">{mesCorto(fecha.slice(0, 7))}</span>
-      <span className="flex-1 text-[16px] leading-[24px] font-semibold tabular">{f.getDate()}</span>
-    </span>
   );
 }
 

@@ -230,7 +230,8 @@ export async function atenderPlan(api: ApiFalsa, { metodo, ruta, cuerpo, consult
     }
   }
 
-  if (metodo === "GET" && ruta === "/v1/avisos") return json(200, { avisos: plan.avisos.filter((a) => !a.leidoEn) });
+  if (metodo === "GET" && ruta === "/v1/avisos")
+    return json(200, { avisos: consulta.get("todos") === "1" ? plan.avisos : plan.avisos.filter((a) => !a.leidoEn) });
   m = ruta.match(/^\/v1\/avisos\/([^/]+)\/(leido|descartar)$/);
   if (metodo === "POST" && m) {
     const aviso = plan.avisos.find((a) => a.id === m?.[1]);

@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, CreditCard, Send } from "lucide-react";
-import { useState } from "react";
+import { Bell, CalendarClock, ChartNoAxesColumn, Coffee, CreditCard, HandCoins, Send } from "lucide-react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api, ErrorApi, mensajeDeError } from "../lib/api";
 import { abrirAtajo } from "../lib/atajo";
+import { type GrupoAviso, useGuardarPreferencias, usePreferenciasAvisos } from "../lib/cobros";
 import { useEnLinea } from "../lib/conexion";
 import {
   activarPush,
@@ -20,6 +21,7 @@ import { PasosNumerados } from "./PasosNumerados";
 import { Spinner } from "./Spinner";
 import { Button } from "./ui/button";
 import { Fila, FilaBoton, Grupo, IconoAjuste } from "./ui/lista";
+import { SelectNativo } from "./ui/select";
 import { Sheet, SheetContent } from "./ui/sheet";
 import { Switch } from "./ui/switch";
 
@@ -27,11 +29,108 @@ const CLAVE = ["push"] as const;
 
 /** Ajustes › Notificaciones (activar y probar) y el Atajo de Apple Pay. */
 export function AjustesNotificaciones() {
+  const ref = useRef<HTMLDivElement>(null);
+  // Desde el centro de notificaciones (#ajustes?seccion=notificaciones): baja hasta aquí.
+  useEffect(() => {
+    if (!/[?&]seccion=notificaciones\b/.test(window.location.hash)) return;
+    const t = window.setTimeout(() => {
+      ref.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+      window.history.replaceState(window.history.state, "", `${window.location.pathname}#ajustes`);
+    }, 80);
+    return () => window.clearTimeout(t);
+  }, []);
+  return (
+    <div ref={ref} id="ajustes-notificaciones" className="scroll-mt-[calc(env(safe-area-inset-top)+56px)] space-y-8">
+      <Notificaciones />
+      <QueTeAviso />
+      <ApplePay />
+    </div>
+  );
+}
+
+const GRUPOS: { clave: GrupoAviso; titulo: string; subtitulo: string; icono: ReactNode; color: string }[] = [
+  { clave: "cobros", titulo: "Pagos fijos", subtitulo: "Lo que viene y si ya se pagó", icono: <CalendarClock />, color: "linear-gradient(180deg,#5ac8fa,#007aff)" },
+  { clave: "tarjetas", titulo: "Tarjetas", subtitulo: "Fecha de pago y límite", icono: <CreditCard />, color: "linear-gradient(180deg,#ffb340,#ff9500)" },
+  { clave: "presupuestos", titulo: "Presupuestos y metas", subtitulo: "Si vas a pasarte o a lograrla", icono: <ChartNoAxesColumn />, color: "linear-gradient(180deg,#7d7aff,#5856d6)" },
+  { clave: "fugas", titulo: "Fugas de dinero", subtitulo: "Gastos hormiga y cosas raras", icono: <Coffee />, color: "linear-gradient(180deg,#ff9f6b,#ff6b35)" },
+  { clave: "deudas", titulo: "Préstamos y deudas", subtitulo: "Lo que te deben y debes", icono: <HandCoins />, color: "linear-gradient(180deg,#4cd964,#34c759)" },
+];
+
+const hora = (h: number) => `${h}:00`;
+
+/** Qué avisos llegan por notificación y en qué horario. Solo con el módulo encendido (si no, 404 y no sale). */
+function QueTeAviso() {
+  const enLinea = useEnLinea();
+  const pref = usePreferenciasAvisos();
+  const guardar = useGuardarPreferencias();
+  const p = pref.data;
+  if (!p) return null;
+  const cambiar = (cambios: Parameters<typeof guardar.mutate>[0]) => guardar.mutate(cambios, { onError: (e) => toast.error(mensajeDeError(e)) });
+
   return (
     <>
-      <Notificaciones />
-      <ApplePay />
+      <Grupo titulo="Qué te aviso" pie="Lo que anotas siempre te llega. Lo que apagues aquí lo sigues viendo en la app.">
+        {GRUPOS.map((g) => (
+          <Fila
+            key={g.clave}
+            sangria="3.75rem"
+            icono={<IconoAjuste color={g.color}>{g.icono}</IconoAjuste>}
+            titulo={g.titulo}
+            subtitulo={g.subtitulo}
+            valor={
+              <Switch
+                aria-label={g.titulo}
+                checked={p.tipos[g.clave]}
+                disabled={!enLinea}
+                onCheckedChange={(v) => cambiar({ tipos: { [g.clave]: v } })}
+              />
+            }
+          />
+        ))}
+      </Grupo>
+      <Grupo titulo="Horario" pie={`Fuera de este horario no te mando avisos; te esperan para el día siguiente. Lo de los pagos fijos llega a las ${hora(Math.min(19, p.hasta - 1))}.`}>
+        <FilaHora
+          id="aviso-desde"
+          etiqueta="Desde"
+          valor={p.desde}
+          opciones={Array.from({ length: p.hasta }, (_, i) => i)}
+          disabled={!enLinea}
+          alCambiar={(desde) => cambiar({ desde })}
+        />
+        <FilaHora
+          id="aviso-hasta"
+          etiqueta="Hasta"
+          valor={p.hasta}
+          opciones={Array.from({ length: 24 - p.desde }, (_, i) => p.desde + 1 + i)}
+          disabled={!enLinea}
+          alCambiar={(hasta) => cambiar({ hasta })}
+        />
+      </Grupo>
     </>
+  );
+}
+
+function FilaHora({ id, etiqueta, valor, opciones, disabled, alCambiar }: { id: string; etiqueta: string; valor: number; opciones: number[]; disabled: boolean; alCambiar: (h: number) => void }) {
+  return (
+    <Fila>
+      <label htmlFor={id} className="shrink-0">
+        {etiqueta}
+      </label>
+      <SelectNativo
+        id={id}
+        value={String(valor)}
+        disabled={disabled}
+        onChange={(e) => alCambiar(Number(e.target.value))}
+        className="min-w-0 flex-1"
+        opciones={opciones.map((h) => (
+          <option key={h} value={h}>
+            {hora(h)}
+          </option>
+        ))}
+      >
+        <span className="block truncate py-2.5 text-right text-[17px] text-muted-foreground tabular">{hora(valor)}</span>
+      </SelectNativo>
+    </Fila>
   );
 }
 
