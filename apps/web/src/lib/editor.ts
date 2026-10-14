@@ -35,6 +35,11 @@ export function cerrarEditor() {
   emitir({ ...estado, abierto: false });
 }
 
+/** Para no recargar la app con la hoja de edición abierta. */
+export function editorAbierto() {
+  return estado.abierto;
+}
+
 export function useEditor() {
   return useSyncExternalStore(
     (fn) => {
