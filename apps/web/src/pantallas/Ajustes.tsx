@@ -1,76 +1,33 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  AtSign,
-  CircleGauge,
-  Copy,
-  Eye,
-  EyeOff,
-  GitCommitHorizontal,
-  Globe,
-  Hand,
-  Inbox,
-  KeyRound,
-  Laptop,
-  LogOut,
-  Server,
-  Share,
-  Smartphone,
-  Sparkles,
-  Tablet,
-  UserPlus,
-  Workflow,
-} from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { AtSign, Bell, ChevronRight, Copy, Hand, KeyRound, LogOut, Server, Share, UserPlus, Workflow } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { AjustesIa } from "../components/AjustesIa";
-import { AjustesNotificaciones } from "../components/AjustesNotificaciones";
+import { AjustesNotificaciones, ApplePay } from "../components/AjustesNotificaciones";
+import { Apariencia } from "../components/ajustes/Apariencia";
+import { FilaDispositivo, HojaDispositivo, ordenarDispositivos, useQuitarDispositivos, yaNoSeUsa } from "../components/ajustes/Dispositivos";
+import { HojaCodigo, HojaNombre, HojaQuitarCodigo, HojaUsuario } from "../components/ajustes/HojasCuenta";
+import { Punto, resumenSistema, Sistema } from "../components/ajustes/Sistema";
 import { CodigoGrande } from "../components/CasillasCodigo";
 import { Pantalla } from "../components/Pantalla";
 import { PasosDescarga, ReintentarDescarga } from "../components/PasosAtajo";
 import { Spinner } from "../components/Spinner";
-import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Confirmar } from "../components/ui/dialog";
-import { CampoFila } from "../components/ui/input";
 import { Fila, FilaBoton, Grupo, IconoAjuste } from "../components/ui/lista";
 import { Sheet, SheetContent } from "../components/ui/sheet";
 import { Skeleton } from "../components/ui/skeleton";
-import { Switch } from "../components/ui/switch";
 import { api, ErrorApi, mensajeDeError } from "../lib/api";
 import { abrirAtajo } from "../lib/atajo";
 import { useEnLinea } from "../lib/conexion";
-import { claves, useYo } from "../lib/consultas";
-import {
-  CODIGO_MAX,
-  CODIGO_MIN,
-  esDelCodigoActual,
-  type EstadoSistema,
-  NOMBRE_MAX,
-  normalizarUsuario,
-  problemaCodigo,
-  problemaNombre,
-  problemaUsuario,
-  USUARIO_MAX,
-  useCambiarCuenta,
-  useEstadoSistema,
-  useGuardarCodigo,
-  useQuitarCodigo,
-} from "../lib/cuenta";
-import { fechaHora, haceCuanto } from "../lib/formato";
+import { useYo } from "../lib/consultas";
+import { useEstadoSistema } from "../lib/cuenta";
+import { fechaHora } from "../lib/formato";
 import { soltarPush } from "../lib/push";
+import { hashDe, navegar, volver } from "../lib/ruta";
 import { cerrarSesion } from "../lib/sesion";
 import type { AtajoPreparado, Dispositivo, InvitacionCreada } from "../lib/tipos";
 import { cn } from "../lib/utils";
-import { CampoSecreto } from "./Entrar";
-
-function iconoDispositivo(nombre: string) {
-  const n = nombre.toLowerCase();
-  if (/ipad|tablet/.test(n)) return Tablet;
-  if (/mac|laptop|pc|windows/.test(n)) return Laptop;
-  if (/navegador|chrome|safari|web/.test(n)) return Globe;
-  if (/atajo/.test(n)) return Workflow;
-  return Smartphone;
-}
 
 const letras = typeof Intl.Segmenter === "function" ? new Intl.Segmenter("es", { granularity: "grapheme" }) : null;
 const primeraLetra = (texto: string) =>
@@ -88,66 +45,72 @@ function iniciales(nombre: string) {
 
 const esIOS = typeof navigator !== "undefined" && /iPhone|iPad|iPod/.test(navigator.userAgent);
 
-export function Ajustes() {
-  const yo = useYo();
-  const enLinea = useEnLinea();
-  const qc = useQueryClient();
+function Avatar({ nombre, className }: { nombre: string | undefined; className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-full bg-linear-to-b from-[#a5a5ab] to-[#86868b] font-semibold text-white",
+        className,
+      )}
+    >
+      {nombre ? iniciales(nombre) : ""}
+    </span>
+  );
+}
+
+/** "Agregar otro dispositivo" e "Invitar a alguien": crean el código y abren la hoja para compartirlo. */
+function useInvitar() {
   const [invitacion, setInvitacion] = useState<InvitacionCreada | null>(null);
-  const [quitar, setQuitar] = useState<Dispositivo | null>(null);
-  const [salir, setSalir] = useState(false);
-  const [atajoListo, setAtajoListo] = useState<AtajoPreparado | null>(null);
-  const [hoja, setHoja] = useState<"nombre" | "usuario" | "codigo" | "quitarCodigo" | null>(null);
-  const estado = useEstadoSistema();
-
-  const atajo = useMutation({
-    mutationFn: () => api<AtajoPreparado>("/v1/atajo", { method: "POST", body: { servidor: window.location.origin } }),
-    onSuccess: (r) => {
-      abrirAtajo(r.url);
-      setAtajoListo(r);
-    },
-    onError: (e) =>
-      toast.error(
-        e instanceof ErrorApi && e.estado === 501
-          ? "Tu Mac no puede firmar el Atajo. Sigue la guía para armarlo a mano."
-          : mensajeDeError(e),
-      ),
-  });
-
   const invitar = useMutation({
     mutationFn: (para: "usuario" | "dispositivo") => api<InvitacionCreada>("/v1/invitaciones", { method: "POST", body: { para } }),
     onSuccess: setInvitacion,
     onError: (e) => toast.error(mensajeDeError(e)),
   });
+  return { invitar, hoja: <HojaInvitacion invitacion={invitacion} alCerrar={() => setInvitacion(null)} /> };
+}
 
-  const revocar = useMutation({
-    mutationFn: (id: string) => api<{ ok: true }>(`/v1/dispositivos/${encodeURIComponent(id)}`, { method: "DELETE" }),
-    onSuccess: () => {
-      toast.success("Dispositivo quitado");
-      void qc.invalidateQueries({ queryKey: claves.yo });
-    },
-    onError: (e) => toast.error(mensajeDeError(e)),
-  });
+/** Fila de acción en azul, alineada con el texto de las filas con icono. */
+function FilaAccion({ titulo, disabled, onClick }: { titulo: string; disabled?: boolean; onClick: () => void }) {
+  return (
+    <FilaBoton sangria="3.75rem" className="pl-[3.75rem] text-tint" titulo={titulo} disabled={disabled} onClick={onClick} />
+  );
+}
+
+const atrasAjustes = { etiqueta: "Ajustes", alTocar: () => volver("ajustes") };
+
+/**
+ * Ajustes: tu cuenta, cómo se ve la app y tus dispositivos a la vista; lo demás (notificaciones, Atajos,
+ * estado de la Mac) abre su propia pantalla, como en Ajustes de iOS.
+ */
+export function Ajustes() {
+  const yo = useYo();
+  const enLinea = useEnLinea();
+  const estado = useEstadoSistema();
+  const { invitar, hoja } = useInvitar();
+  const [detalle, setDetalle] = useState<Dispositivo | null>(null);
 
   const d = yo.data;
-  // Servidores anteriores a "entrar con usuario y código" no mandan estos campos: sus filas no se muestran.
-  const usuario = d?.usuario.usuario;
-  const tieneCodigo = d?.usuario.tieneCodigo;
+  const todos = d?.dispositivos ?? [];
+  const enUso = ordenarDispositivos(todos.filter((x) => !yaNoSeUsa(x, todos)));
+  const sinUso = todos.length - enUso.length;
+  const resumen = resumenSistema(estado.data);
+  const uso = estado.data?.uso;
 
   return (
     <Pantalla titulo="Ajustes" alRefrescar={() => Promise.all([yo.refetch(), estado.refetch()])}>
       <div className="space-y-8 pt-2 pb-4">
-        <section className="flex items-center gap-4 rounded-[20px] bg-card p-4">
-          <span
-            aria-hidden
-            className="flex size-[60px] shrink-0 items-center justify-center rounded-full bg-linear-to-b from-[#a5a5ab] to-[#86868b] text-[24px] font-semibold text-white"
-          >
-            {d ? iniciales(d.usuario.nombre) : ""}
-          </span>
-          <div className="min-w-0">
+        <button
+          type="button"
+          onClick={() => navegar(hashDe("perfil"))}
+          className="fila-presionable flex w-full items-center gap-4 rounded-[20px] bg-card p-4 text-left"
+        >
+          <Avatar nombre={d?.usuario.nombre} className="size-[60px] text-[24px]" />
+          <div className="min-w-0 flex-1">
             {d ? (
               <>
                 <h2 className="truncate text-[22px] leading-7 font-semibold tracking-tight">{d.usuario.nombre}</h2>
-                <p className="truncate text-[15px] text-muted-foreground">Este dispositivo: {d.dispositivo.nombre}</p>
+                <p className="truncate text-[15px] text-muted-foreground">Cuenta y código para entrar</p>
               </>
             ) : (
               <>
@@ -156,17 +119,145 @@ export function Ajustes() {
               </>
             )}
           </div>
-        </section>
+          <ChevronRight aria-hidden className="-mr-1 size-5 shrink-0 text-muted-foreground/60" />
+        </button>
+
+        <Apariencia />
+
+        <Grupo>
+          <FilaBoton
+            sangria="3.75rem"
+            icono={
+              <IconoAjuste color="linear-gradient(180deg,#ff6b5f,#ff3b30)">
+                <Bell />
+              </IconoAjuste>
+            }
+            titulo="Notificaciones"
+            chevron
+            onClick={() => navegar(hashDe("notificaciones"))}
+          />
+          <FilaBoton
+            sangria="3.75rem"
+            icono={
+              <IconoAjuste color="linear-gradient(180deg,#ff5e8a,#5e5ce6)">
+                <Workflow />
+              </IconoAjuste>
+            }
+            titulo="Atajos de iPhone"
+            subtitulo="Para hablar y para Apple Pay"
+            chevron
+            onClick={() => navegar(hashDe("atajos"))}
+          />
+          <FilaBoton
+            sangria="3.75rem"
+            icono={
+              <IconoAjuste color="#8e8e93">
+                <Server />
+              </IconoAjuste>
+            }
+            titulo="Sistema"
+            subtitulo={uso ? (uso.limite !== null ? `${uso.consultas} de ${uso.limite} consultas de IA hoy` : `${uso.consultas} consultas de IA hoy`) : undefined}
+            valor={
+              resumen ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Punto color={resumen.color} />
+                  {resumen.texto}
+                </span>
+              ) : undefined
+            }
+            chevron
+            onClick={() => navegar(hashDe("sistema"))}
+          />
+        </Grupo>
 
         <Grupo
-          titulo="Cuenta"
+          titulo="Dispositivos"
+          pie={sinUso > 0 ? `${sinUso === 1 ? "Uno ya no se usa" : `${sinUso} ya no se usan`}: puedes quitarlos en «Ver todos».` : undefined}
+        >
+          {d ? (
+            enUso.slice(0, 3).map((x) => <FilaDispositivo key={x.id} d={x} alTocar={() => setDetalle(x)} />)
+          ) : (
+            <div className="space-y-3 p-4">
+              <Skeleton className="h-5 w-2/3" />
+              <Skeleton className="h-5 w-1/2" />
+            </div>
+          )}
+          {d && (todos.length > 3 || sinUso > 0) ? (
+            <FilaBoton
+              sangria="3.75rem"
+              className="pl-[3.75rem]"
+              titulo="Ver todos"
+              valor={<span className="tabular-nums">{todos.length}</span>}
+              chevron
+              onClick={() => navegar(hashDe("dispositivos"))}
+            />
+          ) : null}
+          <FilaAccion titulo="Agregar otro dispositivo" disabled={!enLinea || invitar.isPending} onClick={() => invitar.mutate("dispositivo")} />
+        </Grupo>
+
+        {d?.puedeInvitar !== false ? (
+          <Grupo pie="Tendrá su propia cuenta. El código sirve una vez y vence en 24 horas.">
+            <FilaBoton
+              sangria="3.75rem"
+              icono={
+                <IconoAjuste color="#34c759">
+                  <UserPlus />
+                </IconoAjuste>
+              }
+              titulo="Invitar a alguien"
+              chevron
+              disabled={!enLinea || invitar.isPending}
+              onClick={() => invitar.mutate("usuario")}
+            />
+          </Grupo>
+        ) : null}
+
+        {d ? (
+          <p className="text-center text-[13px] text-muted-foreground">
+            {d.moneda} · {d.zonaHoraria.replace(/_/g, " ")}
+          </p>
+        ) : null}
+      </div>
+
+      {hoja}
+      <HojaDispositivo dispositivo={detalle} alCerrar={() => setDetalle(null)} />
+    </Pantalla>
+  );
+}
+
+/** Ajustes › tu cuenta: cómo te saludo, usuario, código para entrar y cerrar sesión. */
+export function AjustesPerfil() {
+  const yo = useYo();
+  const enLinea = useEnLinea();
+  const [hoja, setHoja] = useState<"nombre" | "usuario" | "codigo" | "quitarCodigo" | null>(null);
+  const [salir, setSalir] = useState(false);
+  const d = yo.data;
+  // Servidores anteriores a "entrar con usuario y código" no mandan estos campos: sus filas no se muestran.
+  const usuario = d?.usuario.usuario;
+  const tieneCodigo = d?.usuario.tieneCodigo;
+
+  return (
+    <Pantalla titulo="Tu cuenta" atras={atrasAjustes} alRefrescar={() => yo.refetch()}>
+      <div className="space-y-8 pt-2 pb-4">
+        <div className="flex flex-col items-center text-center">
+          <Avatar nombre={d?.usuario.nombre} className="size-[84px] text-[34px]" />
+          {d ? (
+            <>
+              <h2 className="mt-3 max-w-full truncate text-[24px] leading-8 font-semibold tracking-tight">{d.usuario.nombre}</h2>
+              {usuario ? <p className="max-w-full truncate text-[15px] text-muted-foreground">{usuario}</p> : null}
+            </>
+          ) : (
+            <Skeleton className="mt-3 h-7 w-36" />
+          )}
+        </div>
+
+        <Grupo
           pie={
             tieneCodigo !== undefined
               ? "Con tu usuario y tu código puedes entrar desde cualquier iPhone o reinstalar el Atajo sin pedir una invitación."
               : undefined
           }
         >
-          {/* Sin valor a la derecha: el nombre ya está en la tarjeta de arriba. */}
           <FilaBoton
             sangria="3.75rem"
             icono={
@@ -221,13 +312,142 @@ export function Ajustes() {
           ) : null}
         </Grupo>
 
+        <Grupo>
+          <FilaBoton className="justify-center text-destructive" onClick={() => setSalir(true)}>
+            <LogOut className="size-[18px]" />
+            <span>Cerrar sesión en este dispositivo</span>
+          </FilaBoton>
+        </Grupo>
+      </div>
+
+      <HojaNombre abierta={hoja === "nombre"} actual={d?.usuario.nombre ?? ""} alCerrar={() => setHoja(null)} />
+      <HojaUsuario abierta={hoja === "usuario"} actual={usuario ?? ""} tieneCodigo={!!tieneCodigo} alCerrar={() => setHoja(null)} />
+      <HojaCodigo
+        abierta={hoja === "codigo"}
+        cambiar={!!tieneCodigo}
+        usuario={usuario ?? ""}
+        nombre={d?.usuario.nombre ?? ""}
+        alCerrar={() => setHoja(null)}
+      />
+      <HojaQuitarCodigo abierta={hoja === "quitarCodigo"} alCerrar={() => setHoja(null)} />
+      <Confirmar
+        abierto={salir}
+        onAbiertoChange={setSalir}
+        titulo="¿Cerrar sesión?"
+        descripcion={
+          tieneCodigo
+            ? "Para volver a entrar en este dispositivo usa tu usuario y tu código, o una invitación."
+            : "Para volver a entrar en este dispositivo necesitarás un código de invitación."
+        }
+        confirmar="Cerrar sesión"
+        onConfirmar={async () => {
+          await soltarPush();
+          cerrarSesion();
+        }}
+      />
+    </Pantalla>
+  );
+}
+
+/** Ajustes › Dispositivos: los que usas y, aparte, los que ya no (instalaciones viejas), para quitarlos de una vez. */
+export function AjustesDispositivos() {
+  const yo = useYo();
+  const enLinea = useEnLinea();
+  const { invitar, hoja } = useInvitar();
+  const quitar = useQuitarDispositivos();
+  const [detalle, setDetalle] = useState<Dispositivo | null>(null);
+  const [confirmar, setConfirmar] = useState(false);
+  const todos = yo.data?.dispositivos ?? [];
+  const ordenados = ordenarDispositivos(todos);
+  const enUso = ordenados.filter((x) => !yaNoSeUsa(x, todos));
+  const viejos = ordenados.filter((x) => yaNoSeUsa(x, todos));
+
+  return (
+    <Pantalla titulo="Dispositivos" atras={atrasAjustes} alRefrescar={() => yo.refetch()}>
+      <div className="space-y-8 pt-2 pb-4">
+        <Grupo titulo="En uso" pie="Toca uno para ver cuándo se usó, dónde estaba o quitarlo.">
+          {yo.data ? (
+            enUso.map((x) => <FilaDispositivo key={x.id} d={x} alTocar={() => setDetalle(x)} />)
+          ) : (
+            <div className="space-y-3 p-4">
+              <Skeleton className="h-5 w-2/3" />
+              <Skeleton className="h-5 w-1/2" />
+            </div>
+          )}
+          <FilaAccion titulo="Agregar otro dispositivo" disabled={!enLinea || invitar.isPending} onClick={() => invitar.mutate("dispositivo")} />
+        </Grupo>
+
+        {viejos.length ? (
+          <Grupo
+            titulo="Ya no se usan"
+            pie="Instalaciones viejas: no se han usado desde que instalaste otra igual, o en más de un mes. Siguen teniendo acceso hasta que las quites."
+          >
+            {viejos.map((x) => (
+              <FilaDispositivo key={x.id} d={x} alTocar={() => setDetalle(x)} />
+            ))}
+            <FilaBoton
+              className="justify-center text-destructive"
+              disabled={!enLinea || quitar.isPending}
+              onClick={() => setConfirmar(true)}
+            >
+              {quitar.isPending ? <Spinner className="size-4" /> : null}
+              {viejos.length === 1 ? "Quitarlo" : `Quitar los ${viejos.length}`}
+            </FilaBoton>
+          </Grupo>
+        ) : null}
+      </div>
+
+      {hoja}
+      <HojaDispositivo dispositivo={detalle} alCerrar={() => setDetalle(null)} />
+      <Confirmar
+        abierto={confirmar}
+        onAbiertoChange={setConfirmar}
+        titulo={viejos.length === 1 ? "¿Quitar 1 dispositivo?" : `¿Quitar ${viejos.length} dispositivos?`}
+        descripcion="Dejarán de tener acceso. Si alguno sigue en uso, tendrá que volver a entrar con un código."
+        confirmar="Quitar"
+        onConfirmar={() => quitar.mutate(viejos.map((x) => x.id))}
+      />
+    </Pantalla>
+  );
+}
+
+/** Ajustes › Notificaciones. */
+export function AjustesAvisos() {
+  return (
+    <Pantalla titulo="Notificaciones" atras={atrasAjustes}>
+      <div className="space-y-8 pt-2 pb-4">
+        <AjustesNotificaciones />
+      </div>
+    </Pantalla>
+  );
+}
+
+/** Ajustes › Atajos de iPhone: el de hablar y el de Apple Pay. */
+export function AjustesAtajos() {
+  const enLinea = useEnLinea();
+  const [atajoListo, setAtajoListo] = useState<AtajoPreparado | null>(null);
+  const atajo = useMutation({
+    mutationFn: () => api<AtajoPreparado>("/v1/atajo", { method: "POST", body: { servidor: window.location.origin } }),
+    onSuccess: (r) => {
+      abrirAtajo(r.url);
+      setAtajoListo(r);
+    },
+    onError: (e) =>
+      toast.error(
+        e instanceof ErrorApi && e.estado === 501
+          ? "Tu Mac no puede firmar el Atajo. Sigue la guía para armarlo a mano."
+          : mensajeDeError(e),
+      ),
+  });
+
+  return (
+    <Pantalla titulo="Atajos de iPhone" atras={atrasAjustes}>
+      <div className="space-y-8 pt-2 pb-4">
         <Grupo
-          titulo="Atajo de iPhone"
+          titulo="Para hablar"
           pie={
             <>
-              Safari lo descarga; ábrelo desde Descargas y toca «Agregar atajo».
-              <br />
-              Luego asígnalo al botón de acción o a Toque atrás (Accesibilidad › Tocar).
+              Asígnalo al botón de acción o a Toque atrás (Accesibilidad › Tocar) y dicta lo que gastas o pregunta lo que quieras.
               {!esIOS ? (
                 <>
                   <br />
@@ -251,134 +471,23 @@ export function Ajustes() {
             onClick={() => atajo.mutate()}
           />
         </Grupo>
+        <ApplePay />
+      </div>
+      <HojaAtajo atajo={atajoListo} alCerrar={() => setAtajoListo(null)} />
+    </Pantalla>
+  );
+}
 
-        <Grupo titulo="Invitaciones" pie="El código sirve una vez y vence en 24 horas.">
-          <FilaBoton
-            sangria="3.75rem"
-            icono={
-              <IconoAjuste color="#007aff">
-                <Smartphone />
-              </IconoAjuste>
-            }
-            titulo="Agregar otro dispositivo"
-            chevron
-            disabled={!enLinea || invitar.isPending}
-            onClick={() => invitar.mutate("dispositivo")}
-          />
-          {d?.puedeInvitar !== false ? (
-            <FilaBoton
-              sangria="3.75rem"
-              icono={
-                <IconoAjuste color="#34c759">
-                  <UserPlus />
-                </IconoAjuste>
-              }
-              titulo="Invitar a alguien"
-              chevron
-              disabled={!enLinea || invitar.isPending}
-              onClick={() => invitar.mutate("usuario")}
-            />
-          ) : null}
-        </Grupo>
-
-        <Grupo titulo="Dispositivos" pie="Quitar un dispositivo le cierra la sesión al instante.">
-          {d ? (
-            d.dispositivos.map((x) => {
-              const Icono = iconoDispositivo(x.nombre);
-              return (
-                <Fila key={x.id} sangria="3.75rem" className="min-h-[60px]">
-                  <IconoAjuste color="#8e8e93">
-                    <Icono />
-                  </IconoAjuste>
-                  <div className="min-w-0 flex-1 py-2">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate">{x.nombre}</span>
-                      {x.actual ? <Badge variant="default">Este dispositivo</Badge> : null}
-                    </div>
-                    <div className="truncate text-[13px] text-muted-foreground">
-                      {x.ultimoUso ? `Último uso ${haceCuanto(x.ultimoUso)}` : "Sin usar todavía"}
-                    </div>
-                  </div>
-                  {!x.actual ? (
-                    <Button
-                      variant="destructive-plain"
-                      size="sm"
-                      className="-mr-2 px-2"
-                      aria-label={`Quitar ${x.nombre}`}
-                      disabled={!enLinea || revocar.isPending}
-                      onClick={() => setQuitar(x)}
-                    >
-                      Quitar
-                    </Button>
-                  ) : null}
-                </Fila>
-              );
-            })
-          ) : (
-            <div className="space-y-3 p-4">
-              <Skeleton className="h-5 w-2/3" />
-              <Skeleton className="h-5 w-1/2" />
-            </div>
-          )}
-        </Grupo>
-
-        <AjustesNotificaciones />
-
+/** Ajustes › Sistema: la Mac, la IA, las consultas y (solo la cuenta dueña) el interruptor de la IA. */
+export function AjustesSistema() {
+  const estado = useEstadoSistema();
+  return (
+    <Pantalla titulo="Sistema" atras={atrasAjustes} alRefrescar={() => estado.refetch()}>
+      <div className="space-y-8 pt-2 pb-4">
         <Sistema estado={estado} />
-
         {/* Desarrollo: solo la cuenta dueña (la única a la que le llega `servidor`). */}
         <AjustesIa habilitado={!!estado.data?.servidor} />
-
-        <Grupo>
-          <FilaBoton className="justify-center text-destructive" onClick={() => setSalir(true)}>
-            <LogOut className="size-[18px]" />
-            <span>Cerrar sesión en este dispositivo</span>
-          </FilaBoton>
-        </Grupo>
-
-        {d ? (
-          <p className="text-center text-[13px] text-muted-foreground">
-            {d.moneda} · {d.zonaHoraria.replace(/_/g, " ")}
-          </p>
-        ) : null}
       </div>
-
-      <HojaInvitacion invitacion={invitacion} alCerrar={() => setInvitacion(null)} />
-      <HojaAtajo atajo={atajoListo} alCerrar={() => setAtajoListo(null)} />
-      <HojaNombre abierta={hoja === "nombre"} actual={d?.usuario.nombre ?? ""} alCerrar={() => setHoja(null)} />
-      <HojaUsuario abierta={hoja === "usuario"} actual={usuario ?? ""} tieneCodigo={!!tieneCodigo} alCerrar={() => setHoja(null)} />
-      <HojaCodigo
-        abierta={hoja === "codigo"}
-        cambiar={!!tieneCodigo}
-        usuario={usuario ?? ""}
-        nombre={d?.usuario.nombre ?? ""}
-        alCerrar={() => setHoja(null)}
-      />
-      <HojaQuitarCodigo abierta={hoja === "quitarCodigo"} alCerrar={() => setHoja(null)} />
-
-      <Confirmar
-        abierto={!!quitar}
-        onAbiertoChange={(v) => !v && setQuitar(null)}
-        titulo={`¿Quitar «${quitar?.nombre ?? ""}»?`}
-        descripcion="Ese dispositivo dejará de tener acceso. Para volver a entrar necesitará un código nuevo."
-        confirmar="Quitar"
-        onConfirmar={() => quitar && revocar.mutate(quitar.id)}
-      />
-      <Confirmar
-        abierto={salir}
-        onAbiertoChange={setSalir}
-        titulo="¿Cerrar sesión?"
-        descripcion={
-          tieneCodigo
-            ? "Para volver a entrar en este dispositivo usa tu usuario y tu código, o una invitación."
-            : "Para volver a entrar en este dispositivo necesitarás un código de invitación."
-        }
-        confirmar="Cerrar sesión"
-        onConfirmar={async () => {
-          await soltarPush();
-          cerrarSesion();
-        }}
-      />
     </Pantalla>
   );
 }
@@ -481,619 +590,3 @@ function HojaInvitacion({ invitacion, alCerrar }: { invitacion: InvitacionCreada
   );
 }
 
-function Punto({ color }: { color: string }) {
-  return <span aria-hidden className="inline-block size-2.5 shrink-0 rounded-full" style={{ background: color }} />;
-}
-
-/** Estado de la Mac: servidor, IA y dictados en cola. Un servidor viejo responde 404 y solo se avisa. */
-function Sistema({ estado }: { estado: ReturnType<typeof useEstadoSistema> }) {
-  const e = estado.data;
-  const ia = e
-    ? e.ia.cargada
-      ? { color: "#34c759", texto: "Lista" }
-      : e.ia.disponible
-        ? { color: "#ffcc00", texto: "Se carga al hablar" }
-        : { color: "#ff3b30", texto: "No disponible" }
-    : null;
-
-  return (
-    <Grupo titulo="Sistema" aria-label="Sistema">
-      {e === null ? (
-        <Fila>
-          <p className="py-3 text-[15px] text-muted-foreground">Actualiza el servidor para ver su estado.</p>
-        </Fila>
-      ) : e && ia ? (
-        <>
-          <Fila
-            sangria="3.75rem"
-            icono={
-              <IconoAjuste color="#8e8e93">
-                <Server />
-              </IconoAjuste>
-            }
-            titulo="Servidor"
-            subtitulo={e.servidor ? `Encendido desde ${haceCuanto(e.servidor.arrancadoEn)}` : undefined}
-            valor={
-              <span className="inline-flex">
-                <Punto color="#34c759" />
-                <span className="sr-only">En línea</span>
-              </span>
-            }
-          />
-          {/* La versión solo le llega al dueño de la instalación. */}
-          {e.servidor ? (
-            <Fila
-              sangria="3.75rem"
-              icono={
-                <IconoAjuste color="#636366">
-                  <GitCommitHorizontal />
-                </IconoAjuste>
-              }
-              titulo="Versión"
-              subtitulo={e.servidor.commitEn ? `Desplegada ${haceCuanto(e.servidor.commitEn)}` : undefined}
-              valor={<span className="font-mono text-[15px]">{e.servidor.commit?.slice(0, 7) ?? "Sin dato"}</span>}
-            />
-          ) : null}
-          <Fila
-            sangria="3.75rem"
-            icono={
-              <IconoAjuste color="linear-gradient(180deg,#5e5ce6,#1c1c1e)">
-                <Sparkles />
-              </IconoAjuste>
-            }
-            titulo="IA"
-            subtitulo={e.ia.modelo}
-            valor={
-              <span className="inline-flex items-center gap-1.5">
-                <Punto color={ia.color} />
-                {ia.texto}
-              </span>
-            }
-          />
-          {e.uso ? <FilaUsoIa uso={e.uso} /> : null}
-          {/* Con algo en cola, el detalle va abajo: a la derecha no cabe junto al título. */}
-          <Fila
-            sangria="3.75rem"
-            icono={
-              <IconoAjuste color="#007aff">
-                <Inbox />
-              </IconoAjuste>
-            }
-            titulo="Dictados"
-            subtitulo={
-              e.cola.pendientes > 0 || e.cola.conError > 0 ? (
-                <>
-                  {e.cola.pendientes > 0 ? `${e.cola.pendientes} en proceso` : null}
-                  {e.cola.pendientes > 0 && e.cola.conError > 0 ? " · " : null}
-                  {e.cola.conError > 0 ? <span className="text-negative">{e.cola.conError} con error</span> : null}
-                </>
-              ) : undefined
-            }
-            valor={e.cola.pendientes === 0 && e.cola.conError === 0 ? "Nada pendiente" : undefined}
-          />
-        </>
-      ) : estado.isError ? (
-        <Fila>
-          <p className="py-3 text-[15px] text-muted-foreground">{mensajeDeError(estado.error)}</p>
-        </Fila>
-      ) : (
-        <div className="space-y-3 p-4">
-          <Skeleton className="h-5 w-2/3" />
-          <Skeleton className="h-5 w-1/2" />
-        </div>
-      )}
-    </Grupo>
-  );
-}
-
-const usd = (n: number) => `$${n.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-/** Consultas de IA de hoy ("7 de 40"); al dueño, además, lo gastado este mes por todas las cuentas. */
-function FilaUsoIa({ uso }: { uso: NonNullable<EstadoSistema["uso"]> }) {
-  const mes = uso.mes;
-  return (
-    <Fila
-      sangria="3.75rem"
-      icono={
-        <IconoAjuste color="#ff9500">
-          <CircleGauge />
-        </IconoAjuste>
-      }
-      titulo="Consultas de IA hoy"
-      subtitulo={
-        uso.aviso ??
-        (mes
-          ? `Este mes, todas las cuentas: ${usd(mes.costoUsd)}${mes.presupuestoUsd ? ` de ${usd(mes.presupuestoUsd)}` : ""} USD`
-          : uso.limite !== null
-            ? "Se renuevan cada día"
-            : undefined)
-      }
-      valor={
-        <span className={cn("tabular-nums", uso.quedan === 0 && !uso.modoBasico && "text-negative")}>
-          {uso.limite !== null ? `${uso.consultas} de ${uso.limite}` : uso.consultas}
-        </span>
-      }
-    />
-  );
-}
-
-/** Hoja con Cancelar / Guardar; Intro en el teclado también guarda. */
-function HojaFormulario({
-  titulo,
-  descripcion,
-  puedeGuardar,
-  guardando,
-  alGuardar,
-  alCerrar,
-  children,
-}: {
-  titulo: string;
-  descripcion: string;
-  puedeGuardar: boolean;
-  guardando: boolean;
-  alGuardar: () => void;
-  alCerrar: () => void;
-  children: ReactNode;
-}) {
-  const enLinea = useEnLinea();
-  const listo = puedeGuardar && enLinea && !guardando;
-  return (
-    <SheetContent
-      titulo={titulo}
-      descripcion={descripcion}
-      izquierda={
-        <Button variant="plain" size="text" onClick={alCerrar}>
-          Cancelar
-        </Button>
-      }
-      derecha={
-        <Button variant="plain" size="text" className="font-semibold" disabled={!listo} onClick={alGuardar}>
-          {guardando ? <Spinner className="size-5" etiqueta="Guardando" /> : "Guardar"}
-        </Button>
-      }
-    >
-      <form
-        className="space-y-6 pt-2 pb-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (listo) alGuardar();
-        }}
-      >
-        {children}
-        <button type="submit" hidden aria-hidden tabIndex={-1} />
-      </form>
-    </SheetContent>
-  );
-}
-
-/** Pie de un grupo: el error (en rojo) arriba de la explicación de siempre. */
-function PieConError({ error, children }: { error: string | null; children?: ReactNode }) {
-  return (
-    <>
-      {error ? (
-        <span role="alert" className="block text-negative">
-          {error}
-        </span>
-      ) : null}
-      {children}
-    </>
-  );
-}
-
-/** "Código actual": lo piden cambiar el usuario y cambiar o quitar el código (con solo el token no basta). */
-function GrupoCodigoActual({
-  valor,
-  alCambiar,
-  error,
-  pie,
-  enfocar,
-}: {
-  valor: string;
-  alCambiar: (v: string) => void;
-  error: string | null;
-  pie: ReactNode;
-  enfocar?: boolean;
-}) {
-  return (
-    <Grupo pie={<PieConError error={error}>{pie}</PieConError>}>
-      <Fila>
-        <label htmlFor="codigo-actual" className="w-32 shrink-0">
-          Código actual
-        </label>
-        <CampoSecreto
-          id="codigo-actual"
-          value={valor}
-          onChange={(e) => alCambiar(e.target.value)}
-          aria-invalid={!!error}
-          autoComplete="current-password"
-          placeholder="Requerido"
-          enterKeyHint="next"
-          maxLength={256}
-          autoFocus={enfocar}
-        />
-      </Fila>
-    </Grupo>
-  );
-}
-
-function HojaNombre({ abierta, actual, alCerrar }: { abierta: boolean; actual: string; alCerrar: () => void }) {
-  return (
-    <Sheet open={abierta} onOpenChange={(v) => !v && alCerrar()}>
-      {abierta ? <EditarNombre actual={actual} alCerrar={alCerrar} /> : null}
-    </Sheet>
-  );
-}
-
-function EditarNombre({ actual, alCerrar }: { actual: string; alCerrar: () => void }) {
-  const [nombre, setNombre] = useState(actual);
-  const cambiar = useCambiarCuenta();
-  const limpio = nombre.trim().replace(/\s+/g, " ");
-  const problema = nombre !== actual ? problemaNombre(nombre) : null;
-  // El del servidor manda sobre la pista local.
-  const error = cambiar.isError ? mensajeDeError(cambiar.error) : problema;
-  const guardar = () =>
-    cambiar.mutate(
-      { nombre: limpio },
-      {
-        onSuccess: () => {
-          toast.success("Nombre guardado");
-          alCerrar();
-        },
-      },
-    );
-
-  return (
-    <HojaFormulario
-      titulo="Cómo te saludo"
-      descripcion="Cambia el nombre con el que te saludo"
-      puedeGuardar={!problemaNombre(nombre) && limpio !== actual}
-      guardando={cambiar.isPending}
-      alGuardar={guardar}
-      alCerrar={alCerrar}
-    >
-      <Grupo
-        pie={
-          <PieConError error={error}>
-            Así te llamo cuando hablas conmigo por voz y en la app. Letras, espacios, punto, apóstrofo o guion.
-          </PieConError>
-        }
-      >
-        <Fila>
-          <label htmlFor="nombre-saludo" className="shrink-0">
-            Nombre
-          </label>
-          <CampoFila
-            id="nombre-saludo"
-            value={nombre}
-            onChange={(e) => {
-              cambiar.reset();
-              setNombre(e.target.value);
-            }}
-            aria-invalid={!!error}
-            placeholder="Pedro"
-            autoComplete="given-name"
-            autoCapitalize="words"
-            enterKeyHint="done"
-            maxLength={NOMBRE_MAX}
-            autoFocus
-          />
-        </Fila>
-      </Grupo>
-    </HojaFormulario>
-  );
-}
-
-function HojaUsuario({
-  abierta,
-  actual,
-  tieneCodigo,
-  alCerrar,
-}: {
-  abierta: boolean;
-  actual: string;
-  tieneCodigo: boolean;
-  alCerrar: () => void;
-}) {
-  return (
-    <Sheet open={abierta} onOpenChange={(v) => !v && alCerrar()}>
-      {abierta ? <EditarUsuario actual={actual} tieneCodigo={tieneCodigo} alCerrar={alCerrar} /> : null}
-    </Sheet>
-  );
-}
-
-function EditarUsuario({ actual, tieneCodigo, alCerrar }: { actual: string; tieneCodigo: boolean; alCerrar: () => void }) {
-  const [texto, setTexto] = useState(actual);
-  const [codigoActual, setCodigoActual] = useState("");
-  const cambiar = useCambiarCuenta();
-  const usuario = normalizarUsuario(texto);
-  const problema = usuario ? problemaUsuario(usuario) : null;
-  // Con código, cambiar el usuario pide el código actual (el usuario es la mitad de lo que se necesita para entrar).
-  const pideActual = tieneCodigo && !!usuario && usuario !== actual;
-  const delActual = cambiar.isError && esDelCodigoActual(cambiar.error);
-  // El del servidor (409: ya es de alguien; 400: no es válido) manda sobre la pista local.
-  const error = cambiar.isError && !delActual ? mensajeDeError(cambiar.error) : problema;
-  const guardar = () =>
-    cambiar.mutate(
-      { usuario, ...(pideActual ? { actual: codigoActual } : {}) },
-      {
-        onSuccess: () => {
-          toast.success("Usuario guardado");
-          alCerrar();
-        },
-      },
-    );
-
-  return (
-    <HojaFormulario
-      titulo="Usuario"
-      descripcion="Cambia tu usuario para entrar"
-      puedeGuardar={!!usuario && !problema && usuario !== actual && (!pideActual || codigoActual.trim().length > 0)}
-      guardando={cambiar.isPending}
-      alGuardar={guardar}
-      alCerrar={alCerrar}
-    >
-      <Grupo
-        pie={
-          <PieConError error={error}>
-            {!error && usuario && usuario !== texto.trim() ? <span className="block">Quedará como «{usuario}».</span> : null}
-            De 3 a {USUARIO_MAX} caracteres: letras, números, punto, guion o guion bajo. Es con lo que entras en otro iPhone.
-          </PieConError>
-        }
-      >
-        <Fila>
-          <label htmlFor="usuario-cuenta" className="shrink-0">
-            Usuario
-          </label>
-          <CampoFila
-            id="usuario-cuenta"
-            value={texto}
-            onChange={(e) => {
-              cambiar.reset();
-              setTexto(e.target.value);
-            }}
-            aria-invalid={!!error}
-            autoComplete="username"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            enterKeyHint={pideActual ? "next" : "done"}
-            maxLength={64}
-            autoFocus
-          />
-        </Fila>
-      </Grupo>
-      {pideActual ? (
-        <GrupoCodigoActual
-          valor={codigoActual}
-          alCambiar={(v) => {
-            cambiar.reset();
-            setCodigoActual(v);
-          }}
-          error={delActual ? mensajeDeError(cambiar.error) : null}
-          pie="Para cambiar tu usuario escribe tu código para entrar."
-        />
-      ) : null}
-    </HojaFormulario>
-  );
-}
-
-function HojaCodigo({
-  abierta,
-  cambiar,
-  usuario,
-  nombre,
-  alCerrar,
-}: {
-  abierta: boolean;
-  cambiar: boolean;
-  usuario: string;
-  nombre: string;
-  alCerrar: () => void;
-}) {
-  return (
-    <Sheet open={abierta} onOpenChange={(v) => !v && alCerrar()}>
-      {abierta ? <EditarCodigo cambiar={cambiar} usuario={usuario} nombre={nombre} alCerrar={alCerrar} /> : null}
-    </Sheet>
-  );
-}
-
-/**
- * Crear o cambiar el código. Cambiarlo pide el actual y puede cerrar la sesión en los demás dispositivos.
- * Después de guardarlo no se vuelve a mostrar: el servidor solo guarda su huella.
- */
-function EditarCodigo({
-  cambiar,
-  usuario,
-  nombre,
-  alCerrar,
-}: {
-  cambiar: boolean;
-  usuario: string;
-  nombre: string;
-  alCerrar: () => void;
-}) {
-  const [codigoActual, setCodigoActual] = useState("");
-  const [codigo, setCodigo] = useState("");
-  const [otraVez, setOtraVez] = useState("");
-  const [ver, setVer] = useState(false);
-  const [cerrarOtros, setCerrarOtros] = useState(false);
-  const guardarCodigo = useGuardarCodigo();
-  const problema = problemaCodigo(codigo, { usuario, nombre });
-  // Se avisa cuando la confirmación ya no puede coincidir, no a la mitad de escribirla.
-  const noCoinciden = otraVez.length > 0 && otraVez !== codigo && (otraVez.length >= codigo.length || !codigo.startsWith(otraVez));
-  const delActual = guardarCodigo.isError && esDelCodigoActual(guardarCodigo.error);
-  const error =
-    guardarCodigo.isError && !delActual
-      ? mensajeDeError(guardarCodigo.error)
-      : (problema ?? (noCoinciden ? "Los códigos no coinciden." : null));
-  const cambio = (fn: (v: string) => void) => (v: string) => {
-    guardarCodigo.reset();
-    fn(v);
-  };
-  const guardar = () =>
-    guardarCodigo.mutate(
-      { codigo, ...(cambiar ? { actual: codigoActual, cerrarOtros } : {}) },
-      {
-        onSuccess: (r) => {
-          const n = r.cerrados ?? 0;
-          const titulo = cambiar ? "Código cambiado" : "Código creado";
-          toast.success(n > 0 ? `${titulo}. Cerraste la sesión en ${n} ${n === 1 ? "dispositivo" : "dispositivos"}.` : titulo);
-          alCerrar();
-        },
-      },
-    );
-  const campo = {
-    type: ver ? "text" : "password",
-    autoComplete: "new-password",
-    autoCapitalize: "none",
-    autoCorrect: "off",
-    spellCheck: false,
-    maxLength: CODIGO_MAX,
-  } as const;
-
-  return (
-    <HojaFormulario
-      titulo={cambiar ? "Cambiar código" : "Crear código"}
-      descripcion="Código para entrar con tu usuario"
-      puedeGuardar={
-        codigo.trim().length >= CODIGO_MIN && !problema && codigo === otraVez && (!cambiar || codigoActual.trim().length > 0)
-      }
-      guardando={guardarCodigo.isPending}
-      alGuardar={guardar}
-      alCerrar={alCerrar}
-    >
-      <p className="px-4 text-center text-[15px] leading-snug text-balance text-muted-foreground">
-        Con tu usuario <strong className="font-semibold text-foreground">{usuario}</strong> y este código puedes entrar desde
-        cualquier iPhone o reinstalar el Atajo sin pedir una invitación.
-      </p>
-      {/* Para que el llavero de iOS guarde el código junto al usuario. */}
-      <input type="text" name="username" autoComplete="username" value={usuario} readOnly tabIndex={-1} aria-hidden className="sr-only" />
-      {cambiar ? (
-        <GrupoCodigoActual
-          valor={codigoActual}
-          alCambiar={cambio(setCodigoActual)}
-          error={delActual ? mensajeDeError(guardarCodigo.error) : null}
-          pie="El que usas hoy para entrar."
-          enfocar
-        />
-      ) : null}
-      <Grupo
-        pie={
-          <PieConError error={error}>
-            Mínimo {CODIGO_MIN} caracteres, sin tu usuario ni tu nombre; mejor una frase que solo tú sepas. Después de
-            guardarlo no se vuelve a mostrar.
-          </PieConError>
-        }
-      >
-        <Fila>
-          <label htmlFor="codigo-nuevo" className="w-24 shrink-0">
-            {cambiar ? "Nuevo" : "Código"}
-          </label>
-          <CampoFila
-            id="codigo-nuevo"
-            value={codigo}
-            onChange={(e) => cambio(setCodigo)(e.target.value)}
-            aria-invalid={!!problema}
-            enterKeyHint="next"
-            autoFocus={!cambiar}
-            {...campo}
-          />
-          <Button
-            variant="plain"
-            size="icon-sm"
-            className="-mr-2"
-            aria-label={ver ? "Ocultar código" : "Mostrar código"}
-            onClick={() => setVer((v) => !v)}
-          >
-            {ver ? <EyeOff /> : <Eye />}
-          </Button>
-        </Fila>
-        <Fila>
-          <label htmlFor="codigo-confirmar" className="w-24 shrink-0">
-            Confirmar
-          </label>
-          <CampoFila
-            id="codigo-confirmar"
-            value={otraVez}
-            onChange={(e) => cambio(setOtraVez)(e.target.value)}
-            aria-invalid={noCoinciden}
-            placeholder="Otra vez"
-            enterKeyHint="done"
-            className="mr-9"
-            {...campo}
-          />
-        </Fila>
-      </Grupo>
-      {cambiar ? (
-        <Grupo pie="Si alguien más pudo usar tu cuenta. Este dispositivo sigue con la sesión abierta.">
-          <Fila>
-            <label htmlFor="cerrar-otros" className="min-w-0 flex-1 py-2.5 leading-snug">
-              Cerrar sesión en los demás dispositivos
-            </label>
-            <Switch id="cerrar-otros" checked={cerrarOtros} onCheckedChange={setCerrarOtros} />
-          </Fila>
-        </Grupo>
-      ) : null}
-    </HojaFormulario>
-  );
-}
-
-function HojaQuitarCodigo({ abierta, alCerrar }: { abierta: boolean; alCerrar: () => void }) {
-  return (
-    <Sheet open={abierta} onOpenChange={(v) => !v && alCerrar()}>
-      {abierta ? <QuitarCodigo alCerrar={alCerrar} /> : null}
-    </Sheet>
-  );
-}
-
-/** Quitar el código también pide el actual: con solo el token no se le quita a nadie. */
-function QuitarCodigo({ alCerrar }: { alCerrar: () => void }) {
-  const enLinea = useEnLinea();
-  const [codigoActual, setCodigoActual] = useState("");
-  const quitar = useQuitarCodigo();
-  const listo = enLinea && codigoActual.trim().length > 0 && !quitar.isPending;
-  const enviar = () =>
-    quitar.mutate(codigoActual, {
-      onSuccess: () => {
-        toast.success("Código quitado");
-        alCerrar();
-      },
-    });
-
-  return (
-    <SheetContent
-      titulo="Quitar código"
-      descripcion="Quita tu código para entrar"
-      izquierda={
-        <Button variant="plain" size="text" onClick={alCerrar}>
-          Cancelar
-        </Button>
-      }
-    >
-      <form
-        className="space-y-6 pt-2 pb-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (listo) enviar();
-        }}
-      >
-        <p className="px-4 text-center text-[15px] leading-snug text-balance text-muted-foreground">
-          Ya no podrás entrar con tu usuario y código. Para entrar en otro iPhone necesitarás una invitación.
-        </p>
-        <GrupoCodigoActual
-          valor={codigoActual}
-          alCambiar={(v) => {
-            quitar.reset();
-            setCodigoActual(v);
-          }}
-          error={quitar.isError ? mensajeDeError(quitar.error) : null}
-          pie="Escríbelo para confirmar."
-          enfocar
-        />
-        <Button type="submit" variant="destructive" size="lg" disabled={!listo}>
-          {quitar.isPending ? <Spinner className="size-5" etiqueta="Quitando" /> : "Quitar código"}
-        </Button>
-      </form>
-    </SheetContent>
-  );
-}

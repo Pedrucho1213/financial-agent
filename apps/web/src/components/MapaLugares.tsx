@@ -32,6 +32,7 @@ export function MapaLugares({
   alElegir,
   interactivo = true,
   conCalles = false,
+  etiqueta = "Mapa de dónde gastas",
   className,
 }: {
   lugares: Lugar[];
@@ -40,6 +41,7 @@ export function MapaLugares({
   interactivo?: boolean;
   /** Fondo con calles de CARTO. Sin esto no se pide nada a internet. */
   conCalles?: boolean;
+  etiqueta?: string;
   className?: string;
 }) {
   const caja = useRef<HTMLDivElement>(null);
@@ -118,9 +120,9 @@ export function MapaLugares({
       // Sin calles, el nombre al lado del círculo es lo que da contexto. Va como texto, no como HTML:
       // el comercio puede venir de Apple Pay o del dictado y Leaflet insertaría un string como innerHTML.
       if (!conCalles) {
-        const etiqueta = document.createElement("span");
-        etiqueta.textContent = l.nombre;
-        c.bindTooltip(etiqueta, { permanent: true, direction: "right", offset: [radio, 0], className: "fa-etiqueta" });
+        const nombreLugar = document.createElement("span");
+        nombreLugar.textContent = l.nombre;
+        c.bindTooltip(nombreLugar, { permanent: true, direction: "right", offset: [radio, 0], className: "fa-etiqueta" });
       }
       circulos.current.set(l.clave, c);
     }
@@ -145,5 +147,5 @@ export function MapaLugares({
     }
   }, [seleccionado, lugares]);
 
-  return <div ref={caja} role="img" aria-label="Mapa de dónde gastas" className={cn("fa-mapa z-0 w-full", !conCalles && "fa-mapa-propio", className)} />;
+  return <div ref={caja} role="img" aria-label={etiqueta} className={cn("fa-mapa z-0 w-full", !conCalles && "fa-mapa-propio", className)} />;
 }

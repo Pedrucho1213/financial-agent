@@ -437,13 +437,77 @@ test.describe("Chat sin perder ni duplicar mensajes", () => {
 });
 
 test.describe("Ajustes", () => {
-  test("dispositivos, invitación y quitar un dispositivo", async ({ page }) => {
+  test("dispositivos: los 3 más usados, ver todos, el detalle y quitar uno", async ({ page }) => {
     const api = await prepararSesion(page);
+    api.dispositivos.push({ id: "dis-4", nombre: "iPad", creadoEn: "2026-09-25T03:00:00.000Z", ultimoUso: "2026-10-01T01:30:00.000Z", actual: false });
     await page.goto("/#ajustes");
     await expect(page.getByText("Pedro Ramírez")).toBeVisible();
-    await expect(page.getByText("Este dispositivo", { exact: true })).toBeVisible();
-    await expect(page.getByText("MacBook Pro")).toBeVisible();
+    const grupo = page.locator("section", { has: page.getByRole("heading", { name: "Dispositivos" }) });
+    // Este primero; luego el que se usó más reciente. El cuarto queda en «Ver todos».
+    await expect(grupo.getByRole("button", { name: /iPhone 17 Pro Max|Atajo|MacBook Pro|iPad/ })).toHaveText([
+      /iPhone 17 Pro Max.*Este.*En uso ahora/,
+      /Atajo/,
+      /MacBook Pro/,
+    ]);
+    await grupo.getByRole("button", { name: /Ver todos/ }).click();
+    await expect(page).toHaveURL(/#dispositivos$/);
+    await expect(page.getByRole("button", { name: /iPad/ })).toBeVisible();
 
+    await page.getByRole("button", { name: /MacBook Pro/ }).click();
+    const hoja = page.getByRole("dialog", { name: "MacBook Pro" });
+    await expect(hoja.getByText("App en la computadora").first()).toBeVisible();
+    await expect(hoja.getByText("Sin ubicación")).toBeVisible();
+    await hoja.getByRole("button", { name: "Quitar este dispositivo" }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Quitar" }).click();
+    await expect(hoja).toHaveCount(0);
+    await expect(page.getByText("MacBook Pro")).toHaveCount(0);
+    expect(api.de("DELETE", "/v1/dispositivos/dis-3")).toHaveLength(1);
+
+    await page.getByRole("button", { name: "Ajustes" }).first().click();
+    await expect(page).toHaveURL(/#ajustes$/);
+  });
+
+  test("el detalle de un Atajo muestra dónde estaba; este dispositivo no se puede quitar", async ({ page }) => {
+    const api = await prepararSesion(page);
+    api.dispositivos[1] = { ...api.dispositivos[1]!, ubicacion: { lat: 19.41, lon: -99.17, lugar: "Roma Norte", en: "2026-10-06T16:05:00.000Z" } };
+    await page.goto("/#ajustes");
+    await page.getByRole("button", { name: /Atajo.*Roma Norte/ }).click();
+    const hoja = page.getByRole("dialog", { name: "Atajo" });
+    await expect(hoja.getByRole("img", { name: "Mapa de dónde estaba Atajo" })).toBeVisible();
+    await expect(hoja.getByRole("link", { name: /Roma Norte/ })).toHaveAttribute("href", /maps\.apple\.com\/\?ll=19\.41,-99\.17/);
+    await hoja.getByRole("button", { name: "Listo" }).click();
+
+    await page.getByRole("button", { name: /iPhone 17 Pro Max/ }).click();
+    await expect(page.getByRole("dialog").getByText("Este dispositivo")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Quitar este dispositivo" })).toHaveCount(0);
+  });
+
+  test("las instalaciones viejas se juntan aparte y se quitan de una vez", async ({ page }) => {
+    const api = await prepararSesion(page);
+    // Dos Atajos reinstalados: el viejo dejó de usarse cuando llegó el nuevo.
+    api.dispositivos = [
+      api.dispositivos[0]!,
+      { id: "a-1", nombre: "Atajo Finanzas", creadoEn: "2026-09-21T02:00:00.000Z", ultimoUso: "2026-09-30T02:00:00.000Z", actual: false },
+      { id: "a-2", nombre: "Atajo Finanzas", creadoEn: "2026-10-01T02:00:00.000Z", ultimoUso: "2026-10-06T16:00:00.000Z", actual: false },
+      { id: "a-3", nombre: "Atajo Finanzas", creadoEn: "2026-10-05T02:00:00.000Z", ultimoUso: null, actual: false },
+      { id: "p-1", nombre: "Atajo Apple Pay", creadoEn: "2026-09-21T02:00:00.000Z", ultimoUso: "2026-09-29T02:00:00.000Z", actual: false },
+      { id: "p-2", nombre: "Atajo Apple Pay", creadoEn: "2026-10-01T02:00:00.000Z", ultimoUso: "2026-10-05T02:00:00.000Z", actual: false },
+    ];
+    await page.goto("/#ajustes");
+    await expect(page.getByText("2 ya no se usan: puedes quitarlos en «Ver todos».")).toBeVisible();
+    await page.getByRole("button", { name: /Ver todos/ }).click();
+    const viejos = page.locator("section", { has: page.getByRole("heading", { name: "Ya no se usan" }) });
+    await expect(viejos.getByRole("button", { name: /Atajo/ })).toHaveCount(2);
+    await viejos.getByRole("button", { name: "Quitar los 2" }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Quitar" }).click();
+    await expect(page.getByText("2 dispositivos quitados")).toBeVisible();
+    expect(api.peticiones.filter((p) => p.metodo === "DELETE").map((p) => p.ruta).sort()).toEqual(["/v1/dispositivos/a-1", "/v1/dispositivos/p-1"]);
+    await expect(page.getByRole("heading", { name: "Ya no se usan" })).toHaveCount(0);
+  });
+
+  test("invitar a alguien y agregar otro dispositivo", async ({ page }) => {
+    const api = await prepararSesion(page);
+    await page.goto("/#ajustes");
     await page.getByRole("button", { name: /Agregar otro dispositivo/ }).click();
     const hoja = page.getByRole("dialog");
     await expect(hoja.locator("[data-codigo]")).toHaveText("K7M2QX");
@@ -455,17 +519,58 @@ test.describe("Ajustes", () => {
     await page.getByRole("button", { name: /Invitar a alguien/ }).click();
     await expect(page.getByRole("dialog").getByText("Invitar a alguien")).toBeVisible();
     expect(api.de("POST", "/v1/invitaciones")[1]?.cuerpo).toEqual({ para: "usuario" });
-    await page.getByRole("dialog").getByRole("button", { name: "Listo" }).click();
+  });
 
-    await page.getByRole("button", { name: "Quitar MacBook Pro" }).click();
-    await page.getByRole("alertdialog").getByRole("button", { name: "Quitar" }).click();
-    await expect(page.getByText("MacBook Pro")).toHaveCount(0);
-    expect(api.de("DELETE", "/v1/dispositivos/dis-3")).toHaveLength(1);
+  test("el tema se elige en Apariencia, se recuerda y manda sobre el del teléfono", async ({ page }) => {
+    await page.emulateMedia({ colorScheme: "light" });
+    await prepararSesion(page);
+    await page.goto("/#ajustes");
+    const apariencia = page.getByRole("radiogroup", { name: "Apariencia" });
+    const fondo = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    await expect(apariencia.getByRole("radio", { name: /Automático/ })).toHaveAttribute("aria-checked", "true");
+    expect(await fondo()).toBe("rgb(242, 242, 247)");
+
+    await apariencia.getByRole("radio", { name: /Oscuro/ }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-tema", "oscuro");
+    expect(await fondo()).toBe("rgb(0, 0, 0)");
+    await expect(page.locator('meta[name="theme-color"]').first()).toHaveAttribute("content", "#000000");
+
+    // Se recuerda al volver a abrir la app.
+    await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("data-tema", "oscuro");
+    await expect(page.getByRole("radiogroup", { name: "Apariencia" }).getByRole("radio", { name: /Oscuro/ })).toHaveAttribute("aria-checked", "true");
+
+    // Claro aunque el teléfono esté en oscuro; Automático vuelve a seguirlo.
+    await page.emulateMedia({ colorScheme: "dark" });
+    await page.getByRole("radiogroup", { name: "Apariencia" }).getByRole("radio", { name: /Claro/ }).click();
+    expect(await fondo()).toBe("rgb(242, 242, 247)");
+    await page.getByRole("radiogroup", { name: "Apariencia" }).getByRole("radio", { name: /Automático/ }).click();
+    await expect(page.locator("html")).not.toHaveAttribute("data-tema", /.+/);
+    expect(await fondo()).toBe("rgb(0, 0, 0)");
+  });
+
+  test("las secciones abren su pantalla y «Ajustes» regresa", async ({ page }) => {
+    await prepararSesion(page);
+    await page.goto("/#ajustes");
+    await page.getByRole("button", { name: /Notificaciones/ }).click();
+    await expect(page.getByRole("switch", { name: "Notificaciones" })).toBeVisible();
+    await page.getByRole("button", { name: "Ajustes" }).first().click();
+    await page.getByRole("button", { name: /Atajos de iPhone/ }).click();
+    await expect(page.getByRole("button", { name: /Anotar mis pagos con Apple Pay/ })).toBeVisible();
+    await page.getByRole("button", { name: "Ajustes" }).first().click();
+    await page.getByRole("button", { name: /^Sistema/ }).click();
+    await expect(page.getByRole("region", { name: "Sistema" })).toBeVisible();
+    await page.getByRole("button", { name: "Ajustes" }).first().click();
+    await page.getByRole("button", { name: /Pedro Ramírez/ }).click();
+    await expect(page.getByRole("button", { name: /Cómo te saludo/ })).toBeVisible();
+    // El enlace viejo a las notificaciones de Ajustes abre su pantalla.
+    await page.goto("/#ajustes?seccion=notificaciones");
+    await expect(page.getByRole("switch", { name: "Notificaciones" })).toBeVisible();
   });
 
   test("instalar el Atajo pide la URL con el origen, lo descarga y muestra los pasos", async ({ page }) => {
     const api = await prepararSesion(page);
-    await page.goto("/#ajustes");
+    await page.goto("/#atajos");
     const descarga = page.waitForEvent("download");
     await page.getByRole("button", { name: /Instalar el Atajo/ }).click();
     const archivo = await descarga;
@@ -484,7 +589,7 @@ test.describe("Ajustes", () => {
 
   test("cerrar sesión borra el token", async ({ page }) => {
     await prepararSesion(page);
-    await page.goto("/#ajustes");
+    await page.goto("/#perfil");
     await page.getByRole("button", { name: /Cerrar sesión en este dispositivo/ }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Cerrar sesión" }).click();
     await expect(page.getByRole("heading", { name: "Entra a Finanzas" })).toBeVisible();

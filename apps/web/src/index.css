@@ -1,7 +1,19 @@
 @import "tailwindcss";
 
-/* Colores con nombre de rol. Claro y oscuro siguen la preferencia del sistema. */
-/* Paleta del sistema de iOS. Claro y oscuro siguen la preferencia del teléfono. */
+/* Oscuro: el que el usuario eligió en Ajustes › Apariencia (data-tema en <html>, lib/tema.ts) o, en
+   Automático, el del teléfono. Lo usan `dark:` y los bloques `@variant dark` de abajo. */
+@custom-variant dark {
+  &:where([data-tema="oscuro"], [data-tema="oscuro"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-tema="claro"]), :root:not([data-tema="claro"]) *) {
+      @slot;
+    }
+  }
+}
+
+/* Paleta del sistema de iOS. Claro y oscuro siguen la preferencia del teléfono o la de Ajustes. */
 :root {
   color-scheme: light;
   --background: #f2f2f7;
@@ -73,8 +85,8 @@
   --salud-5: #0a9fe0;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
+:root {
+  @variant dark {
     color-scheme: dark;
     --background: #000000;
     --foreground: #ffffff;
@@ -509,8 +521,8 @@
 }
 
 /* En oscuro, una hoja es una superficie elevada: sus grupos van un tono más claro (como iOS). */
-@media (prefers-color-scheme: dark) {
-  [data-slot="sheet"] {
+[data-slot="sheet"] {
+  @variant dark {
     --background: #1c1c1e;
     --card: #2c2c2e;
     --elevated: #3a3a3c;

@@ -6,7 +6,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { crearApp, type OpcionesApp } from "../src/app";
 import { crearDispositivo, crearInvitacion } from "../src/auth";
 import { abrirBaseDatos } from "../src/db/client";
-import { descargasAtajo, entradas, recurrentes } from "../src/db/schema";
+import { configuracion, descargasAtajo, entradas, recurrentes } from "../src/db/schema";
 
 type Json = Record<string, any>;
 
@@ -91,6 +91,29 @@ describe("registro con código de invitación", () => {
     expect((await pedir(`/v1/dispositivos/${id}`, { metodo: "DELETE", token })).estado).toBe(200);
     expect((await pedir("/v1/yo", { token: otro })).estado).toBe(401);
     expect((await pedir(`/v1/dispositivos/${id}`, { metodo: "DELETE", token })).estado).toBe(404);
+  });
+
+  test("cada dispositivo recuerda dónde dictó por última vez y lo olvida al quitarlo", async () => {
+    const { db, pedir } = montar();
+    const { token, usuario } = await entrar(pedir, db);
+    const atajo = crearDispositivo(db, usuario.id, "Atajo Finanzas");
+    const ubicacionDe = async (nombre: string) =>
+      ((await pedir("/v1/yo", { token })).cuerpo.dispositivos as Json[]).find((d) => d.nombre === nombre)?.ubicacion;
+    expect(await ubicacionDe("Atajo Finanzas")).toBeNull();
+
+    // Sin monto: el modelo simulado no contesta y la petición falla, pero la ubicación ya quedó.
+    const dictar = (cuerpo: Json) => pedir("/v1/hablar", { cuerpo: { client_id: crypto.randomUUID(), ...cuerpo }, token: atajo });
+    await dictar({ texto: "hola", lat: 19.41, lon: -99.17, lugar: "Roma Norte", capturado_en: "2026-10-14T10:00:00Z" });
+    expect(await ubicacionDe("Atajo Finanzas")).toEqual({ lat: 19.41, lon: -99.17, lugar: "Roma Norte", en: "2026-10-14T10:00:00.000Z" });
+    // Un dictado viejo que la cola reenvía después no la pisa.
+    await dictar({ texto: "hola", lat: 20.67, lon: -103.35, capturado_en: "2026-10-13T10:00:00Z" });
+    expect((await ubicacionDe("Atajo Finanzas")).lugar).toBe("Roma Norte");
+    // La app (sin ubicación) no tiene.
+    expect(await ubicacionDe("iPhone")).toBeNull();
+
+    const id = ((await pedir("/v1/yo", { token })).cuerpo.dispositivos as Json[]).find((d) => d.nombre === "Atajo Finanzas")!.id;
+    expect((await pedir(`/v1/dispositivos/${id}`, { metodo: "DELETE", token })).estado).toBe(200);
+    expect(db.select().from(configuracion).all().some((f) => f.clave.includes(id))).toBe(false);
   });
 
   test("las cuentas no se ven entre sí", async () => {
