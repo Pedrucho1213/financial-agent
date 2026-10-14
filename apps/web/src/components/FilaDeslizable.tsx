@@ -1,4 +1,4 @@
-import { Trash } from "lucide-react";
+import { Pencil, Trash } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
 import { haptico } from "../lib/haptico";
 import { cn } from "../lib/utils";
@@ -10,12 +10,13 @@ const BORRADO_COMPLETO = 0.6; // fracción del ancho de la fila
 let cerrarAbierta: (() => void) | null = null;
 
 /**
- * Fila que se desliza a la izquierda para mostrar "Eliminar".
+ * Fila que se desliza a la izquierda para mostrar "Editar" (si se da `alEditar`) y "Eliminar".
  * Deslizar hasta el fondo elimina de una vez. Tocarla abre el detalle.
  */
 export function FilaDeslizable({
   children,
   alTocar,
+  alEditar,
   alEliminar,
   deshabilitada,
   className,
@@ -23,6 +24,7 @@ export function FilaDeslizable({
 }: {
   children: ReactNode;
   alTocar: () => void;
+  alEditar?: () => void;
   alEliminar: () => void;
   deshabilitada?: boolean;
   className?: string;
@@ -30,9 +32,9 @@ export function FilaDeslizable({
 }) {
   const fila = useRef<HTMLDivElement>(null);
   const frente = useRef<HTMLDivElement>(null);
-  const fondo = useRef<HTMLButtonElement>(null);
-  const acciones = useRef({ alTocar, alEliminar, deshabilitada });
-  acciones.current = { alTocar, alEliminar, deshabilitada };
+  const fondo = useRef<HTMLDivElement>(null);
+  const acciones = useRef({ alTocar, alEditar, alEliminar, deshabilitada });
+  acciones.current = { alTocar, alEditar, alEliminar, deshabilitada };
   const arrastro = useRef(false);
 
   useEffect(() => {
@@ -112,8 +114,9 @@ export function FilaDeslizable({
         window.setTimeout(() => acciones.current.alEliminar(), 180);
         return;
       }
+      const abierta = acciones.current.alEditar ? ANCHO_BOTON * 2 : ANCHO_BOTON;
       if (-actual > ANCHO_BOTON / 2) {
-        poner(-ANCHO_BOTON, true);
+        poner(-abierta, true);
         cerrarAbierta = cerrar;
       } else {
         cerrar();
@@ -135,19 +138,35 @@ export function FilaDeslizable({
 
   return (
     <div ref={fila} className={cn("relative overflow-hidden", className)}>
-      <button
-        ref={fondo}
-        type="button"
-        tabIndex={-1}
-        aria-hidden
-        onClick={() => acciones.current.alEliminar()}
-        className="absolute inset-y-0 right-0 flex w-0 items-center justify-center overflow-hidden bg-destructive text-[15px] font-medium text-white"
-      >
-        <span className="flex min-w-[84px] flex-col items-center gap-0.5">
-          <Trash className="size-5" />
-          Eliminar
-        </span>
-      </button>
+      <div ref={fondo} aria-hidden className="absolute inset-y-0 right-0 flex w-0 overflow-hidden text-[15px] font-medium text-white">
+        {alEditar ? (
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={() => {
+              cerrarAbierta?.();
+              acciones.current.alEditar?.();
+            }}
+            className="flex flex-1 items-center justify-center overflow-hidden bg-orange"
+          >
+            <span className="flex min-w-[84px] flex-col items-center gap-0.5">
+              <Pencil className="size-5" />
+              Editar
+            </span>
+          </button>
+        ) : null}
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={() => acciones.current.alEliminar()}
+          className="flex flex-1 items-center justify-center overflow-hidden bg-destructive"
+        >
+          <span className="flex min-w-[84px] flex-col items-center gap-0.5">
+            <Trash className="size-5" />
+            Eliminar
+          </span>
+        </button>
+      </div>
       <div
         ref={frente}
         role="button"

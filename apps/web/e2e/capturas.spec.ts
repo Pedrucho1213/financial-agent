@@ -31,8 +31,8 @@ for (const esquema of ["light", "dark"] as const) {
       await prepararSesion(page, api);
 
       await page.goto("/#inicio");
-      await expect(page.getByRole("heading", { name: /Octubre/ })).toBeVisible();
-      await expect(page.locator("[data-grafica] svg").first()).toBeVisible();
+      await expect(page.getByRole("region", { name: "Gastado" })).toBeVisible();
+      await expect(page.getByRole("region", { name: "En qué se va" })).toBeVisible();
       await capturar(page, `inicio-${sufijo}`);
       // Pasar el dedo por la gráfica de ritmo cambia el número grande.
       const ritmo = page.getByRole("img", { name: /Ritmo de gasto/ });
@@ -43,8 +43,12 @@ for (const esquema of ["light", "dark"] as const) {
         await page.screenshot({ path: `${DIR}/inicio-ritmo-${sufijo}.png` });
         await page.mouse.move(2, 2);
       }
-      await page.getByRole("region", { name: "Destacados" }).scrollIntoViewIfNeeded();
-      await capturar(page, `inicio-destacados-${sufijo}`);
+      await page.getByRole("region", { name: "Para ti" }).scrollIntoViewIfNeeded();
+      await capturar(page, `inicio-para-ti-${sufijo}`);
+      await page.getByRole("button", { name: /^Notificaciones/ }).click();
+      await expect(page.getByRole("dialog", { name: "Notificaciones" })).toBeVisible();
+      await capturar(page, `inicio-campana-${sufijo}`);
+      await page.keyboard.press("Escape");
       await page.evaluate(() => window.scrollTo(0, 820));
       await capturar(page, `inicio-graficas-${sufijo}`);
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));

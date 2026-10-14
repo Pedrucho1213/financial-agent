@@ -18,9 +18,9 @@ for (const esquema of ["light", "dark"] as const) {
     await prepararSesion(page);
 
     await page.goto("/#inicio");
-    await expect(page.getByRole("region", { name: "Avisos" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Para ti" })).toContainText("Te pasaste en Entretenimiento");
     await capturar(page, `inicio-avisos-${sufijo}`);
-    await page.getByRole("button", { name: /Presupuestos y metas/ }).scrollIntoViewIfNeeded();
+    await page.getByRole("navigation", { name: "Accesos" }).scrollIntoViewIfNeeded();
     await page.evaluate(() => window.scrollBy(0, -120));
     await capturar(page, `inicio-accesos-${sufijo}`);
 

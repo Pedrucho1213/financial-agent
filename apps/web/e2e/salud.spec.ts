@@ -16,19 +16,20 @@ const abrir = async (page: Page, hash: string, salud: object | null) => {
   await page.goto(`/${hash}`);
   return api;
 };
-const tarjeta = (page: Page) => page.getByRole("button", { name: /^Salud financiera/ });
+const tarjeta = (page: Page) => page.getByRole("region", { name: "Salud financiera" });
 
 test("una cuenta sin el módulo no ve nada nuevo en Inicio", async ({ page }) => {
   await abrir(page, "#inicio", null);
-  await expect(page.getByRole("button", { name: /^Cuentas y tarjetas/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Análisis/ })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Lo que tienes" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Accesos" }).getByRole("button", { name: "Análisis" })).toBeVisible();
   await expect(tarjeta(page)).toHaveCount(0);
 });
 
 test("Inicio: la tarjeta dice el nivel y la alerta, y abre la página", async ({ page }) => {
   await abrir(page, "#inicio", FIXTURA.sinIngreso);
-  await expect(tarjeta(page)).toContainText("Sobregirado · Revolut crédito al 91%");
-  await tarjeta(page).click();
+  await expect(tarjeta(page)).toContainText("Sobregirado");
+  await expect(tarjeta(page)).toContainText("Revolut crédito va al 91% de su límite.");
+  await tarjeta(page).getByRole("button", { name: /^Salud financiera: Sobregirado/ }).click();
   await expect(page).toHaveURL(/#salud$/);
   await expect(page.getByTestId("titulo-salud")).toHaveText("Sobregirado");
 });

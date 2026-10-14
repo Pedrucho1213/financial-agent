@@ -20,7 +20,7 @@ for (const esquema of ["light", "dark"] as const) {
     test(`análisis (${sufijo})`, async ({ page }) => {
       await prepararSesion(page, conHistorial(new ApiFalsa()));
       await page.goto("/#inicio");
-      await expect(page.getByRole("button", { name: /^Análisis Tendencias/ })).toBeVisible();
+      await expect(page.getByRole("navigation", { name: "Accesos" }).getByRole("button", { name: "Análisis" })).toBeVisible();
       await capturar(page, `inicio-acceso-${sufijo}`);
 
       await page.goto("/#analisis");

@@ -414,7 +414,7 @@ test.describe("Entrar con usuario y código", () => {
     await page.getByLabel("Dispositivo").fill("iPhone 13");
     await page.getByLabel("Código", { exact: true }).press("Enter");
 
-    await expect(page.getByRole("heading", { name: /Octubre/ })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Gastado" })).toBeVisible();
     expect(await page.evaluate(() => localStorage.getItem("fa_token"))).toBe(TOKEN);
     const peticiones = api.de("POST", "/v1/entrar");
     expect(peticiones).toHaveLength(3);

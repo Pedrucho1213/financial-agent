@@ -35,7 +35,7 @@ import {
 } from "../lib/saldos";
 import type { CuentaConMes, Cuentas as CuentasApi, EstadoCuenta, MovimientoApp, TipoCuenta } from "../lib/tipos";
 import { cn } from "../lib/utils";
-import { tituloDe } from "./Movimientos";
+import { tituloDe } from "../components/FilaMovimiento";
 
 // Colores del reparto: siguen a la cuenta (su lugar en la lista del servidor), no a su tamaño.
 const COLORES = ["var(--serie-1)", "var(--serie-5)", "var(--serie-4)", "var(--serie-3)", "var(--serie-6)", "var(--serie-7)"];

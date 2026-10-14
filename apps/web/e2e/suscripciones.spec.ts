@@ -17,9 +17,7 @@ const hoja = (page: Page) => page.getByRole("dialog");
 
 test("Inicio lleva a Suscripciones con lo que se va al mes", async ({ page }) => {
   await abrir(page, "#inicio");
-  const tarjeta = page.getByRole("button", { name: /^Suscripciones \$9,848\.00 al mes · 3/ });
-  await expect(tarjeta).toBeVisible();
-  await tarjeta.click();
+  await page.getByRole("navigation", { name: "Accesos" }).getByRole("button", { name: "Suscripciones" }).click();
   await expect(page).toHaveURL(/#suscripciones$/);
   await expect(page.locator("[data-resumen-suscripciones]")).toContainText("$9,848.00");
   await expect(page.locator("[data-resumen-suscripciones]")).toContainText("3 activas · 1 pausada");
@@ -113,14 +111,16 @@ test("eliminar pide confirmación", async ({ page }) => {
 
 test("los próximos cobros de Inicio llevan a Suscripciones", async ({ page }) => {
   await abrir(page, "#inicio");
-  await page.getByRole("button", { name: "Suscripciones", exact: true }).click();
+  const proximos = page.getByRole("region", { name: "Próximos cobros" });
+  await expect(proximos).toContainText("Netflix");
+  await proximos.getByRole("button", { name: "Suscripciones", exact: true }).click();
   await expect(page).toHaveURL(/#suscripciones$/);
 });
 
-test("un servidor sin suscripciones (404) no muestra la tarjeta y la pantalla lo explica", async ({ page }) => {
+test("un servidor sin suscripciones (404): Inicio carga igual y la pantalla lo explica", async ({ page }) => {
   await abrir(page, "#inicio", conCuentas(new ApiFalsa()));
-  await expect(page.getByRole("button", { name: /^Etiquetas/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Suscripciones \$/ })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Lo que tienes" })).toBeVisible();
+  await expect(page.locator("[data-sonner-toast]")).toHaveCount(0);
   await page.goto("/#suscripciones");
   await expect(page.getByText("Aún no está en tu servidor")).toBeVisible();
 });

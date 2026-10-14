@@ -21,8 +21,10 @@ import {
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AsistenteDelMes } from "../components/analisis/Asistente";
+import { DelMes } from "../components/analisis/DelMes";
 import { BarrasFlujo, BarrasPeriodo } from "../components/analisis/Barras";
 import { CalendarioCalor, LeyendaCalor, RejillaCalor } from "../components/analisis/Calor";
+import { LogoMarca } from "../components/Logo";
 import { Pantalla } from "../components/Pantalla";
 import { Button } from "../components/ui/button";
 import { FilaBoton, Grupo, TituloSeccion } from "../components/ui/lista";
@@ -42,6 +44,7 @@ import {
   type Tono,
 } from "../lib/analisis";
 import { mensajeDeError } from "../lib/api";
+import { marcaDe } from "../lib/marcas";
 import { preguntarAlChat } from "../lib/chat";
 import { useEnLinea } from "../lib/conexion";
 import { useCategorias, useFilasAnalisis, useYo } from "../lib/consultas";
@@ -249,6 +252,7 @@ function Contenido({
           <Insights items={insights} />
           {periodo === "mes" && a.enCurso && !categoria ? <AsistenteDelMes mes={a.rango.desde.slice(0, 7)} moneda={moneda} gastado={a.totales.gasto} /> : null}
           <Categorias a={a} slots={slots} categoria={categoria} nombreCategoria={nombreCategoria} alFiltrar={alFiltrar} />
+          {periodo === "mes" && !categoria ? <DelMes mes={a.rango.desde.slice(0, 7)} /> : null}
           <Calendario a={a} filas={filas} categorias={categorias} categoria={categoria} />
           <Cuando a={a} />
           {categoria ? null : <Naturaleza a={a} />}
@@ -808,9 +812,13 @@ function Lugares({ a }: { a: DatosAnalisis }) {
             key={c.id}
             sangria="4rem"
             icono={
-              <span aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-full bg-fill text-[15px] font-semibold tabular">
-                {i + 1}
-              </span>
+              marcaDe(c.nombre) ? (
+                <LogoMarca clave={marcaDe(c.nombre)!} tamano={36} />
+              ) : (
+                <span aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-fill text-[15px] font-semibold tabular">
+                  {i + 1}
+                </span>
+              )
             }
             titulo={c.nombre}
             subtitulo={`${c.cantidad} ${c.cantidad === 1 ? "vez" : "veces"} · ${dinero(Math.round(c.centavos / Math.max(1, c.cantidad)), a.moneda)} c/u`}
