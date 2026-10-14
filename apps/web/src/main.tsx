@@ -2,6 +2,7 @@ import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { iniciarActualizaciones } from "./lib/actualizacion";
 import { clienteConsultas, guardarSinConexion, persistidor } from "./lib/consultas";
 import "./index.css";
 import { aplicarTema } from "./lib/tema";
@@ -28,6 +29,8 @@ window.addEventListener("vite:preloadError", (evento) => {
   evento.preventDefault();
   window.location.reload();
 });
+
+iniciarActualizaciones();
 
 const raiz = document.getElementById("root");
 if (!raiz) throw new Error("Falta #root");
