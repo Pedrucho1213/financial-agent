@@ -111,3 +111,20 @@ for (const ancho of [320, 390]) {
     });
   }
 }
+
+// Escribiendo: sin la barra de abajo, la caja de escribir queda donde iría el teclado.
+test("IA escribiendo (oscuro)", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  const api = new ApiFalsa();
+  api.hablar = [200, { respuesta: "Tienes 18,791 pesos en tus cuentas y debes 105,098.56 en tarjetas.", conversacion_id: "c1", acciones: [{ herramienta: "consultar_cuentas" }] }];
+  await prepararSesion(page, api);
+  await page.goto("/#chat");
+  await page.getByLabel("Mensaje").fill("¿Cuánto tengo?");
+  await page.getByLabel("Mensaje").press("Enter");
+  await expect(page.getByText(/Tienes 18,791/)).toBeVisible();
+  // Cada herramienta con su nombre en español, no "consultar cuentas".
+  await expect(page.getByText("Revisó tus cuentas")).toBeVisible();
+  await page.getByLabel("Mensaje").fill("Acabo de transferir 2 mil pesos");
+  await expect(page.getByRole("navigation", { name: "Secciones" })).not.toBeInViewport();
+  await capturar(page, "ia-escribiendo-oscuro");
+});
