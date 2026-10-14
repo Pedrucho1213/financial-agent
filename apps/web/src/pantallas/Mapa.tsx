@@ -1,5 +1,6 @@
 import { X } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
+import { ContenidoConMonto } from "../components/ContenidoConMonto";
 import { LogoMovimiento } from "../components/Logo";
 import type { Lugar } from "../components/MapaLugares";
 import { Pantalla } from "../components/Pantalla";
@@ -214,25 +215,28 @@ export function Mapa() {
               {lugares.slice(0, MAX_LISTA).map((l, i) => (
                 <FilaBoton
                   key={l.clave}
-                  // En pantallas angostas el número se quita para que el subtítulo no se corte.
+                  // En pantallas angostas el número se quita para dejarle sitio al nombre.
                   className={cn("[--sangria:5.75rem] max-[359px]:[--sangria:4.25rem]", l.clave === sel && "bg-fill")}
-                  icono={
-                    <span className="flex shrink-0 items-center gap-2.5">
-                      <span aria-hidden className="w-[18px] text-center text-[15px] font-semibold text-muted-foreground tabular max-[359px]:hidden">
-                        {i + 1}
-                      </span>
-                      <LogoMovimiento comercio={l.comercio} descripcion={l.descripcion} categoria={l.categoria} tipo="gasto" tamano={36} />
-                    </span>
-                  }
-                  titulo={l.nombre}
-                  subtitulo={`${l.cantidad} ${l.cantidad === 1 ? "vez" : "veces"} · ${pct(l.centavos / Math.max(1, total))}`}
-                  valor={<span className="font-medium text-foreground tabular">{dinero(l.centavos, moneda)}</span>}
                   onClick={() => {
                     haptico();
                     setSel(l.clave);
                     window.scrollTo({ top: 0, behavior: "smooth" });
                   }}
-                />
+                >
+                  <ContenidoConMonto
+                    icono={
+                      <span className="flex shrink-0 items-center gap-2.5">
+                        <span aria-hidden className="w-[18px] text-center text-[15px] font-semibold text-muted-foreground tabular max-[359px]:hidden">
+                          {i + 1}
+                        </span>
+                        <LogoMovimiento comercio={l.comercio} descripcion={l.descripcion} categoria={l.categoria} tipo="gasto" tamano={36} />
+                      </span>
+                    }
+                    titulo={l.nombre}
+                    subtitulo={`${l.cantidad} ${l.cantidad === 1 ? "vez" : "veces"} · ${pct(l.centavos / Math.max(1, total))}`}
+                    valor={<span className="font-medium text-foreground tabular">{dinero(l.centavos, moneda)}</span>}
+                  />
+                </FilaBoton>
               ))}
             </Grupo>
           </section>

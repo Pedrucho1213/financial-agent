@@ -1,6 +1,7 @@
 import { List, Mic, Plus, Sparkles, Tag, Trash } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { ContenidoConMonto } from "../components/ContenidoConMonto";
 import { Pantalla } from "../components/Pantalla";
 import { Spinner } from "../components/Spinner";
 import { Button } from "../components/ui/button";
@@ -141,28 +142,26 @@ export function Etiquetas({ params }: { params: URLSearchParams }) {
               }
             >
               {lista.map((e) => (
-                <FilaBoton
-                  key={e.id}
-                  sangria="4rem"
-                  data-etiqueta={e.nombre}
-                  icono={
-                    <span aria-hidden className={cn("flex size-9 shrink-0 items-center justify-center rounded-[10px]", vigente(e, hoy) ? "bg-tint text-white" : "bg-tint/15 text-tint")}>
-                      <Tag className="size-[18px]" strokeWidth={2.2} />
-                    </span>
-                  }
-                  titulo={e.nombre}
-                  subtitulo={<span className="block whitespace-normal">{lineaEtiqueta(e, periodo)}</span>}
-                  valor={
-                    e.gastadoCentavos || e.ingresadoCentavos ? (
-                      <span className="block text-right tabular">
-                        {e.gastadoCentavos ? <span className="block font-medium text-foreground">{dinero(e.gastadoCentavos, moneda)}</span> : null}
-                        {e.ingresadoCentavos ? <span className="block text-[13px] text-positive">+{dinero(e.ingresadoCentavos, moneda)}</span> : null}
+                <FilaBoton key={e.id} sangria="4rem" data-etiqueta={e.nombre} onClick={() => setHoja(e)}>
+                  <ContenidoConMonto
+                    icono={
+                      <span aria-hidden className={cn("flex size-9 shrink-0 items-center justify-center rounded-[10px]", vigente(e, hoy) ? "bg-tint text-white" : "bg-tint/15 text-tint")}>
+                        <Tag className="size-[18px]" strokeWidth={2.2} />
                       </span>
-                    ) : undefined
-                  }
-                  chevron
-                  onClick={() => setHoja(e)}
-                />
+                    }
+                    titulo={e.nombre}
+                    subtitulo={lineaEtiqueta(e, periodo)}
+                    valor={
+                      e.gastadoCentavos || e.ingresadoCentavos ? (
+                        <span className="block text-right tabular">
+                          {e.gastadoCentavos ? <span className="block font-medium text-foreground">{dinero(e.gastadoCentavos, moneda)}</span> : null}
+                          {e.ingresadoCentavos ? <span className="block text-[13px] text-positive">+{dinero(e.ingresadoCentavos, moneda)}</span> : null}
+                        </span>
+                      ) : undefined
+                    }
+                    chevron
+                  />
+                </FilaBoton>
               ))}
               <FilaBoton
                 sangria="4rem"
