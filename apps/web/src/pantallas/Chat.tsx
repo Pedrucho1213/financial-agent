@@ -165,7 +165,7 @@ export function Chat() {
                 : "Pregunta por tus gastos o dime lo que compraste."}
             </p>
             {uso?.aviso || uso?.limite != null ? (
-              <p className={cn("mt-2 max-w-[20rem] text-[15px] text-balance", uso.quedan === 0 || uso.aviso ? "text-negative" : "text-muted-foreground")}>
+              <p className={cn("mt-2 max-w-[20rem] text-[15px] text-balance", uso.aviso && !uso.modoBasico ? "text-negative" : "text-muted-foreground")}>
                 {uso.aviso ??
                   (uso.quedan === 0
                     ? "Ya usaste tus consultas de IA de hoy. Mañana se renuevan."
@@ -302,7 +302,7 @@ function Contador({
   largo: number;
   maximo: number;
   porConsulta: number;
-  uso: { limite: number | null; quedan: number | null } | undefined;
+  uso: { limite: number | null; quedan: number | null; modoBasico?: boolean } | undefined;
 }) {
   const consultas = Math.max(1, Math.ceil(largo / porConsulta));
   const pocas = uso?.quedan != null && uso.quedan <= 10;
@@ -310,10 +310,10 @@ function Contador({
   if (largo > maximo) partes.push(`${largo}/${maximo} · Muy largo, divídelo en partes`);
   else if (largo > porConsulta) partes.push(`${largo}/${maximo} · Cuenta como ${consultas} consultas`);
   if (pocas && largo <= maximo) partes.push(
-      uso.quedan === 0 ? "Sin consultas de IA hasta mañana" : uso.quedan === 1 ? "Te queda 1 consulta hoy" : `Te quedan ${uso.quedan} consultas hoy`,
+      uso.quedan === 0 ? (uso.modoBasico ? "Modo básico hasta mañana" : "Sin IA hasta mañana") : uso.quedan === 1 ? "Te queda 1 consulta hoy" : `Te quedan ${uso.quedan} consultas hoy`,
     );
   if (!partes.length) return null;
-  const alerta = largo > maximo || uso?.quedan === 0 || (uso?.quedan != null && consultas > uso.quedan);
+  const alerta = largo > maximo || (uso?.quedan === 0 && !uso.modoBasico);
   return (
     <div className="pointer-events-none mx-auto mb-1.5 flex max-w-3xl justify-end px-safe">
       <span

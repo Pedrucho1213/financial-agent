@@ -34,8 +34,10 @@ export type EstadoSistema = {
     maxCaracteres: number;
     /** Cada cuántos caracteres de un mensaje se cuenta otra consulta. */
     caracteresPorConsulta: number;
-    /** Si ya no puede usar la IA hoy por algo que no son sus consultas (su tope del día o la pausa de la app), por qué. */
+    /** Si hoy ya no tiene la IA de siempre (modo básico, su tope del día o la pausa de la app), qué decirle. */
     aviso?: string;
+    /** Ya usó sus consultas de hoy y sigue con respuestas más cortas. */
+    modoBasico?: boolean;
     mes?: { costoUsd: number; presupuestoUsd: number | null };
   };
 };

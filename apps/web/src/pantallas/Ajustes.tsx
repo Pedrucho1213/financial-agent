@@ -609,7 +609,7 @@ function FilaUsoIa({ uso }: { uso: NonNullable<EstadoSistema["uso"]> }) {
             : undefined)
       }
       valor={
-        <span className={cn("tabular-nums", uso.quedan === 0 && "text-negative")}>
+        <span className={cn("tabular-nums", uso.quedan === 0 && !uso.modoBasico && "text-negative")}>
           {uso.limite !== null ? `${uso.consultas} de ${uso.limite}` : uso.consultas}
         </span>
       }

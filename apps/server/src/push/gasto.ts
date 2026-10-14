@@ -4,7 +4,7 @@ import type { Db } from "../db/client";
 import { type EnviarPush, notificar } from "./notificaciones";
 
 /** Después de cada llamada al modelo: si el gasto de Claude se dispara, le llega una notificación al dueño (ai/uso.ts). */
-export function avisoDeGasto(db: Db, limites: LimitesIa, enviar?: EnviarPush) {
+export function avisoDeGasto(db: Db, limites: LimitesIa | undefined, enviar?: EnviarPush) {
   return (dia: string) => {
     try {
       const dueno = idDueno(db);

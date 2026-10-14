@@ -139,7 +139,10 @@ export function costoDelDia(db: Db, dia: string, usuarioId?: string): number {
   return Number(fila?.micro ?? 0) / 1e6;
 }
 
-/** Por qué una cuenta ya no puede usar la IA: sus consultas, su tope en USD del día o la pausa de toda la app. */
+/**
+ * Por qué una cuenta ya no puede usar la IA como siempre: sus consultas (entonces sigue en modo básico), su tope en USD
+ * del día o la pausa de toda la app (entonces se queda sin IA hasta mañana o el próximo mes).
+ */
 export type Bloqueo = "consultas" | "dia" | "pausa-dia" | "pausa-mes";
 
 /**
@@ -166,22 +169,39 @@ export type UsoDeHoy = {
   /** null: sin tope (la cuenta dueña, o IA_CONSULTAS_DIA=0). */
   limite: number | null;
   quedan: number | null;
-  /** Si ya no puede usar la IA hoy por algo que no son sus consultas, qué decirle. */
+  /** Si hoy ya no tiene la IA de siempre (modo básico, o sin IA), qué decirle. */
   aviso?: string;
+  /** Ya usó sus consultas y sigue con respuestas más cortas. */
+  modoBasico?: boolean;
 };
 
 export function usoDeHoy(db: Db, usuarioId: string, dia: string, limites: LimitesIa | undefined): UsoDeHoy {
   const consultas = consultasDelDia(db, usuarioId, dia);
   const limite = limites && limites.consultasDia > 0 && !esDueno(db, usuarioId) ? limites.consultasDia : null;
   const bloqueo = bloqueoIa(db, usuarioId, dia, limites);
-  const aviso = bloqueo && bloqueo !== "consultas" ? respuestaSinIa(bloqueo, limite ?? 0) : undefined;
-  return { consultas, limite, quedan: limite === null ? null : aviso ? 0 : Math.max(0, limite - consultas), ...(aviso ? { aviso } : {}) };
+  const aviso = bloqueo === "consultas" ? EN_MODO_BASICO : bloqueo ? respuestaSinIa(bloqueo, limite ?? 0) : undefined;
+  return { consultas, limite, quedan: limite === null ? null : aviso ? 0 : Math.max(0, limite - consultas), ...(aviso ? { aviso } : {}), ...(bloqueo === "consultas" ? { modoBasico: true } : {}) };
 }
 
 /** Si ya gastó su tope del mes en el modelo difícil: entonces todo lo contesta el principal. */
 export function sinModeloDificil(db: Db, usuarioId: string, dia: string, limites: LimitesIa | undefined): boolean {
   if (!limites || limites.topeDificilUsd <= 0 || esDueno(db, usuarioId)) return false;
   return costoDelMes(db, dia, { usuarioId, familia: "sonnet" }) >= limites.topeDificilUsd;
+}
+
+/**
+ * Modo básico: al acabarse las consultas del día no se queda sin IA; sigue con el modelo principal (nunca Sonnet) y
+ * respuestas más cortas, hasta su tope en USD del día. Así nadie se queda sin IA por usarla mucho, y la factura sigue
+ * acotada (2026-10-14).
+ */
+export const MAX_SALIDA_BASICO = 300;
+export const AVISO_MODO_BASICO = "Ya usaste tus consultas de hoy, así que sigo en modo básico: respuestas más cortas hasta mañana.";
+/** Lo que ven la app y Ajustes mientras está en modo básico. */
+export const EN_MODO_BASICO = "Modo básico hasta mañana: ya usaste tus consultas de hoy y las respuestas son más cortas.";
+
+/** true solo la primera vez que se pregunta por `clave` (queda anotada en `configuracion`). */
+export function primeraVez(db: Db, clave: string): boolean {
+  return !!db.insert(configuracion).values({ clave, valor: true }).onConflictDoNothing().returning({ clave: configuracion.clave }).get();
 }
 
 /** Lo que se le dice al llegar al tope del día. */
@@ -211,7 +231,7 @@ export function avisoDeConsultas(uso: UsoDeHoy, costo = 1): string | undefined {
   const largo = costo > 1 ? `Por lo largo, ese mensaje contó como ${costo} consultas.` : undefined;
   const quedan =
     uso.quedan === 0
-      ? "Con esto usaste todas tus consultas de IA de hoy; mañana se renuevan."
+      ? "Con esto usaste tus consultas de IA de hoy; desde ahora sigo en modo básico, con respuestas más cortas, hasta mañana."
       : uso.quedan > 5
         ? undefined
         : uso.quedan === 1
@@ -279,13 +299,5 @@ export function avisosDeGasto(db: Db, dia: string, limites: LimitesIa | undefine
       etiqueta: `gasto-ia-${fila.usuarioId}`,
     });
   }
-  return avisos.flatMap(({ clave, ...aviso }) => {
-    const insertada = db
-      .insert(configuracion)
-      .values({ clave: `aviso-gasto-ia:${clave}`, valor: true })
-      .onConflictDoNothing()
-      .returning({ clave: configuracion.clave })
-      .get();
-    return insertada ? [aviso] : [];
-  });
+  return avisos.flatMap(({ clave, ...aviso }) => (primeraVez(db, `aviso-gasto-ia:${clave}`) ? [aviso] : []));
 }

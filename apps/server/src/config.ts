@@ -64,8 +64,9 @@ export const config = {
     // Antes de abrir al público: IA_INTERRUPTOR=0 o quitarlo.
     interruptor: env("IA_INTERRUPTOR", "1") !== "0",
   },
-  // Topes que cuidan la factura de Claude (ai/uso.ts). 0 apaga cada uno (2026-10-14).
-  limitesIa: {
+  // Topes que cuidan la factura de Claude (ai/uso.ts). 0 apaga cada uno; IA_TOPES=0 los apaga todos de golpe, por si
+  // algo sale mal (2026-10-14).
+  limitesIa: env("IA_TOPES", "1") === "0" ? undefined : {
     // Consultas al modelo por día y por cuenta: lo que la app y el Atajo le dicen que le queda. La dueña no tiene.
     consultasDia: Math.max(0, Math.floor(Number(env("IA_CONSULTAS_DIA", "40"))) || 0),
     // USD al mes en el modelo difícil (Sonnet) por cuenta; al pasarlo, saldos y tarjetas los contesta Haiku.

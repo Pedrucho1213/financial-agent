@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { MockLanguageModelV4 } from "ai/test";
 import { hablar, precalentar } from "../src/ai/asistente";
 import {
+  AVISO_MODO_BASICO,
   avisoDeConsultas,
   avisosDeGasto,
   bloqueoIa,
@@ -9,9 +10,10 @@ import {
   consultasDelDia,
   costoDelMes,
   costoMicroUsd,
+  EN_MODO_BASICO,
   MAX_DICTADO,
+  MAX_SALIDA_BASICO,
   RESPUESTA_MUY_LARGO,
-  RESPUESTA_SIN_CONSULTAS,
   respuestaSinIa,
   sinModeloDificil,
   usoDeHoy,
@@ -36,9 +38,11 @@ const uso = (entrada: number, salida: number, lectura = 0, escritura = 0) => ({
 /** Modelo falso que registra el monto dictado y contesta como si fuera Claude Haiku. */
 function modeloHaiku() {
   let llamadas = 0;
+  let maxSalida: number | undefined;
   const modelo = new MockLanguageModelV4({
-    doGenerate: async ({ prompt }) => {
+    doGenerate: async ({ prompt, maxOutputTokens }) => {
       llamadas++;
+      maxSalida = maxOutputTokens;
       const primerPaso = prompt.at(-1)?.role === "user";
       const respuesta = { modelId: "claude-haiku-5-5" };
       if (!primerPaso) return { content: [{ type: "text", text: "Listo." }], finishReason: { unified: "stop", raw: undefined }, usage: uso(1000, 20), warnings: [], response: respuesta };
@@ -53,7 +57,7 @@ function modeloHaiku() {
       };
     },
   });
-  return { modelo, llamadas: () => llamadas };
+  return { modelo, llamadas: () => llamadas, maxSalida: () => maxSalida };
 }
 
 function montar(limites?: LimitesIa) {
@@ -90,30 +94,43 @@ describe("consultas del día", () => {
     expect(costoDelMes(db, hoy())).toBeGreaterThan(0);
   });
 
-  test("al llegar al tope, ya no se llama al modelo y se le dice cuándo se renuevan", async () => {
+  test("al acabarse las consultas sigue en modo básico, con respuestas más cortas y un solo aviso al día", async () => {
     const { ana, ia, deps } = montar({ consultasDia: 2, topeDificilUsd: 0 });
     await hablar(deps, ana.id, { texto: "gasté 120 en tacos", clientId: "ana-0001" });
     const segunda = await hablar(deps, ana.id, { texto: "gasté 80 en café", clientId: "ana-0002" });
-    expect(segunda.respuesta).toContain("Con esto usaste todas tus consultas de IA de hoy");
+    expect(segunda.respuesta).toEndWith("Con esto usaste tus consultas de IA de hoy; desde ahora sigo en modo básico, con respuestas más cortas, hasta mañana.");
+    expect(ia.maxSalida()).toBe(600);
     const antes = ia.llamadas();
     const tercera = await hablar(deps, ana.id, { texto: "gasté 50 en pan", clientId: "ana-0003" });
-    expect(tercera.respuesta).toBe(RESPUESTA_SIN_CONSULTAS(2));
+    expect(ia.llamadas()).toBeGreaterThan(antes);
+    expect(ia.maxSalida()).toBe(MAX_SALIDA_BASICO);
+    expect(tercera.respuesta).toEndWith(AVISO_MODO_BASICO);
+    expect(tercera.acciones.length).toBeGreaterThan(0);
+    const cuarta = await hablar(deps, ana.id, { texto: "gasté 30 en agua", clientId: "ana-0004" });
+    expect(cuarta.respuesta).not.toContain("modo básico");
+  });
+
+  test("el modo básico se acaba en el tope en USD del día: ahí se explica y no se llama al modelo", async () => {
+    const { db, ana, ia, deps } = montar({ consultasDia: 1, topeDificilUsd: 0, topeDiaUsd: 0.25 });
+    await hablar(deps, ana.id, { texto: "gasté 120 en tacos", clientId: "ana-0301" });
+    gastado(db, ana.id, 0.25);
+    const antes = ia.llamadas();
+    expect((await hablar(deps, ana.id, { texto: "gasté 50 en pan", clientId: "ana-0302" })).respuesta).toBe(respuestaSinIa("dia", 1));
     expect(ia.llamadas()).toBe(antes);
   });
 
   test("cada 500 caracteres cuentan como una consulta; el último dictado pasa aunque cueste más de lo que queda", async () => {
-    const { db, ana, ia, deps } = montar({ consultasDia: 2, topeDificilUsd: 0 });
+    const { db, ana, deps, ia } = montar({ consultasDia: 2, topeDificilUsd: 0 });
     await hablar(deps, ana.id, { texto: "gasté 120 en tacos", clientId: "ana-0201" });
-    // 1,200 caracteres: 3 consultas, con solo 1 disponible. Se procesa y se avisa.
+    // 1,200 caracteres: 3 consultas, con solo 1 disponible. Se procesa completo y se avisa.
     const largo = `gasté 300 en el súper ${"y también compré algo más ".repeat(46)}`.slice(0, 1200);
     const r = await hablar(deps, ana.id, { texto: largo, clientId: "ana-0202" });
     expect(r.respuesta).toContain("Por lo largo, ese mensaje contó como 3 consultas.");
-    expect(r.respuesta).toEndWith("Con esto usaste todas tus consultas de IA de hoy; mañana se renuevan.");
-    expect(usoDeHoy(db, ana.id, hoy(), deps.limitesIa)).toEqual({ consultas: 4, limite: 2, quedan: 0 });
-    // Ya no pasa nada más hoy: se pasó del tope solo por ese dictado.
-    const antes = ia.llamadas();
-    expect((await hablar(deps, ana.id, { texto: "gasté 50 en pan", clientId: "ana-0203" })).respuesta).toBe(RESPUESTA_SIN_CONSULTAS(2));
-    expect(ia.llamadas()).toBe(antes);
+    expect(r.respuesta).toEndWith("desde ahora sigo en modo básico, con respuestas más cortas, hasta mañana.");
+    expect(usoDeHoy(db, ana.id, hoy(), deps.limitesIa)).toEqual({ consultas: 4, limite: 2, quedan: 0, aviso: EN_MODO_BASICO, modoBasico: true });
+    // Lo que sigue hoy va en modo básico.
+    expect((await hablar(deps, ana.id, { texto: "gasté 50 en pan", clientId: "ana-0203" })).respuesta).toEndWith(AVISO_MODO_BASICO);
+    expect(ia.maxSalida()).toBe(MAX_SALIDA_BASICO);
   });
 
   test("con pocas consultas, la respuesta dice cuántas quedan", async () => {
