@@ -26,7 +26,7 @@ type Mov = ReturnType<typeof buscarMovimientos>["movimientos"][number];
 export type Resultado = Respuesta & { movimientos: Mov[]; recurrentes: ReturnType<typeof listarRecurrentes>["recurrentes"]; ctx: Contexto };
 
 export type Caso = {
-  grupo: "registro" | "dificil" | "charla" | "consulta" | "edicion" | "conversacion" | "recurrentes" | "autonomia" | "planes" | "analisis" | "cuentas" | "deudas" | "cobros";
+  grupo: "registro" | "dificil" | "charla" | "consulta" | "edicion" | "conversacion" | "recurrentes" | "autonomia" | "planes" | "analisis" | "cuentas" | "deudas" | "cobros" | "etiquetas";
   frase: string;
   preparar?: (ctx: Contexto) => void;
   /** Lo que el usuario dijo antes en la misma conversación. */
@@ -1506,5 +1506,35 @@ export const CASOS: Caso[] = [
     frase: "¿Cuánto pago al mes de suscripciones?",
     preparar: netflixHoy,
     verificar: (r) => motivo(dice(r, "348") && r.movimientos.length === 0, r.respuesta),
+  },
+
+  // Etiquetas automáticas (finanzas/etiquetas-auto.ts): innecesario y de contexto sin pedirlas; lo demás sin etiqueta.
+  ...(
+    [
+      ["gasté 180 en unos churros", ["Innecesario"]],
+      ["pedí unos tacos por Rappi, 250", ["Innecesario"]],
+      ["comida con clientes del trabajo, 850 en La Docena", ["Trabajo"]],
+      ["le compré unas flores a mi mamá, 300", ["Mamá"]],
+      ["pagué 1,200 de luz", []],
+      ["súper 950 en Walmart", []],
+      ["Uber 120", []],
+    ] as const
+  ).map(
+    ([frase, esperadas]): Caso => ({
+      grupo: "etiquetas",
+      frase,
+      verificar: (r) => {
+        const m = unoSolo(r);
+        const puestas = (m?.etiquetas ?? []).map((e) => normalizar(e));
+        const ok = !!m && (esperadas.length ? esperadas.every((e) => puestas.some((p) => p.includes(normalizar(e)))) : puestas.length === 0);
+        return motivo(ok, { etiquetas: m?.etiquetas, respuesta: r.respuesta });
+      },
+    }),
+  ),
+  {
+    grupo: "etiquetas",
+    frase: "el último no fue innecesario",
+    preparar: (ctx) => crearMovimiento(ctx, { tipo: "gasto", monto: 90, comercio: "Starbucks", categoria: "Café", etiquetas: ["Innecesario"] }),
+    verificar: (r) => motivo(r.movimientos.length === 1 && !r.movimientos[0]!.etiquetas?.length, { etiquetas: r.movimientos[0]?.etiquetas, respuesta: r.respuesta }),
   },
 ];

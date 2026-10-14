@@ -344,7 +344,8 @@ export type Aviso = {
     | "prestamo"
     | "gasto_inusual"
     | "tarjeta_pago"
-    | "tarjeta_limite";
+    | "tarjeta_limite"
+    | "viaje";
   titulo: string;
   texto: string;
   fecha: string;

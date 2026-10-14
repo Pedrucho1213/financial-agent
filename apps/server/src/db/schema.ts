@@ -525,6 +525,7 @@ export const TIPOS_AVISO = [
   "gasto_inusual",
   "tarjeta_pago",
   "tarjeta_limite",
+  "viaje",
 ] as const;
 
 // Lo que el revisor nocturno encontró (fugas, cobros que vienen, presupuestos en riesgo). El push y

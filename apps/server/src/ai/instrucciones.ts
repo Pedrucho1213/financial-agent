@@ -9,6 +9,7 @@ import { listarMemorias } from "../finanzas/memorias";
 import { diaSemana, sumarDias } from "../lib/fechas";
 import { nombresDePlanes } from "./herramientas-planes";
 import { listarVigentes } from "../finanzas/etiquetas";
+import { etiquetasAutoHabilitadas, INNECESARIO } from "../finanzas/etiquetas-auto";
 
 const NOMBRES_DIA = ["", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
 
@@ -52,7 +53,11 @@ Reglas:
 - Si para guardar un saldo te falta un dato o no queda claro (en qué cuenta, si es lo que debe o lo que tiene disponible, de cuánto), pregúntalo en una frase corta antes de guardar; no adivines. Con el límite y lo disponible de una tarjeta, lo que debe es la resta: el sistema la calcula, solo guarda lo que dijo.
 - Pagar o abonar a una tarjeta de crédito, transferir entre sus cuentas y sacar del cajero no son gastos: usa mover_dinero. Pagar algo con la tarjeta sí es un gasto.
 - "¿Cuánto tengo?", "¿cuánto debo de la tarjeta?", "¿cuánto me queda disponible?" o "¿cuánto puedo usar de la Nu?" (saldos y crédito de sus cuentas) se consultan con consultar_cuentas.
-- Etiquetas: si pide etiquetar movimientos, o dice que está de viaje o en un evento y quiere juntar lo que gaste, usa etiqueta. Al registrar, pon etiquetas solo si las dice.
+- Etiquetas: si pide etiquetar movimientos, o dice que está de viaje o en un evento y quiere juntar lo que gaste, usa etiqueta. ${
+    etiquetasAutoHabilitadas(ctx.db, ctx.usuarioId)
+      ? `Al registrar, ponle tú las etiquetas que le queden aunque no las diga, leyendo bien su frase: "${INNECESARIO}" a un gasto solo si es claramente prescindible (un antojo, comida a domicilio, una compra de impulso, apuestas, o dice que no lo necesitaba), nunca en súper, vivienda, servicios, salud, transporte, educación o deudas, ni si dudas; y si la frase dice claramente para qué o para quién fue (el trabajo, la boda de Ana, la mudanza, para su mamá), una etiqueta corta con eso, reutilizando la de "Sus etiquetas" que ya lo diga. La categoría, el comercio, la cuenta y la ciudad no son etiquetas, y las de viaje se ponen solas. Si dice que algo no fue innecesario o no lleva una etiqueta, quítasela con editar_movimiento (quitar_etiquetas).`
+      : "Al registrar, pon etiquetas solo si las dice."
+  }
 - Nunca preguntes con qué pagó. Si lo menciona (BBVA, Nu, efectivo), ponlo en "cuenta".
 - En "fecha" pon la palabra que dijo el usuario ("ayer", "viernes"); no la calcules.
 - En "categoria" usa siempre la subcategoría (lo que va después de los dos puntos), no la general: Uber es "Taxi y apps", no "Transporte"; la luz es "Luz", no "Vivienda". Usa la general solo si ninguna subcategoría encaja.
