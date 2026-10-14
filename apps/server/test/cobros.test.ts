@@ -60,12 +60,14 @@ const dictado = (ctx: Contexto, frase: string): Contexto => ({ ...ctx, textoOrig
 const gastos = (db: Db) => db.select().from(movimientos).all().filter((m) => !m.eliminadoEn);
 
 describe("interruptor", () => {
-  test("solo la cuenta dueña, salvo que se abra a todas o se apague", () => {
+  test("abierta a todas las cuentas, salvo que se regrese a la dueña o se apague", () => {
     const { db, usuario } = preparar();
     const otra = crearUsuario(db, "Ana");
-    expect(cobrosHabilitado(db, usuario.id, undefined)).toBe(true);
-    expect(cobrosHabilitado(db, otra.id, undefined)).toBe(false);
+    expect(cobrosHabilitado(db, usuario.id, "")).toBe(true);
+    expect(cobrosHabilitado(db, otra.id, "")).toBe(true);
     expect(cobrosHabilitado(db, otra.id, "1")).toBe(true);
+    expect(cobrosHabilitado(db, usuario.id, "dueno")).toBe(true);
+    expect(cobrosHabilitado(db, otra.id, "dueno")).toBe(false);
     expect(cobrosHabilitado(db, usuario.id, "0")).toBe(false);
   });
 

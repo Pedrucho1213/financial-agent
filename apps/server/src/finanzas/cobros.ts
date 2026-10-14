@@ -24,13 +24,14 @@ export type Cobro = typeof cobros.$inferSelect;
 type Origen = "app" | "voz" | "apple_pay";
 
 /**
- * Si la confirmación de cobros (y el centro de avisos) está abierta para este usuario. Mientras se prueba, solo la
- * cuenta dueña (la que se creó primero): CONFIRMAR_COBROS=1 la abre a todas y CONFIRMAR_COBROS=0 la apaga.
+ * Si la confirmación de cobros (y el centro de avisos) está abierta para este usuario. Abierta a todas las cuentas
+ * desde el 14-oct-2026; CONFIRMAR_COBROS=dueno la regresa a solo la cuenta dueña (la que se creó primero) y
+ * CONFIRMAR_COBROS=0 la apaga.
  */
 export function cobrosHabilitado(db: Db, usuarioId: string, entorno: string | undefined = process.env.CONFIRMAR_COBROS): boolean {
   const modo = (entorno ?? "").trim().toLowerCase();
   if (modo === "0" || modo === "no" || modo === "apagado") return false;
-  if (modo === "1" || modo === "si" || modo === "sí" || modo === "todos" || modo === "todas") return true;
+  if (modo !== "dueno" && modo !== "dueño") return true;
   const dueno = db.select({ id: usuarios.id }).from(usuarios).orderBy(usuarios.creadoEn, sql`rowid`).limit(1).get();
   return dueno?.id === usuarioId;
 }

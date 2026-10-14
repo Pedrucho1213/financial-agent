@@ -30,8 +30,8 @@ const esquemaPreferencias = z.object({
 const invalido = (error: z.ZodError) => ({ error: "Datos inválidos.", detalles: z.flattenError(error).fieldErrors });
 
 /**
- * Confirmar los cobros de suscripciones y pagos fijos, y qué avisos quiere por notificación. Mientras se prueba, solo
- * para la cuenta dueña (CONFIRMAR_COBROS): a las demás, 404 y la app no lo muestra.
+ * Confirmar los cobros de suscripciones y pagos fijos, y qué avisos quiere por notificación. Con CONFIRMAR_COBROS=dueno
+ * o =0, las cuentas que no lo tienen reciben 404 y la app no lo muestra.
  */
 export function rutasCobros(v1: Hono<{ Variables: VariablesAuth }>, db: Db, contexto: (usuarioId: string) => Contexto) {
   v1.use("/cobros/*", async (c, next) => {

@@ -3,8 +3,8 @@ import { useEffect, useSyncExternalStore } from "react";
 import { api, ErrorApi } from "./api";
 import { useRefrescarDatos } from "./consultas";
 
-// Cobros de suscripciones y pagos fijos: en su fecha la app pregunta si ya se pagaron (GET /v1/cobros). Mientras
-// se prueba, el servidor lo abre solo a la cuenta dueña: a las demás contesta 404 y la app no muestra nada.
+// Cobros de suscripciones y pagos fijos: en su fecha la app pregunta si ya se pagaron (GET /v1/cobros). Si el
+// servidor lo tiene apagado para esta cuenta (CONFIRMAR_COBROS), contesta 404 y la app no muestra nada.
 
 export type EstadoCobro = "pendiente" | "pagado" | "saltado" | "sin_confirmar";
 
