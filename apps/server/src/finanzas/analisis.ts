@@ -42,7 +42,7 @@ const FIJAS = new Set(
   ["Vivienda", "Renta", "Luz", "Agua", "Gas", "Internet y teléfono", "Mantenimiento", "Seguro", "Educación", "Suscripciones", "Streaming", "Música", "Software", "Otras suscripciones", "Gimnasio"].map(normalizar),
 );
 // Donde de verdad se puede recortar, aunque la categoría general sea una necesidad (Comida).
-const RECORTABLES = new Set(["Restaurantes", "Café", "Antojos", "Delivery", "Taxi y apps"].map(normalizar));
+export const RECORTABLES = new Set(["Restaurantes", "Café", "Antojos", "Delivery", "Taxi y apps"].map(normalizar));
 
 const suma = (filas: Mov[]) => filas.reduce((s, m) => s + m.montoCentavos, 0);
 const redondear = (centavos: number, a = 10_000) => Math.round(centavos / a) * a;

@@ -16,7 +16,7 @@ import { construirInstrucciones, datosDelUsuario } from "./instrucciones";
 import { pagoDeFrase } from "../finanzas/applepay";
 import { preguntaDeTarjeta } from "../finanzas/tarjeta-wallet";
 import { crearHerramientas, type Accion } from "./herramientas";
-import { comoVoySinModelo, CONSULTAS_ANALISIS } from "./herramientas-analisis";
+import { comoVoySinModelo, CONSULTAS_ANALISIS, saludDeVozSinModelo } from "./herramientas-analisis";
 import { CONSULTAS_PLANES } from "./herramientas-planes";
 import { CONSULTAS_CUENTAS } from "./herramientas-cuentas";
 import { datoDeCuentas, hablaDeCuentas, nombresDeTarjetas } from "../finanzas/cuentas";
@@ -1000,6 +1000,7 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
     dictadoRepetido(ctx, entrada) ??
     pendienteSinModelo(ctx, entrada) ??
     comoVoySinModelo(ctx, entrada.texto, acciones) ??
+    saludDeVozSinModelo(ctx, entrada.texto, acciones) ??
     (await cuentaSinModelo(ctx, entrada.texto, acciones));
   if (directo) {
     texto = directo;

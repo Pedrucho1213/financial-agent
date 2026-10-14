@@ -232,6 +232,8 @@ export class ApiFalsa {
   cuentas: DatosCuentas | null = null;
   /** GET /v1/analisis por enfoque (lo que el asistente dice por voz); null = servidor sin él (404). */
   asistente: Partial<Record<string, unknown>> | null = null;
+  /** GET /v1/salud-financiera (ver salud-falsa.json); null = cuenta sin el módulo (404). */
+  salud: object | null = null;
 
   async instalar(page: Page) {
     await page.route(/\/v1\//, (route) => this.atender(route));
@@ -370,6 +372,7 @@ export class ApiFalsa {
       const enfoque = url.searchParams.get("enfoque") ?? "como_voy";
       return json(200, this.asistente[enfoque] ?? { enfoque, periodo: "mes", respuesta: "", hallazgos: [], gastadoCentavos: 0 });
     }
+    if (metodo === "GET" && ruta === "/v1/salud-financiera") return this.salud ? json(200, this.salud) : json(404, { error: "No encontrado." });
     if (metodo === "GET" && ruta === "/v1/categorias") return json(200, { categorias: CATEGORIAS });
     if (metodo === "GET" && ruta === "/v1/movimientos") return json(200, this.buscar(url.searchParams));
     if (metodo === "POST" && ruta === "/v1/movimientos") {

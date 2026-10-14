@@ -54,6 +54,7 @@ import { and, count, eq, gte, sql } from "drizzle-orm";
 import { avisoDeDictado, conversacionPorContestar } from "./push/dictados";
 import { desuscribir, type EnviarPush, ErrorSuscripcion, estadoPush, notificar, suscribir, tienePush } from "./push/notificaciones";
 import { notaDelGasto } from "./finanzas/comentario";
+import { saludFinanciera, saludHabilitada } from "./finanzas/salud";
 import { rutasIa } from "./rutas-ia";
 import { rutasPlanes } from "./rutas-planes";
 import { rutasRecurrentes } from "./rutas-recurrentes";
@@ -1040,6 +1041,13 @@ export function crearApp(opciones: OpcionesApp) {
   });
 
   v1.get("/tablero", (c) => c.json(tablero(contexto(c.get("usuarioId")), c.req.query("mes") || undefined)));
+
+  // Salud financiera (solo lee). Mientras se prueba, solo la cuenta dueña: a los demás, 404 y la app no la muestra.
+  v1.get("/salud-financiera", (c) => {
+    const usuarioId = c.get("usuarioId");
+    if (!saludHabilitada(db, usuarioId)) return c.json({ error: "No encontrado." }, 404);
+    return c.json(saludFinanciera(contexto(usuarioId)));
+  });
 
   const AGRUPACIONES = ["ninguno", "categoria", "subcategoria", "comercio", "dia"] as const;
   // ?tipo=ingreso resume ingresos; ?agrupar= cambia la agrupación (categoría por omisión).
