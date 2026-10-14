@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
 import { ApiFalsa, prepararSesion } from "./api-falsa";
+import { ponerEstado } from "./api-falsa-cuenta";
 import { vozFalsa } from "./voz-falsa";
 
 // Capturas de la pestaña IA (vacía, conversación y dictando), en claro, oscuro y a 320 px. No validan nada más.
@@ -24,10 +25,12 @@ for (const { esquema, ancho, sufijo } of casos) {
     await page.emulateMedia({ colorScheme: esquema });
     await vozFalsa(page);
     const api = new ApiFalsa();
+    ponerEstado(api, { uso: { consultas: 8, limite: 40, quedan: 32, maxCaracteres: 1500, caracteresPorConsulta: 500 } });
     await prepararSesion(page, api);
 
     await page.goto("/#chat");
     await expect(page.getByText("¿En qué te ayudo?")).toBeVisible();
+    await expect(page.getByText("Te quedan 32 consultas hoy")).toBeVisible();
     await page.getByRole("button", { name: "Dictar" }).click();
     await expect(page.getByRole("status", { name: "Escuchando" })).toBeVisible();
     await capturar(page, `ia-vacia-dictando-${sufijo}`);
@@ -51,3 +54,21 @@ for (const { esquema, ancho, sufijo } of casos) {
     await capturar(page, `ia-conversacion-${sufijo}`);
   });
 }
+
+// Bajo «IA», lo que queda: el modo básico (con su explicación) y, para la cuenta dueña, lo gastado del mes.
+test("IA: modo básico y gasto del mes bajo el título", async ({ page }) => {
+  const api = new ApiFalsa();
+  const aviso = "Modo básico hasta mañana: ya usaste tus consultas de hoy y las respuestas son más cortas.";
+  ponerEstado(api, { uso: { consultas: 41, limite: 40, quedan: 0, maxCaracteres: 1500, caracteresPorConsulta: 500, aviso, modoBasico: true } });
+  await prepararSesion(page, api);
+  await page.goto("/#chat");
+  await expect(page.getByText("Modo básico hasta mañana", { exact: true })).toBeVisible();
+  await capturar(page, "ia-modo-basico-claro");
+
+  ponerEstado(api, {
+    uso: { consultas: 12, limite: null, quedan: null, maxCaracteres: 1500, caracteresPorConsulta: 500, mes: { costoUsd: 1.2, presupuestoUsd: 50 } },
+  });
+  await page.reload();
+  await expect(page.getByText("$1.20 de $50.00 USD este mes")).toBeVisible();
+  await capturar(page, "ia-dueno-claro");
+});
