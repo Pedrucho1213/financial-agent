@@ -300,7 +300,7 @@ function Tablero({ t, esMesActual }: { t: Tablero; esMesActual: boolean }) {
               <Repeat className="size-[18px]" />
             </span>
             <p className="text-[15px] leading-snug text-muted-foreground">
-              Nada en los próximos 30 días. Dile al chat «Netflix 299 cada mes» y te aviso aquí.
+              Nada en los próximos 30 días. Dile a la IA «Netflix 299 cada mes» y te aviso aquí.
             </p>
           </div>
         )}

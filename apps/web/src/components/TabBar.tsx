@@ -1,4 +1,4 @@
-import { House, type LucideIcon, MessageCircle, Plus, ReceiptText, Settings } from "lucide-react";
+import { House, type LucideIcon, Plus, ReceiptText, Settings, Sparkles } from "lucide-react";
 import { haptico } from "../lib/haptico";
 import { hashDe, navegar, type Pestana } from "../lib/ruta";
 import { cn } from "../lib/utils";
@@ -6,7 +6,7 @@ import { cn } from "../lib/utils";
 const PESTANAS: { id: Pestana; etiqueta: string; Icono: LucideIcon }[] = [
   { id: "inicio", etiqueta: "Inicio", Icono: House },
   { id: "movimientos", etiqueta: "Movimientos", Icono: ReceiptText },
-  { id: "chat", etiqueta: "Chat", Icono: MessageCircle },
+  { id: "chat", etiqueta: "IA", Icono: Sparkles },
   { id: "ajustes", etiqueta: "Ajustes", Icono: Settings },
 ];
 
