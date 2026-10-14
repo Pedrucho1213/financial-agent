@@ -1,6 +1,7 @@
 import { CircleAlert, Mic, Pencil, Search, Smartphone, Sparkles, Trash2, Wallet } from "lucide-react";
 import { lazy, type ReactNode, Suspense, useEffect, useMemo } from "react";
 import { toast } from "sonner";
+import { Ajustado } from "../components/Ajustado";
 import { LogoCategoria, LogoMarca, LogoMovimiento } from "../components/Logo";
 import { Pantalla } from "../components/Pantalla";
 import { Button } from "../components/ui/button";
@@ -160,15 +161,15 @@ function Detalle({ m, enLinea }: { m: MovimientoApp; enLinea: boolean }) {
       <header className="flex flex-col items-center text-center animate-entrar">
         <LogoMovimiento comercio={m.comercio} descripcion={m.descripcion} categoria={m.categoria} tipo={m.tipo} tamano={72} />
         <h1 className="mt-3 max-w-full truncate px-4 text-[22px] leading-7 font-semibold">{titulo}</h1>
-        <p
+        <Ajustado
           className={cn(
-            "mt-1 text-[44px] leading-[1.15] font-bold tracking-[-0.025em] tabular",
+            "mt-1 max-w-full px-4 text-[44px] leading-[1.15] font-bold tracking-[-0.025em] tabular",
             m.tipo === "ingreso" && "text-positive",
           )}
         >
           {signo}
           {dinero(m.montoCentavos, m.moneda)}
-        </p>
+        </Ajustado>
         <p className="mt-1 text-[15px] text-muted-foreground first-letter:uppercase">{fecha}</p>
         <div className="mt-3 flex flex-wrap justify-center gap-1.5">
           <span className="flex items-center gap-1 rounded-full bg-fill px-2.5 py-1 text-[13px] font-semibold text-muted-foreground">
