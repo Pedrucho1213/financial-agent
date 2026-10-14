@@ -1,13 +1,13 @@
 import { CircleAlert, Mic, Pencil, Search, Smartphone, Sparkles, Trash2, Wallet } from "lucide-react";
-import { lazy, Suspense, useEffect, useMemo } from "react";
+import { lazy, type ReactNode, Suspense, useEffect, useMemo } from "react";
 import { toast } from "sonner";
+import { LogoCategoria, LogoMarca, LogoMovimiento } from "../components/Logo";
 import { Pantalla } from "../components/Pantalla";
 import { Button } from "../components/ui/button";
 import { Fila, FilaBoton, Grupo } from "../components/ui/lista";
 import { Skeleton } from "../components/ui/skeleton";
 import { eliminarConDeshacer } from "../lib/acciones";
 import { ErrorApi, mensajeDeError } from "../lib/api";
-import { iconoCategoria } from "../lib/categorias";
 import { preguntarAlChat } from "../lib/chat";
 import { useEnLinea } from "../lib/conexion";
 import { useMovimiento, useYo } from "../lib/consultas";
@@ -15,6 +15,7 @@ import { abrirEditor } from "../lib/editor";
 import { dinero, TIPOS } from "../lib/formato";
 import { haptico } from "../lib/haptico";
 import { leerCalles } from "../lib/mapa";
+import { marcaDe } from "../lib/marcas";
 import { hashDe, hashDetalle, navegar, volver } from "../lib/ruta";
 import type { MovimientoApp } from "../lib/tipos";
 import { cn } from "../lib/utils";
@@ -76,15 +77,10 @@ function FilaDeVarios({ id, editar }: { id: string; editar: boolean }) {
       </div>
     );
   }
-  const [Icono, color] = iconoCategoria(m.categoria, m.tipo);
   return (
     <FilaBoton
-      sangria="4rem"
-      icono={
-        <span aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: `${color}26`, color }}>
-          <Icono className="size-[18px]" />
-        </span>
-      }
+      sangria="4.25rem"
+      icono={<LogoMovimiento comercio={m.comercio} descripcion={m.descripcion} categoria={m.categoria} tipo={m.tipo} />}
       titulo={tituloDe(m)}
       subtitulo={m.categoria?.split(">").pop()?.trim() ?? TIPOS[m.tipo]}
       valor={
@@ -138,7 +134,7 @@ function UnMovimiento({ id, params }: { id: string | null; params: URLSearchPara
         </div>
       ) : (
         <div aria-busy className="flex flex-col items-center pt-8">
-          <Skeleton className="size-16 rounded-full" />
+          <Skeleton className="size-[72px] rounded-[20px]" />
           <Skeleton className="mt-4 h-6 w-40" />
           <Skeleton className="mt-3 h-10 w-48" />
           <Skeleton className="mt-8 h-40 w-full rounded-[20px]" />
@@ -149,7 +145,6 @@ function UnMovimiento({ id, params }: { id: string | null; params: URLSearchPara
 }
 
 function Detalle({ m, enLinea }: { m: MovimientoApp; enLinea: boolean }) {
-  const [Icono, color] = iconoCategoria(m.categoria, m.tipo);
   const titulo = tituloDe(m);
   const signo = m.tipo === "ingreso" ? "+" : m.tipo === "gasto" ? "−" : "";
   const origen = ORIGENES[m.origen];
@@ -163,13 +158,7 @@ function Detalle({ m, enLinea }: { m: MovimientoApp; enLinea: boolean }) {
   return (
     <div className="space-y-6 pt-4 pb-6">
       <header className="flex flex-col items-center text-center animate-entrar">
-        <span
-          aria-hidden
-          className="flex size-16 items-center justify-center rounded-full"
-          style={{ backgroundColor: `${color}26`, color }}
-        >
-          <Icono className="size-8" strokeWidth={2} />
-        </span>
+        <LogoMovimiento comercio={m.comercio} descripcion={m.descripcion} categoria={m.categoria} tipo={m.tipo} tamano={72} />
         <h1 className="mt-3 max-w-full truncate px-4 text-[22px] leading-7 font-semibold">{titulo}</h1>
         <p
           className={cn(
@@ -204,9 +193,25 @@ function Detalle({ m, enLinea }: { m: MovimientoApp; enLinea: boolean }) {
 
       <Grupo>
         <Fila titulo="Tipo" valor={TIPOS[m.tipo] ?? m.tipo} />
-        {mueve ? null : <Fila titulo="Categoría" valor={m.categoria?.replace(" > ", " › ") ?? "Sin categoría"} />}
-        {m.cuenta ? <Fila titulo={mueve ? "Desde" : m.tipo === "ingreso" ? "Llegó a" : "Pagado con"} valor={m.cuenta} /> : null}
-        {m.cuentaDestino ? <Fila titulo={m.tipo === "pago_tarjeta" ? "Tarjeta" : "Hacia"} valor={m.cuentaDestino} /> : null}
+        {mueve ? null : (
+          <Fila
+            titulo="Categoría"
+            valor={
+              <ConIcono icono={m.categoria ? <LogoCategoria nombre={m.categoria} tipo={m.tipo} tamano={22} /> : null}>
+                {m.categoria?.replace(" > ", " › ") ?? "Sin categoría"}
+              </ConIcono>
+            }
+          />
+        )}
+        {m.cuenta ? (
+          <Fila titulo={mueve ? "Desde" : m.tipo === "ingreso" ? "Llegó a" : "Pagado con"} valor={<ConIcono icono={<LogoCuenta nombre={m.cuenta} />}>{m.cuenta}</ConIcono>} />
+        ) : null}
+        {m.cuentaDestino ? (
+          <Fila
+            titulo={m.tipo === "pago_tarjeta" ? "Tarjeta" : "Hacia"}
+            valor={<ConIcono icono={<LogoCuenta nombre={m.cuentaDestino} />}>{m.cuentaDestino}</ConIcono>}
+          />
+        ) : null}
         {m.etiquetas?.length ? <Fila titulo="Etiquetas" valor={m.etiquetas.map((e) => `#${e.nombre}`).join(" ")} /> : null}
         {m.descripcion && m.comercio ? <Fila titulo="Nota" valor={m.descripcion} /> : null}
         {m.lugar ? <Fila titulo="Lugar" valor={m.lugar} /> : null}
@@ -281,4 +286,20 @@ function Detalle({ m, enLinea }: { m: MovimientoApp; enLinea: boolean }) {
       </Grupo>
     </div>
   );
+}
+
+/** Un valor de la lista con su logo chico a la izquierda (la categoría, el banco). */
+function ConIcono({ icono, children }: { icono: ReactNode; children: ReactNode }) {
+  return (
+    <span className="flex min-w-0 items-center justify-end gap-1.5">
+      {icono}
+      <span className="truncate">{children}</span>
+    </span>
+  );
+}
+
+/** El logo del banco de una cuenta, si se reconoce por su nombre. */
+function LogoCuenta({ nombre }: { nombre: string }) {
+  const clave = marcaDe(nombre);
+  return clave ? <LogoMarca clave={clave} tamano={22} /> : null;
 }
