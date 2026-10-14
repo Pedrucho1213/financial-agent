@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { type Anillo, Anillos } from "../components/Anillos";
 import { CampoMonto } from "../components/CampoMonto";
+import { LogoPago } from "../components/Logo";
 import { Pantalla } from "../components/Pantalla";
 import { Button } from "../components/ui/button";
 import { Fila, FilaBoton, Grupo, TituloSeccion } from "../components/ui/lista";
@@ -298,6 +299,8 @@ function Prestamos({ datos, moneda }: { datos: PrestamosApi | undefined; moneda:
         {personas.map((d) => (
           <FilaBoton
             key={`${d.persona}-${d.direccion}`}
+            sangria="4.25rem"
+            icono={<Inicial nombre={d.persona} />}
             titulo={d.persona}
             subtitulo={enVariasLineas(
               d.pagadoCentavos > 0 ? (
@@ -324,6 +327,23 @@ function Prestamos({ datos, moneda }: { datos: PrestamosApi | undefined; moneda:
       </Grupo>
       <HojaDeuda deuda={abierta} moneda={moneda} alCerrar={() => setAbierta(null)} />
     </section>
+  );
+}
+
+// Colores de iOS para las iniciales; cada persona siempre sale del mismo.
+const COLORES_INICIAL = ["#5ac8fa", "#ff9f0a", "#af52de", "#34c759", "#ff2d55", "#5856d6", "#ff9500", "#30b0c7"];
+
+/** La inicial de la persona en un círculo de color, como en Contactos. */
+function Inicial({ nombre }: { nombre: string }) {
+  const n = [...nombre].reduce((a, c) => a + c.charCodeAt(0), 0);
+  return (
+    <span
+      aria-hidden
+      className="flex size-10 shrink-0 items-center justify-center rounded-full text-[17px] font-semibold text-white"
+      style={{ background: COLORES_INICIAL[n % COLORES_INICIAL.length] }}
+    >
+      {nombre.trim().charAt(0).toUpperCase()}
+    </span>
   );
 }
 
@@ -473,6 +493,8 @@ function Msi({ datos, moneda }: { datos: ComprasMsi | undefined; moneda: string 
         {activas.map((c) => (
           <Fila
             key={c.id}
+            sangria="4.25rem"
+            icono={<LogoPago nombre={c.descripcion} categoria="Compras" />}
             titulo={c.descripcion}
             subtitulo={
               c.proximoCargo
