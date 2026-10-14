@@ -1,5 +1,6 @@
-import { MapPin, X } from "lucide-react";
+import { X } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
+import { LogoMovimiento } from "../components/Logo";
 import type { Lugar } from "../components/MapaLugares";
 import { Pantalla } from "../components/Pantalla";
 import { Button } from "../components/ui/button";
@@ -8,15 +9,20 @@ import { Segmented } from "../components/ui/segmented";
 import { Skeleton } from "../components/ui/skeleton";
 import { Switch } from "../components/ui/switch";
 import { mensajeDeError } from "../lib/api";
+import { iconoCategoria } from "../lib/categorias";
 import { type GastoConLugar, useGastosConLugar, useYo } from "../lib/consultas";
 import { dinero, hoyIso, pct, rangoDelMes, sumarMeses } from "../lib/formato";
 import { haptico } from "../lib/haptico";
 import { guardarCalles, leerCalles } from "../lib/mapa";
+import { MARCAS, marcaDe } from "../lib/marcas";
 import { hashDe, navegar, volver } from "../lib/ruta";
+import { cn } from "../lib/utils";
 
 const MapaLugares = lazy(() => import("../components/MapaLugares").then((m) => ({ default: m.MapaLugares })));
 
 type Periodo = "mes" | "3m" | "anio";
+/** Lugares en la lista (y con número en el mapa). */
+const MAX_LISTA = 15;
 const PERIODOS: { valor: Periodo; etiqueta: string }[] = [
   { valor: "mes", etiqueta: "Este mes" },
   { valor: "3m", etiqueta: "3 meses" },
@@ -36,9 +42,36 @@ const normalizar = (t: string) =>
     .replace(/[̀-ͯ]/g, "")
     .trim();
 
+type LugarConDatos = Lugar & {
+  busqueda: string;
+  comercio: string | null;
+  descripcion: string | null;
+  categoria: string | null;
+};
+
+const HEX = /#(?:[0-9a-f]{6}|[0-9a-f]{3})\b/gi;
+/** Qué tan claro es un color, de 0 (negro) a 1 (blanco). */
+const luz = (hex: string) => {
+  const h = hex.length === 4 ? `#${[...hex.slice(1)].map((c) => c + c).join("")}` : hex;
+  const n = Number.parseInt(h.slice(1, 7), 16);
+  return (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+};
+
+/**
+ * Los colores del círculo de un lugar: el de su marca (Walmart azul, Oxxo rojo…) o el de su categoría.
+ * El número va en blanco, o en gris oscuro si el color es muy claro.
+ */
+export function coloresDeLugar(l: { comercio: string | null; descripcion: string | null; categoria: string | null }) {
+  const m = MARCAS[marcaDe(l.comercio, l.descripcion) ?? ""];
+  // De un degradado se toma su color más fuerte (el último); un fondo blanco (Google, YouTube) usa su tinta.
+  const deMarca = m ? [(m.fondo.match(HEX) ?? []).at(-1), (m.tinta.match(HEX) ?? [])[0]].find((c) => c && luz(c) < 0.9) : undefined;
+  const fondo = deMarca ?? iconoCategoria(l.categoria, "gasto")[1];
+  return { fondo, tinta: luz(fondo) > 0.7 ? "#1c1c1e" : "#fff" };
+}
+
 /** Junta los gastos del mismo lugar: mismo nombre y a menos de ~100 m. Promedia la posición. */
-export function agruparLugares(gastos: GastoConLugar[], moneda: string): (Lugar & { busqueda: string })[] {
-  const grupos = new Map<string, Lugar & { busqueda: string; sumaLat: number; sumaLon: number }>();
+export function agruparLugares(gastos: GastoConLugar[], moneda: string): LugarConDatos[] {
+  const grupos = new Map<string, LugarConDatos & { sumaLat: number; sumaLon: number }>();
   for (const g of gastos) {
     if (g.moneda !== moneda) continue;
     const nombre = g.comercio ?? g.lugar ?? g.descripcion ?? "Sin nombre";
@@ -47,6 +80,9 @@ export function agruparLugares(gastos: GastoConLugar[], moneda: string): (Lugar 
       clave,
       nombre,
       busqueda: g.comercio ?? g.descripcion ?? "",
+      comercio: g.comercio,
+      descripcion: g.descripcion,
+      categoria: g.categoria ?? null,
       lat: 0,
       lon: 0,
       sumaLat: 0,
@@ -64,7 +100,8 @@ export function agruparLugares(gastos: GastoConLugar[], moneda: string): (Lugar 
   }
   return [...grupos.values()]
     .map(({ sumaLat: _a, sumaLon: _b, ...l }) => l)
-    .sort((a, b) => b.centavos - a.centavos);
+    .sort((a, b) => b.centavos - a.centavos)
+    .map((l, i) => ({ ...l, ...coloresDeLugar(l), numero: i < MAX_LISTA ? i + 1 : undefined }));
 }
 
 export function Mapa() {
@@ -97,7 +134,7 @@ export function Mapa() {
         />
 
         <div className="relative overflow-hidden rounded-[20px] bg-card">
-          <Suspense fallback={<Skeleton className="h-[360px] w-full rounded-none" />}>
+          <Suspense fallback={<Skeleton className="h-[260px] w-full rounded-none" />}>
             <MapaLugares
               lugares={lugares}
               seleccionado={sel}
@@ -106,7 +143,7 @@ export function Mapa() {
                 setSel(c);
               }}
               conCalles={conCalles}
-              className="h-[360px]"
+              className="h-[260px]"
             />
           </Suspense>
           {gastos.isPending ? (
@@ -125,18 +162,20 @@ export function Mapa() {
           ) : null}
           {elegido ? (
             <div className="absolute inset-x-3 bottom-3 z-[500] animate-entrar">
-              <div className="vidrio flex items-center gap-3 rounded-2xl py-2.5 pr-2 pl-3.5">
-                <span aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-full bg-tint text-white">
-                  <MapPin className="size-[18px]" />
-                </span>
-                <button type="button" className="min-w-0 flex-1 text-left active:opacity-60" onClick={() => verMovimientos(elegido)}>
-                  <span className="block truncate text-[17px] font-semibold">{elegido.nombre}</span>
-                  <span className="block truncate text-[13px] text-muted-foreground tabular">
-                    {dinero(elegido.centavos, moneda)} · {elegido.cantidad} {elegido.cantidad === 1 ? "vez" : "veces"} · Ver
+              <div className="vidrio flex items-center gap-1 rounded-[14px] py-2 pr-1 pl-2.5 shadow-[0_8px_24px_rgb(0_0_0/0.18)]">
+                <button type="button" className="flex min-w-0 flex-1 items-center gap-2.5 text-left active:opacity-60" onClick={() => verMovimientos(elegido)}>
+                  <LogoMovimiento comercio={elegido.comercio} descripcion={elegido.descripcion} categoria={elegido.categoria} tipo="gasto" tamano={32} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[16px] font-semibold">{elegido.nombre}</span>
+                    <span className="block truncate text-[13px] text-muted-foreground tabular">
+                      {dinero(elegido.centavos, moneda)} · {elegido.cantidad} {elegido.cantidad === 1 ? "vez" : "veces"}
+                    </span>
                   </span>
+                  {/* En pantallas angostas toda la tarjeta lleva a los movimientos; el «Ver» deja sitio al monto. */}
+                  <span className="shrink-0 rounded-full bg-tint/15 px-3 py-1 text-[13px] font-semibold text-tint max-[359px]:sr-only">Ver</span>
                 </button>
                 <Button variant="plain" size="icon" aria-label="Cerrar" onClick={() => setSel(null)}>
-                  <X className="size-5 text-muted-foreground" />
+                  <X className="size-[18px] text-muted-foreground" />
                 </Button>
               </div>
             </div>
@@ -172,17 +211,17 @@ export function Mapa() {
           <section>
             <TituloSeccion>Lugares</TituloSeccion>
             <Grupo>
-              {lugares.slice(0, 15).map((l, i) => (
+              {lugares.slice(0, MAX_LISTA).map((l, i) => (
                 <FilaBoton
                   key={l.clave}
-                  sangria="4rem"
-                  className={l.clave === sel ? "bg-fill" : undefined}
+                  // En pantallas angostas el número se quita para que el subtítulo no se corte.
+                  className={cn("[--sangria:5.75rem] max-[359px]:[--sangria:4.25rem]", l.clave === sel && "bg-fill")}
                   icono={
-                    <span
-                      aria-hidden
-                      className="flex size-9 shrink-0 items-center justify-center rounded-full bg-tint/15 text-[15px] font-semibold text-tint tabular"
-                    >
-                      {i + 1}
+                    <span className="flex shrink-0 items-center gap-2.5">
+                      <span aria-hidden className="w-[18px] text-center text-[15px] font-semibold text-muted-foreground tabular max-[359px]:hidden">
+                        {i + 1}
+                      </span>
+                      <LogoMovimiento comercio={l.comercio} descripcion={l.descripcion} categoria={l.categoria} tipo="gasto" tamano={36} />
                     </span>
                   }
                   titulo={l.nombre}
