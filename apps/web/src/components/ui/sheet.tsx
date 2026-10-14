@@ -153,9 +153,10 @@ export function SheetContent({
       >
         <div data-agarradera className="shrink-0 touch-none">
           <div aria-hidden className="mx-auto mt-[5px] h-[5px] w-9 rounded-full bg-muted-foreground/40" />
-          <header className="grid h-12 grid-cols-[1fr_auto_1fr] items-center gap-2 px-4">
+          {/* Los botones nunca se recortan; el título usa lo que queda y, si no cabe, termina en "…". */}
+          <header className="grid h-12 grid-cols-[minmax(max-content,1fr)_minmax(0,auto)_minmax(max-content,1fr)] items-center gap-2 px-4">
             <div className="flex min-w-0 justify-start">{izquierda}</div>
-            <DialogPrimitive.Title className="max-w-[55vw] truncate text-center text-[17px] font-semibold">
+            <DialogPrimitive.Title className="min-w-0 truncate text-center text-[17px] font-semibold">
               {titulo}
             </DialogPrimitive.Title>
             <div className="flex min-w-0 justify-end">{derecha}</div>

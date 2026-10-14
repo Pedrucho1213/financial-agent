@@ -1,9 +1,12 @@
-import { ChevronRight, Mic, Trash } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { ChevronDown, Mic, Plus, Trash } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { FilaCuenta } from "../components/cuentas/FilaCuenta";
+import { ElegirCuenta } from "../components/cuentas/ElegirCuenta";
+import { LogoCategoria, LogoMarca } from "../components/Logo";
 import { Spinner } from "../components/Spinner";
 import { Button } from "../components/ui/button";
+import { Chip, ChipVisual, Chips, TituloChips } from "../components/ui/chip";
 import { CampoFila } from "../components/ui/input";
 import { Fila, FilaBoton, Grupo } from "../components/ui/lista";
 import { Segmented } from "../components/ui/segmented";
@@ -18,7 +21,8 @@ import { useCuentas, useEtiquetas, useGuardarEtiqueta } from "../lib/cuentas";
 import { useUnaVez } from "../lib/una-vez";
 import { avisarCambiosSinGuardar, cerrarEditor, useEditor } from "../lib/editor";
 import { aFecha, fechaHora, hoyIso, leerMonto } from "../lib/formato";
-import type { DatosMovimiento, MovimientoApp, TipoMovimiento } from "../lib/tipos";
+import { marcaDe } from "../lib/marcas";
+import type { Categoria, DatosMovimiento, MovimientoApp, TipoMovimiento } from "../lib/tipos";
 import { cn } from "../lib/utils";
 
 type Formulario = {
@@ -49,6 +53,23 @@ function desde(m: MovimientoApp | null): Formulario {
 }
 
 const mismas = (a: string[], b: string[]) => a.length === b.length && [...a].sort().join() === [...b].sort().join();
+
+// Sin historial del mes, estas van primero (si existen en sus categorías).
+const COMUNES = {
+  gasto: ["café", "súper", "restaurantes", "transporte", "gasolina", "suscripciones", "farmacia", "entretenimiento", "compras"],
+  ingreso: ["sueldo", "freelance"],
+};
+const CATEGORIAS_A_LA_VISTA = 8;
+
+/** "Hoy, 14 oct", "Ayer, 13 oct", "6 oct" o "6 oct 2025". */
+function etiquetaFecha(iso: string) {
+  const d = aFecha(iso);
+  const corta = d.toLocaleDateString("es-MX", { day: "numeric", month: "short" }).replace(".", "");
+  const hoy = new Date();
+  if (iso === hoyIso(hoy)) return `Hoy, ${corta}`;
+  if (iso === hoyIso(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - 1))) return `Ayer, ${corta}`;
+  return iso.slice(0, 4) === hoyIso(hoy).slice(0, 4) ? corta : `${corta} ${iso.slice(0, 4)}`;
+}
 
 const TIPOS_SEGMENTO: { valor: TipoMovimiento; etiqueta: string }[] = [
   { valor: "gasto", etiqueta: "Gasto" },
@@ -86,7 +107,7 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
     () => (categorias.data ?? []).filter((c) => conCategoria && c.tipo === f.tipo),
     [categorias.data, conCategoria, f.tipo],
   );
-  const categoriaActual = categorias.data?.find((c) => c.id === f.categoriaId);
+  const marca = marcaDe(f.comercio);
 
   // Al cambiar de tipo, una categoría del otro tipo ya no aplica.
   useEffect(() => {
@@ -215,7 +236,7 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
                 size={1}
                 value={f.monto}
                 onChange={(e) => poner("monto", e.target.value.replace(/[^\d.,]/g, "").slice(0, 12))}
-                className="col-start-1 row-start-1 w-full min-w-0 bg-transparent p-0 text-center text-[1em] leading-[1.1] font-bold tracking-[inherit] outline-none placeholder:text-placeholder"
+                className="col-start-1 row-start-1 w-0 min-w-full bg-transparent p-0 text-center text-[1em] leading-[1.1] font-bold tracking-[inherit] outline-none placeholder:text-placeholder"
               />
             </span>
           </div>
@@ -229,28 +250,16 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
           opciones={TIPOS_SEGMENTO}
         />
 
+        {conCategoria ? (
+          <ElegirCategoria
+            categorias={categoriasDelTipo}
+            tipo={f.tipo === "ingreso" ? "ingreso" : "gasto"}
+            valor={f.categoriaId}
+            alCambiar={(v) => poner("categoriaId", v)}
+          />
+        ) : null}
+
         <Grupo>
-          {conCategoria ? (
-            <SelectNativo
-              aria-label="Categoría"
-              value={f.categoriaId}
-              onChange={(e) => poner("categoriaId", e.target.value)}
-              opciones={
-                <>
-                  <option value="">Sin categoría</option>
-                  <OpcionesCategorias categorias={categoriasDelTipo} />
-                </>
-              }
-            >
-              <Fila>
-                <span className="shrink-0">Categoría</span>
-                <span className={cn("min-w-0 flex-1 truncate text-right", categoriaActual ? "text-muted-foreground" : "text-placeholder")}>
-                  {categoriaActual?.nombreCompleto.replace(" > ", " › ") ?? "Elegir"}
-                </span>
-                <ChevronRight aria-hidden className="-mr-1 size-5 shrink-0 text-muted-foreground/60" />
-              </Fila>
-            </SelectNativo>
-          ) : null}
           <Fila>
             <label htmlFor="comercio" className="shrink-0">
               Comercio
@@ -263,6 +272,7 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
               autoCapitalize="words"
               enterKeyHint="next"
             />
+            {marca ? <LogoMarca clave={marca} tamano={22} className="-ml-1" /> : null}
           </Fila>
           <Fila>
             <label htmlFor="descripcion" className="shrink-0">
@@ -276,16 +286,13 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
               enterKeyHint="next"
             />
           </Fila>
-        </Grupo>
-
-        <Grupo>
           <Fila>
             <label htmlFor="fecha" className="shrink-0">
               Fecha
             </label>
             <div className="relative ml-auto">
-              <span className="pointer-events-none flex h-[34px] items-center rounded-lg bg-fill px-3 text-[17px] text-foreground tabular">
-                {aFecha(f.fecha).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" }).replace(".", "")}
+              <span className="pointer-events-none flex h-[32px] items-center rounded-full bg-fill px-3 text-[16px] text-foreground tabular">
+                {etiquetaFecha(f.fecha)}
               </span>
               <input
                 id="fecha"
@@ -298,26 +305,29 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
               />
             </div>
           </Fila>
-          <FilaCuenta
-            id="cuenta"
-            etiqueta={mueve ? "Desde" : "Cuenta"}
-            valor={f.cuenta}
-            alCambiar={(v) => poner("cuenta", v)}
-            cuentas={listaCuentas}
-            placeholder="Efectivo, BBVA, Nu…"
-          />
-          {mueve ? (
-            <FilaCuenta
-              id="destino"
-              etiqueta={f.tipo === "pago_tarjeta" ? "Tarjeta" : "Hacia"}
-              valor={f.destino}
-              alCambiar={(v) => poner("destino", v)}
-              cuentas={listaCuentas}
-              placeholder={f.tipo === "pago_tarjeta" ? "Nu, Banamex…" : "Otra cuenta tuya"}
-              primeroCredito={f.tipo === "pago_tarjeta"}
-            />
-          ) : null}
         </Grupo>
+
+        <ElegirCuenta
+          id="cuenta"
+          etiqueta={mueve ? "Desde" : "Cuenta"}
+          titulo={mueve ? "Desde" : f.tipo === "ingreso" ? "Entró a" : "Pagado con"}
+          valor={f.cuenta}
+          alCambiar={(v) => poner("cuenta", v)}
+          cuentas={listaCuentas}
+          placeholder="Efectivo, BBVA, Nu…"
+        />
+        {mueve ? (
+          <ElegirCuenta
+            id="destino"
+            etiqueta={f.tipo === "pago_tarjeta" ? "Tarjeta" : "Hacia"}
+            titulo={f.tipo === "pago_tarjeta" ? "Tarjeta" : "Hacia"}
+            valor={f.destino}
+            alCambiar={(v) => poner("destino", v)}
+            cuentas={listaCuentas}
+            placeholder={f.tipo === "pago_tarjeta" ? "Nu, Banamex…" : "Otra cuenta tuya"}
+            primeroCredito={f.tipo === "pago_tarjeta"}
+          />
+        ) : null}
 
         {etiquetas.data || f.etiquetas.length ? (
           <ElegirEtiquetas
@@ -325,6 +335,12 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
             elegidas={f.etiquetas}
             alCambiar={(ids) => poner("etiquetas", ids)}
           />
+        ) : null}
+
+        {conCategoria && !editando ? (
+          <p className="-mt-3 px-4 text-[13px] leading-snug text-muted-foreground">
+            El logo sale solo cuando reconozco el comercio. Si no, uso el ícono de la categoría.
+          </p>
         ) : null}
 
         {movimiento?.textoOriginal ? (
@@ -359,7 +375,87 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
   );
 }
 
-/** Chips para poner o quitar etiquetas; "Nueva" crea una y la deja puesta. */
+/** Las categorías del tipo en chips: las que más usa (o las comunes) a la vista; "Todas" abre la rueda con todas. */
+function ElegirCategoria({
+  categorias,
+  tipo,
+  valor,
+  alCambiar,
+}: {
+  categorias: Categoria[];
+  tipo: "gasto" | "ingreso";
+  valor: string;
+  alCambiar: (id: string) => void;
+}) {
+  const qc = useQueryClient();
+  // Cuántas veces la usó, de los movimientos que la app ya tiene guardados (sin pedir nada más).
+  const usos = useMemo(() => {
+    const vistos = new Set<string>();
+    const cuenta = new Map<string, number>();
+    for (const [, datos] of qc.getQueriesData<{ pages?: { movimientos?: MovimientoApp[] }[] }>({ queryKey: ["movimientos"] })) {
+      if (!Array.isArray(datos?.pages)) continue;
+      for (const m of datos.pages.flatMap((p) => p.movimientos ?? [])) {
+        if (!m.categoriaId || vistos.has(m.id)) continue;
+        vistos.add(m.id);
+        cuenta.set(m.categoriaId, (cuenta.get(m.categoriaId) ?? 0) + 1);
+      }
+    }
+    return cuenta;
+  }, [qc]);
+  const vista = useMemo(() => {
+    const comun = (c: Categoria) => {
+      const i = COMUNES[tipo].indexOf(c.nombre.toLowerCase());
+      return i < 0 ? COMUNES[tipo].length : i;
+    };
+    // Una principal con hijas ("Comida") va después de sus hijas: casi siempre se elige la hija.
+    const conHijas = (c: Categoria) => Number(!c.padreId && categorias.some((h) => h.padreId === c.id));
+    const orden = categorias
+      .map((c, i) => ({ c, i }))
+      .sort((a, b) => (usos.get(b.c.id) ?? 0) - (usos.get(a.c.id) ?? 0) || conHijas(a.c) - conHijas(b.c) || comun(a.c) - comun(b.c) || a.i - b.i)
+      .map(({ c }) => c);
+    const primeras = orden.slice(0, CATEGORIAS_A_LA_VISTA);
+    const elegida = categorias.find((c) => c.id === valor);
+    if (!elegida || primeras.includes(elegida)) return primeras;
+    return [elegida, ...primeras.slice(0, CATEGORIAS_A_LA_VISTA - 1)];
+  }, [categorias, tipo, usos, valor]);
+
+  return (
+    <section>
+      <TituloChips>Categoría</TituloChips>
+      <Chips>
+        {vista.map((c) => (
+          <Chip
+            key={c.id}
+            activo={c.id === valor}
+            icono={<LogoCategoria nombre={c.nombreCompleto} tipo={tipo} tamano={22} className="!rounded-full" />}
+            onClick={() => alCambiar(c.id === valor ? "" : c.id)}
+          >
+            {c.nombre}
+          </Chip>
+        ))}
+        <SelectNativo
+          aria-label="Categoría"
+          className="shrink-0"
+          value={valor}
+          onChange={(e) => alCambiar(e.target.value)}
+          opciones={
+            <>
+              <option value="">Sin categoría</option>
+              <OpcionesCategorias categorias={categorias} />
+            </>
+          }
+        >
+          <ChipVisual className="pr-2">
+            Todas
+            <ChevronDown aria-hidden className="size-4 text-muted-foreground" />
+          </ChipVisual>
+        </SelectNativo>
+      </Chips>
+    </section>
+  );
+}
+
+/** Chips para poner o quitar etiquetas; "Nueva" abre un campo, crea la etiqueta y la deja puesta. */
 function ElegirEtiquetas({
   disponibles,
   elegidas,
@@ -372,6 +468,7 @@ function ElegirEtiquetas({
   const crear = useGuardarEtiqueta();
   const enLinea = useEnLinea();
   const [nueva, setNueva] = useState("");
+  const [escribiendo, setEscribiendo] = useState(false);
   const agregar = async () => {
     const nombre = nueva.trim().replace(/^#+/, "");
     if (!nombre || crear.isPending) return;
@@ -379,65 +476,72 @@ function ElegirEtiquetas({
     if (existente) {
       if (!elegidas.includes(existente.id)) alCambiar([...elegidas, existente.id]);
       setNueva("");
+      setEscribiendo(false);
       return;
     }
     try {
       const e = await crear.mutateAsync({ datos: { nombre } });
       if (e?.id) alCambiar([...elegidas, e.id]);
       setNueva("");
+      setEscribiendo(false);
     } catch (error) {
       toast.error(mensajeDeError(error));
     }
   };
   return (
-    <Grupo titulo="Etiquetas">
-      {disponibles.length ? (
-        <div role="group" aria-label="Etiquetas" className="flex flex-wrap gap-2 px-4 pt-3 pb-2">
-          {disponibles.map((e) => {
-            const puesta = elegidas.includes(e.id);
-            return (
-              <button
-                key={e.id}
-                type="button"
-                aria-pressed={puesta}
-                onClick={() => alCambiar(puesta ? elegidas.filter((x) => x !== e.id) : [...elegidas, e.id])}
-                className={cn(
-                  "h-8 rounded-full px-3 text-[15px] font-medium transition-colors",
-                  puesta ? "bg-tint text-white" : "bg-fill text-foreground",
-                )}
-              >
-                #{e.nombre}
-              </button>
-            );
-          })}
-        </div>
+    <section className="space-y-2">
+      <TituloChips>Etiquetas</TituloChips>
+      <Chips>
+        {disponibles.map((e) => {
+          const puesta = elegidas.includes(e.id);
+          return (
+            <Chip key={e.id} activo={puesta} onClick={() => alCambiar(puesta ? elegidas.filter((x) => x !== e.id) : [...elegidas, e.id])}>
+              #{e.nombre}
+            </Chip>
+          );
+        })}
+        {escribiendo ? null : (
+          <Chip className="text-tint" onClick={() => setEscribiendo(true)}>
+            <Plus aria-hidden className="-ml-1 size-4" />
+            Nueva
+          </Chip>
+        )}
+      </Chips>
+      {escribiendo ? (
+        <Grupo>
+          <Fila>
+            <label htmlFor="etiqueta-nueva" className="sr-only">
+              Nueva etiqueta
+            </label>
+            <span aria-hidden className="text-muted-foreground">
+              #
+            </span>
+            <CampoFila
+              id="etiqueta-nueva"
+              value={nueva}
+              maxLength={40}
+              autoFocus
+              onChange={(e) => setNueva(e.target.value)}
+              onBlur={() => !nueva.trim() && setEscribiendo(false)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void agregar();
+                }
+              }}
+              placeholder="Nueva etiqueta"
+              autoCapitalize="none"
+              enterKeyHint="done"
+              className="-ml-2 text-left"
+            />
+            {nueva.trim() ? (
+              <Button variant="plain" size="text" className="shrink-0" disabled={!enLinea || crear.isPending} onClick={() => void agregar()}>
+                Agregar
+              </Button>
+            ) : null}
+          </Fila>
+        </Grupo>
       ) : null}
-      <Fila>
-        <label htmlFor="etiqueta-nueva" className="sr-only">
-          Nueva etiqueta
-        </label>
-        <CampoFila
-          id="etiqueta-nueva"
-          value={nueva}
-          maxLength={40}
-          onChange={(e) => setNueva(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              void agregar();
-            }
-          }}
-          placeholder="Nueva etiqueta"
-          autoCapitalize="none"
-          enterKeyHint="done"
-          className="text-left"
-        />
-        {nueva.trim() ? (
-          <Button variant="plain" size="text" className="shrink-0" disabled={!enLinea || crear.isPending} onClick={() => void agregar()}>
-            Agregar
-          </Button>
-        ) : null}
-      </Fila>
-    </Grupo>
+    </section>
   );
 }
