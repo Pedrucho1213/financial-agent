@@ -405,6 +405,29 @@ export const bitacora = sqliteTable(
   (t) => [index("bitacora_usuario").on(t.usuarioId, t.creadoEn)],
 );
 
+// Lo que costó cada llamada a la IA (ai/uso.ts): tokens y costo estimado en millonésimas de dólar. Una consulta es un
+// dictado o mensaje que llegó al modelo (entrada_id); el precalentado del Atajo cuesta pero no cuenta como consulta.
+export const usoIa = sqliteTable(
+  "uso_ia",
+  {
+    id: id(),
+    usuarioId: text("usuario_id")
+      .notNull()
+      .references(() => usuarios.id),
+    entradaId: text("entrada_id"),
+    // Día local (YYYY-MM-DD) en que se usó: el tope de consultas es por día.
+    dia: text("dia").notNull(),
+    modelo: text("modelo").notNull(),
+    tokensEntrada: integer("tokens_entrada").notNull().default(0),
+    tokensCacheLectura: integer("tokens_cache_lectura").notNull().default(0),
+    tokensCacheEscritura: integer("tokens_cache_escritura").notNull().default(0),
+    tokensSalida: integer("tokens_salida").notNull().default(0),
+    costoMicroUsd: integer("costo_micro_usd").notNull().default(0),
+    creadoEn: creadoEn(),
+  },
+  (t) => [index("uso_ia_usuario_dia").on(t.usuarioId, t.dia)],
+);
+
 // Ajustes del servidor que se generan una vez y se guardan con los datos (las llaves de las notificaciones).
 export const configuracion = sqliteTable("configuracion", {
   clave: text("clave").primaryKey(),

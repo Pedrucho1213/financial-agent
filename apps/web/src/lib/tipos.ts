@@ -63,6 +63,8 @@ export type Yo = {
   moneda: string;
   zonaHoraria: string;
   hoy: string;
+  /** Si puede crear códigos para cuentas nuevas (por omisión, solo la cuenta dueña). Servidores anteriores no lo mandan. */
+  puedeInvitar?: boolean;
 };
 
 export type InvitacionCreada = { codigo: string; para: "usuario" | "dispositivo"; expiraEn: string };

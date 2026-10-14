@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AtSign,
+  CircleGauge,
   Copy,
   Eye,
   EyeOff,
@@ -43,6 +44,7 @@ import {
   CODIGO_MAX,
   CODIGO_MIN,
   esDelCodigoActual,
+  type EstadoSistema,
   NOMBRE_MAX,
   normalizarUsuario,
   problemaCodigo,
@@ -58,6 +60,7 @@ import { fechaHora, haceCuanto } from "../lib/formato";
 import { soltarPush } from "../lib/push";
 import { cerrarSesion } from "../lib/sesion";
 import type { AtajoPreparado, Dispositivo, InvitacionCreada } from "../lib/tipos";
+import { cn } from "../lib/utils";
 import { CampoSecreto } from "./Entrar";
 
 function iconoDispositivo(nombre: string) {
@@ -262,18 +265,20 @@ export function Ajustes() {
             disabled={!enLinea || invitar.isPending}
             onClick={() => invitar.mutate("dispositivo")}
           />
-          <FilaBoton
-            sangria="3.75rem"
-            icono={
-              <IconoAjuste color="#34c759">
-                <UserPlus />
-              </IconoAjuste>
-            }
-            titulo="Invitar a alguien"
-            chevron
-            disabled={!enLinea || invitar.isPending}
-            onClick={() => invitar.mutate("usuario")}
-          />
+          {d?.puedeInvitar !== false ? (
+            <FilaBoton
+              sangria="3.75rem"
+              icono={
+                <IconoAjuste color="#34c759">
+                  <UserPlus />
+                </IconoAjuste>
+              }
+              titulo="Invitar a alguien"
+              chevron
+              disabled={!enLinea || invitar.isPending}
+              onClick={() => invitar.mutate("usuario")}
+            />
+          ) : null}
         </Grupo>
 
         <Grupo titulo="Dispositivos" pie="Quitar un dispositivo le cierra la sesión al instante.">
@@ -545,6 +550,7 @@ function Sistema({ estado }: { estado: ReturnType<typeof useEstadoSistema> }) {
               </span>
             }
           />
+          {e.uso ? <FilaUsoIa uso={e.uso} /> : null}
           {/* Con algo en cola, el detalle va abajo: a la derecha no cabe junto al título. */}
           <Fila
             sangria="3.75rem"
@@ -577,6 +583,37 @@ function Sistema({ estado }: { estado: ReturnType<typeof useEstadoSistema> }) {
         </div>
       )}
     </Grupo>
+  );
+}
+
+const usd = (n: number) => `$${n.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** Consultas de IA de hoy ("7 de 40"); al dueño, además, lo gastado este mes por todas las cuentas. */
+function FilaUsoIa({ uso }: { uso: NonNullable<EstadoSistema["uso"]> }) {
+  const mes = uso.mes;
+  return (
+    <Fila
+      sangria="3.75rem"
+      icono={
+        <IconoAjuste color="#ff9500">
+          <CircleGauge />
+        </IconoAjuste>
+      }
+      titulo="Consultas de IA hoy"
+      subtitulo={
+        uso.aviso ??
+        (mes
+          ? `Este mes, todas las cuentas: ${usd(mes.costoUsd)}${mes.presupuestoUsd ? ` de ${usd(mes.presupuestoUsd)}` : ""} USD`
+          : uso.limite !== null
+            ? "Se renuevan cada día"
+            : undefined)
+      }
+      valor={
+        <span className={cn("tabular-nums", uso.quedan === 0 && !uso.modoBasico && "text-negative")}>
+          {uso.limite !== null ? `${uso.consultas} de ${uso.limite}` : uso.consultas}
+        </span>
+      }
+    />
   );
 }
 
