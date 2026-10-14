@@ -116,7 +116,7 @@ export function lineasParaIa(ctx: Contexto): LineaParaIa[] {
 export function preguntaParaIa(lineas: string[], existentes: string[]): string {
   return `Estos son gastos de una persona en México, con lo que dijo al anotarlos. Ponle etiquetas solo a los que les queden:
 - "${INNECESARIO}" si es claramente prescindible: un antojo, comida a domicilio, una compra de impulso, apuestas, o dice que no lo necesitaba. Nunca súper, vivienda, servicios, salud, transporte, educación o deudas. Si dudas, no.
-- Una etiqueta corta de contexto si lo que dijo deja claro para qué o para quién fue (Trabajo, Boda de Ana, Mudanza, Mamá). Reutiliza estas si ya lo dicen: ${existentes.length ? existentes.join(", ") : "(no tiene)"}.
+- Una etiqueta corta de contexto si lo que dijo deja claro para qué o para quién fue (Trabajo, Boda de Ana, Mudanza, Mamá).${existentes.length ? ` Si ya tiene una que lo diga, usa esa: ${existentes.map((e) => `"${e}"`).join(", ")}.` : ""}
 La categoría, el comercio, la cuenta y la ciudad no son etiquetas. Máximo dos por gasto.
 Contesta una línea por gasto etiquetado, así: "3: Innecesario" o "7: Trabajo". Si ninguno lleva, contesta "ninguno".
 
@@ -137,7 +137,8 @@ export function leerRespuesta(texto: string, lineas: LineaParaIa[], quePasoDe: (
       // Solo por comas: "Boda de Ana y Luis" es una sola etiqueta.
       .split(",")
       .map((n) => n.replace(/["'#*]/g, "").trim())
-      .filter((n) => n && n.length <= MAX_LARGO && !/^ningun/i.test(n))
+      // "(no tiene)", "ninguna", "sin etiqueta": la IA diciendo que no hay, no una etiqueta.
+      .filter((n) => n && n.length <= MAX_LARGO && !/[()[\]]/.test(n) && !/^(ningun|no tiene|sin etiqueta|n\/?a$|nada)/i.test(normalizar(n)))
       .slice(0, 2);
     for (const nombre of nombres) {
       const esInnecesario = normalizar(nombre) === normalizar(INNECESARIO);

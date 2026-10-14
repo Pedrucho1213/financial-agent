@@ -6,7 +6,7 @@ import { analizar } from "../src/finanzas/analisis";
 import type { Contexto } from "../src/finanzas/contexto";
 import { eliminarEtiqueta, resumenEtiquetas } from "../src/finanzas/etiquetas";
 import { ciudadCercana, etiquetasAutoHabilitadas, viajesTerminados } from "../src/finanzas/etiquetas-auto";
-import { aplicarPlan, deshacerEtiquetado, leerRespuesta, lineasParaIa, planDeViajes } from "../src/finanzas/etiquetas-historial";
+import { aplicarPlan, deshacerEtiquetado, leerRespuesta, lineasParaIa, planDeViajes, preguntaParaIa } from "../src/finanzas/etiquetas-historial";
 import { buscarMovimientos, crearMovimiento, editarMovimiento } from "../src/finanzas/movimientos";
 import { sumarDias } from "../src/lib/fechas";
 import { AHORA, preparar } from "./ayuda";
@@ -163,8 +163,11 @@ describe("etiquetar el historial", () => {
     const lineas = lineasParaIa(ctx);
     const n = (comercio: string) => lineas.findIndex((l) => l.linea.includes(comercio)) + 1;
     expect(lineas[n("La Docena") - 1]!.linea).toContain('dijo: "comida con los del trabajo"');
+    // Sin etiquetas, la pregunta no le ofrece ninguna para reutilizar (la IA tomaba "(no tiene)" como una).
+    expect(preguntaParaIa(["$1"], [])).not.toContain("no tiene");
+    expect(preguntaParaIa(["$1"], ["Trabajo"])).toContain('usa esa: "Trabajo"');
     // La IA marca la renta como innecesaria y pone el comercio como etiqueta: eso no pasa.
-    const respuesta = `${n("Tacos")}: Innecesario\n${n("La Docena")}: Trabajo\n${n("Casero")}: Innecesario, Casero\n${n("Tienda 1")}: Boda de Ana y Luis`;
+    const respuesta = `${n("Tacos")}: Innecesario\n${n("La Docena")}: Trabajo\n${n("Casero")}: Innecesario, Casero\n${n("Tienda 1")}: Boda de Ana y Luis\n${n("Tienda 2")}: (no tiene)\n${n("Tienda 3")}: Ninguna, sin etiqueta`;
     const ia = leerRespuesta(respuesta, lineas, (m) => m.id);
     expect(ia.map((a) => [a.etiqueta, a.motivo])).toEqual([
       ["Innecesario", "innecesario"],
