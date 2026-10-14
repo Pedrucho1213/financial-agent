@@ -48,6 +48,19 @@ test("'¿quedó algo pendiente?' repite la pregunta que quedó sin contestar, au
   expect(modelo.doGenerateCalls).toHaveLength(0);
 });
 
+test("la pregunta puede ir a media respuesta: el gimnasio del 12-oct también quedó pendiente", async () => {
+  const { hablar, modelo, dictadoPrevio } = montar([]);
+  dictadoPrevio(
+    "Son 500 pesos que transfería a mi gimnasio",
+    "Son $500 de una transferencia a tu gimnasio. ¿Desde qué cuenta salió el dinero? Como es una transferencia a otra persona o negocio, lo registro como gasto en Gimnasio, pero dime si prefieres otra categoría.",
+    87,
+    "gimnasio",
+  );
+  const r = await hablar("Tenías una duda del último registro no");
+  expect(r.respuesta).toBe("Sí. Cuando me dijiste «Son 500 pesos que transfería a mi gimnasio», te pregunté: ¿Desde qué cuenta salió el dinero?");
+  expect(modelo.doGenerateCalls).toHaveLength(0);
+});
+
 test("sin preguntas abiertas no hay nada pendiente; una pregunta ya contestada tampoco cuenta", async () => {
   const { hablar, modelo, dictadoPrevio } = montar([]);
   dictadoPrevio(X24, PREGUNTA_X24, 50, "x24");
