@@ -6,6 +6,7 @@ import { config } from "./config";
 import { abrirBaseDatos } from "./db/client";
 import { enviarAvisosDelDia } from "./push/avisos-manana";
 import { avisoDeDictado } from "./push/dictados";
+import { avisoDeGasto } from "./push/gasto";
 import { tienePush } from "./push/notificaciones";
 import { programarRevisor, revisarPendientes } from "./finanzas/revisor";
 
@@ -35,6 +36,9 @@ const deps = {
   alTerminarSinEspera: avisoDeDictado(db),
   notificaSinEspera: (usuarioId: string) => tienePush(db, usuarioId),
   paralelo: config.ia.paralelo,
+  limitesIa: config.limitesIa,
+  // Si el gasto de Claude se dispara, le llega una notificación al dueño.
+  alGastar: avisoDeGasto(db, config.limitesIa),
 };
 const app = crearApp({
   ...deps,
@@ -43,6 +47,7 @@ const app = crearApp({
   carpetaWeb: config.carpetaWeb,
   contactoPush: config.contactoPush,
   estadoIa: () => estadoModelo(config.ia),
+  invitarCuentas: config.invitarCuentas,
   controlIa,
   version: versionDelCodigo(),
 });

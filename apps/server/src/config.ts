@@ -64,6 +64,23 @@ export const config = {
     // Antes de abrir al público: IA_INTERRUPTOR=0 o quitarlo.
     interruptor: env("IA_INTERRUPTOR", "1") !== "0",
   },
+  // Topes que cuidan la factura de Claude (ai/uso.ts). 0 apaga cada uno (2026-10-14).
+  limitesIa: {
+    // Consultas al modelo por día y por cuenta: lo que la app y el Atajo le dicen que le queda. La dueña no tiene.
+    consultasDia: Math.max(0, Math.floor(Number(env("IA_CONSULTAS_DIA", "40"))) || 0),
+    // USD al mes en el modelo difícil (Sonnet) por cuenta; al pasarlo, saldos y tarjetas los contesta Haiku.
+    topeDificilUsd: Math.max(0, Number(env("IA_TOPE_DIFICIL_USD", "2")) || 0),
+    // USD por día y por cuenta, aunque alguien haga cada consulta más cara de lo normal (~0.003 USD con Haiku).
+    topeDiaUsd: Math.max(0, Number(env("IA_TOPE_DIA_USD", "0.25")) || 0),
+    // USD por día de la cuenta dueña: solo frena un token robado (Pedro gasta ~0.10 al día).
+    topeDiaDuenoUsd: Math.max(0, Number(env("IA_TOPE_DIA_DUENO_USD", "3")) || 0),
+    // El límite de gasto que Pedro puso en la consola de Anthropic. Al 90% del mes, o al 20% en un día, las demás
+    // cuentas se quedan sin IA; al dueño le llegan avisos al 50%, 80% y 90%.
+    presupuestoMesUsd: Math.max(0, Number(env("IA_PRESUPUESTO_USD", "50")) || 0),
+  },
+  // Quién puede crear códigos para cuentas nuevas: "dueno" (por omisión) o "todos". Con "todos", cada invitado podía
+  // invitar a otros y cada cuenta nueva trae sus propias consultas de IA.
+  invitarCuentas: env("INVITAR_CUENTAS", "dueno") === "todos" ? ("todos" as const) : ("dueno" as const),
 };
 
 export type Config = typeof config;

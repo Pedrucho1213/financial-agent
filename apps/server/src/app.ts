@@ -3,6 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
 import { z } from "zod";
 import { consultarEntrada, conversacionParaChat, conversacionReciente, type Dependencias, type Respuesta, ErrorEnProceso, ErrorIA, hablar } from "./ai/asistente";
+import { CARACTERES_POR_CONSULTA, costoDelMes, MAX_DICTADO, RESPUESTA_MUY_LARGO, usoDeHoy } from "./ai/uso";
 import { hablaDePrestamo } from "./ai/herramientas-planes";
 import { guardarDescarga, limpiarDescargas, tomarDescarga } from "./atajo/descargas";
 import { ErrorFirma, firmarAtajo, generarAtajo, generarAtajoApplePay, guionBienvenida, NOMBRE_ATAJO_APPLE_PAY } from "./atajo/generar";
@@ -19,6 +20,7 @@ import {
   entrarConCodigo,
   ErrorCuenta,
   ErrorInvitacion,
+  esDueno as esCuentaDuena,
   listarDispositivos,
   normalizarUsuario,
   ponerCodigo,
@@ -47,6 +49,7 @@ import {
 } from "./finanzas/movimientos";
 import { listarMovimientosApp, movimientoApp, tablero } from "./finanzas/vista";
 import { montosParaVoz } from "./lib/dinero";
+import { fechaLocal } from "./lib/fechas";
 import { hostsDeLaPeticion, ipDelCliente, LimiteIntentos } from "./lib/limites";
 import { montosDelTexto } from "./lib/numeros";
 import { esOrdenSobreLoAnotado, esPregunta } from "./lib/texto";
@@ -64,6 +67,8 @@ import type { EstadoIa } from "./ai/modelo";
 import type { ControlIa } from "./ai/encendido";
 
 export type OpcionesApp = Dependencias & {
+  /** Quién puede crear códigos para cuentas nuevas (INVITAR_CUENTAS). Por omisión, solo la cuenta dueña. */
+  invitarCuentas?: "dueno" | "todos";
   /** Precarga el modelo de IA con las instrucciones del usuario; en pruebas no hace nada. */
   despertar?: (usuarioId: string) => Promise<unknown>;
   /**
@@ -543,6 +548,11 @@ export function crearApp(opciones: OpcionesApp) {
       return c.json(paraVoz({ respuesta: "No te escuché. ¿Me lo repites?", conversacion_id: conversacion, acciones: [] }));
     }
     if (crudo && typeof crudo === "object" && crudo.origen === "apple_pay") return pagoApplePay(c, crudo);
+    // Demasiado largo: no llega a la IA ni cuenta como consulta. Con 200, el Atajo lo dice y lo saca de su cola.
+    if (crudo && typeof crudo === "object" && typeof crudo.texto === "string" && crudo.texto.trim().length > MAX_DICTADO) {
+      const conversacion = typeof crudo.conversacion_id === "string" ? crudo.conversacion_id : "";
+      return c.json(paraVoz({ respuesta: RESPUESTA_MUY_LARGO, conversacion_id: conversacion, acciones: [], muyLargo: true }));
+    }
     const cuerpo = esquemaHablar.safeParse(sinVacios(crudo));
     if (!cuerpo.success) {
       return c.json({ error: "Petición inválida.", detalles: z.flattenError(cuerpo.error).fieldErrors }, 400);
@@ -825,6 +835,7 @@ export function crearApp(opciones: OpcionesApp) {
       moneda: opciones.monedaBase,
       zonaHoraria: opciones.zonaHoraria,
       hoy: contexto(usuarioId).hoy,
+      puedeInvitar: puedeInvitar(usuarioId),
     });
   });
 
@@ -889,6 +900,11 @@ export function crearApp(opciones: OpcionesApp) {
       .safeParse(await c.req.json().catch(() => null));
     if (!cuerpo.success) return c.json({ error: 'Indica para: "usuario" o "dispositivo".' }, 400);
     const usuarioId = c.get("usuarioId");
+    // Cada cuenta nueva trae sus propias consultas de IA: si cualquiera pudiera invitar, una sola persona podría
+    // juntar cuentas sin fin y multiplicar la factura de Claude.
+    if (cuerpo.data.para === "usuario" && !puedeInvitar(usuarioId)) {
+      return c.json({ error: "Por ahora solo la cuenta principal puede invitar a alguien." }, 403);
+    }
     const hace24h = new Date(Date.now() - 86_400_000).toISOString();
     const creadas = db
       .select({ usuarioId: invitaciones.usuarioId })
@@ -1015,9 +1031,8 @@ export function crearApp(opciones: OpcionesApp) {
     }
     return iaReciente.estado;
   };
-  // El dueño es la primera cuenta (la que crea `bun run invitar -- --nombre ...` en una base vacía).
-  const esDueno = (usuarioId: string) =>
-    db.select({ id: usuarios.id }).from(usuarios).orderBy(usuarios.creadoEn, sql`rowid`).limit(1).get()?.id === usuarioId;
+  const esDueno = (usuarioId: string) => esCuentaDuena(db, usuarioId);
+  const puedeInvitar = (usuarioId: string) => opciones.invitarCuentas === "todos" || esDueno(usuarioId);
 
   v1.get("/estado", async (c) => {
     const usuarioId = c.get("usuarioId");
@@ -1031,12 +1046,16 @@ export function crearApp(opciones: OpcionesApp) {
         .get()?.n ?? 0;
     const { modelo, disponible, cargada } = await estadoIaReciente();
     const cola = { pendientes: contar("procesando"), conError: contar("error") };
+    // Consultas de IA de hoy y, solo para el dueño, lo gastado este mes por todas las cuentas contra su presupuesto.
+    const hoy = fechaLocal(new Date(), opciones.zonaHoraria);
+    const uso = { ...usoDeHoy(db, usuarioId, hoy, opciones.limitesIa), maxCaracteres: MAX_DICTADO, caracteresPorConsulta: CARACTERES_POR_CONSULTA };
     // El servidor es público: qué código y qué modelo corren, y desde cuándo, solo lo ve el dueño de la instalación.
-    if (!esDueno(usuarioId)) return c.json({ servidor: null, ia: { disponible, cargada }, cola });
+    if (!esDueno(usuarioId)) return c.json({ servidor: null, ia: { disponible, cargada }, cola, uso });
     return c.json({
       servidor: { commit: opciones.version?.commit ?? null, commitEn: opciones.version?.commitEn ?? null, arrancadoEn },
       ia: { modelo, disponible, cargada },
       cola,
+      uso: { ...uso, mes: { costoUsd: costoDelMes(db, hoy), presupuestoUsd: opciones.limitesIa?.presupuestoMesUsd || null } },
     });
   });
 

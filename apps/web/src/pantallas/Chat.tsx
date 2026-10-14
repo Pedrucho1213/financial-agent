@@ -16,6 +16,7 @@ import {
   yaSeLeyo,
 } from "../lib/chat";
 import { mensajeDeError } from "../lib/api";
+import { useEstadoSistema } from "../lib/cuenta";
 import { hashDe, navegar, useRuta } from "../lib/ruta";
 import { useEnLinea } from "../lib/conexion";
 import { useDictado } from "../lib/dictado";
@@ -40,6 +41,11 @@ export function Chat() {
   const ocupado = mensajes.some((m) => m.estado === "pensando");
   const { leerEnVoz, leyendo } = useVoz();
   const dictado = useDictado({ alTexto: setTexto, alTerminar: (t) => enviar(t, true) });
+  const estado = useEstadoSistema();
+  const uso = estado.data?.uso;
+  const maximo = uso?.maxCaracteres ?? 1500;
+  const largo = texto.trim().length;
+  const muyLargo = largo > maximo;
 
   // Una notificación con una pregunta o un problema abre #chat?conversacion=<id>: se carga esa conversación
   // para leer el mensaje y contestar ahí. El parámetro se quita para no recargarla al volver a la pestaña.
@@ -64,8 +70,15 @@ export function Chat() {
     el.style.height = `${Math.min(el.scrollHeight, 22 * 5 + 14)}px`;
   }, [texto]);
 
+  // Al terminar cada respuesta se vuelve a pedir cuántas consultas quedan.
+  const { refetch } = estado;
+  useEffect(() => {
+    if (!ocupado) void refetch();
+  }, [ocupado, refetch]);
+
   const enviar = (t = texto, porVoz = false) => {
-    if (!t.trim() || !enLinea || ocupado) return;
+    // Un dictado más largo que el máximo también se manda: la Mac contesta que lo diga en partes.
+    if (!t.trim() || !enLinea || ocupado || (!porVoz && t.trim().length > maximo)) return;
     setTexto("");
     callar();
     void enviarMensaje(t, { porVoz });
@@ -151,6 +164,14 @@ export function Chat() {
                 ? "Pregunta por tus gastos o dime lo que compraste. Toca el micrófono para hablar."
                 : "Pregunta por tus gastos o dime lo que compraste."}
             </p>
+            {uso?.aviso || uso?.limite != null ? (
+              <p className={cn("mt-2 max-w-[20rem] text-[15px] text-balance", uso.quedan === 0 || uso.aviso ? "text-negative" : "text-muted-foreground")}>
+                {uso.aviso ??
+                  (uso.quedan === 0
+                    ? "Ya usaste tus consultas de IA de hoy. Mañana se renuevan."
+                    : `Te quedan ${uso.quedan} de ${uso.limite} consultas de IA hoy.`)}
+              </p>
+            ) : null}
             <Grupo className="mt-8 w-full text-left">
               {SUGERENCIAS.map((s) => (
                 <FilaBoton
@@ -186,6 +207,7 @@ export function Chat() {
           teclado ? "bottom-[calc(var(--teclado,0px)+8px)]" : "bottom-[calc(var(--barra-inferior)+10px)]",
         )}
       >
+        <Contador largo={largo} maximo={maximo} porConsulta={uso?.caracteresPorConsulta ?? 500} uso={uso} />
         <div className="pointer-events-auto mx-auto flex max-w-3xl items-end gap-2 px-safe">
           {dictado.disponible ? (
             dictado.escuchando ? (
@@ -255,7 +277,7 @@ export function Chat() {
             <button
               type="submit"
               aria-label="Enviar"
-              disabled={!texto.trim() || !enLinea || (ocupado && !dictado.escuchando)}
+              disabled={!texto.trim() || !enLinea || (ocupado && !dictado.escuchando) || (muyLargo && !dictado.escuchando)}
               className="absolute right-[5px] bottom-[5px] flex size-[34px] items-center justify-center rounded-full bg-primary text-white transition-[transform,opacity] duration-200 ease-ios active:scale-90 disabled:scale-75 disabled:opacity-0"
             >
               <ArrowUp className="size-[19px]" strokeWidth={3} />
@@ -264,6 +286,46 @@ export function Chat() {
         </div>
       </form>
     </Pantalla>
+  );
+}
+
+/**
+ * Arriba del campo: cuántos caracteres lleva cuando el mensaje ya cuenta como más de una consulta o se acerca al máximo,
+ * y cuántas consultas le quedan hoy cuando son pocas. Nada para la cuenta dueña con mensajes cortos.
+ */
+function Contador({
+  largo,
+  maximo,
+  porConsulta,
+  uso,
+}: {
+  largo: number;
+  maximo: number;
+  porConsulta: number;
+  uso: { limite: number | null; quedan: number | null } | undefined;
+}) {
+  const consultas = Math.max(1, Math.ceil(largo / porConsulta));
+  const pocas = uso?.quedan != null && uso.quedan <= 10;
+  const partes: string[] = [];
+  if (largo > maximo) partes.push(`${largo}/${maximo} · Muy largo, divídelo en partes`);
+  else if (largo > porConsulta) partes.push(`${largo}/${maximo} · Cuenta como ${consultas} consultas`);
+  if (pocas && largo <= maximo) partes.push(
+      uso.quedan === 0 ? "Sin consultas de IA hasta mañana" : uso.quedan === 1 ? "Te queda 1 consulta hoy" : `Te quedan ${uso.quedan} consultas hoy`,
+    );
+  if (!partes.length) return null;
+  const alerta = largo > maximo || uso?.quedan === 0 || (uso?.quedan != null && consultas > uso.quedan);
+  return (
+    <div className="pointer-events-none mx-auto mb-1.5 flex max-w-3xl justify-end px-safe">
+      <span
+        role="status"
+        className={cn(
+          "vidrio animate-aparecer rounded-full px-3 py-1 text-[12px] font-semibold tabular-nums",
+          alerta ? "text-negative" : "text-muted-foreground",
+        )}
+      >
+        {partes.join(" · ")}
+      </span>
+    </div>
   );
 }
 

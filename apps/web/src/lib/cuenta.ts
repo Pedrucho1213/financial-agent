@@ -23,6 +23,21 @@ export type EstadoSistema = {
   ia: { modelo?: string; disponible: boolean; cargada: boolean };
   /** Dictados de esta persona (últimos 7 días) que la Mac sigue procesando o que fallaron. */
   cola: { pendientes: number; conError: number };
+  /**
+   * Consultas de IA de hoy de esta cuenta. limite y quedan: null si no tiene tope (la cuenta dueña). mes: lo gastado este
+   * mes por todas las cuentas, en USD, solo para el dueño. Servidores anteriores no lo mandan.
+   */
+  uso?: {
+    consultas: number;
+    limite: number | null;
+    quedan: number | null;
+    maxCaracteres: number;
+    /** Cada cuántos caracteres de un mensaje se cuenta otra consulta. */
+    caracteresPorConsulta: number;
+    /** Si ya no puede usar la IA hoy por algo que no son sus consultas (su tope del día o la pausa de la app), por qué. */
+    aviso?: string;
+    mes?: { costoUsd: number; presupuestoUsd: number | null };
+  };
 };
 
 /** Como lo guarda el servidor: sin acentos, en minúsculas y sin espacios en las orillas. */

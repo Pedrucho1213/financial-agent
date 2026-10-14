@@ -477,7 +477,12 @@ describe("estado del sistema", () => {
     const otro = await entrar(pedir, db);
     const r = await pedir("/v1/estado", { token: otro.token });
     expect(r.estado).toBe(200);
-    expect(r.cuerpo).toEqual({ servidor: null, ia: { disponible: true, cargada: true }, cola: { pendientes: 0, conError: 0 } });
+    expect(r.cuerpo).toEqual({
+      servidor: null,
+      ia: { disponible: true, cargada: true },
+      cola: { pendientes: 0, conError: 0 },
+      uso: { consultas: 0, limite: null, quedan: null, maxCaracteres: 1500, caracteresPorConsulta: 500 },
+    });
     expect((await pedir("/v1/estado", { token: dueno.token })).cuerpo.servidor.commit).toBe("abc1234");
   });
 
