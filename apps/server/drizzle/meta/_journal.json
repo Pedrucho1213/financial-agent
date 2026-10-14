@@ -78,6 +78,13 @@
       "when": 1791990986310,
       "tag": "0010_uso_ia",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1791993603381,
+      "tag": "0011_cobros_y_avisos",
+      "breakpoints": true
     }
   ]
 }

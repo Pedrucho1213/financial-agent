@@ -3,9 +3,10 @@ import { type CSSProperties, lazy, Suspense, useEffect, useLayoutEffect, useRef 
 import { Toaster } from "sonner";
 import { TabBar } from "./components/TabBar";
 import { retomarPendientes } from "./lib/chat";
+import { abrirCobros, useHojaCobros, useInsigniaDeLaApp } from "./lib/cobros";
 import { useEnLinea } from "./lib/conexion";
 import { abrirEditor } from "./lib/editor";
-import { navegar, useRuta } from "./lib/ruta";
+import { hashDe, navegar, useRuta } from "./lib/ruta";
 import { useToken } from "./lib/sesion";
 import { useTeclado } from "./lib/teclado";
 import { Inicio } from "./pantallas/Inicio";
@@ -27,6 +28,8 @@ const cargas = {
   etiquetas: () => import("./pantallas/Etiquetas"),
   suscripciones: () => import("./pantallas/Suscripciones"),
   salud: () => import("./pantallas/Salud"),
+  notificaciones: () => import("./pantallas/Notificaciones"),
+  cobros: () => import("./components/cobros/HojaCobros"),
 };
 const Chat = lazy(() => cargas.chat().then((m) => ({ default: m.Chat })));
 const Ajustes = lazy(() => cargas.ajustes().then((m) => ({ default: m.Ajustes })));
@@ -47,6 +50,8 @@ const Cuenta = lazy(() => cargas.cuentas().then((m) => ({ default: m.Cuenta })))
 const Etiquetas = lazy(() => cargas.etiquetas().then((m) => ({ default: m.Etiquetas })));
 const Suscripciones = lazy(() => cargas.suscripciones().then((m) => ({ default: m.Suscripciones })));
 const Salud = lazy(() => cargas.salud().then((m) => ({ default: m.Salud })));
+const Notificaciones = lazy(() => cargas.notificaciones().then((m) => ({ default: m.Notificaciones })));
+const HojaCobros = lazy(() => cargas.cobros().then((m) => ({ default: m.HojaCobros })));
 
 // /instalar?codigo=X instala el Atajo sin sesión: va antes de pedir la entrada y no toca el token.
 const EN_INSTALAR = /^\/instalar\/?$/.test(window.location.pathname);
@@ -149,6 +154,18 @@ function Aplicacion() {
     };
   }, []);
 
+  // La notificación de cobros abre #inicio?confirmar=<ids>: se abre la hoja y la dirección queda limpia (así
+  // "Atrás" o recargar no la vuelven a abrir).
+  const confirmar = params.get("confirmar");
+  useEffect(() => {
+    if (!confirmar) return;
+    abrirCobros(confirmar.split(",").filter(Boolean).slice(0, 20));
+    const resto = Object.fromEntries([...params].filter(([k]) => k !== "confirmar"));
+    navegar(hashDe(pagina && pagina !== "movimiento" ? pagina : pestana, resto), { reemplazar: true });
+  }, [confirmar]);
+  useInsigniaDeLaApp();
+  const hojaCobros = useHojaCobros();
+
   const conBoton = !pagina && (pestana === "inicio" || pestana === "movimientos");
 
   return (
@@ -182,6 +199,7 @@ function Aplicacion() {
             {pagina === "etiquetas" ? <Etiquetas params={params} /> : null}
             {pagina === "suscripciones" ? <Suscripciones params={params} /> : null}
             {pagina === "salud" ? <Salud /> : null}
+            {pagina === "avisos" ? <Notificaciones /> : null}
           </Suspense>
         ) : (
           <>
@@ -205,6 +223,12 @@ function Aplicacion() {
       <Suspense fallback={null}>
         <EditorMovimiento />
       </Suspense>
+      {/* Se carga la primera vez que se abre. */}
+      {hojaCobros.clave > 0 ? (
+        <Suspense fallback={null}>
+          <HojaCobros />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

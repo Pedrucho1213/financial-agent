@@ -29,6 +29,7 @@ const esquemaEdicion = z.object({
   frecuencia: campos.frecuencia.optional(),
   dia: campos.dia.optional(),
   estado: z.enum(ESTADOS_RECURRENTE).optional(),
+  confirmar_solo: z.boolean().optional(),
 });
 
 const invalido = (error: z.ZodError) => ({ error: "Datos inválidos.", detalles: z.flattenError(error).fieldErrors });
@@ -54,8 +55,10 @@ export function rutasRecurrentes(v1: Hono<{ Variables: VariablesAuth }>, context
   v1.patch("/recurrentes/:id", async (c) => {
     const cuerpo = esquemaEdicion.safeParse(await c.req.json().catch(() => null));
     if (!cuerpo.success) return c.json(invalido(cuerpo.error), 400);
-    const { cuenta_id, ...cambios } = cuerpo.data;
-    return c.json(editarRecurrenteApp(contexto(c.get("usuarioId")), c.req.param("id"), { ...cambios, cuentaId: cuenta_id }));
+    const { cuenta_id, confirmar_solo, ...cambios } = cuerpo.data;
+    return c.json(
+      editarRecurrenteApp(contexto(c.get("usuarioId")), c.req.param("id"), { ...cambios, cuentaId: cuenta_id, confirmarSolo: confirmar_solo }),
+    );
   });
 
   v1.delete("/recurrentes/:id", (c) => {

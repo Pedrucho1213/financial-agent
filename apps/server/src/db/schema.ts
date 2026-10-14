@@ -12,6 +12,13 @@ import {
 // Todos los montos se guardan en centavos (enteros) para evitar errores de redondeo.
 // Todas las tablas de datos llevan usuario_id: el sistema es multiusuario desde el inicio.
 
+/** Qué avisos quiere recibir por notificación y en qué horario (horas locales, `hasta` sin incluir). */
+export type PreferenciasAvisos = {
+  tipos?: Partial<Record<"cobros" | "tarjetas" | "presupuestos" | "fugas" | "deudas", boolean>>;
+  desde?: number;
+  hasta?: number;
+};
+
 const id = () =>
   text("id")
     .primaryKey()
@@ -34,6 +41,8 @@ export const usuarios = sqliteTable(
     creadoEn: creadoEn(),
     // Último día (YYYY-MM-DD) que el revisor nocturno buscó fugas para este usuario.
     revisadoPara: text("revisado_para"),
+    // Qué notificaciones quiere y en qué horario (Ajustes › Notificaciones). null: lo de siempre.
+    preferenciasAvisos: text("preferencias_avisos", { mode: "json" }).$type<PreferenciasAvisos>(),
   },
   (t) => [uniqueIndex("usuarios_usuario").on(t.usuario)],
 );
@@ -254,12 +263,55 @@ export const recurrentes = sqliteTable("recurrentes", {
   activo: integer("activo", { mode: "boolean" }).notNull().default(true),
   estado: text("estado", { enum: ESTADOS_RECURRENTE }).notNull().default("activa"),
   estadoEn: text("estado_en"),
+  // Si al llegar su fecha se da por pagado sin preguntar (apagado: se pregunta).
+  confirmarSolo: integer("confirmar_solo", { mode: "boolean" }).notNull().default(false),
+  // El comercio con que llega su pago cuando no se llama igual ("APPLE.COM/BILL" para iCloud).
+  comercioId: text("comercio_id"),
   entradaId: text("entrada_id"),
   creadoEn: creadoEn(),
   eliminadoEn: text("eliminado_en"),
 });
 
 // Compras a meses sin intereses.
+export const ESTADOS_COBRO = ["pendiente", "pagado", "saltado", "sin_confirmar"] as const;
+
+// Cada vez que toca pagar una suscripción o pago fijo: queda pendiente hasta que se confirma (en la app, por voz o
+// porque llegó un pago que coincide). Nunca se anota solo, salvo los que tienen confirmar_solo.
+export const cobros = sqliteTable(
+  "cobros",
+  {
+    id: id(),
+    usuarioId: text("usuario_id")
+      .notNull()
+      .references(() => usuarios.id),
+    recurrenteId: text("recurrente_id").notNull(),
+    // Día en que toca (YYYY-MM-DD).
+    fecha: text("fecha").notNull(),
+    montoEsperadoCentavos: integer("monto_esperado_centavos").notNull(),
+    moneda: text("moneda").notNull().default("MXN"),
+    estado: text("estado", { enum: ESTADOS_COBRO }).notNull().default("pendiente"),
+    // El gasto que lo pagó; si ese gasto se borra, el cobro vuelve a estar pendiente.
+    movimientoId: text("movimiento_id"),
+    // Si ese gasto lo creó la confirmación (deshacerla lo borra) o ya estaba anotado (solo se suelta).
+    movimientoCreado: integer("movimiento_creado", { mode: "boolean" }).notNull().default(false),
+    montoRealCentavos: integer("monto_real_centavos"),
+    confirmadoPor: text("confirmado_por", { enum: ["app", "voz", "apple_pay", "empate", "auto"] }),
+    confirmadoEn: text("confirmado_en"),
+    // Si al confirmar cambió el precio de la suscripción: el de antes, para deshacerlo.
+    precioAnteriorCentavos: integer("precio_anterior_centavos"),
+    // "Todavía no": no se vuelve a preguntar antes de este día.
+    posponerHasta: text("posponer_hasta"),
+    // Cuántas notificaciones se mandaron por este cobro y cuándo la última.
+    notificaciones: integer("notificaciones").notNull().default(0),
+    notificadoEn: text("notificado_en"),
+    // La última pregunta por voz sobre este cobro: "pago" (¿ya se pagó?) o "precio" (¿ahora cuesta tanto?).
+    pregunta: text("pregunta", { enum: ["pago", "precio"] }),
+    preguntadoEn: text("preguntado_en"),
+    creadoEn: creadoEn(),
+  },
+  (t) => [uniqueIndex("cobros_recurrente_fecha").on(t.recurrenteId, t.fecha), index("cobros_usuario_estado").on(t.usuarioId, t.estado)],
+);
+
 export const comprasMsi = sqliteTable("compras_msi", {
   id: id(),
   usuarioId: text("usuario_id")
@@ -381,6 +433,7 @@ export const TABLAS_BITACORA = [
   "compras_msi",
   "cuentas",
   "etiquetas",
+  "cobros",
 ] as const;
 
 // Bitácora de cambios: permite deshacer cualquier cosa que hizo la IA.

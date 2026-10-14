@@ -59,7 +59,9 @@ import { avisoDeDictado, conversacionPorContestar } from "./push/dictados";
 import { desuscribir, type EnviarPush, ErrorSuscripcion, estadoPush, notificar, suscribir, tienePush } from "./push/notificaciones";
 import { notaDelGasto } from "./finanzas/comentario";
 import { saludFinanciera, saludHabilitada } from "./finanzas/salud";
+import { empatarGasto } from "./finanzas/cobros";
 import { rutasIa } from "./rutas-ia";
+import { rutasCobros } from "./rutas-cobros";
 import { rutasPlanes } from "./rutas-planes";
 import { rutasRecurrentes } from "./rutas-recurrentes";
 import { rutasCuentas } from "./rutas-cuentas";
@@ -982,6 +984,8 @@ export function crearApp(opciones: OpcionesApp) {
       categoriaId: categoria_id ?? undefined,
       origen: "app",
     });
+    // Si es el pago de una suscripción que falta, queda pagada.
+    empatarGasto(ctx, creado.id);
     return c.json(movimientoApp(ctx, obtenerPropio(ctx, creado.id)), 201);
   });
 
@@ -1082,6 +1086,7 @@ export function crearApp(opciones: OpcionesApp) {
     return c.json(resumir(contexto(c.get("usuarioId")), { periodo: c.req.query("periodo") ?? "este_mes", tipo, agruparPor }));
   });
 
+  rutasCobros(v1, db, contexto);
   rutasPlanes(v1, contexto);
   rutasRecurrentes(v1, contexto);
   rutasCuentas(v1, contexto);

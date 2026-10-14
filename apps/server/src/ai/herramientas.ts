@@ -29,6 +29,7 @@ import {
 } from "../finanzas/habitos";
 import { listarMemorias, olvidar, recordar } from "../finanzas/memorias";
 import { cancelarRecurrente, crearRecurrente, editarRecurrente, listarRecurrentes, pausarRecurrente } from "../finanzas/recurrentes";
+import { cobrosHabilitado, empatarGasto, marcarCobroPorVoz, pagoFijoNombrado } from "../finanzas/cobros";
 import { fechaDelTexto, fechasDelTexto, mencionaFecha, resolverFecha, sumarDias } from "../lib/fechas";
 import { aCentavos, formatearMonto } from "../lib/dinero";
 import { montoConPalabras, montosDelTexto } from "../lib/numeros";
@@ -258,6 +259,15 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
             desviar("meta", "Parece dinero apartado para una meta de ahorro: usa meta con accion aportar.");
           }
         }
+        // "Ya pagué Netflix" es el cobro de su suscripción: marcar_cobro lo liga con el pendiente y no lo anota dos veces.
+        if (texto && !pago && movimientos.length === 1 && movimientos[0]!.tipo === "gasto") {
+          const fijo = pagoFijoNombrado(ctx, texto);
+          if (fijo?.cobro.estado === "pagado") {
+            desviar("cobro", `${fijo.r.nombre} de este periodo ya está pagado. Si es el mismo pago, no registres nada y díselo; si es otro cobro aparte, vuelve a llamar.`);
+          } else if (fijo) {
+            desviar("cobro", `Es el pago de su suscripción o pago fijo ${fijo.r.nombre}: usa marcar_cobro con pagado true (y el monto si dijo otro).`);
+          }
+        }
         // Si la frase dice una sola fecha ("ayer", "el viernes"), esa manda sobre una fecha que el
         // modelo calculó u omitió; los modelos chicos se equivocan al calcularla. Si la frase no
         // habla de ningún momento, una fecha calculada por el modelo es inventada.
@@ -367,7 +377,10 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
               cuentaSegunCategoria,
               fecha: conFecha(m.fecha, i),
             });
-            return habito ? { ...registrado, monto_de_siempre: true } : registrado;
+            // Si es el pago de una suscripción que falta, queda pagada (y la app ya no pregunta por ella).
+            const empate = tipo === "gasto" ? empatarGasto(ctx, registrado.id) : undefined;
+            const conEmpate = empate ? { ...registrado, pago_de: `${empate.nombre} (queda pagado)` } : registrado;
+            return habito ? { ...conEmpate, monto_de_siempre: true } : conEmpate;
           }),
         };
       }),
@@ -594,5 +607,26 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
       }),
       execute: ejecutar("listar_recurrentes", (opciones) => listarRecurrentes(ctx, opciones)),
     }),
+
+    ...(cobrosHabilitado(ctx.db, ctx.usuarioId)
+      ? {
+          marcar_cobro: tool({
+            description:
+              'Marca el cobro de este periodo de una suscripción o pago fijo: pagado ("ya pagué Netflix", "ya se cobró la renta", "pagué Netflix pero fueron 249") o no pagado ("este mes no pagué Spotify"). Anota el gasto él solo; no llames registrar_movimientos para lo mismo.',
+            inputSchema: z.object({
+              nombre: z.string().describe("Cuál: Netflix, Renta, Gimnasio"),
+              pagado: z.boolean().describe("true si ya se pagó; false si este periodo no se pagó"),
+              monto: z.number().positive().optional().describe("Solo si dijo que fue otro monto."),
+              cuenta: z.string().optional().describe("Solo si dijo con qué pagó."),
+            }),
+            execute: ejecutar("marcar_cobro", (datos) => {
+              // Un monto que no dijo no cuenta: el de la suscripción manda.
+              const dichos = ctx.textoOriginal ? montosDelTexto(ctx.textoOriginal) : [];
+              const monto = datos.monto !== undefined && (dichos.includes(datos.monto) || ctx.enConversacion) ? datos.monto : undefined;
+              return marcarCobroPorVoz(ctx, { ...datos, monto });
+            }),
+          }),
+        }
+      : {}),
   };
 }

@@ -1,4 +1,5 @@
 import type { Page, Route } from "@playwright/test";
+import { atenderCobros } from "./api-falsa-cobros";
 import { atenderCuenta } from "./api-falsa-cuenta";
 import { atenderCuentas, type DatosCuentas, extraMovimiento, extraTablero } from "./api-falsa-cuentas";
 import { atenderIa } from "./api-falsa-ia";
@@ -362,6 +363,8 @@ export class ApiFalsa {
       this.dispositivos = this.dispositivos.filter((d) => d.id !== m?.[1]);
       return json(200, { ok: true });
     }
+    await atenderCobros(this, { metodo, ruta, cuerpo, json: responder });
+    if (respondido) return;
     await atenderPlan(this, { metodo, ruta, cuerpo, consulta: url.searchParams, json: responder });
     if (respondido) return;
     await atenderCuentas(this, { metodo, ruta, cuerpo, consulta: url.searchParams, json: responder });
@@ -571,6 +574,14 @@ export class ApiFalsa {
       ...extraTablero(this, mes),
     };
   }
+}
+
+/**
+ * Espera a que la pantalla termine de entrar: las páginas llegan deslizándose desde la derecha (animate-empujar) y
+ * medir posiciones o anchos a media animación da números corridos.
+ */
+export async function pantallaQuieta(page: Page) {
+  await page.locator("main").evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
 }
 
 /** Entra con sesión ya guardada y la fecha fija en el 6 de octubre de 2026. */

@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { ApiFalsa, HOY, prepararSesion } from "./api-falsa";
+import { ApiFalsa, HOY, pantallaQuieta, prepararSesion } from "./api-falsa";
 import { conHistorial } from "./api-falsa-analisis";
 
 // Análisis (#analisis): periodos, comparación, barras, filtros, insights, calendario, flujo y cómo pagas.
@@ -124,6 +124,8 @@ test.describe("Análisis", () => {
   test("arrastrar sobre las barras recorre los días", async ({ page }) => {
     await prepararSesion(page);
     await page.goto("/#analisis");
+    await expect(page.locator("[data-grafica=barras]")).toBeVisible();
+    await pantallaQuieta(page);
     const caja = await page.locator("[data-grafica=barras]").boundingBox();
     if (!caja) throw new Error("sin gráfica");
     const util = caja.width - 40;

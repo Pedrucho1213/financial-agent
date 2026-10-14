@@ -10,7 +10,7 @@ import { preparar } from "./ayuda";
 // Las herramientas se llaman directo, como lo haría el modelo.
 const herramientas = (ctx: Contexto) => crearHerramientas(ctx, []);
 const llamar = <N extends keyof ReturnType<typeof herramientas>>(ctx: Contexto, nombre: N, args: unknown) =>
-  (herramientas(ctx)[nombre].execute as (a: unknown, o: unknown) => Promise<any>)(args, {});
+  (herramientas(ctx)[nombre]!.execute as (a: unknown, o: unknown) => Promise<any>)(args, {});
 const todos = (ctx: Contexto) => buscarMovimientos(ctx, { periodo: "todo", limite: 50 }).movimientos;
 const dictado = (ctx: Contexto, texto: string): Contexto => ({ ...ctx, textoOriginal: texto, entradaId: "dictado" });
 

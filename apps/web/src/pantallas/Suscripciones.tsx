@@ -7,11 +7,13 @@ import { Spinner } from "../components/Spinner";
 import { Button } from "../components/ui/button";
 import { Fila, FilaBoton, Grupo } from "../components/ui/lista";
 import { SelectNativo } from "../components/ui/select";
+import { Switch } from "../components/ui/switch";
 import { Sheet, SheetContent } from "../components/ui/sheet";
 import { Skeleton } from "../components/ui/skeleton";
 import { ErrorApi, mensajeDeError } from "../lib/api";
 import { useEnLinea } from "../lib/conexion";
 import { useYo } from "../lib/consultas";
+import { cobrosParaMostrar, useCobros } from "../lib/cobros";
 import { useCuentas } from "../lib/cuentas";
 import { diasHasta, dinero, FRECUENCIAS, hoyIso, leerMonto } from "../lib/formato";
 import { haptico } from "../lib/haptico";
@@ -261,6 +263,9 @@ function HojaRecurrente({ valor, moneda, alCerrar }: { valor: Recurrente | "nuev
   const [dia, setDia] = useState(1);
   const [mes, setMes] = useState(1);
   const [cuentaId, setCuentaId] = useState("");
+  const [confirmarSolo, setConfirmarSolo] = useState(false);
+  // "Se anota sola" solo existe con la confirmación de cobros encendida para esta cuenta.
+  const conCobros = !!cobrosParaMostrar(useCobros(!!valor));
 
   // Solo al abrir otra (o una nueva): pausar no debe borrar lo que se está escribiendo.
   const clave = valor === "nueva" ? "nueva" : (valor?.id ?? null);
@@ -274,6 +279,7 @@ function HojaRecurrente({ valor, moneda, alCerrar }: { valor: Recurrente | "nuev
     setDia(editando?.dia ?? hoy.getDate());
     setMes(editando?.mes ?? hoy.getMonth() + 1);
     setCuentaId(editando?.cuentaId ?? "");
+    setConfirmarSolo(editando?.confirmarSolo ?? false);
   }, [clave]);
 
   const maxDia = frecuencia === "semanal" ? 7 : frecuencia === "quincenal" ? 15 : 31;
@@ -306,6 +312,7 @@ function HojaRecurrente({ valor, moneda, alCerrar }: { valor: Recurrente | "nuev
         if (diaValido !== editando.dia || frecuencia !== editando.frecuencia) datos.dia = diaValido;
         if (frecuencia === "anual" && (mes !== editando.mes || frecuencia !== editando.frecuencia)) datos.mes = mes;
         if ((cuentaId || null) !== editando.cuentaId) datos.cuenta_id = cuentaId || null;
+        if (conCobros && confirmarSolo !== (editando.confirmarSolo ?? false)) datos.confirmar_solo = confirmarSolo;
         if (!Object.keys(datos).length) {
           alCerrar();
           return;
@@ -495,6 +502,23 @@ function HojaRecurrente({ valor, moneda, alCerrar }: { valor: Recurrente | "nuev
                 />
               ) : null}
             </Grupo>
+
+            {editando && conCobros && tipo !== "ingreso" ? (
+              <Grupo
+                pie={
+                  confirmarSolo
+                    ? "En su fecha la anoto como pagada sin preguntarte. Si un mes no se cobra, dímelo y la corrijo."
+                    : "En su fecha te pregunto si ya se pagó. Actívalo si se cobra sola (domiciliada)."
+                }
+              >
+                <Fila>
+                  <label htmlFor="confirmar-solo" className="min-w-0 flex-1 py-2.5">
+                    Se paga sola
+                  </label>
+                  <Switch id="confirmar-solo" checked={confirmarSolo} onCheckedChange={setConfirmarSolo} />
+                </Fila>
+              </Grupo>
+            ) : null}
 
             {editando ? (
               <Grupo>

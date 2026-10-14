@@ -1,5 +1,6 @@
 // Notificaciones push de Finanzas. El service worker que arma vite-plugin-pwa lo carga con importScripts.
-// El servidor manda {titulo, cuerpo, url, etiqueta}; al tocarla se abre esa ruta de la app.
+// El servidor manda {titulo, cuerpo, url, etiqueta, insignia?}; al tocarla se abre esa ruta de la app.
+// `insignia` es el número del ícono (pagos por confirmar); 0 lo quita. Sin ella, el ícono no se toca.
 
 self.addEventListener("push", (evento) => {
   let datos = {};
@@ -9,15 +10,24 @@ self.addEventListener("push", (evento) => {
     datos = { cuerpo: evento.data ? evento.data.text() : "" };
   }
   const titulo = datos.titulo || "Finanzas";
+  const insignia =
+    typeof datos.insignia !== "number" || !self.navigator?.setAppBadge
+      ? null
+      : datos.insignia > 0
+        ? self.navigator.setAppBadge(datos.insignia)
+        : self.navigator.clearAppBadge();
   evento.waitUntil(
-    self.registration.showNotification(titulo, {
-      body: datos.cuerpo || "",
-      tag: datos.etiqueta || undefined,
-      icon: "/pwa-192.png",
-      badge: "/pwa-192.png",
-      lang: "es-MX",
-      data: { url: datos.url || "/" },
-    }),
+    Promise.all([
+      insignia?.catch(() => {}),
+      self.registration.showNotification(titulo, {
+        body: datos.cuerpo || "",
+        tag: datos.etiqueta || undefined,
+        icon: "/pwa-192.png",
+        badge: "/pwa-192.png",
+        lang: "es-MX",
+        data: { url: datos.url || "/" },
+      }),
+    ]),
   );
 });
 

@@ -50,6 +50,57 @@ export function proximoCobro(r: Pick<Recurrente, "frecuencia" | "dia" | "mes">, 
   }
 }
 
+/** Fechas de cobro de un recurrente entre dos días (incluidos). */
+export function cobrosEntre(r: Pick<Recurrente, "frecuencia" | "dia" | "mes">, desde: string, hasta: string) {
+  const fechas: string[] = [];
+  let dia = desde;
+  while (dia <= hasta) {
+    const proximo = proximoCobro(r, dia);
+    if (proximo > hasta) break;
+    fechas.push(proximo);
+    dia = sumarDias(proximo, 1);
+  }
+  return fechas;
+}
+
+/**
+ * Desde cuándo un gasto cuenta como pago del cobro de `fecha`: a la mitad entre el cobro anterior y
+ * este. Así la renta del 10 pagada el 5 cuenta, y el Netflix de septiembre anotado un día tarde no.
+ */
+export function inicioDelCiclo(r: Pick<Recurrente, "frecuencia" | "dia" | "mes">, fecha: string) {
+  const anterior = cobrosEntre(r, sumarDias(fecha, r.frecuencia === "anual" ? -370 : -40), sumarDias(fecha, -1)).at(-1);
+  if (!anterior) return sumarDias(fecha, -15);
+  const dias = Math.round((Date.parse(fecha) - Date.parse(anterior)) / 86_400_000);
+  return sumarDias(anterior, Math.floor(dias / 2));
+}
+
+const PALABRAS_VACIAS = new Set(["pago", "pagos", "cobro", "del", "las", "los", "para", "mensual", "mensualidad", "plan", "cuota"]);
+
+/** Un gasto visto para buscar pagos fijos: su texto (descripción y dictado) y su comercio, ya normalizados. */
+export type GastoParaEmpatar = {
+  recurrenteId: string | null;
+  montoCentavos: number;
+  texto: string;
+  comercio: string;
+  comercioId?: string | null;
+};
+
+/**
+ * Si un gasto parece el pago de este pago fijo. Coincide por el nombre en cualquier sentido ("renta" y "Renta del
+ * departamento"), por el comercio (también el que aprendió: "APPLE.COM/BILL" para iCloud), o por la primera palabra
+ * que distingue al pago. Por nombre solo si el monto se parece: "tenis para el gym" de 1,500 no es la mensualidad del Gym.
+ */
+export function esPagoDe(r: Pick<Recurrente, "id" | "nombre" | "montoCentavos" | "comercioId">, m: GastoParaEmpatar): boolean {
+  if (m.recurrenteId === r.id) return true;
+  if (m.montoCentavos < r.montoCentavos * 0.5 || m.montoCentavos > r.montoCentavos * 1.5) return false;
+  if (r.comercioId && m.comercioId === r.comercioId) return true;
+  const nombre = normalizar(r.nombre);
+  const clave = nombre.split(" ").find((p) => p.length > 3 && !PALABRAS_VACIAS.has(p));
+  const contiene = (texto: string, parte: string) => !!parte && new RegExp(`\\b${parte.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(texto);
+  if (contiene(m.texto, nombre) || (m.comercio.length > 3 && (contiene(nombre, m.comercio) || contiene(m.comercio, nombre)))) return true;
+  return !!clave && (contiene(m.texto, clave) || contiene(m.comercio, clave));
+}
+
 /** Cuánto pesa al mes, para sumar suscripciones de distinta frecuencia. */
 export function montoMensual(r: Pick<Recurrente, "frecuencia" | "montoCentavos">): number {
   switch (r.frecuencia) {
@@ -158,7 +209,7 @@ export function listarRecurrentes(ctx: Contexto, opciones: { dias?: number; tipo
 }
 
 /** El recurrente que el usuario nombra ("Netflix", "la renta"), o un error que dice cuáles hay. */
-function encontrarRecurrente(
+export function encontrarRecurrente(
   ctx: Contexto,
   nombre: string,
   estados: readonly EstadoRecurrente[] = ["activa", "pausada"],
@@ -276,11 +327,17 @@ const NOMBRES_DIA = ["", "lunes", "martes", "miércoles", "jueves", "viernes", "
  * se avisó: "Ojo: mañana se cobra Netflix de $219." `marcar` los da por avisados para no repetirlo.
  * `pagados`: lo que se acaba de registrar ("Netflix", "Renta"); de eso no se avisa y queda como avisado.
  */
-export function cobrosPorAvisar(ctx: Contexto, pagados: string[] = []): { aviso?: string; marcar: () => void } | undefined {
+export function cobrosPorAvisar(
+  ctx: Contexto,
+  pagados: string[] = [],
+  opciones: { desdeManana?: boolean } = {},
+): { aviso?: string; marcar: () => void } | undefined {
   const yaPagado = new Set(pagados.map(normalizar));
+  // Con la confirmación de cobros, del de hoy se pregunta si ya se cobró (cobros.ts): aquí solo los que vienen.
+  const desde = opciones.desdeManana ? sumarDias(ctx.hoy, 1) : ctx.hoy;
   const pendientes = activos(ctx)
     .filter((r) => r.tipo !== "ingreso")
-    .map((r) => ({ r, fecha: proximoCobro(r, ctx.hoy) }))
+    .map((r) => ({ r, fecha: proximoCobro(r, desde) }))
     .filter(({ r, fecha }) => fecha <= sumarDias(ctx.hoy, r.avisarDiasAntes) && r.avisadoPara !== fecha);
   if (pendientes.length === 0) return undefined;
   const recienPagados = pendientes.filter(({ r }) => yaPagado.has(normalizar(r.nombre)));
@@ -333,6 +390,8 @@ export type RecurrenteApp = {
   /** Solo de las activas. */
   proximoCobro: string | null;
   mensualCentavos: number;
+  /** Al llegar su fecha se da por pagado sin preguntar. */
+  confirmarSolo: boolean;
   creadoEn: string;
 };
 
@@ -367,6 +426,7 @@ function recurrenteApp(ctx: Contexto, r: Recurrente, nombres = nombresDe(ctx)): 
     estadoEn: r.estadoEn,
     proximoCobro: r.estado === "activa" ? proximoCobro(r, ctx.hoy) : null,
     mensualCentavos: montoMensual(r),
+    confirmarSolo: r.confirmarSolo,
     creadoEn: r.creadoEn,
   };
 }
@@ -434,10 +494,15 @@ export function crearRecurrenteApp(ctx: Contexto, datos: DatosRecurrenteApp) {
 export function editarRecurrenteApp(
   ctx: Contexto,
   id: string,
-  cambios: Partial<DatosRecurrenteApp> & { estado?: EstadoRecurrente },
+  cambios: Partial<DatosRecurrenteApp> & { estado?: EstadoRecurrente; confirmarSolo?: boolean },
 ) {
   let fila = propio(ctx, id);
-  const { estado, ...resto } = cambios;
+  const { estado, confirmarSolo, ...resto } = cambios;
+  if (confirmarSolo !== undefined && confirmarSolo !== fila.confirmarSolo) {
+    const despues = ctx.db.update(recurrentes).set({ confirmarSolo }).where(eq(recurrentes.id, fila.id)).returning().get()!;
+    registrarEnBitacora(ctx, "recurrentes", fila.id, "editar", fila, despues);
+    fila = despues;
+  }
   if (Object.values(resto).some((v) => v !== undefined)) {
     const datos = {
       nombre: resto.nombre?.trim() || fila.nombre,

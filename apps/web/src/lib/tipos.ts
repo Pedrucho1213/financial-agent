@@ -382,6 +382,8 @@ export type Recurrente = {
   proximoCobro: string | null;
   mensualCentavos: number;
   creadoEn: string;
+  /** En su fecha se anota sola, sin preguntar (domiciliada). Falta en servidores viejos. */
+  confirmarSolo?: boolean;
 };
 
 export type Recurrentes = { recurrentes: Recurrente[]; mensualCentavos: number; moneda: string };
@@ -395,4 +397,5 @@ export type DatosRecurrente = {
   mes?: number | null;
   cuenta_id?: string | null;
   estado?: EstadoRecurrente;
+  confirmar_solo?: boolean;
 };
