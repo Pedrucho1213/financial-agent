@@ -145,6 +145,8 @@ test.describe("Presupuestos y metas", () => {
     await expect(hoja).toContainText("$26,000.00");
     await expect(hoja.getByText(/5 oct · desde Revolut/)).toBeVisible();
     await expect(hoja.getByText("Te prestó")).toBeVisible();
+    await expect(hoja.getByText("Desde el 10 de agosto de 2026")).toBeVisible();
+    await expect(hoja.getByRole("img", { name: "Lo que falta de la deuda con el tiempo" })).toBeVisible();
     await expect(hoja).toContainText("«Le transferí 2 mil a mi mamá desde Revolut»");
     await hoja.getByRole("button", { name: "Listo" }).click();
     await expect(hoja).toBeHidden();
@@ -333,6 +335,20 @@ test.describe("Avisos del revisor", () => {
     await expect(page.getByText("3 movimientos")).toBeVisible();
     await page.goto("/#metas");
     await expect(page.getByRole("heading", { name: "Metas de ahorro" })).toBeInViewport();
+  });
+});
+
+test.describe("Deudas con un servidor o caché de antes", () => {
+  test("sin el detalle por persona, la fila abre igual con lo que hay", async ({ page }) => {
+    const api = new ApiFalsa();
+    api.plan.personas = undefined as unknown as typeof api.plan.personas;
+    await prepararSesion(page, api);
+    await page.goto("/#plan");
+    await page.getByRole("button", { name: /^Mamá/ }).click();
+    const hoja = page.getByRole("dialog", { name: "Mamá" });
+    await expect(hoja).toContainText("$26,000.00");
+    await expect(hoja.getByText("Desde el 10 de agosto de 2026")).toBeVisible();
+    await expect(hoja.getByText("Te prestó")).toBeVisible();
   });
 });
 
