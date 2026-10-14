@@ -8,7 +8,7 @@
 //
 // La IA ve los gastos de cada cuenta en una sola consulta (o de 80 en 80); la prueba dice cuánto costó.
 // De la cuenta dueña se muestra cada gasto; de las demás, solo cuántos.
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { Database } from "bun:sqlite";
@@ -123,6 +123,7 @@ for (const { usuarioId, agregados } of plan.cuentas) {
   const vivos = agregados.filter((a) => db.select({ e: movimientos.eliminadoEn }).from(movimientos).where(eq(movimientos.id, a.movimientoId)).get()?.e === null);
   cambiados += aplicarPlan(ctx, vivos, plan.marca).cambiados;
 }
-// Ya aplicado: otro --aplicar no lo repite (y no pisa lo que --deshacer necesita).
-renameSync(rutaPlan, `${rutaPlan}.aplicado-${plan.marca}`);
+// Ya aplicado: se borra (trae descripciones de gastos) y otro --aplicar no lo repite. --deshacer no lo necesita: lo
+// que agregó quedó en la base.
+rmSync(rutaPlan);
 console.log(`Listo: etiqueté ${cambiados} movimientos. Para quitarlo todo: bun scripts/etiquetar-historial.ts --deshacer ${plan.marca}`);

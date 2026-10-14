@@ -134,7 +134,8 @@ export function leerRespuesta(texto: string, lineas: LineaParaIa[], quePasoDe: (
     const l = lineas[Number(r[1]) - 1];
     if (!l) continue;
     const nombres = r[2]!
-      .split(/,|\by\b/)
+      // Solo por comas: "Boda de Ana y Luis" es una sola etiqueta.
+      .split(",")
       .map((n) => n.replace(/["'#*]/g, "").trim())
       .filter((n) => n && n.length <= MAX_LARGO && !/^ningun/i.test(n))
       .slice(0, 2);

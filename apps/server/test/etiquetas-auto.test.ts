@@ -164,17 +164,18 @@ describe("etiquetar el historial", () => {
     const n = (comercio: string) => lineas.findIndex((l) => l.linea.includes(comercio)) + 1;
     expect(lineas[n("La Docena") - 1]!.linea).toContain('dijo: "comida con los del trabajo"');
     // La IA marca la renta como innecesaria y pone el comercio como etiqueta: eso no pasa.
-    const respuesta = `${n("Tacos")}: Innecesario\n${n("La Docena")}: Trabajo\n${n("Casero")}: Innecesario, Casero`;
+    const respuesta = `${n("Tacos")}: Innecesario\n${n("La Docena")}: Trabajo\n${n("Casero")}: Innecesario, Casero\n${n("Tienda 1")}: Boda de Ana y Luis`;
     const ia = leerRespuesta(respuesta, lineas, (m) => m.id);
     expect(ia.map((a) => [a.etiqueta, a.motivo])).toEqual([
       ["Innecesario", "innecesario"],
       ["Trabajo", "contexto"],
+      ["Boda de Ana y Luis", "contexto"],
     ]);
 
     // Una etiqueta que borró no se revive.
     crearMovimiento(en(ctx), { tipo: "gasto", monto: 1, comercio: "X", etiquetas: ["Trabajo"] });
     eliminarEtiqueta(ctx, { nombre: "Trabajo" });
-    const r = aplicarPlan(ctx, [...viajes, ...ia], "prueba");
+    const r = aplicarPlan(ctx, [...viajes, ...ia.filter((a) => !a.etiqueta.startsWith("Boda"))], "prueba");
     expect(r).toEqual({ cambiados: 1, creadas: 2 });
     expect(etiquetasDe(ctx, "Tacos")).toEqual([["Viaje Cancún", "Innecesario"]]);
     expect(etiquetasDe(ctx, "La Docena")).toEqual([[]]);
