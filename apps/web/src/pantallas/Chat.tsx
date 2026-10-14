@@ -515,13 +515,18 @@ function Registrado({ id }: { id: string }) {
 /** "Deshacer" de algo que acaba de anotar: lo borra (con su propio Deshacer en el aviso, por si fue sin querer). */
 function Deshacer({ id, enLinea }: { id: string; enLinea: boolean }) {
   const { data: m, isError } = useMovimiento(id);
+  // Dos toques rápidos no mandan dos DELETE (el segundo saldría como error).
+  const [borrando, setBorrando] = useState(false);
   if (!m || isError) return null;
   return (
     <li>
       <button
         type="button"
-        disabled={!enLinea}
-        onClick={() => void eliminarConDeshacer(m)}
+        disabled={!enLinea || borrando}
+        onClick={() => {
+          setBorrando(true);
+          void eliminarConDeshacer(m).finally(() => setBorrando(false));
+        }}
         className="relative ml-1 text-[14px] font-medium text-tint after:absolute after:-inset-x-2 after:-inset-y-3 after:content-[''] active:opacity-50 disabled:opacity-40"
       >
         Deshacer

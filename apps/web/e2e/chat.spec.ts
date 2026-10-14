@@ -29,11 +29,13 @@ test("enseña lo que anotó, abre su detalle y Deshacer lo borra", async ({ page
   await expect(page.getByText("Listo, lo anoté con Nu.")).toBeVisible();
 
   // Deshacer borra ese movimiento (no "lo último"), y el aviso deja regresarlo.
-  await lista.getByRole("button", { name: "Deshacer" }).click();
+  // Dos toques seguidos borran una sola vez.
+  await lista.getByRole("button", { name: "Deshacer" }).dblclick();
   await expect.poll(() => api.de("DELETE", "/v1/movimientos/mov-001").length).toBe(1);
   await expect(page.locator("[data-sonner-toast]").getByText("Eliminado")).toBeVisible();
   await expect(fila).toBeHidden();
   await expect(lista.getByRole("button", { name: "Deshacer" })).toBeHidden();
+  expect(api.de("DELETE", "/v1/movimientos/mov-001")).toHaveLength(1);
 });
 
 test("las fichas mandan otra pregunta y no repiten lo que ya preguntaste", async ({ page }) => {
