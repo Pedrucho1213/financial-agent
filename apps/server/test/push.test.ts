@@ -791,6 +791,17 @@ describe("Apple Pay", () => {
 });
 
 describe("Atajo rápido con cuentas", () => {
+  test("un gasto sin decir con qué pagó, con varias cuentas: el Atajo espera y pregunta en voz, sin 'Anotado'", async () => {
+    const autozone = llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 399, comercio: "AutoZone", categoria: "Auto" }] });
+    const { pedir, activar, db, usuario } = montar([autozone, autozone]);
+    await activar();
+    for (const [nombre, tipo] of [["Revolut", "debito"], ["Revolut crédito", "credito"]] as const) db.insert(cuentas).values({ usuarioId: usuario.id, nombre, tipo }).run();
+    const r = await pedir("/v1/hablar", "POST", { texto: "gasté 399 en AutoZone", client_id: "sin-cuenta-01" });
+    const { respuesta } = (await r.json()) as { respuesta: string };
+    expect(respuesta).toStartWith("Listo, AutoZone de 399 pesos");
+    expect(respuesta).toEndWith("¿Con qué lo pagaste?");
+  });
+
   test("decir cuánto hay en una cuenta no es un gasto: el Atajo espera y dice cómo quedó, sin 'Anotado' ni comentario de gasto alto", async () => {
     const { pedir, activar, db } = montar([llamada("cuentas", { cuentas: [{ cuenta: "Revolut", saldo: 20000 }] })]);
     await activar();

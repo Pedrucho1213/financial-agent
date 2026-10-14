@@ -58,6 +58,7 @@ import { and, count, eq, gte, sql } from "drizzle-orm";
 import { avisoDeDictado, conversacionPorContestar } from "./push/dictados";
 import { desuscribir, type EnviarPush, ErrorSuscripcion, estadoPush, notificar, suscribir, tienePush } from "./push/notificaciones";
 import { notaDelGasto } from "./finanzas/comentario";
+import { preguntariaConQuePago } from "./ai/con-que-pago";
 import { saludFinanciera, saludHabilitada } from "./finanzas/salud";
 import { empatarGasto } from "./finanzas/cobros";
 import { rutasIa } from "./rutas-ia";
@@ -586,7 +587,9 @@ export function crearApp(opciones: OpcionesApp) {
     // y eso se oye al momento en vez de un "Anotado".
     // Igual con un préstamo o un abono a una persona ("le transferí 2 mil a mi mamá"): se oye cuánto queda.
     const actualizaCuentas = hablaDeCuentas(p.texto, nombresDeTarjetas(contexto(usuarioId))) || hablaDePrestamo(contexto(usuarioId), p.texto);
-    const rapida = delAtajo && !pregunta && !actualizaCuentas && !enReloj && tienePush(db, usuarioId);
+    // Sin decir con qué pagó (y con varias cuentas) termina preguntándolo: se espera para que se oiga ahí mismo.
+    const rapida =
+      delAtajo && !pregunta && !actualizaCuentas && !enReloj && tienePush(db, usuarioId) && !preguntariaConQuePago(contexto(usuarioId), p.texto);
     // Sin nada que comentar (nada raro en el gasto, poco historial, ya comentó lo del día), no la espera.
     const esperaMs =
       p.espera_ms ??
