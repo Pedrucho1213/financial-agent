@@ -53,6 +53,8 @@ export type Dispositivo = {
   creadoEn: string;
   ultimoUso: string | null;
   actual: boolean;
+  /** Dónde estaba la última vez que su Atajo dictó o pagó. Falta en servidores viejos. */
+  ubicacion?: { lat: number; lon: number; lugar: string | null; en: string } | null;
 };
 
 export type Yo = {

@@ -119,7 +119,7 @@ for (const esquema of ["light", "dark"] as const) {
 
     test(`atajo en ajustes (${sufijo})`, async ({ page }) => {
       await prepararSesion(page);
-      await page.goto("/#ajustes");
+      await page.goto("/#atajos");
       const descarga = page.waitForEvent("download");
       await page.getByRole("button", { name: /Instalar el Atajo/ }).click();
       await descarga;
@@ -153,13 +153,13 @@ for (const esquema of ["light", "dark"] as const) {
       api.cuenta.codigo = "clave-segura-1";
       ponerEstado(api, { ia: { cargada: false }, cola: { pendientes: 1, conError: 1 } });
       await prepararSesion(page, api);
-      await page.goto("/#ajustes");
-      await expect(page.getByRole("button", { name: "Cambiar código para entrar" })).toBeVisible();
-      await capturar(page, `ajustes-cuenta-${sufijo}`);
+      await page.goto("/#sistema");
       const sistema = page.getByRole("region", { name: "Sistema" });
-      await sistema.scrollIntoViewIfNeeded();
       await expect(sistema.getByText("Se carga al hablar")).toBeVisible();
       await capturar(page, `ajustes-sistema-${sufijo}`);
+      await page.goto("/#perfil");
+      await expect(page.getByRole("button", { name: "Cambiar código para entrar" })).toBeVisible();
+      await capturar(page, `ajustes-cuenta-${sufijo}`);
 
       await page.getByRole("button", { name: /^Usuario/ }).click();
       await page.getByRole("dialog").getByLabel("Usuario").fill("José.Pérez");

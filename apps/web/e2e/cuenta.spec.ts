@@ -21,7 +21,7 @@ async function sinSesion(page: Page, api: ApiFalsa) {
 test.describe("Cuenta en Ajustes", () => {
   test("cambiar el nombre con el que te saludo", async ({ page }) => {
     const api = await prepararSesion(page);
-    await page.goto("/#ajustes");
+    await page.goto("/#perfil");
     await expect(page.getByRole("heading", { name: "Pedro Ramírez" })).toBeVisible();
 
     await page.getByRole("button", { name: "Cómo te saludo" }).click();
@@ -57,7 +57,7 @@ test.describe("Cuenta en Ajustes", () => {
 
   test("cambiar el usuario: pistas, 409 y cómo queda", async ({ page }) => {
     const api = await prepararSesion(page);
-    await page.goto("/#ajustes");
+    await page.goto("/#perfil");
     const fila = page.getByRole("button", { name: /^Usuario/ });
     await expect(fila).toContainText("pedro");
     await fila.click();
@@ -101,7 +101,7 @@ test.describe("Cuenta en Ajustes", () => {
 
   test("crear el código: pistas, 400 del servidor y sin tu usuario ni tu nombre", async ({ page }) => {
     const api = await prepararSesion(page);
-    await page.goto("/#ajustes");
+    await page.goto("/#perfil");
     await expect(page.getByText("puedes entrar desde cualquier iPhone o reinstalar el Atajo")).toBeVisible();
     await expect(page.getByRole("button", { name: "Quitar código" })).toHaveCount(0);
     await page.getByRole("button", { name: "Crear código para entrar" }).click();
@@ -166,8 +166,7 @@ test.describe("Cuenta en Ajustes", () => {
 
   test("cambiar el código pide el actual (403 no cierra la sesión) y puede cerrar los demás dispositivos", async ({ page }) => {
     const api = await prepararSesion(page, conCodigo());
-    await page.goto("/#ajustes");
-    await expect(page.getByText("MacBook Pro")).toBeVisible();
+    await page.goto("/#perfil");
     await page.getByRole("button", { name: "Cambiar código para entrar" }).click();
 
     const hoja = page.getByRole("dialog", { name: "Cambiar código" });
@@ -199,9 +198,10 @@ test.describe("Cuenta en Ajustes", () => {
 
     await expect(hoja).toHaveCount(0);
     await expect(page.getByText("Código cambiado. Cerraste la sesión en 2 dispositivos.")).toBeVisible();
+    await page.goto("/#dispositivos");
+    await expect(page.getByRole("button", { name: /iPhone 17 Pro Max/ })).toBeVisible();
     await expect(page.getByText("MacBook Pro")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Quitar Atajo" })).toHaveCount(0);
-    await expect(page.getByText("Este dispositivo", { exact: true })).toBeVisible();
+    await expect(page.getByText("Atajo", { exact: true })).toHaveCount(0);
     expect(api.de("PUT", "/v1/yo/codigo").map((p) => p.cuerpo)).toEqual([
       { codigo: "otra-clave-larga", actual: "no-es-el-mio", cerrarOtros: false },
       { codigo: "otra-clave-larga", actual: "  CLAVE-segura-1 ", cerrarOtros: true },
@@ -212,7 +212,7 @@ test.describe("Cuenta en Ajustes", () => {
 
   test("quitar el código pide el actual; 403 y 429 se muestran tal cual", async ({ page }) => {
     const api = await prepararSesion(page, conCodigo());
-    await page.goto("/#ajustes");
+    await page.goto("/#perfil");
     await page.getByRole("button", { name: "Quitar código" }).click();
 
     const hoja = page.getByRole("dialog", { name: "Quitar código" });
@@ -252,7 +252,7 @@ test.describe("Cuenta en Ajustes", () => {
 
   test("con código, cambiar el usuario pide el actual", async ({ page }) => {
     const api = await prepararSesion(page, conCodigo());
-    await page.goto("/#ajustes");
+    await page.goto("/#perfil");
     await page.getByRole("button", { name: /^Usuario/ }).click();
     const hoja = page.getByRole("dialog", { name: "Usuario" });
     const actual = hoja.getByLabel("Código actual", { exact: true });
@@ -290,7 +290,7 @@ test.describe("Cuenta en Ajustes", () => {
 
   test("con código, cerrar sesión recuerda que se puede volver con usuario y código", async ({ page }) => {
     await prepararSesion(page, conCodigo());
-    await page.goto("/#ajustes");
+    await page.goto("/#perfil");
     await page.getByRole("button", { name: /Cerrar sesión en este dispositivo/ }).click();
     await expect(page.getByRole("alertdialog")).toContainText("usa tu usuario y tu código");
   });
@@ -314,11 +314,12 @@ test.describe("Cuenta en Ajustes", () => {
             },
           }),
     );
-    await page.goto("/#ajustes");
+    await page.goto("/#perfil");
     await expect(page.getByRole("heading", { name: "Pedro Ramírez" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Cómo te saludo" })).toBeVisible();
     await expect(page.getByRole("button", { name: /^Usuario/ })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /código para entrar/ })).toHaveCount(0);
+    await page.goto("/#sistema");
     const sistema = page.getByRole("region", { name: "Sistema" });
     await expect(sistema).toHaveText(/Actualiza el servidor para ver su estado/);
     await expect(page.locator("[data-sonner-toast]")).toHaveCount(0);
@@ -328,7 +329,7 @@ test.describe("Cuenta en Ajustes", () => {
 test.describe("Sistema en Ajustes", () => {
   test("servidor, versión, IA lista y nada pendiente", async ({ page }) => {
     const api = await prepararSesion(page);
-    await page.goto("/#ajustes");
+    await page.goto("/#sistema");
     const sistema = page.getByRole("region", { name: "Sistema" });
     await expect(sistema.getByText("Encendido desde hace 3 horas")).toBeVisible();
     await expect(sistema.getByText("En línea")).toHaveCount(1); // el punto verde, para VoiceOver
@@ -344,7 +345,7 @@ test.describe("Sistema en Ajustes", () => {
     const api = new ApiFalsa();
     ponerEstado(api, { servidor: null });
     await prepararSesion(page, api);
-    await page.goto("/#ajustes");
+    await page.goto("/#sistema");
     const sistema = page.getByRole("region", { name: "Sistema" });
     await expect(sistema.getByText("Lista")).toBeVisible();
     await expect(sistema.getByText("En línea")).toHaveCount(1);
@@ -358,7 +359,7 @@ test.describe("Sistema en Ajustes", () => {
     const api = new ApiFalsa();
     ponerEstado(api, { ia: { cargada: false }, cola: { pendientes: 2, conError: 1 } });
     await prepararSesion(page, api);
-    await page.goto("/#ajustes");
+    await page.goto("/#sistema");
     const sistema = page.getByRole("region", { name: "Sistema" });
     await expect(sistema.getByText("Se carga al hablar")).toBeVisible();
     await expect(sistema.getByText("2 en proceso · 1 con error")).toBeVisible();
@@ -368,7 +369,7 @@ test.describe("Sistema en Ajustes", () => {
     const api = new ApiFalsa();
     ponerEstado(api, { ia: { disponible: false, cargada: false }, cola: { conError: 3 } });
     await prepararSesion(page, api);
-    await page.goto("/#ajustes");
+    await page.goto("/#sistema");
     const sistema = page.getByRole("region", { name: "Sistema" });
     await expect(sistema.getByText("No disponible")).toBeVisible();
     await expect(sistema.getByText("3 con error")).toBeVisible();
@@ -379,7 +380,7 @@ test.describe("Sistema en Ajustes", () => {
     const api = new ApiFalsa();
     ponerEstado(api, null);
     await prepararSesion(page, api);
-    await page.goto("/#ajustes");
+    await page.goto("/#sistema");
     await expect(page.getByRole("region", { name: "Sistema" })).toHaveText(/Actualiza el servidor para ver su estado/);
     await expect(page.locator("[data-sonner-toast]")).toHaveCount(0);
   });

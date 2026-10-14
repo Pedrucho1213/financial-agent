@@ -1,20 +1,5 @@
-import { useSyncExternalStore } from "react";
-
 // Las gráficas leen los mismos tokens que el CSS, así siguen el modo claro u oscuro.
-const consulta = typeof window === "undefined" ? null : window.matchMedia("(prefers-color-scheme: dark)");
-
-function suscribir(fn: () => void) {
-  consulta?.addEventListener("change", fn);
-  return () => consulta?.removeEventListener("change", fn);
-}
-
-export function useModoOscuro() {
-  return useSyncExternalStore(
-    suscribir,
-    () => !!consulta?.matches,
-    () => false,
-  );
-}
+export { useModoOscuro } from "../../lib/tema";
 
 export type ColoresGrafica = {
   superficie: string;

@@ -8,7 +8,7 @@ import { fallarIa, iaDe, ponerIa } from "./api-falsa-ia";
 test.describe("IA en tu Mac (Ajustes)", () => {
   test("siempre encendida por omisión: estado, memoria y sin plazo", async ({ page }) => {
     const api = await prepararSesion(page);
-    await page.goto("/#ajustes");
+    await page.goto("/#sistema");
     const ia = page.getByRole("region", { name: "IA en tu Mac" });
     await expect(ia.getByText("Encendida", { exact: true })).toBeVisible();
     await expect(ia.getByText("Sin límite · 8.2 GB")).toBeVisible();
@@ -21,7 +21,7 @@ test.describe("IA en tu Mac (Ajustes)", () => {
 
   test("apagar ahora y volver a encender", async ({ page }) => {
     const api = await prepararSesion(page);
-    await page.goto("/#ajustes");
+    await page.goto("/#sistema");
     const ia = page.getByRole("region", { name: "IA en tu Mac" });
     await expect(ia.getByRole("button", { name: "Apagar ahora" })).toBeEnabled();
     const antes = api.de("GET", "/v1/estado").length;
@@ -41,7 +41,7 @@ test.describe("IA en tu Mac (Ajustes)", () => {
 
   test("quitar 'siempre encendida' muestra el plazo y lo cambia", async ({ page }) => {
     const api = await prepararSesion(page);
-    await page.goto("/#ajustes");
+    await page.goto("/#sistema");
     const ia = page.getByRole("region", { name: "IA en tu Mac" });
     await ia.getByRole("switch", { name: "Siempre encendida" }).click();
     await expect(ia.getByRole("switch", { name: "Siempre encendida" })).not.toBeChecked();
@@ -69,7 +69,7 @@ test.describe("IA en tu Mac (Ajustes)", () => {
 
   test("si el servidor falla al cambiar, el interruptor regresa y lo dice", async ({ page }) => {
     const api = await prepararSesion(page);
-    await page.goto("/#ajustes");
+    await page.goto("/#sistema");
     const ia = page.getByRole("region", { name: "IA en tu Mac" });
     await expect(ia.getByRole("switch", { name: "Siempre encendida" })).toBeChecked();
     fallarIa(api, 503, { error: "Ollama no contestó." });
@@ -82,7 +82,7 @@ test.describe("IA en tu Mac (Ajustes)", () => {
     const api = new ApiFalsa();
     ponerIa(api, { siempre: false, cargada: false, memoria: null });
     await prepararSesion(page, api);
-    await page.goto("/#ajustes");
+    await page.goto("/#sistema");
     const ia = page.getByRole("region", { name: "IA en tu Mac" });
     await expect(ia.getByText("Se enciende al dictar.")).toBeVisible();
     await expect(ia.getByRole("button", { name: "Encender ahora" })).toBeEnabled();
@@ -98,7 +98,7 @@ test.describe("IA en tu Mac (Ajustes)", () => {
     const api = new ApiFalsa();
     ponerIa(api, { respaldo: true, siempre: false, cargada: false, memoria: null });
     await prepararSesion(page, api);
-    await page.goto("/#ajustes");
+    await page.goto("/#sistema");
     const ia = page.getByRole("region", { name: "IA de respaldo en tu Mac" });
     await expect(ia.getByText("Apagada", { exact: true })).toBeVisible();
     await expect(ia.getByText("Se enciende sola si Claude no contesta.")).toBeVisible();
@@ -111,7 +111,7 @@ test.describe("IA en tu Mac (Ajustes)", () => {
     const api = new ApiFalsa();
     ponerEstado(api, { servidor: null });
     await prepararSesion(page, api);
-    await page.goto("/#ajustes");
+    await page.goto("/#sistema");
     await expect(page.getByRole("region", { name: "Sistema" }).getByText("Lista")).toBeVisible();
     await expect(page.getByRole("region", { name: "IA en tu Mac" })).toHaveCount(0);
     expect(api.de("GET", "/v1/ia")).toHaveLength(0);
@@ -121,7 +121,7 @@ test.describe("IA en tu Mac (Ajustes)", () => {
     const api = new ApiFalsa();
     ponerIa(api, null);
     await prepararSesion(page, api);
-    await page.goto("/#ajustes");
+    await page.goto("/#sistema");
     await expect(page.getByRole("region", { name: "Sistema" }).getByText("Lista")).toBeVisible();
     await expect.poll(() => api.de("GET", "/v1/ia").length).toBeGreaterThan(0);
     await expect(page.getByRole("region", { name: "IA en tu Mac" })).toHaveCount(0);
@@ -140,7 +140,7 @@ test.describe("IA en tu Mac (Ajustes)", () => {
     const api = new ApiFalsa();
     ponerIa(api, { siempre: false, hasta: "2026-10-06T19:30:00.000Z" });
     await prepararSesion(page, api);
-    await page.goto("/#ajustes");
+    await page.goto("/#sistema");
     const ia = page.getByRole("region", { name: "IA en tu Mac" });
     await ia.scrollIntoViewIfNeeded();
     await expect(ia.getByRole("radiogroup", { name: "Apagar tras" })).toBeVisible();

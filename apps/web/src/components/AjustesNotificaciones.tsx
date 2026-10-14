@@ -25,12 +25,11 @@ import { Switch } from "./ui/switch";
 
 const CLAVE = ["push"] as const;
 
-/** Ajustes › Notificaciones (activar y probar) y el Atajo de Apple Pay. */
+/** Ajustes › Notificaciones (activar y probar). El Atajo de Apple Pay va en Ajustes › Atajos de iPhone. */
 export function AjustesNotificaciones() {
   return (
     <>
       <Notificaciones />
-      <ApplePay />
     </>
   );
 }
@@ -145,7 +144,7 @@ const PASOS_APPLE_PAY = [
   </>,
 ];
 
-function ApplePay() {
+export function ApplePay() {
   const enLinea = useEnLinea();
   const [listo, setListo] = useState<AtajoPreparado | null>(null);
   const preparar = useMutation({

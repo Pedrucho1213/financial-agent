@@ -63,8 +63,9 @@ test("entrar, registrar, editar, buscar y ajustes", async ({ page }) => {
   // Ajustes: la cuenta y el dispositivo.
   await page.getByRole("navigation", { name: "Secciones" }).getByRole("link", { name: "Ajustes" }).click();
   await expect(page.getByText("Pedro").first()).toBeVisible();
-  await expect(page.getByText("Este dispositivo").first()).toBeVisible();
-  // Estado del sistema (GET /v1/estado): el servidor responde aunque la IA no esté.
+  await expect(page.getByText("Este", { exact: true }).first()).toBeVisible();
+  // Sistema (GET /v1/estado): el servidor responde aunque la IA no esté.
+  await page.getByRole("button", { name: /^Sistema/ }).click();
   await expect(page.getByText("Encendido desde")).toBeVisible();
 
   expect(errores).toEqual([]);

@@ -30,6 +30,11 @@ const cargas = {
 };
 const Chat = lazy(() => cargas.chat().then((m) => ({ default: m.Chat })));
 const Ajustes = lazy(() => cargas.ajustes().then((m) => ({ default: m.Ajustes })));
+const AjustesPerfil = lazy(() => cargas.ajustes().then((m) => ({ default: m.AjustesPerfil })));
+const AjustesDispositivos = lazy(() => cargas.ajustes().then((m) => ({ default: m.AjustesDispositivos })));
+const AjustesAvisos = lazy(() => cargas.ajustes().then((m) => ({ default: m.AjustesAvisos })));
+const AjustesAtajos = lazy(() => cargas.ajustes().then((m) => ({ default: m.AjustesAtajos })));
+const AjustesSistema = lazy(() => cargas.ajustes().then((m) => ({ default: m.AjustesSistema })));
 const EditorMovimiento = lazy(() => cargas.editor().then((m) => ({ default: m.EditorMovimiento })));
 const Entrar = lazy(() => cargas.entrar().then((m) => ({ default: m.Entrar })));
 const Instalar = lazy(() => cargas.instalar().then((m) => ({ default: m.Instalar })));
@@ -163,6 +168,11 @@ function Aplicacion() {
       <main key={vista} className={pagina ? "animate-empujar" : "animate-aparecer"}>
         {pagina ? (
           <Suspense fallback={null}>
+            {pagina === "perfil" ? <AjustesPerfil /> : null}
+            {pagina === "dispositivos" ? <AjustesDispositivos /> : null}
+            {pagina === "notificaciones" ? <AjustesAvisos /> : null}
+            {pagina === "atajos" ? <AjustesAtajos /> : null}
+            {pagina === "sistema" ? <AjustesSistema /> : null}
             {pagina === "movimiento" ? <DetalleMovimiento params={params} /> : null}
             {pagina === "mapa" ? <Mapa /> : null}
             {pagina === "plan" ? <Plan params={params} /> : null}
