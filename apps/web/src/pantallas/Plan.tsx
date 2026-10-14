@@ -283,7 +283,8 @@ function Prestamos({ datos, moneda }: { datos: PrestamosApi | undefined; moneda:
   ]
     .filter(Boolean)
     .join(" y ");
-  const personas = datos.personas;
+  // Un servidor viejo (o el caché de antes) no manda `personas`: se arman aquí, sin abonos, para que la fila abra igual.
+  const personas = datos.personas ?? agruparPorPersona(pendientes);
   return (
     <section>
       <TituloSeccion>Deudas y préstamos</TituloSeccion>
@@ -294,48 +295,90 @@ function Prestamos({ datos, moneda }: { datos: PrestamosApi | undefined; moneda:
           </span>
         }
       >
-        {personas
-          ? personas.map((d) => (
-              <FilaBoton
-                key={`${d.persona}-${d.direccion}`}
-                titulo={d.persona}
-                subtitulo={enVariasLineas(
-                  d.pagadoCentavos > 0 ? (
-                    <DeTotal
-                      antes={d.direccion === "me_deben" ? "Te debe · te ha pagado" : "Le debes · abonaste"}
-                      parte={pesos(d.pagadoCentavos, moneda)}
-                      total={pesos(d.prestadoCentavos, moneda)}
-                    />
-                  ) : d.direccion === "me_deben" ? (
-                    "Te debe"
-                  ) : (
-                    "Le debes"
-                  ),
-                )}
-                valor={
-                  <span className={cn("font-medium tabular", d.direccion === "me_deben" ? "text-positive" : "text-foreground")}>
-                    {dinero(d.pendienteCentavos, moneda)}
-                  </span>
-                }
-                chevron
-                onClick={() => setAbierta(d)}
-              />
-            ))
-          : pendientes.map((p) => (
-          <Fila
-            key={p.id}
-            titulo={p.persona}
-            subtitulo={`${p.direccion === "me_deben" ? "Te debe" : "Le debes"}${p.descripcion ? ` · ${p.descripcion}` : ""}`}
+        {personas.map((d) => (
+          <FilaBoton
+            key={`${d.persona}-${d.direccion}`}
+            titulo={d.persona}
+            subtitulo={enVariasLineas(
+              d.pagadoCentavos > 0 ? (
+                <DeTotal
+                  antes={d.direccion === "me_deben" ? "Te debe · te ha pagado" : "Le debes · abonaste"}
+                  parte={pesos(d.pagadoCentavos, moneda)}
+                  total={pesos(d.prestadoCentavos, moneda)}
+                />
+              ) : d.direccion === "me_deben" ? (
+                "Te debe"
+              ) : (
+                "Le debes"
+              ),
+            )}
             valor={
-              <span className={cn("font-medium tabular", p.direccion === "me_deben" ? "text-positive" : "text-foreground")}>
-                {dinero(p.pendienteCentavos, moneda)}
+              <span className={cn("font-medium tabular", d.direccion === "me_deben" ? "text-positive" : "text-foreground")}>
+                {dinero(d.pendienteCentavos, moneda)}
               </span>
             }
+            chevron
+            onClick={() => setAbierta(d)}
           />
         ))}
       </Grupo>
       <HojaDeuda deuda={abierta} moneda={moneda} alCerrar={() => setAbierta(null)} />
     </section>
+  );
+}
+
+function agruparPorPersona(prestamos: PrestamosApi["prestamos"]): DeudaPersona[] {
+  const grupos = new Map<string, DeudaPersona>();
+  for (const p of prestamos) {
+    const clave = `${p.persona.toLowerCase()}|${p.direccion}`;
+    const g = grupos.get(clave) ?? { persona: p.persona, direccion: p.direccion, prestadoCentavos: 0, pagadoCentavos: 0, pendienteCentavos: 0, desde: p.creadoEn, movimientos: [] };
+    g.prestadoCentavos += p.montoCentavos;
+    g.pagadoCentavos += p.pagadoCentavos;
+    g.pendienteCentavos += p.pendienteCentavos;
+    if (p.creadoEn < g.desde) g.desde = p.creadoEn;
+    g.movimientos.push({ tipo: "prestamo", fecha: p.creadoEn, montoCentavos: p.montoCentavos, cuenta: null });
+    grupos.set(clave, g);
+  }
+  return [...grupos.values()];
+}
+
+const fLargo = new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "long", year: "numeric" });
+
+const ALTO_SALDO = 72;
+
+/**
+ * Lo que falta de una deuda con el tiempo: sube con cada préstamo y baja con cada abono, en escalones, hasta hoy.
+ * Sin ejes: la fecha de la primera y "Hoy" abajo, como las gráficas chicas de Wallet.
+ */
+function SaldoDeuda({ movimientos, color }: { movimientos: DeudaPersona["movimientos"]; color: string }) {
+  const orden = [...movimientos].sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const inicio = Date.parse(orden[0]?.fecha ?? "") || Date.now();
+  const fin = Math.max(Date.now(), inicio + 86_400_000);
+  let saldo = 0;
+  const puntos = orden.map((m) => {
+    saldo += m.tipo === "prestamo" ? m.montoCentavos : -m.montoCentavos;
+    return { t: Date.parse(m.fecha), saldo: Math.max(0, saldo) };
+  });
+  const maximo = Math.max(1, ...puntos.map((p) => p.saldo));
+  const x = (t: number) => ((t - inicio) / (fin - inicio)) * 100;
+  const y = (v: number) => 4 + (1 - v / maximo) * (ALTO_SALDO - 8);
+  let d = "";
+  puntos.forEach((p, i) => {
+    d += i === 0 ? `M${x(p.t).toFixed(2)},${y(p.saldo).toFixed(1)}` : ` H${x(p.t).toFixed(2)} V${y(p.saldo).toFixed(1)}`;
+  });
+  d += ` H100`;
+  const area = `${d} V${ALTO_SALDO} H${x(puntos[0]?.t ?? inicio).toFixed(2)} Z`;
+  return (
+    <div>
+      <svg viewBox={`0 0 100 ${ALTO_SALDO}`} preserveAspectRatio="none" role="img" aria-label="Lo que falta de la deuda con el tiempo" className="block w-full" style={{ height: ALTO_SALDO }}>
+        <path d={area} fill={color} opacity={0.15} />
+        <path d={d} fill="none" stroke={color} strokeWidth={2.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+      </svg>
+      <div className="mt-1 flex justify-between text-[12px] text-muted-foreground">
+        <span>{fDia.format(new Date(inicio)).replace(".", "")}</span>
+        <span>Hoy</span>
+      </div>
+    </div>
   );
 }
 
@@ -375,7 +418,17 @@ function HojaDeuda({ deuda, moneda, alCerrar }: { deuda: DeudaPersona | null; mo
               <p className="text-[13px] text-muted-foreground">
                 <DeTotal antes={meDebe ? "Te ha pagado" : "Abonaste"} parte={pesos(deuda.pagadoCentavos, moneda)} total={pesos(deuda.prestadoCentavos, moneda)} />
               </p>
+              <p className="text-[13px] text-muted-foreground">Desde el {fLargo.format(new Date(deuda.desde))}</p>
             </div>
+            {deuda.movimientos.some((m) => m.tipo === "abono") ? (
+              <Grupo titulo="Cómo ha bajado">
+                <div className="px-4 pt-3 pb-2">
+                  <SaldoDeuda movimientos={deuda.movimientos} color={meDebe ? "var(--positive)" : "var(--anillo-meta)"} />
+                </div>
+              </Grupo>
+            ) : (
+              <p className="px-4 text-center text-[13px] text-muted-foreground">Cuando {meDebe ? "te pague" : "abones"}, aquí verás cómo baja.</p>
+            )}
             <Grupo titulo="Movimientos">
               {deuda.movimientos.map((m, i) => {
                 const fecha = fDia.format(new Date(m.fecha)).replace(".", "");
