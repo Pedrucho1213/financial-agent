@@ -5,7 +5,7 @@
 //   bun scripts/etiquetar-historial.ts --aplicar    → respalda la base y aplica el plan que guardó la prueba.
 //   bun scripts/etiquetar-historial.ts --deshacer <marca>  → quita todo lo que agregó esa vez.
 //
-// La IA ve los gastos de cada cuenta en una sola consulta (o de 80 en 80) y cuenta en el gasto del mes.
+// La IA ve los gastos de cada cuenta en una sola consulta (o de 80 en 80); la prueba dice cuánto costó.
 // De la cuenta dueña se muestra cada gasto; de las demás, solo cuántos.
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -13,7 +13,7 @@ import { parseArgs } from "node:util";
 import { eq } from "drizzle-orm";
 import { generateText } from "ai";
 import { crearModelo } from "../src/ai/modelo";
-import { anotarUso } from "../src/ai/uso";
+import { costoMicroUsd } from "../src/ai/uso";
 import { esDueno } from "../src/auth";
 import { config } from "../src/config";
 import { abrirBaseDatos } from "../src/db/client";
@@ -52,6 +52,8 @@ if (values.deshacer) {
 
 type Plan = { marca: string; hecho: string; cuentas: { usuarioId: string; agregados: Agregado[] }[] };
 
+let costo = 0;
+
 async function armarPlan(): Promise<Plan> {
   const modelo = crearModelo(config.ia);
   const marca = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
@@ -65,7 +67,8 @@ async function armarPlan(): Promise<Plan> {
       for (let i = 0; i < lineas.length; i += POR_CONSULTA) {
         const tramo = lineas.slice(i, i + POR_CONSULTA);
         const r = await generateText({ model: modelo, prompt: preguntaParaIa(tramo.map((l) => l.linea), susEtiquetas(ctx)), temperature: 0, maxOutputTokens: 1200 });
-        anotarUso(db, { usuarioId: u.id, dia: ctx.hoy, pasos: [r] });
+        // La prueba no escribe en la base, ni el uso: el costo se dice al final.
+        costo += costoMicroUsd(r.response.modelId, r.usage);
         agregados.push(...leerRespuesta(r.text, tramo, quePaso));
       }
     }
@@ -92,7 +95,8 @@ if (!values.aplicar) {
   const plan = await armarPlan();
   writeFileSync(rutaPlan, JSON.stringify(plan, null, 2));
   mostrar(plan);
-  console.log(`\nPrueba: no escribí nada. Plan ${plan.marca} guardado; con --aplicar se aplica este mismo plan.`);
+  if (!values["sin-ia"]) console.log(`\nLa IA costó unos ${(costo / 1_000_000).toFixed(4)} USD.`);
+  console.log(`\nPrueba: no escribí nada en la base. Plan ${plan.marca} guardado; con --aplicar se aplica este mismo plan.`);
   process.exit(0);
 }
 
