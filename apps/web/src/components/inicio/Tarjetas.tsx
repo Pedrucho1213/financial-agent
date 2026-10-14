@@ -9,6 +9,7 @@ import { NIVELES, type NivelSalud, saludParaMostrar, type SaludFinanciera, useSa
 import { creditoTotal, faltan, sinDeudaConocida } from "../../lib/saldos";
 import type { Tablero } from "../../lib/tipos";
 import { cn } from "../../lib/utils";
+import { Ajustado } from "../Ajustado";
 import { NumeroAnimado } from "../NumeroAnimado";
 import { acumular, Ritmo } from "../Ritmo";
 import { Skeleton } from "../ui/skeleton";
@@ -205,6 +206,7 @@ function HojaGastado({ t, esMesActual, ritmo }: { t: Tablero; esMesActual: boole
         formato={fmt}
         duracion={dia !== null ? 0 : 700}
         className={claseGrande}
+        ajustar
       />
       {dia !== null ? (
         <p className="flex items-center gap-1.5 text-[14px] font-medium opacity-90 tabular">
@@ -280,7 +282,7 @@ function HojaTienes({
       alTocar={() => navegar(hashDe("cuentas"))}
     >
       <h2 className={claseEtiqueta}>Lo que tienes</h2>
-      <NumeroAnimado valor={neto} formato={(n) => dinero(n, moneda)} className={claseGrande} />
+      <NumeroAnimado valor={neto} formato={(n) => dinero(n, moneda)} className={claseGrande} ajustar />
       <p className="text-[14px] leading-5 font-medium opacity-90">
         {deuda > 0 ? (
           <>
@@ -312,7 +314,7 @@ function HojaTienesVacia({ balance, moneda }: { balance: number; moneda: string 
   return (
     <Hoja nombre="Balance" fondo="linear-gradient(150deg, #3a3a3e, #1c1c1e 75%)" etiqueta="¿Cuánto tienes? Ver cuentas" alTocar={() => navegar(hashDe("cuentas"))}>
       <h2 className={claseEtiqueta}>Balance del mes</h2>
-      <span className={claseGrande}>{dinero(balance, moneda, { signo: true })}</span>
+      <Ajustado como="span" className={claseGrande}>{dinero(balance, moneda, { signo: true })}</Ajustado>
       <p className="text-[14px] leading-5 font-medium opacity-90">Lo que entró menos lo que gastaste</p>
       <div className={clasePie}>
         <span className="min-w-0 truncate opacity-[0.92]">¿Cuánto tienes?</span>

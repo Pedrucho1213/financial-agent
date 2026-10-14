@@ -126,8 +126,8 @@ export function Notificaciones() {
                 <div key={c.id} data-cobro={c.id} className={claseFila} style={sangria("4.25rem")}>
                   <LogoPago nombre={c.nombre} tipo={c.tipo} />
                   <button type="button" className="min-w-0 flex-1 py-2.5 text-left active:opacity-60" onClick={() => abrirCobros([c.id])}>
-                    <span className="line-clamp-2 block text-[17px] leading-[22px]">¿Ya se pagó {c.nombre}?</span>
-                    <span className="block truncate text-[15px] leading-5 text-muted-foreground">
+                    <span className="line-clamp-2 text-[17px] leading-[22px]">¿Ya se pagó {c.nombre}?</span>
+                    <span className="line-clamp-2 text-[15px] leading-5 text-muted-foreground">
                       <span className="tabular">{dinero(c.montoCentavos, c.moneda)}</span> · {cuandoFue(c.fecha, hoy, { corto: true })}
                       {c.pospuesto ? " · te pregunto mañana" : c.estado === "sin_confirmar" ? " · sin contestar" : ""}
                       {c.cuenta ? ` · ${c.cuenta}` : ""}
