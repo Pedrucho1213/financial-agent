@@ -59,6 +59,8 @@ export function Chat() {
   const maximo = uso?.maxCaracteres ?? 1500;
   const largo = texto.trim().length;
   const muyLargo = largo > maximo;
+  // Con algo escrito, el micrófono se quita para darle espacio a la caja (para dictar más, el del teclado).
+  const ocultarMic = largo > 0 && !dictado.escuchando;
 
   // Una notificación con una pregunta o un problema abre #chat?conversacion=<id>: se carga esa conversación
   // para leer el mensaje y contestar ahí. El parámetro se quita para no recargarla al volver a la pestaña.
@@ -90,12 +92,24 @@ export function Chat() {
     if (hayMensajes) final.current?.scrollIntoView({ block: "end" });
   }, [altoEntrada, hayMensajes]);
 
-  // El campo crece con el texto, hasta 5 líneas.
+  // El campo crece con el texto, hasta 5 líneas. También al cambiar de ancho (el micrófono se va o regresa):
+  // con más ancho, lo que ocupaba dos líneas puede caber en una.
   useLayoutEffect(() => {
     const el = campo.current;
     if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 22 * 5 + 14)}px`;
+    const ajustar = () => {
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, 22 * 5 + 14)}px`;
+    };
+    ajustar();
+    let ancho = el.offsetWidth;
+    const ro = new ResizeObserver(() => {
+      if (el.offsetWidth === ancho) return;
+      ancho = el.offsetWidth;
+      ajustar();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [texto]);
 
   // Al terminar cada respuesta se vuelve a pedir cuántas consultas quedan.
@@ -249,7 +263,7 @@ export function Chat() {
         )}
       >
         <Contador largo={largo} maximo={maximo} porConsulta={uso?.caracteresPorConsulta ?? 500} />
-        <div className="pointer-events-auto mx-auto flex max-w-3xl items-end gap-2 px-safe">
+        <div className="pointer-events-auto mx-auto flex max-w-3xl items-end px-safe">
           <div className={cn("vidrio relative flex min-h-11 min-w-0 flex-1 items-end rounded-[22px]", ocupado && "brillo-ia")}>
             {dictado.escuchando ? (
               <span role="status" aria-label="Escuchando" className="absolute bottom-[13px] left-4 flex h-[18px] animate-aparecer items-center">
@@ -295,26 +309,42 @@ export function Chat() {
             </button>
           </div>
           {dictado.disponible ? (
-            dictado.escuchando ? (
-              <button
-                type="button"
-                onClick={dictado.cancelar}
-                aria-label="Cancelar dictado"
-                className="flex size-11 shrink-0 animate-escalar items-center justify-center rounded-full bg-destructive text-white shadow-[var(--vidrio-sombra)] transition-transform duration-200 ease-ios active:scale-90"
-              >
-                <X className="size-[22px]" strokeWidth={2.5} />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={dictar}
-                disabled={!enLinea || ocupado}
-                aria-label="Dictar"
-                className="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary text-white shadow-[var(--vidrio-sombra)] transition-[transform,opacity] duration-200 ease-ios active:scale-90 disabled:opacity-40"
-              >
-                <Mic className="size-[22px]" strokeWidth={2.25} />
-              </button>
-            )
+            // Al escribir, el micrófono se encoge y se va para que la caja use su espacio; al borrar todo, regresa
+            // con un pequeño rebote (como los botones de iOS). Mientras escucha siempre está la X.
+            <div
+              className={cn(
+                "flex shrink-0 justify-end transition-[width,margin] duration-[380ms] ease-ios",
+                ocultarMic ? "ml-0 w-0" : "ml-2 w-11",
+              )}
+            >
+              {dictado.escuchando ? (
+                <button
+                  type="button"
+                  onClick={dictado.cancelar}
+                  aria-label="Cancelar dictado"
+                  className="flex size-11 shrink-0 animate-escalar items-center justify-center rounded-full bg-destructive text-white shadow-[var(--vidrio-sombra)] transition-transform duration-200 ease-ios active:scale-90"
+                >
+                  <X className="size-[22px]" strokeWidth={2.5} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={dictar}
+                  disabled={!enLinea || ocupado}
+                  aria-label="Dictar"
+                  aria-hidden={ocultarMic || undefined}
+                  tabIndex={ocultarMic ? -1 : undefined}
+                  className={cn(
+                    "flex size-11 shrink-0 items-center justify-center rounded-full bg-primary text-white shadow-[var(--vidrio-sombra)] active:scale-90 disabled:opacity-40",
+                    ocultarMic
+                      ? "pointer-events-none scale-50 opacity-0 transition-[scale,opacity] duration-200 ease-ios"
+                      : "scale-100 opacity-100 transition-[scale,opacity] duration-[420ms] ease-[cubic-bezier(0.34,1.56,0.64,1)]",
+                  )}
+                >
+                  <Mic className="size-[22px]" strokeWidth={2.25} />
+                </button>
+              )}
+            </div>
           ) : null}
         </div>
       </form>

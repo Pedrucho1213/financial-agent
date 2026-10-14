@@ -299,6 +299,20 @@ const ETIQUETAS: Record<string, string> = {
   consultar_gastos: "Revisó tus gastos",
   registrar_recurrente: "Pago fijo guardado",
   listar_recurrentes: "Revisó pagos fijos",
+  editar_recurrente: "Pago fijo editado",
+  consultar_cuentas: "Revisó tus cuentas",
+  cuentas: "Cuentas al día",
+  mover_dinero: "Dinero movido",
+  marcar_cobro: "Cobro marcado",
+  consultar_planes: "Revisó tu plan",
+  presupuesto: "Presupuesto",
+  meta: "Meta",
+  prestamo: "Préstamo",
+  compra_msi: "Meses sin intereses",
+  etiqueta: "Etiqueta",
+  analizar: "Analizó tus gastos",
+  recordar: "Lo recordaré",
+  olvidar: "Olvidado",
 };
 
 export function etiquetaAccion(a: Accion) {

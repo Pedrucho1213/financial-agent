@@ -44,15 +44,19 @@ test.describe("Modo de voz del chat", () => {
     await expect(page.getByRole("button", { name: "Dictar" })).toBeVisible();
   });
 
-  test("lo dictado se suma a lo que ya estaba escrito", async ({ page }) => {
-    const api = await prepararSesion(page);
+  test("al escribir el micrófono se va para darle espacio a la caja, y al borrar todo regresa", async ({ page }) => {
+    await prepararSesion(page);
     await page.goto("/#chat");
-    await page.getByLabel("Mensaje").fill("Uber de");
-    await page.getByRole("button", { name: "Dictar" }).click();
-    await oir(page, "230 con la Nu", true);
-    await expect(page.getByLabel("Mensaje")).toHaveValue("Uber de 230 con la Nu");
-    await llamar(page, "terminar");
-    await expect.poll(() => textos(api)).toEqual(["Uber de 230 con la Nu"]);
+    const caja = page.getByLabel("Mensaje");
+    const ancho = async () => (await caja.boundingBox())?.width ?? 0;
+    const antes = await ancho();
+    await caja.fill("Uber de 230");
+    await expect(page.getByRole("button", { name: "Dictar" })).toHaveCount(0);
+    // La caja se estira hasta donde estaba el micrófono (44 px y su separación).
+    await expect.poll(ancho).toBeGreaterThan(antes + 40);
+    await caja.fill("");
+    await expect(page.getByRole("button", { name: "Dictar" })).toBeVisible();
+    await expect.poll(ancho).toBeLessThan(antes + 1);
   });
 
   test("Enviar mientras escucha manda lo dicho una sola vez", async ({ page }) => {
@@ -69,12 +73,11 @@ test.describe("Modo de voz del chat", () => {
   test("Cancelar deja el campo como estaba y no manda nada", async ({ page }) => {
     const api = await prepararSesion(page);
     await page.goto("/#chat");
-    await page.getByLabel("Mensaje").fill("Hola");
     await page.getByRole("button", { name: "Dictar" }).click();
     await oir(page, "esto no va");
-    await expect(page.getByLabel("Mensaje")).toHaveValue("Hola esto no va");
+    await expect(page.getByLabel("Mensaje")).toHaveValue("Esto no va");
     await page.getByRole("button", { name: "Cancelar dictado" }).click();
-    await expect(page.getByLabel("Mensaje")).toHaveValue("Hola");
+    await expect(page.getByLabel("Mensaje")).toHaveValue("");
     await expect(page.getByRole("button", { name: "Dictar" })).toBeVisible();
     await page.waitForTimeout(300);
     expect(textos(api)).toHaveLength(0);
