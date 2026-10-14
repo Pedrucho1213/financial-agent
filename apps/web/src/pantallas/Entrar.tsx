@@ -106,15 +106,15 @@ function Formulario({ codigoInicial, alUsarUsuario }: { codigoInicial: string; a
         }}
       >
         <div className="flex flex-col items-center text-center animate-entrar">
-          <img src="/apple-touch-icon.png" alt="" className="size-20 rounded-[18px] shadow-[0_8px_24px_rgb(0_0_0/0.18)]" />
-          <h1 className="mt-6 text-[28px] leading-tight font-bold tracking-[-0.02em]">Entra a Finanzas</h1>
+          <img src="/apple-touch-icon.png" alt="" className="size-[76px] rounded-[22px] shadow-[0_8px_24px_rgb(0_0_0/0.18)]" />
+          <h1 className="mt-4 text-[30px] leading-tight font-bold tracking-[-0.02em]">Entra a Finanzas</h1>
           <p className="mt-2 max-w-[19rem] text-[17px] leading-snug text-balance text-muted-foreground">
-            Escribe el código de invitación de 6 caracteres.
+            Escribe el código de invitación que te mandaron.
           </p>
         </div>
 
         <CasillasCodigo
-          className="mt-8"
+          className="mt-6"
           codigo={codigo}
           error={!!errorCodigo}
           alCambiar={(c) => {
@@ -136,14 +136,15 @@ function Formulario({ codigoInicial, alUsarUsuario }: { codigoInicial: string; a
               Agregar este dispositivo a la cuenta de <strong>{invitacion.data?.nombre ?? "tu cuenta"}</strong>
             </span>
           ) : para === "usuario" ? (
-            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-              <CircleCheck className="size-[18px] text-positive" aria-hidden /> Código válido. Cuéntanos cómo te llamas.
+            <span className="text-balance text-muted-foreground">
+              <CircleCheck className="mr-1.5 inline size-[18px] -translate-y-px text-positive" aria-hidden />
+              Código válido. Cuéntanos cómo te llamas.
             </span>
           ) : null}
           {puedePegar && (!completo || errorCodigo) && !invitacion.isFetching ? (
             <div className={errorCodigo ? "mt-3" : undefined}>
-              <Button variant="tinted" size="sm" onClick={pegar}>
-                <ClipboardPaste /> Pegar código
+              <Button variant="plain" size="text" className="gap-1 text-[15px] font-medium" onClick={pegar}>
+                <ClipboardPaste className="size-4" /> Pegar código
               </Button>
             </div>
           ) : null}
@@ -252,8 +253,8 @@ function FormularioUsuario({ alUsarInvitacion }: { alUsarInvitacion: () => void 
         }}
       >
         <div className="flex flex-col items-center text-center animate-entrar">
-          <img src="/apple-touch-icon.png" alt="" className="size-20 rounded-[18px] shadow-[0_8px_24px_rgb(0_0_0/0.18)]" />
-          <h1 className="mt-6 text-[28px] leading-tight font-bold tracking-[-0.02em]">Entra a Finanzas</h1>
+          <img src="/apple-touch-icon.png" alt="" className="size-[76px] rounded-[22px] shadow-[0_8px_24px_rgb(0_0_0/0.18)]" />
+          <h1 className="mt-4 text-[30px] leading-tight font-bold tracking-[-0.02em]">Entra a Finanzas</h1>
           <p className="mt-2 max-w-[19rem] text-[17px] leading-snug text-balance text-muted-foreground">
             Con tu usuario y tu código para entrar.
           </p>
@@ -358,8 +359,8 @@ function InstalaLaApp({ codigo, alUsarEnSafari }: { codigo: string; alUsarEnSafa
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col px-safe pt-[calc(env(safe-area-inset-top)+44px)] pb-[max(1.25rem,env(safe-area-inset-bottom))]">
       <div className="flex flex-col items-center text-center animate-entrar">
-        <img src="/apple-touch-icon.png" alt="" className="size-20 rounded-[18px] shadow-[0_8px_24px_rgb(0_0_0/0.18)]" />
-        <h1 className="mt-6 text-[28px] leading-tight font-bold tracking-[-0.02em] text-balance">Instala Finanzas en tu {aparato}</h1>
+        <img src="/apple-touch-icon.png" alt="" className="size-[76px] rounded-[22px] shadow-[0_8px_24px_rgb(0_0_0/0.18)]" />
+        <h1 className="mt-4 text-[30px] leading-tight font-bold tracking-[-0.02em] text-balance">Instala Finanzas en tu {aparato}</h1>
         <p className="mt-2 max-w-[20rem] text-[17px] leading-snug text-balance text-muted-foreground">
           Se abre como app desde tu pantalla de inicio. Ahí vas a usar este código:
         </p>

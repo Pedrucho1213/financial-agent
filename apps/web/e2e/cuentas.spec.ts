@@ -385,6 +385,7 @@ test.describe("Etiquetas", () => {
     await hoja.locator("#monto").fill("350");
     await hoja.getByRole("button", { name: "#Trabajo" }).click();
     await expect(hoja.getByRole("button", { name: "#Trabajo" })).toHaveAttribute("aria-pressed", "true");
+    await hoja.getByRole("button", { name: "Nueva", exact: true }).click();
     await hoja.getByLabel("Nueva etiqueta").fill("Cliente acme");
     await hoja.getByLabel("Nueva etiqueta").press("Enter");
     await expect(hoja.getByRole("button", { name: "#Cliente acme" })).toHaveAttribute("aria-pressed", "true");
@@ -410,7 +411,7 @@ test.describe("Etiquetas", () => {
     await page.getByRole("button", { name: "Editar" }).click();
     await hoja.getByRole("radio", { name: "Traspaso" }).click();
     await expect(hoja.getByLabel("Categoría")).toHaveCount(0);
-    await expect(hoja.locator("label[for=cuenta]")).toHaveText("Desde");
+    await expect(hoja.getByRole("heading", { name: "Desde" })).toBeVisible();
     await hoja.getByLabel("Hacia").selectOption("Revolut");
     await hoja.getByRole("button", { name: "Guardar" }).click();
     await expect(hoja).toBeHidden();
