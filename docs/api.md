@@ -146,7 +146,7 @@ Montos en centavos. Todo se puede hacer también por voz (`/v1/hablar`), y lo qu
 | `PATCH /v1/metas/:id` | `{ nombre?, objetivo?, fecha_limite? }` (`null` quita la fecha) | `Meta` |
 | `POST /v1/metas/:id/aportes` | `{ monto }` (negativo = retiro; no puede quedar debajo de cero) | `Meta` |
 | `DELETE /v1/metas/:id` | | `{ ok: true }` |
-| `GET /v1/prestamos?todos=1` | sin `todos`, solo los pendientes | `{ prestamos: Prestamo[], meDebenCentavos, deboCentavos }` |
+| `GET /v1/prestamos?todos=1` | sin `todos`, solo los pendientes | `{ prestamos: Prestamo[], meDebenCentavos, deboCentavos, personas: DeudaPersona[] }`; `DeudaPersona` junta los préstamos de una persona en un sentido: `{ persona, direccion, prestadoCentavos, pagadoCentavos, pendienteCentavos, desde, movimientos: { tipo: "prestamo" \| "abono", fecha, montoCentavos, cuenta }[] }` (el más nuevo primero) |
 | `GET /v1/msi?todas=1` | sin `todas`, solo las que tienen cargos por venir | `{ compras: CompraMsi[], mensualCentavos }` |
 | `GET /v1/disponible` | | ver abajo ("¿cuánto puedo gastar hoy?") |
 

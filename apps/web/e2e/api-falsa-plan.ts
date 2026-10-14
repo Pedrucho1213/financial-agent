@@ -60,6 +60,45 @@ export function planInicial() {
         creadoEn: "2026-09-20T18:00:00.000Z",
         saldadoEn: null,
       },
+      {
+        id: "pres-2",
+        persona: "Mamá",
+        direccion: "debo" as const,
+        montoCentavos: 30_000_00,
+        pagadoCentavos: 4_000_00,
+        pendienteCentavos: 26_000_00,
+        descripcion: null,
+        creadoEn: "2026-08-10T18:00:00.000Z",
+        saldadoEn: null,
+      },
+    ],
+    // Una deuda por persona y sentido, con sus préstamos y abonos (el más nuevo primero).
+    personas: [
+      {
+        persona: "Juan",
+        direccion: "me_deben" as const,
+        prestadoCentavos: 1_500_00,
+        pagadoCentavos: 500_00,
+        pendienteCentavos: 1_000_00,
+        desde: "2026-09-20T18:00:00.000Z",
+        movimientos: [
+          { tipo: "abono" as const, fecha: "2026-09-28T18:00:00.000Z", montoCentavos: 500_00, cuenta: null },
+          { tipo: "prestamo" as const, fecha: "2026-09-20T18:00:00.000Z", montoCentavos: 1_500_00, cuenta: "Efectivo" },
+        ],
+      },
+      {
+        persona: "Mamá",
+        direccion: "debo" as const,
+        prestadoCentavos: 30_000_00,
+        pagadoCentavos: 4_000_00,
+        pendienteCentavos: 26_000_00,
+        desde: "2026-08-10T18:00:00.000Z",
+        movimientos: [
+          { tipo: "abono" as const, fecha: "2026-10-05T18:00:00.000Z", montoCentavos: 2_000_00, cuenta: "Revolut" },
+          { tipo: "abono" as const, fecha: "2026-09-05T18:00:00.000Z", montoCentavos: 2_000_00, cuenta: null },
+          { tipo: "prestamo" as const, fecha: "2026-08-10T18:00:00.000Z", montoCentavos: 30_000_00, cuenta: null },
+        ],
+      },
     ],
     msi: {
       compras: [
@@ -207,7 +246,7 @@ export async function atenderPlan(api: ApiFalsa, { metodo, ruta, cuerpo, consult
   if (metodo === "GET" && ruta === "/v1/prestamos") {
     const pendientes = plan.prestamos.filter((p) => !p.saldadoEn);
     const suma = (d: string) => pendientes.filter((p) => p.direccion === d).reduce((s, p) => s + p.pendienteCentavos, 0);
-    return json(200, { prestamos: plan.prestamos, meDebenCentavos: suma("me_deben"), deboCentavos: suma("debo") });
+    return json(200, { prestamos: plan.prestamos, meDebenCentavos: suma("me_deben"), deboCentavos: suma("debo"), personas: plan.personas });
   }
   if (metodo === "GET" && ruta === "/v1/msi") return json(200, plan.msi);
   if (metodo === "GET" && ruta === "/v1/disponible") {

@@ -28,7 +28,7 @@ import {
   usePresupuestos,
 } from "../lib/plan";
 import { volver } from "../lib/ruta";
-import type { ComprasMsi, Disponible, Meta, Prestamos as PrestamosApi, Presupuesto, Presupuestos } from "../lib/tipos";
+import type { ComprasMsi, DeudaPersona, Disponible, Meta, Prestamos as PrestamosApi, Presupuesto, Presupuestos } from "../lib/tipos";
 import { cn } from "../lib/utils";
 
 const fDia = new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short" });
@@ -272,7 +272,9 @@ function TarjetaDisponible({ d, moneda }: { d: Disponible; moneda: string }) {
   );
 }
 
+/** Deudas con personas: una fila por persona y sentido, y al tocarla, sus préstamos y abonos. */
 function Prestamos({ datos, moneda }: { datos: PrestamosApi | undefined; moneda: string }) {
+  const [abierta, setAbierta] = useState<DeudaPersona | null>(null);
   const pendientes = datos?.prestamos.filter((p) => !p.saldadoEn) ?? [];
   if (!datos || !pendientes.length) return null;
   const pie = [
@@ -281,17 +283,45 @@ function Prestamos({ datos, moneda }: { datos: PrestamosApi | undefined; moneda:
   ]
     .filter(Boolean)
     .join(" y ");
+  const personas = datos.personas;
   return (
     <section>
-      <TituloSeccion>Préstamos</TituloSeccion>
+      <TituloSeccion>Deudas y préstamos</TituloSeccion>
       <Grupo
         pie={
           <span className="flex items-start gap-1.5">
-            <Mic className="mt-0.5 size-3.5 shrink-0" /> {pie ? `${pie[0]?.toUpperCase()}${pie.slice(1)}. ` : ""}Para abonar, díselo al Atajo: «Juan me pagó 200».
+            <Mic className="mt-0.5 size-3.5 shrink-0" /> {pie ? `${pie[0]?.toUpperCase()}${pie.slice(1)}. ` : ""}Para abonar, díselo al Atajo: «Le transferí 2 mil a mi mamá desde Revolut».
           </span>
         }
       >
-        {pendientes.map((p) => (
+        {personas
+          ? personas.map((d) => (
+              <FilaBoton
+                key={`${d.persona}-${d.direccion}`}
+                titulo={d.persona}
+                subtitulo={enVariasLineas(
+                  d.pagadoCentavos > 0 ? (
+                    <DeTotal
+                      antes={d.direccion === "me_deben" ? "Te debe · te ha pagado" : "Le debes · abonaste"}
+                      parte={pesos(d.pagadoCentavos, moneda)}
+                      total={pesos(d.prestadoCentavos, moneda)}
+                    />
+                  ) : d.direccion === "me_deben" ? (
+                    "Te debe"
+                  ) : (
+                    "Le debes"
+                  ),
+                )}
+                valor={
+                  <span className={cn("font-medium tabular", d.direccion === "me_deben" ? "text-positive" : "text-foreground")}>
+                    {dinero(d.pendienteCentavos, moneda)}
+                  </span>
+                }
+                chevron
+                onClick={() => setAbierta(d)}
+              />
+            ))
+          : pendientes.map((p) => (
           <Fila
             key={p.id}
             titulo={p.persona}
@@ -304,7 +334,79 @@ function Prestamos({ datos, moneda }: { datos: PrestamosApi | undefined; moneda:
           />
         ))}
       </Grupo>
+      <HojaDeuda deuda={abierta} moneda={moneda} alCerrar={() => setAbierta(null)} />
     </section>
+  );
+}
+
+// "Mamá" se dice «a mi mamá»; un nombre, tal cual.
+const PARENTESCOS = new Set(["Mamá", "Papá", "Abuela", "Abuelo", "Esposa", "Esposo", "Hermano", "Hermana", "Tío", "Tía", "Primo", "Prima", "Suegro", "Suegra"]);
+const comoSeDice = (persona: string) => (PARENTESCOS.has(persona) ? `mi ${persona.toLowerCase()}` : persona);
+
+function HojaDeuda({ deuda, moneda, alCerrar }: { deuda: DeudaPersona | null; moneda: string; alCerrar: () => void }) {
+  const meDebe = deuda?.direccion === "me_deben";
+  return (
+    <Sheet open={!!deuda} onOpenChange={(v) => !v && alCerrar()}>
+      {deuda ? (
+        <SheetContent
+          titulo={deuda.persona}
+          descripcion={meDebe ? "Te debe" : "Le debes"}
+          derecha={
+            <Button variant="plain" size="text" className="font-semibold" onClick={alCerrar}>
+              Listo
+            </Button>
+          }
+        >
+          <div className="space-y-6 pb-2">
+            <div className="flex flex-col items-center pt-2">
+              <Anillos
+                tamano={120}
+                grosor={16}
+                anillos={[
+                  {
+                    progreso: deuda.prestadoCentavos ? deuda.pagadoCentavos / deuda.prestadoCentavos : 0,
+                    color: meDebe ? "var(--positive)" : "var(--anillo-meta)",
+                    etiqueta: meDebe ? "Te ha pagado" : "Abonado",
+                  },
+                ]}
+              />
+              <p className="mt-3 text-[13px] font-semibold text-muted-foreground">{deuda.pendienteCentavos > 0 ? "Falta" : "Saldada"}</p>
+              <p className="text-[28px] leading-8 font-bold tracking-[-0.02em] tabular">{dinero(deuda.pendienteCentavos, moneda)}</p>
+              <p className="text-[13px] text-muted-foreground">
+                <DeTotal antes={meDebe ? "Te ha pagado" : "Abonaste"} parte={pesos(deuda.pagadoCentavos, moneda)} total={pesos(deuda.prestadoCentavos, moneda)} />
+              </p>
+            </div>
+            <Grupo titulo="Movimientos">
+              {deuda.movimientos.map((m, i) => {
+                const fecha = fDia.format(new Date(m.fecha)).replace(".", "");
+                // El dinero de un abono sale de la cuenta (o llega, si te pagan); el de un préstamo, al revés.
+                const sale = (m.tipo === "abono") !== meDebe;
+                const cuenta = m.cuenta ? ` · ${sale ? "desde" : "a"} ${m.cuenta}` : "";
+                return (
+                  <Fila
+                    key={`${m.fecha}-${i}`}
+                    titulo={m.tipo === "abono" ? (meDebe ? "Te pagó" : "Abono") : meDebe ? "Le prestaste" : "Te prestó"}
+                    subtitulo={`${fecha}${cuenta}`}
+                    valor={
+                      <span className={cn("font-medium tabular", m.tipo === "abono" ? "text-positive" : "text-foreground")}>
+                        {m.tipo === "abono" ? "−" : ""}
+                        {dinero(m.montoCentavos, moneda)}
+                      </span>
+                    }
+                  />
+                );
+              })}
+            </Grupo>
+            <p className="flex items-start gap-1.5 px-4 text-[13px] leading-snug text-muted-foreground">
+              <Mic className="mt-0.5 size-3.5 shrink-0" />
+              {meDebe
+                ? `Cuando te pague, díselo al Atajo: «${deuda.persona} me depositó 500».`
+                : `Para abonar, díselo al Atajo: «Le transferí 2 mil a ${comoSeDice(deuda.persona)} desde Revolut». Si te equivocas, di «deshaz eso».`}
+            </p>
+          </div>
+        </SheetContent>
+      ) : null}
+    </Sheet>
   );
 }
 

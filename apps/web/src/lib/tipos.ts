@@ -294,7 +294,20 @@ export type Prestamo = {
   creadoEn: string;
   saldadoEn: string | null;
 };
-export type Prestamos = { prestamos: Prestamo[]; meDebenCentavos: number; deboCentavos: number };
+/** Un préstamo o un abono de una deuda, con la cuenta de la que salió o a la que llegó, si la dijo. */
+export type MovimientoDeuda = { tipo: "prestamo" | "abono"; fecha: string; montoCentavos: number; cuenta: string | null };
+/** Una deuda por persona y sentido ("le debes a Mamá"), con todos sus préstamos y abonos juntos. */
+export type DeudaPersona = {
+  persona: string;
+  direccion: "me_deben" | "debo";
+  prestadoCentavos: number;
+  pagadoCentavos: number;
+  pendienteCentavos: number;
+  desde: string;
+  movimientos: MovimientoDeuda[];
+};
+// `personas` llega con la versión del servidor que trae el apartado de deudas.
+export type Prestamos = { prestamos: Prestamo[]; meDebenCentavos: number; deboCentavos: number; personas?: DeudaPersona[] };
 
 /** GET /v1/msi: compras a meses sin intereses. */
 export type CompraMsi = {

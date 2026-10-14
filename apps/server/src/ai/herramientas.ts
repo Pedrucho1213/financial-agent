@@ -36,7 +36,7 @@ import { herramientasAnalisis } from "./herramientas-analisis";
 import { respuestaDeConsulta, respuestaDelMasGrande } from "./consultas";
 import { herramientasCuentas } from "./herramientas-cuentas";
 import { esPagoDeTarjeta, esSaldoDicho, moverDinero, nombresDeTarjetas } from "../finanzas/cuentas";
-import { apartaParaMeta, herramientasPlanes, mensualidadDe, nombresDePlanes, pagaPrestamo, prestaDinero } from "./herramientas-planes";
+import { apartaParaMeta, debeAPersona, herramientasPlanes, mensualidadDe, nombresDePlanes, pagaPrestamo, prestaDinero } from "./herramientas-planes";
 import { esOrdenSobreLoAnotado, monedaDelTexto, normalizar, tipoDelTexto } from "../lib/texto";
 
 /** Lo que hizo una herramienta: con qué la llamó el modelo y qué resultó. */
@@ -251,7 +251,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
           } else if (ES_MSI.test(plano) && !PAGA_MENSUALIDAD.test(plano)) {
             desviar("msi", "Parece una compra a meses sin intereses: usa compra_msi.");
           }
-          if (prestaDinero(texto) || pagaPrestamo(texto, planes.personas)) {
+          if (prestaDinero(texto) || pagaPrestamo(texto, planes.personas) || debeAPersona(texto, nombresDeTarjetas(ctx))) {
             desviar("prestamo", "Parece un préstamo entre personas: usa prestamo.");
           }
           if (apartaParaMeta(texto, planes.metas)) {

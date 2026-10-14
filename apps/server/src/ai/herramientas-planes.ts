@@ -13,16 +13,18 @@ import {
   listarMetas,
   listarMsi,
   listarPrestamos,
+  nombrePersona,
   quitarPresupuesto,
   registrarMsi,
   registrarPrestamo,
   respuestaDisponible,
+  variantesPersona,
 } from "../finanzas/planes";
 import { aCentavos, formatearMonto } from "../lib/dinero";
 import { normalizar } from "../lib/texto";
 import { eq } from "drizzle-orm";
 import { comprasMsi } from "../db/schema";
-import { describirSaldo, estadoDeCuenta, estadosDeCuentas } from "../finanzas/cuentas";
+import { describirSaldo, estadoDeCuenta, estadosDeCuentas, nombresDeTarjetas, PARECE_CUENTA } from "../finanzas/cuentas";
 import { cuentaMencionada } from "../finanzas/catalogos";
 import { crearMovimiento } from "../finanzas/movimientos";
 
@@ -100,12 +102,12 @@ export function herramientasPlanes(ctx: Contexto, ejecutar: Ejecutar) {
 
     prestamo: tool({
       description:
-        'Préstamos entre personas: "le presté 500 a Juan" le_preste, "Ana me prestó mil" me_prestaron, "Juan me pagó 200" me_pagaron, "le pagué a Ana" le_pague. Sin monto al pagar, salda todo.',
+        'Préstamos y deudas con personas: "le presté 500 a Juan" le_preste; "Ana me prestó mil" o "le debo 30 mil a mi mamá" me_prestaron; "Juan me pagó 200" me_pagaron; "le pagué a Ana" o "le transferí 2 mil a mi mamá desde Revolut" le_pague (un abono). Sin monto al pagar, salda todo.',
       inputSchema: z.object({
         accion: z.enum(["le_preste", "me_prestaron", "me_pagaron", "le_pague"]),
-        persona: z.string(),
+        persona: z.string().describe('A quién, como lo dijo: "Juan", "mi hermano", "mi mamá". Con eso basta: no preguntes su nombre.'),
         monto: z.number().positive().optional(),
-        cuenta: z.string().optional().describe('De qué cuenta salió o a cuál llegó el dinero, solo si lo dijo: "de mi efectivo", "me los depositó a Bancomer".'),
+        cuenta: z.string().optional().describe('De qué cuenta salió o a cuál llegó el dinero, solo si lo dijo: "de mi efectivo", "desde mi cuenta Revolut", "me los depositó a Bancomer". Si no la dijo, omítela sin preguntar.'),
         descripcion: z.string().optional(),
       }),
       execute: ejecutar("prestamo", ({ accion, persona, monto, cuenta, descripcion }) => {
@@ -124,16 +126,23 @@ export function herramientasPlanes(ctx: Contexto, ejecutar: Ejecutar) {
           if (monto === undefined) return { error: "Falta el monto del préstamo. Pregúntalo." };
           const meDeben = accion === "le_preste";
           const p = registrarPrestamo(ctx, { persona, direccion: meDeben ? "me_deben" : "debo", monto, descripcion });
-          const quien = meDeben ? `${p.persona} te debe` : `le debes a ${p.persona}`;
+          const quien = meDeben ? `${nombrePersona(p.persona)} te debe` : `le debes a ${nombrePersona(p.persona)}`;
           const total = p.totalPendienteCentavos > p.montoCentavos ? ` En total ${quien} ${$(p.totalPendienteCentavos)}.` : "";
-          const que = meDeben ? `le prestaste ${$(p.montoCentavos)} a ${p.persona}` : `${p.persona} te prestó ${$(p.montoCentavos)}`;
+          // "Le debo 30 mil a mi mamá" lo dice como deuda; "Ana me prestó mil", como préstamo.
+          const dijoDeuda = !meDeben && !!ctx.textoOriginal && !!debeAPersona(ctx.textoOriginal);
+          const que = meDeben
+            ? `le prestaste ${$(p.montoCentavos)} a ${nombrePersona(p.persona)}`
+            : dijoDeuda
+              ? `le debes ${$(p.montoCentavos)} a ${nombrePersona(p.persona)}`
+              : `${nombrePersona(p.persona)} te prestó ${$(p.montoCentavos)}`;
           const queda = mover(p.montoCentavos, p.persona);
           return { prestamo: p, confirmacion: `Listo, anoté que ${que}.${total}${queda}` };
         }
         const a = abonarPrestamo(ctx, { persona, monto, direccion: accion === "me_pagaron" ? "me_deben" : "debo" });
-        const quien = a.direccion === "me_deben" ? `${a.persona} te debe` : `le debes a ${a.persona}`;
+        const aQuien = nombrePersona(a.persona);
+        const quien = a.direccion === "me_deben" ? `${aQuien} te debe` : `le debes a ${aQuien}`;
         const confirmacion = a.saldado
-          ? `Listo, ${a.direccion === "me_deben" ? `${a.persona} ya no te debe nada` : `ya no le debes nada a ${a.persona}`}.`
+          ? `Listo, ${a.direccion === "me_deben" ? `${aQuien} ya no te debe nada` : `ya no le debes nada a ${aQuien}`}.`
           : `Listo, abono de ${$(a.abonadoCentavos)}. Todavía ${quien} ${$(a.pendienteCentavos)}.`;
         const queda = mover(monto !== undefined ? aCentavos(monto) : a.abonadoCentavos, a.persona);
         return { ...a, confirmacion: `${confirmacion}${queda}` };
@@ -166,7 +175,7 @@ export function herramientasPlanes(ctx: Contexto, ejecutar: Ejecutar) {
 
     consultar_planes: tool({
       description:
-        '"¿Cuánto puedo gastar hoy?", cómo van sus presupuestos o metas, quién le debe (prestamos) o sus meses sin intereses.',
+        '"¿Cuánto puedo gastar hoy?", cómo van sus presupuestos o metas, quién le debe o a quién le debe (prestamos) o sus meses sin intereses.',
       inputSchema: z.object({
         que: z.enum(["cuanto_puedo_gastar", "presupuestos", "metas", "prestamos", "msi"]),
         persona: z.string().optional(),
@@ -253,15 +262,18 @@ export function herramientasPlanes(ctx: Contexto, ejecutar: Ejecutar) {
 /** Nombres de las metas y de las personas con préstamos pendientes, para las instrucciones. */
 export function nombresDePlanes(ctx: Contexto) {
   const metas = listarMetas(ctx).metas.filter((m) => !m.completada).map((m) => m.nombre);
-  const personas = [...new Set(listarPrestamos(ctx).prestamos.map((p) => p.persona))];
+  const prestamos = listarPrestamos(ctx).prestamos;
+  const personas = [...new Set(prestamos.map((p) => p.persona))];
+  // Para las instrucciones: en qué sentido va cada una ("Mamá (el usuario le debe)").
+  const deudas = [...new Set(prestamos.map((p) => `${p.persona} (${p.direccion === "debo" ? "el usuario le debe" : "le debe al usuario"})`))];
   const msi = listarMsi(ctx).compras.map((c) => ({ descripcion: c.descripcion, proximoCargo: c.proximoCargo }));
-  return { metas, personas, msi };
+  return { metas, personas, deudas, msi };
 }
 
 const escapar = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-/** La primera palabra de cada nombre ("Juan" de "Juan Pérez"), ya normalizada y escapada. */
+/** La primera palabra de cada nombre ("Juan" de "Juan Pérez"), ya normalizada y escapada; "Mamá" también es "madre". */
 const primeras = (nombres: string[]) =>
-  nombres.map((n) => normalizar(n).split(" ")[0] ?? "").filter((p) => p.length > 2).map(escapar);
+  [...new Set(nombres.flatMap((n) => variantesPersona(n)))].filter((p) => p.length > 2).map(escapar);
 
 // Un monto dicho: "500", "2 mil", "mil", "quinientos".
 const MONTO = "(\\d|dos |tres |cuatro |cinco |seis |siete |ocho |nueve |diez |veinte |cien|mil\\b|doscientos|trescientos|quinientos)";
@@ -287,8 +299,34 @@ export function pagaPrestamo(texto: string, personas: string[]) {
   const plano = normalizar(texto);
   if (PARA_QUE.test(plano)) return false;
   const p = `(${nombres.join("|")})`;
-  const verbo = "(pago|pagaron|devolvio|regreso|abono)";
-  return new RegExp(`\\b(${p} (ya )?(me|nos) ${verbo}|(me|nos) ${verbo} ${p}|le (pague|abone) a ${p}|le (devolvi|regrese)( \\S+){0,2} a ${p})\\b`).test(plano);
+  const quien = `(mi |la |el |al )?${p}`;
+  const verbo = "(pago|pagaron|devolvio|regreso|abono|transfirio|deposito|mando|envio)";
+  // Lo que le da a esa persona: "le pagué", "le transferí 2 mil", "le acabo de depositar", "a mi mamá le mandé".
+  const doy = "(pague|abone|transferi|deposite|mande|envie|devolvi|regrese|pagar|abonar|transferir|depositar|mandar|enviar|devolver|regresar)";
+  return new RegExp(
+    `\\b(${p} (ya )?(me|nos) ${verbo}|(me|nos) ${verbo} ${quien}|le (pague|abone) a ${quien}|le (devolvi|regrese)( \\S+){0,2} a ${quien}|(le |les )?(acabo de |ya )?${doy}( \\S+){0,5} a ${quien}|a ${quien} (ya )?le (acabo de )?${doy})\\b`,
+  ).test(plano);
+}
+
+// Lo que va después de "debo ... a" y no es una persona: "debo 3 mil a meses", "a la tarjeta".
+const NO_ES_PERSONA = /^(meses|plazos|pagos|semanas|quincenas|cuenta|cuentas|tarjeta|tarjetas|banco|credito|tdc|nadie|alguien|todos)$/;
+
+/**
+ * "Le debo 30 mil a mi mamá", "a mi hermano le debo 2 mil": una deuda con una persona, no con una tarjeta
+ * ("le debo 5 mil a la Nu" es su tarjeta). Devuelve a quién, o nada.
+ */
+export function debeAPersona(texto: string, tarjetas: string[] = []): string | undefined {
+  const plano = normalizar(texto);
+  const m = plano.match(/\b(?:le |les )?(?:debo|adeudo)\b(?: \S+){0,4}? a (?:mi |mis |la |el |al )?(\S+)/) ?? plano.match(/\ba (?:mi |mis |la |el |al )?(\S+) le (?:debo|adeudo)\b/);
+  const persona = m?.[1];
+  if (!persona || NO_ES_PERSONA.test(persona) || /^\d/.test(persona) || PARECE_CUENTA.test(persona)) return undefined;
+  if (tarjetas.some((t) => normalizar(t).split(" ").includes(persona))) return undefined;
+  return persona;
+}
+
+/** Si la frase presta, paga o dice una deuda con una persona: así se oye cuánto queda en vez de un "Anotado". */
+export function hablaDePrestamo(ctx: Contexto, texto: string): boolean {
+  return prestaDinero(texto) || pagaPrestamo(texto, nombresDePlanes(ctx).personas) || !!debeAPersona(texto, nombresDeTarjetas(ctx));
 }
 
 /**

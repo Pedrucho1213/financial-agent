@@ -9,6 +9,7 @@ import {
   estadosDeCuentas,
   fijarCuenta,
   moverDinero,
+  nombresDeTarjetas,
   NOMBRE_TIPO,
   observacionDeCuentas,
   totalesDeCuentas,
@@ -23,6 +24,8 @@ import {
   resumenEtiquetas,
 } from "../finanzas/etiquetas";
 import { buscarMovimientos, ErrorFinanzas, idDelMovimiento, idsQueCoinciden } from "../finanzas/movimientos";
+import { clavePersona, listarPrestamos } from "../finanzas/planes";
+import { debeAPersona } from "./herramientas-planes";
 import { cuentaMencionada, encontrarOCrearCuenta, inferirTipoCuenta } from "../finanzas/catalogos";
 import { montosDelTexto } from "../lib/numeros";
 import { formatearMonto } from "../lib/dinero";
@@ -66,6 +69,38 @@ function otraTarjetaNombrada(ctx: Contexto, texto: string): string | undefined {
   return despues && (EMISORES.has(despues) || conocidas.has(despues)) ? despues : undefined;
 }
 
+// "¿Cuándo pago la Nu?", "¿qué día corta la Invex?", "¿cuál es la fecha límite de la Nu?".
+const PREGUNTA_FECHAS = /\b(cuando|que dia|fecha|dia)\b.{0,30}\b(pago|pagar|pagarla|pagarlas|corta|cortan|corte|vence|vencen|limite)\b|\b(fecha limite|dia de corte|dia de pago)\b/;
+
+/** Días que faltan para ese día del mes (hoy es 0); en meses cortos cuenta su último día. */
+function diasParaElDia(hoy: string, dia: number): number {
+  const [anio, mes, hoyDia] = hoy.split("-").map(Number) as [number, number, number];
+  const diasMes = new Date(Date.UTC(anio, mes, 0)).getUTCDate();
+  if (Math.min(dia, diasMes) >= hoyDia) return Math.min(dia, diasMes) - hoyDia;
+  const diasSiguiente = new Date(Date.UTC(anio, mes + 1, 0)).getUTCDate();
+  return diasMes - hoyDia + Math.min(dia, diasSiguiente);
+}
+
+/** "Nu corta el día 3 y se paga el día 23, en 9 días. Debes $3,000." */
+function fechasDeTarjeta(ctx: Contexto, e: ReturnType<typeof estadosDeCuentas>[number]): string {
+  if (!e.diaCorte && !e.diaPago) return `No me has dicho el día de corte ni de pago de ${e.nombre}; dímelo así: "${e.nombre} corta el 3 y se paga el 23".`;
+  const enCuanto = (dia: number) => {
+    const n = diasParaElDia(ctx.hoy, dia);
+    return n === 0 ? "hoy" : n === 1 ? "mañana" : `en ${n} días`;
+  };
+  const corte = e.diaCorte ? `corta el día ${e.diaCorte}` : "";
+  const pago = e.diaPago ? `se paga el día ${e.diaPago}, ${enCuanto(e.diaPago)}` : `de su día de pago no me has dicho`;
+  const debe = e.deudaCentavos !== null && e.deudaCentavos > 0 ? ` Debes ${formatearMonto(e.deudaCentavos, ctx.monedaBase)}.` : "";
+  return `${e.nombre} ${corte ? `${corte} y ` : ""}${pago}.${debe}`;
+}
+
+/** Si el nombre es de una persona con préstamos pendientes y no de una de sus cuentas. */
+function personaConPrestamo(ctx: Contexto, nombre: string): boolean {
+  const clave = clavePersona(nombre);
+  if (!clave || estadosDeCuentas(ctx).some((e) => [e.nombre, ...e.alias].some((n) => normalizar(n) === normalizar(nombre)))) return false;
+  return listarPrestamos(ctx).prestamos.some((p) => clavePersona(p.persona) === clave || clavePersona(p.persona).split(" ")[0] === clave);
+}
+
 const cifrasDe = (c: { saldo?: number; disponible?: number; deuda?: number; limite?: number }) =>
   [c.saldo, c.disponible, c.deuda, c.limite].filter((x) => x !== undefined);
 
@@ -97,6 +132,11 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
       execute: ejecutar("cuentas", ({ cuentas: dichas }) => {
         let cuentas = dichas;
         const texto = ctx.textoOriginal;
+        // "Le debo 30 mil a mi mamá" es una deuda con una persona: no se crea una tarjeta "Mamá".
+        const persona = texto ? debeAPersona(texto, nombresDeTarjetas(ctx)) : undefined;
+        if (persona && cuentas.some((c) => clavePersona(c.cuenta).split(" ").includes(clavePersona(persona)))) {
+          throw new ErrorFinanzas(`Es una deuda con una persona (${persona}), no una cuenta ni una tarjeta: usa prestamo con accion me_prestaron, sin cuenta.`);
+        }
         // Un saldo, disponible, deuda o límite que nunca dijo no se guarda: "ese registro no es lo que debo" sin
         // el turno anterior llevó al modelo a guardar las cifras de los ejemplos (Revolut $20,000, Efectivo $5,000).
         // Valen las de la frase y las de antes en esta conversación, y la suma o la resta de dos de ellas ("de 30 mil me
@@ -254,6 +294,14 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
         if (texto && !montosDelTexto(texto).length && !SIN_CIFRA_VALE.test(normalizar(texto))) {
           throw new ErrorFinanzas("No dijo cuánto: pregúntale de cuánto fue (no uses lo que debe ni otra cifra).");
         }
+        // "Le transferí 2 mil a mi mamá" con una deuda con ella es un abono, no una transferencia entre sus cuentas.
+        const conPersona = [datos.desde, datos.hacia].find((n) => n && personaConPrestamo(ctx, n));
+        if (conPersona) {
+          const sale = conPersona === datos.hacia;
+          throw new ErrorFinanzas(
+            `${conPersona} es una persona con la que tiene préstamos, no una de sus cuentas: usa prestamo con accion ${sale ? "le_pague" : "me_pagaron"} y la cuenta ${sale ? "de la que salió" : "a la que llegó"} el dinero.`,
+          );
+        }
         const r = moverDinero(ctx, datos);
         return { movimiento: r.movimiento, confirmacion: r.confirmacion };
       }),
@@ -261,7 +309,7 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
 
     consultar_cuentas: tool({
       description:
-        '"¿Cuánto tengo en Revolut?", "¿cuánto dinero tengo?", "¿cuánto debo de tarjetas?", "¿cuánto me queda disponible en la Nu?". Saldos de hoy de sus cuentas y tarjetas. Solo para cuánto tiene, debe o le queda disponible: "¿cómo voy?" o cuánto ha gastado no es esto.',
+        '"¿Cuánto tengo en Revolut?", "¿cuánto dinero tengo?", "¿cuánto debo de tarjetas?", "¿cuánto me queda disponible en la Nu?", "¿cuándo pago la Nu?". Saldos de hoy de sus cuentas y tarjetas, y el día de corte y de pago de cada tarjeta. Solo para cuánto tiene, debe o le queda disponible: "¿cómo voy?" o cuánto ha gastado no es esto.',
       inputSchema: z.object({ cuenta: z.string().optional().describe("Una cuenta o tarjeta; sin ella, todas.") }),
       execute: ejecutar("consultar_cuentas", ({ cuenta }) => {
         const todas = estadosDeCuentas(ctx);
@@ -274,16 +322,24 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
               cuentas: todas.map((x) => x.nombre),
             };
           }
+          if (e.esCredito && ctx.textoOriginal && PREGUNTA_FECHAS.test(normalizar(ctx.textoOriginal))) return { respuesta: fechasDeTarjeta(ctx, e) };
           const texto = describirSaldo(ctx, e);
           const nota = observacionDeCuentas(ctx, [e]);
           return {
             respuesta: e.conocido
               ? `${texto.charAt(0).toUpperCase()}${texto.slice(1)}.${nota ? ` ${nota}` : ""}`
               : `No sé cuánto tienes en ${e.nombre}. Dime "tengo tanto en ${e.nombre}" y desde ahí le sigo la cuenta.`,
+            // "¿Cuándo pago la Nu?": los días que dijo; sin ellos, que los diga ("la Nu corta el 3 y se paga el 23").
+            ...(e.esCredito ? { dia_corte: e.diaCorte ?? "no lo ha dicho", dia_pago: e.diaPago ?? "no lo ha dicho" } : {}),
           };
         }
         if (!todas.length) {
           return { respuesta: 'Todavía no me has dicho tus cuentas. Dime, por ejemplo, "tengo 20 mil en Revolut y 10 mil en Bancomer".' };
+        }
+        // "¿Cuándo pago mis tarjetas?": el corte y el pago de cada una.
+        const tarjetas = todas.filter((e) => e.esCredito);
+        if (tarjetas.length && ctx.textoOriginal && PREGUNTA_FECHAS.test(normalizar(ctx.textoOriginal))) {
+          return { respuesta: tarjetas.map((e) => fechasDeTarjeta(ctx, e)).join(" ") };
         }
         const t = totalesDeCuentas(todas);
         const partes: string[] = [];
@@ -309,6 +365,8 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
             debe: e.deudaCentavos === null ? undefined : $(e.deudaCentavos),
             disponible: e.esCredito && e.disponibleCentavos !== null ? $(e.disponibleCentavos) : undefined,
             limite: e.limiteCentavos === null ? undefined : $(e.limiteCentavos),
+            dia_corte: e.diaCorte ?? undefined,
+            dia_pago: e.diaPago ?? undefined,
             saldo_desconocido: !e.conocido || undefined,
           })),
         };
