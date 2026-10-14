@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { AtSign, Bell, ChevronRight, Copy, Hand, KeyRound, LogOut, Server, Share, UserPlus, Workflow } from "lucide-react";
+import { AtSign, Bell, ChevronRight, Copy, Hand, KeyRound, LogOut, RefreshCw, Server, Share, UserPlus, Workflow } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { AjustesIa } from "../components/AjustesIa";
@@ -17,6 +17,7 @@ import { Confirmar } from "../components/ui/dialog";
 import { Fila, FilaBoton, Grupo, IconoAjuste } from "../components/ui/lista";
 import { Sheet, SheetContent } from "../components/ui/sheet";
 import { Skeleton } from "../components/ui/skeleton";
+import { buscarActualizacion, useVersionLista, VERSION_APP } from "../lib/actualizacion";
 import { api, ErrorApi, mensajeDeError } from "../lib/api";
 import { abrirAtajo } from "../lib/atajo";
 import { useEnLinea } from "../lib/conexion";
@@ -74,6 +75,41 @@ function useInvitar() {
 function FilaAccion({ titulo, disabled, onClick }: { titulo: string; disabled?: boolean; onClick: () => void }) {
   return (
     <FilaBoton sangria="3.75rem" className="pl-[3.75rem] text-tint" titulo={titulo} disabled={disabled} onClick={onClick} />
+  );
+}
+
+/** «Buscar actualizaciones» y la versión instalada, para cualquier cuenta. */
+function Actualizaciones() {
+  const lista = useVersionLista();
+  const [estado, setEstado] = useState<"nada" | "buscando" | "actualizando">("nada");
+
+  const alTocar = async () => {
+    setEstado("buscando");
+    const r = await buscarActualizacion(() => setEstado("actualizando"));
+    if (r === "actualizando") return;
+    setEstado("nada");
+    if (r === "al-dia") toast.success("Ya tienes la versión más reciente.");
+    else if (r === "sin-conexion") toast.error("Sin conexión. Inténtalo cuando tengas internet.");
+    else toast.error("No pude comprobarlo. Inténtalo en un momento.");
+  };
+
+  return (
+    <Grupo pie={`Versión ${VERSION_APP.numero} · ${VERSION_APP.commit}`}>
+      <FilaBoton
+        sangria="3.75rem"
+        icono={
+          <IconoAjuste color="linear-gradient(180deg,#5ac8fa,#007aff)">
+            <RefreshCw />
+          </IconoAjuste>
+        }
+        titulo={estado === "actualizando" ? "Actualizando…" : lista ? "Actualizar ahora" : "Buscar actualizaciones"}
+        subtitulo={lista && estado === "nada" ? "Ya se descargó una versión nueva" : undefined}
+        valor={estado !== "nada" ? <Spinner etiqueta={estado === "buscando" ? "Buscando" : "Actualizando"} /> : undefined}
+        aria-busy={estado !== "nada"}
+        disabled={estado !== "nada"}
+        onClick={alTocar}
+      />
+    </Grupo>
   );
 }
 
@@ -211,6 +247,8 @@ export function Ajustes() {
             />
           </Grupo>
         ) : null}
+
+        <Actualizaciones />
 
         {d ? (
           <p className="text-center text-[13px] text-muted-foreground">

@@ -64,7 +64,7 @@ const datosMovimiento = z.object({
   descripcion: z.string().optional().describe("Qué fue, en pocas palabras."),
   cuenta: z.string().optional().describe("Solo si el usuario dijo con qué pagó: BBVA, Nu, efectivo."),
   fecha: fecha.optional(),
-  etiquetas: z.array(z.string()).optional().describe('Solo si dijo una etiqueta ("etiquétalo como viaje") o es una de sus etiquetas.'),
+  etiquetas: z.array(z.string()).optional().describe('Las que dijo ("etiquétalo como viaje") y las que piden las reglas de etiquetas (por ejemplo, para quién fue: "para mi mamá" → Mamá).'),
 });
 
 // Cómo encontrar el movimiento a editar o eliminar sin buscarlo antes.

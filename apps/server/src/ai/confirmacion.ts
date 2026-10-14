@@ -1,5 +1,6 @@
 import { diaSemana, sumarDias } from "../lib/fechas";
 import { montosDelTexto } from "../lib/numeros";
+import { INNECESARIO } from "../finanzas/etiquetas-auto";
 import { esPregunta, normalizar, pideInformacionExplicita } from "../lib/texto";
 import { ESCRITURAS_PLANES } from "./herramientas-planes";
 import { ESCRITURAS_CUENTAS } from "./herramientas-cuentas";
@@ -18,6 +19,9 @@ export type Movimiento = {
   revisar?: boolean;
   /** No dijo el monto y se usó el de siempre. */
   monto_de_siempre?: boolean;
+  etiquetas?: string[];
+  /** La etiqueta de viaje que se acaba de crear sola por la ubicación (finanzas/etiquetas-auto.ts). */
+  viaje_nuevo?: string;
 };
 
 /** Una llamada a herramienta ya ejecutada en el último paso del modelo. */
@@ -105,7 +109,28 @@ export function confirmarRegistro(registrados: Movimiento[], hoy: string): strin
       ? ", como siempre"
       : ". Donde no dijiste cuánto, usé el monto de siempre"
     : "";
-  return `Listo, ${enumerar(registrados.map((m) => describirMovimiento(m, hoy)))}${deSiempre}.${revisar}`;
+  return `Listo, ${enumerar(registrados.map((m) => describirMovimiento(m, hoy)))}${deSiempre}.${revisar}${etiquetasSolas(registrados)}`;
+}
+
+/** Las etiquetas que lleva lo que se anotó: " Lo etiqueté como Viaje Cancún." La de viaje, solo la primera vez. */
+function etiquetasSolas(registrados: Movimiento[]): string {
+  const viaje = registrados.find((m) => m.viaje_nuevo)?.viaje_nuevo;
+  const innecesarios = registrados.filter((m) => m.etiquetas?.includes(INNECESARIO)).length;
+  const innecesario =
+    !innecesarios
+      ? ""
+      : registrados.length === 1
+        ? " Lo marqué como innecesario."
+        : innecesarios === registrados.length
+          ? " Los marqué como innecesarios."
+          : innecesarios === 1
+            ? " Marqué uno como innecesario."
+            : ` Marqué ${innecesarios} como innecesarios.`;
+  // Las de contexto ("Trabajo", "Boda de Ana"); las de viaje ya dichas una vez no se repiten.
+  const otras = [...new Set(registrados.flatMap((m) => m.etiquetas ?? []))].filter((e) => e !== INNECESARIO && !/^viaje /i.test(e));
+  const etiquetadas = [...(viaje ? [viaje] : []), ...otras];
+  const lo = registrados.length === 1 ? "Lo" : "Los";
+  return `${etiquetadas.length ? ` ${lo} etiqueté como ${enumerar(etiquetadas)}.` : ""}${innecesario}`;
 }
 
 /** "Listo, quedó AutoZone de $399 en Auto con Revolut crédito." */
