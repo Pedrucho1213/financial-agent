@@ -310,6 +310,15 @@ export function etiquetaAccion(a: Accion) {
   return ETIQUETAS[a.herramienta] ?? a.herramienta.replace(/_/g, " ");
 }
 
+/** Ids de los movimientos que anotó una respuesta (registrar_movimientos), para enseñarlos dentro de la burbuja. */
+export function idsRegistrados(acciones: Accion[] | undefined): string[] {
+  return (acciones ?? []).flatMap((a) => {
+    if (a.herramienta !== "registrar_movimientos") return [];
+    const r = a.resultado as { registrados?: { id?: unknown }[] } | undefined;
+    return Array.isArray(r?.registrados) ? r.registrados.map((m) => m?.id).filter((id): id is string => typeof id === "string") : [];
+  });
+}
+
 /** Acciones que cambian datos se destacan; las consultas van en gris. */
 export function accionCambiaDatos(a: Accion) {
   return /^(registrar|editar|eliminar|deshacer)/.test(a.herramienta);
