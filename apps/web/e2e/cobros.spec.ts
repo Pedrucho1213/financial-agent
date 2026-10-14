@@ -29,7 +29,7 @@ test.describe("sin el módulo (otras cuentas o servidor viejo)", () => {
     // Se preguntó una vez y no se reintenta.
     expect(api.de("GET", "/v1/cobros")).toHaveLength(1);
 
-    await page.goto("/#ajustes");
+    await page.goto("/#notificaciones");
     await expect(page.getByRole("switch", { name: "Notificaciones" })).toBeVisible();
     await expect(page.getByText("Qué te aviso")).toHaveCount(0);
 
@@ -226,12 +226,12 @@ test("la campana abre el centro de notificaciones", async ({ page }) => {
   await hoja(page).getByRole("button", { name: "Listo" }).click();
 
   await page.getByRole("button", { name: "Qué te aviso y a qué hora" }).click();
-  await expect(page).toHaveURL(/#ajustes$/);
-  await expect(page.getByText("Qué te aviso")).toBeInViewport();
+  await expect(page).toHaveURL(/#notificaciones$/);
+  await expect(page.getByText("Qué te aviso")).toBeVisible();
 });
 
-test("Ajustes › Qué te aviso y el horario", async ({ page }) => {
-  const api = await abrir(page, "#ajustes");
+test("Ajustes › Notificaciones › Qué te aviso y el horario", async ({ page }) => {
+  const api = await abrir(page, "#notificaciones");
   const fugas = page.getByRole("switch", { name: "Fugas de dinero" });
   await expect(fugas).toBeChecked();
   await fugas.click();
@@ -317,8 +317,8 @@ test.describe("capturas", () => {
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
       await capturar(page, `centro-final-${sufijo}`);
 
-      await page.goto("/#ajustes?seccion=notificaciones");
-      await expect(page.getByText("Qué te aviso")).toBeInViewport();
+      await page.goto("/#notificaciones");
+      await page.getByText("Qué te aviso").scrollIntoViewIfNeeded();
       await capturar(page, `ajustes-${sufijo}`);
     });
   }

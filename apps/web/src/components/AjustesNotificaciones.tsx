@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, CalendarClock, ChartNoAxesColumn, Coffee, CreditCard, HandCoins, Send } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import { api, ErrorApi, mensajeDeError } from "../lib/api";
 import { abrirAtajo } from "../lib/atajo";
@@ -27,24 +27,13 @@ import { Switch } from "./ui/switch";
 
 const CLAVE = ["push"] as const;
 
-/** Ajustes › Notificaciones (activar y probar) y el Atajo de Apple Pay. */
+/** Ajustes › Notificaciones (activar y probar). El Atajo de Apple Pay va en Ajustes › Atajos de iPhone. */
 export function AjustesNotificaciones() {
-  const ref = useRef<HTMLDivElement>(null);
-  // Desde el centro de notificaciones (#ajustes?seccion=notificaciones): baja hasta aquí.
-  useEffect(() => {
-    if (!/[?&]seccion=notificaciones\b/.test(window.location.hash)) return;
-    const t = window.setTimeout(() => {
-      ref.current?.scrollIntoView({ block: "start", behavior: "smooth" });
-      window.history.replaceState(window.history.state, "", `${window.location.pathname}#ajustes`);
-    }, 80);
-    return () => window.clearTimeout(t);
-  }, []);
   return (
-    <div ref={ref} id="ajustes-notificaciones" className="scroll-mt-[calc(env(safe-area-inset-top)+56px)] space-y-8">
+    <>
       <Notificaciones />
       <QueTeAviso />
-      <ApplePay />
-    </div>
+    </>
   );
 }
 
@@ -244,7 +233,7 @@ const PASOS_APPLE_PAY = [
   </>,
 ];
 
-function ApplePay() {
+export function ApplePay() {
   const enLinea = useEnLinea();
   const [listo, setListo] = useState<AtajoPreparado | null>(null);
   const preparar = useMutation({

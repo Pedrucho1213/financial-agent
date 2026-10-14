@@ -4,6 +4,10 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { clienteConsultas, guardarSinConexion, persistidor } from "./lib/consultas";
 import "./index.css";
+import { aplicarTema } from "./lib/tema";
+
+// El tema elegido en Ajustes, antes de pintar nada.
+aplicarTema();
 
 // Sin esto, Safari de iOS no aplica los estilos :active al tocar.
 document.addEventListener("touchstart", () => undefined, { passive: true });

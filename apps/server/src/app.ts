@@ -3,6 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
 import { z } from "zod";
 import { consultarEntrada, conversacionParaChat, conversacionReciente, type Dependencias, type Respuesta, ErrorEnProceso, ErrorIA, hablar } from "./ai/asistente";
+import { guardarUbicacion, olvidarUbicacion, ubicacionesDe } from "./ubicacion-dispositivos";
 import { CARACTERES_POR_CONSULTA, costoDelMes, MAX_DICTADO, RESPUESTA_MUY_LARGO, usoDeHoy } from "./ai/uso";
 import { hablaDePrestamo } from "./ai/herramientas-planes";
 import { guardarDescarga, limpiarDescargas, tomarDescarga } from "./atajo/descargas";
@@ -561,6 +562,7 @@ export function crearApp(opciones: OpcionesApp) {
     }
     const p = cuerpo.data;
     const usuarioId = c.get("usuarioId");
+    guardarUbicacion(db, c.get("dispositivoId"), { lat: p.lat, lon: p.lon, lugar: p.lugar, en: p.capturado_en });
     // El Atajo no manda espera_ms; la app y las pruebas sí.
     const delAtajo = p.espera_ms === undefined;
     // Sin monto, lo que conteste importa tanto como en una pregunta: puede pedir un dato ("¿de cuánto fue?")
@@ -650,6 +652,7 @@ export function crearApp(opciones: OpcionesApp) {
     }
     const p = cuerpo.data;
     const usuarioId = c.get("usuarioId");
+    guardarUbicacion(db, c.get("dispositivoId"), { lat: p.lat, lon: p.lon, en: p.capturado_en });
     // Si el monto no llegó como propiedad, puede venir en el nombre de la transacción.
     const directo = fraseDePago(p, opciones.monedaBase);
     const respaldo = directo ? undefined : pagoDeTransaccion(p.entrada);
@@ -774,7 +777,7 @@ export function crearApp(opciones: OpcionesApp) {
       {
         titulo: "Notificaciones activas",
         cuerpo: `${nombre ? `Listo, ${nombre}. ` : "Listo. "}Cuando registres algo con el Atajo, aquí te confirmo qué anoté.`,
-        url: "/#ajustes",
+        url: "/#notificaciones",
         etiqueta: "prueba",
       },
       opciones.enviarPush,
@@ -824,6 +827,7 @@ export function crearApp(opciones: OpcionesApp) {
     const actual = c.get("dispositivoId");
     const lista = listarDispositivos(db, usuarioId);
     const propio = lista.find((d) => d.id === actual)!;
+    const ubicaciones = ubicacionesDe(db, lista.map((d) => d.id));
     return c.json({
       usuario: datosDeCuenta(usuario),
       dispositivo: { id: propio.id, nombre: propio.nombre },
@@ -833,6 +837,7 @@ export function crearApp(opciones: OpcionesApp) {
         creadoEn: d.creadoEn,
         ultimoUso: d.ultimoUso,
         actual: d.id === actual,
+        ubicacion: ubicaciones.get(d.id) ?? null,
       })),
       moneda: opciones.monedaBase,
       zonaHoraria: opciones.zonaHoraria,
@@ -928,6 +933,7 @@ export function crearApp(opciones: OpcionesApp) {
     if (!revocarDispositivo(db, c.get("usuarioId"), c.req.param("id"))) {
       return c.json({ error: "No encontré ese dispositivo." }, 404);
     }
+    olvidarUbicacion(db, c.req.param("id"));
     return c.json({ ok: true });
   });
 

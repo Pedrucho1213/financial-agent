@@ -4,6 +4,7 @@ import { atenderCuenta } from "./api-falsa-cuenta";
 import { atenderCuentas, type DatosCuentas, extraMovimiento, extraTablero } from "./api-falsa-cuentas";
 import { atenderIa } from "./api-falsa-ia";
 import { atenderPlan, planInicial } from "./api-falsa-plan";
+import type { Dispositivo } from "../src/lib/tipos";
 import { atenderRecurrentes } from "./api-falsa-recurrentes";
 
 // API falsa que sigue docs/api.md, para probar la app sin el servidor.
@@ -194,7 +195,7 @@ export const ATAJO_EXPIRA = "2026-10-06T18:40:00.000Z";
 
 export class ApiFalsa {
   movimientos = movimientosIniciales();
-  dispositivos = [
+  dispositivos: Dispositivo[] = [
     { id: "dis-1", nombre: "iPhone 17 Pro Max", creadoEn: "2026-09-20T18:00:00.000Z", ultimoUso: "2026-10-06T17:40:00.000Z", actual: true },
     { id: "dis-2", nombre: "Atajo", creadoEn: "2026-09-21T02:00:00.000Z", ultimoUso: "2026-10-06T16:05:00.000Z", actual: false },
     { id: "dis-3", nombre: "MacBook Pro", creadoEn: "2026-09-22T03:00:00.000Z", ultimoUso: "2026-10-04T01:30:00.000Z", actual: false },

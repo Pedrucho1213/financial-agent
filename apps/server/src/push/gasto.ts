@@ -11,7 +11,7 @@ export function avisoDeGasto(db: Db, limites: LimitesIa | undefined, enviar?: En
       if (!dueno) return;
       for (const aviso of avisosDeGasto(db, dia, limites)) {
         // Sin esperar, pero sin dejar un rechazo suelto: tumbaría el servidor.
-        notificar(db, dueno, { ...aviso, url: "/#ajustes", urgencia: "high" }, enviar).catch((error) =>
+        notificar(db, dueno, { ...aviso, url: "/#sistema", urgencia: "high" }, enviar).catch((error) =>
           console.error("No se pudo mandar el aviso de gasto de IA:", error),
         );
       }

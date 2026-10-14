@@ -6,6 +6,12 @@ export type Pestana = (typeof PESTANAS)[number];
 
 // Páginas que se abren encima de una pestaña (como un "push" de iOS), con su pestaña madre.
 export const PAGINAS = {
+  // Ajustes › tu cuenta, dispositivos, notificaciones, Atajos y estado del sistema.
+  perfil: "ajustes",
+  dispositivos: "ajustes",
+  notificaciones: "ajustes",
+  atajos: "ajustes",
+  sistema: "ajustes",
   plan: "inicio",
   mapa: "movimientos",
   analisis: "inicio",
@@ -52,6 +58,8 @@ export function parsearRuta(hash: string): Ruta {
     if (nombre === "metas") params.set("seccion", "metas");
     return { pestana: "inicio", pagina: "plan", params };
   }
+  // Las notificaciones ya no están en Ajustes sino en su propia pantalla.
+  if (nombre === "ajustes" && params.get("seccion") === "notificaciones") return { pestana: "ajustes", pagina: "notificaciones", params };
   if (nombre === "movimientos" && params.has("texto") && !params.has("q")) {
     params.set("q", params.get("texto") ?? "");
     params.delete("texto");

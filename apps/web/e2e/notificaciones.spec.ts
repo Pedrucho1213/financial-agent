@@ -7,7 +7,7 @@ test.describe("Tocar una notificación con la app abierta", () => {
   test("el aviso del service worker lleva al editor del pago de Apple Pay", async ({ page }) => {
     const api = await prepararSesion(page);
     const pemex = api.movimientos.find((m) => m.comercio === "Pemex")!;
-    await page.goto("/#ajustes");
+    await page.goto("/#notificaciones");
     await expect(page.getByRole("switch", { name: "Notificaciones" })).toBeVisible();
     // Lo que manda public/sw-push.js en notificationclick cuando la app ya está abierta.
     await page.evaluate((url) => {
@@ -41,7 +41,7 @@ test.describe("Tocar una notificación con la app abierta", () => {
 test.describe("Notificaciones en Ajustes", () => {
   test("en una pestaña de Safari pide abrir la app desde la pantalla de inicio", async ({ page }) => {
     await prepararSesion(page);
-    await page.goto("/#ajustes");
+    await page.goto("/#notificaciones");
     const interruptor = page.getByRole("switch", { name: "Notificaciones" });
     await expect(interruptor).toBeDisabled();
     await expect(page.getByText("Abre Finanzas desde tu pantalla de inicio para activarlas.")).toBeVisible();
@@ -51,7 +51,7 @@ test.describe("Notificaciones en Ajustes", () => {
     const api = await prepararSesion(page);
     await comoAppDeInicio(page);
     await conPushFalso(page);
-    await page.goto("/#ajustes");
+    await page.goto("/#notificaciones");
     const interruptor = page.getByRole("switch", { name: "Notificaciones" });
     await expect(interruptor).not.toBeChecked();
     await interruptor.click();
@@ -80,7 +80,7 @@ test.describe("Notificaciones en Ajustes", () => {
     const api = await prepararSesion(page);
     await comoAppDeInicio(page);
     await conPushFalso(page, "denied");
-    await page.goto("/#ajustes");
+    await page.goto("/#notificaciones");
     await page.getByRole("switch", { name: "Notificaciones" }).click();
     await expect(page.getByText("Bloqueadas: actívalas en Ajustes › Notificaciones › Finanzas.")).toBeVisible();
     expect(api.de("POST", "/v1/push/suscripcion")).toHaveLength(0);
@@ -91,7 +91,7 @@ test.describe("Notificaciones en Ajustes", () => {
     await comoAppDeInicio(page);
     await conPushFalso(page, "granted", true);
     await page.clock.install();
-    await page.goto("/#ajustes");
+    await page.goto("/#notificaciones");
     const interruptor = page.getByRole("switch", { name: "Notificaciones" });
     await interruptor.click();
     // El reloj de 15 s se arma después de pedir /v1/push y el registro; con la máquina cargada eso
@@ -110,7 +110,7 @@ test.describe("Notificaciones en Ajustes", () => {
 
   test("el Atajo de Apple Pay se pide con su tipo y muestra cómo crear la automatización", async ({ page }) => {
     const api = await prepararSesion(page);
-    await page.goto("/#ajustes");
+    await page.goto("/#atajos");
     const descarga = page.waitForEvent("download");
     await page.getByRole("button", { name: /Anotar mis pagos con Apple Pay/ }).click();
     await descarga;

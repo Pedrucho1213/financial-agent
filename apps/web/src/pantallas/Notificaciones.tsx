@@ -171,7 +171,7 @@ export function Notificaciones() {
               icono={<Settings className="size-[20px] text-tint" />}
               titulo="Qué te aviso y a qué hora"
               chevron
-              onClick={() => navegar(hashDe("ajustes", { seccion: "notificaciones" }))}
+              onClick={() => navegar(hashDe("notificaciones"))}
             />
           </Grupo>
         </div>
