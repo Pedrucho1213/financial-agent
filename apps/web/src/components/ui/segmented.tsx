@@ -2,7 +2,8 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { haptico } from "../../lib/haptico";
 import { cn } from "../../lib/utils";
 
-type Opcion<T extends string> = { valor: T; etiqueta: string };
+/** `corta`: la que se ve en pantallas de menos de 360 px, si la normal no cabe. */
+type Opcion<T extends string> = { valor: T; etiqueta: string; corta?: string };
 
 /** Control segmentado de iOS con la pastilla que se desliza al elegir. */
 export function Segmented<T extends string>({
@@ -60,6 +61,7 @@ export function Segmented<T extends string>({
             type="button"
             role="radio"
             aria-checked={sel}
+            aria-label={o.corta ? o.etiqueta : undefined}
             onClick={() => {
               if (!sel) haptico();
               onChange(o.valor);
@@ -69,7 +71,14 @@ export function Segmented<T extends string>({
               sel ? "font-semibold text-foreground" : "font-medium text-foreground/80",
             )}
           >
-            {o.etiqueta}
+            {o.corta ? (
+              <>
+                <span className="max-[359px]:hidden">{o.etiqueta}</span>
+                <span className="min-[360px]:hidden">{o.corta}</span>
+              </>
+            ) : (
+              o.etiqueta
+            )}
           </button>
         );
       })}

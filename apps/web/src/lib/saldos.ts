@@ -166,7 +166,8 @@ export function lineaCuenta(e: CuentaConMes, moneda: string): string {
   }
   const { entradaCentavos: entro, salidaCentavos: salio } = e.mes;
   if (!entro && !salio) return "Sin movimientos este mes";
-  const partes = [entro ? `+${dineroCorto(entro, moneda)}` : null, salio ? `−${dineroCorto(salio, moneda)}` : null].filter(Boolean);
+  // El signo no se separa de su monto al partir el renglón (U+2060).
+  const partes = [entro ? `+\u2060${dineroCorto(entro, moneda)}` : null, salio ? `−\u2060${dineroCorto(salio, moneda)}` : null].filter(Boolean);
   return `Este mes ${partes.join(" ")}`;
 }
 

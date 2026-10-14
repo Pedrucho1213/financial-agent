@@ -66,6 +66,9 @@ export function TarjetasInicio({ t, esMesActual, ritmo }: { t: Tablero; esMesAct
     });
   } else if (esMesActual && t.cuentas) {
     hojas.push({ id: "tienes", nombre: "Lo que tienes", nodo: <HojaTienesVacia balance={t.totales.balanceCentavos} moneda={t.moneda} /> });
+  } else if (!esMesActual) {
+    // Un mes que ya pasó: cómo cerró (como el «Balance» que había en Inicio antes del rediseño).
+    hojas.push({ id: "balance", nombre: "Balance del mes", nodo: <HojaTienesVacia balance={t.totales.balanceCentavos} moneda={t.moneda} mes={t.mes} /> });
   }
   if (esMesActual && salud) hojas.push({ id: "salud", nombre: "Salud financiera", nodo: <HojaSalud s={salud} /> });
 
@@ -310,16 +313,22 @@ function HojaTienes({
 }
 
 /** Con cuentas pero sin saldos dichos: el balance del mes y la invitación a decir cuánto tiene. */
-function HojaTienesVacia({ balance, moneda }: { balance: number; moneda: string }) {
+/** Balance del mes: lo que entró menos lo gastado. Sin `mes` es el de hoy y pide los saldos; con `mes`, uno pasado. */
+function HojaTienesVacia({ balance, moneda, mes }: { balance: number; moneda: string; mes?: string }) {
   return (
-    <Hoja nombre="Balance" fondo="linear-gradient(150deg, #3a3a3e, #1c1c1e 75%)" etiqueta="¿Cuánto tienes? Ver cuentas" alTocar={() => navegar(hashDe("cuentas"))}>
-      <h2 className={claseEtiqueta}>Balance del mes</h2>
+    <Hoja
+      nombre="Balance"
+      fondo="linear-gradient(150deg, #3a3a3e, #1c1c1e 75%)"
+      etiqueta={mes ? `Balance de ${nombreMes(mes, false).toLowerCase()}. Ver análisis` : "¿Cuánto tienes? Ver cuentas"}
+      alTocar={() => navegar(mes ? hashDe("analisis", { ref: `${mes}-01` }) : hashDe("cuentas"))}
+    >
+      <h2 className={claseEtiqueta}>{mes ? `Balance de ${nombreMes(mes, false).toLowerCase()}` : "Balance del mes"}</h2>
       <Ajustado como="span" className={claseGrande}>{dinero(balance, moneda, { signo: true })}</Ajustado>
       <p className="text-[14px] leading-5 font-medium opacity-90">Lo que entró menos lo que gastaste</p>
       <div className={clasePie}>
-        <span className="min-w-0 truncate opacity-[0.92]">¿Cuánto tienes?</span>
+        <span className="min-w-0 truncate opacity-[0.92]">{mes ? "Ver el mes completo" : "¿Cuánto tienes?"}</span>
         <span className="flex items-center opacity-[0.92]">
-          Dímelo <ChevronRight aria-hidden className="size-4" strokeWidth={2.6} />
+          {mes ? "Análisis" : "Dímelo"} <ChevronRight aria-hidden className="size-4" strokeWidth={2.6} />
         </span>
       </div>
     </Hoja>
@@ -411,12 +420,16 @@ function Comparacion({ t, esMesActual }: { t: Tablero; esMesActual: boolean }) {
   const igual = Math.abs(cambio) < 0.005;
   const mas = cambio > 0;
   const Icono = igual ? Minus : mas ? ArrowUpRight : ArrowDownRight;
+  const corta = referencia.replace(/ de (\p{L}{3})\p{L}*/u, " $1");
   return (
     <p className="flex items-center gap-1 text-[14px] font-medium opacity-[0.92]">
       <Icono className="size-[15px] shrink-0" strokeWidth={2.6} aria-hidden />
-      <span className="min-w-0 truncate">
-        {igual ? `Igual que ${referencia}` : `${pct(Math.abs(cambio))} ${mas ? "más" : "menos"} que ${referencia}`}
-      </span>
+      {/* En 320 px el mes va corto («al 6 sep») para que la frase se lea completa. */}
+      {(corta === referencia ? [referencia] : [referencia, corta]).map((r, i, todas) => (
+        <span key={r} className={cn("min-w-0 truncate", todas.length > 1 && (i ? "min-[360px]:hidden" : "max-[359px]:hidden"))}>
+          {igual ? `Igual que ${r}` : `${pct(Math.abs(cambio))} ${mas ? "más" : "menos"} que ${r}`}
+        </span>
+      ))}
     </p>
   );
 }

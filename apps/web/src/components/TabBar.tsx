@@ -71,7 +71,7 @@ export function TabBar({
                     className={cn("size-[23px]", activa && "animate-rebote")}
                     strokeWidth={activa ? 2.3 : 1.8}
                   />
-                  <span className={cn("max-w-full truncate px-0.5 text-[10px] leading-none tracking-[0.01em]", activa ? "font-semibold" : "font-medium")}>
+                  <span className={cn("max-w-full truncate px-0.5 text-[10px] leading-none tracking-[0.01em] max-[359px]:px-0 max-[359px]:tracking-[-0.03em]", activa ? "font-semibold" : "font-medium")}>
                     {etiqueta}
                   </span>
                 </a>

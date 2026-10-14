@@ -132,7 +132,8 @@ export function Plan({ params }: { params: URLSearchParams }) {
               >
                 {cargando ? <Skeleton className="m-4 h-10" /> : null}
                 {lista.map((p) => {
-                  const color = COLOR_ESTADO[p.estado];
+                  // Si al ritmo de hoy no alcanza, el anillo ya avisa en naranja, igual que el texto.
+                  const color = p.estado === "bien" && p.proyeccionCentavos > p.limiteCentavos ? COLOR_ESTADO.cerca : COLOR_ESTADO[p.estado];
                   const nombre = nombrePresupuesto(p);
                   return (
                     <FilaBoton
@@ -264,7 +265,7 @@ function TarjetaDisponible({ d, moneda }: { d: Disponible; moneda: string }) {
         </p>
         <p className="text-[13px] leading-snug text-muted-foreground">
           {sobra
-            ? `${dinero(d.porDiaCentavos, moneda)} al día los próximos ${d.diasRestantes} ${d.diasRestantes === 1 ? "día" : "días"}`
+            ? `${d.porDiaCentavos === d.disponibleHoyCentavos ? "Lo mismo" : dinero(d.porDiaCentavos, moneda)} al día los próximos ${d.diasRestantes} ${d.diasRestantes === 1 ? "día" : "días"}`
             : "Ya usaste lo de este mes"}
           {d.comprometidoCentavos > 0 ? `, sin contar ${dinero(d.comprometidoCentavos, moneda)} de pagos fijos.` : "."}
         </p>
@@ -498,16 +499,15 @@ function Msi({ datos, moneda }: { datos: ComprasMsi | undefined; moneda: string 
             icono={<LogoPago nombre={c.descripcion} categoria="Compras" />}
             titulo={c.descripcion}
             subtitulo={
-              c.proximoCargo
-                ? `Pago ${Math.min(c.pagadas + 1, c.meses)} de ${c.meses} el ${fCorto(c.proximoCargo)}`
-                : `${c.pagadas} de ${c.meses} pagos`
+              <>
+                {c.proximoCargo
+                  ? `Pago ${Math.min(c.pagadas + 1, c.meses)} de ${c.meses} el ${fCorto(c.proximoCargo)}`
+                  : `${c.pagadas} de ${c.meses} pagos`}
+                {/* «faltan» va abajo y no junto al monto: a la derecha le quitaba todo el ancho al nombre. */}
+                <span className="whitespace-nowrap tabular"> · faltan {dinero(c.restanteCentavos, moneda)}</span>
+              </>
             }
-            valor={
-              <span className="text-right">
-                <span className="block font-medium text-foreground tabular">{dinero(c.proximoMontoCentavos ?? c.mensualidadCentavos, moneda)}</span>
-                <span className="block text-[13px] tabular">faltan {dinero(c.restanteCentavos, moneda)}</span>
-              </span>
-            }
+            valor={<span className="font-medium text-foreground tabular">{dinero(c.proximoMontoCentavos ?? c.mensualidadCentavos, moneda)}</span>}
           />
         ))}
       </Grupo>

@@ -55,10 +55,10 @@ import { hashDe, hashDetalle, navegar, volver } from "../lib/ruta";
 import { cn } from "../lib/utils";
 
 const OPCIONES_PERIODO: { valor: Periodo; etiqueta: string }[] = [
-  { valor: "semana", etiqueta: "S" },
-  { valor: "mes", etiqueta: "M" },
-  { valor: "6m", etiqueta: "6M" },
-  { valor: "anio", etiqueta: "A" },
+  { valor: "semana", etiqueta: "Semana" },
+  { valor: "mes", etiqueta: "Mes" },
+  { valor: "6m", etiqueta: "6 meses" },
+  { valor: "anio", etiqueta: "Año" },
 ];
 const NOMBRE_PERIODO: Record<Periodo, string> = { semana: "Semana", mes: "Mes", "6m": "6 meses", anio: "Año" };
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
@@ -529,7 +529,12 @@ function Categorias({
               <div className="flex items-baseline gap-2">
                 <span aria-hidden className="size-2.5 shrink-0 translate-y-[-1px] rounded-full" style={{ backgroundColor: color }} />
                 <span className="min-w-0 flex-1 truncate text-[17px]">{c.nombre}</span>
-                {a.comparable ? <Delta actual={c.centavos} anterior={c.anterior} /> : null}
+                {/* En 320 px el cambio baja al renglón de abajo para que el nombre se lea completo. */}
+                {a.comparable ? (
+                  <span className="shrink-0 max-[359px]:hidden">
+                    <Delta actual={c.centavos} anterior={c.anterior} />
+                  </span>
+                ) : null}
                 <span className="shrink-0 text-[17px] tabular">{dinero(c.centavos, a.moneda)}</span>
               </div>
               <div className="relative mt-2 ml-[18px] h-[6px] rounded-full bg-fill">
@@ -545,7 +550,12 @@ function Categorias({
                   />
                 ) : null}
               </div>
-              <div className="mt-1 ml-[18px] text-[13px] text-muted-foreground tabular">
+              <div className="mt-1 ml-[18px] flex flex-wrap items-baseline gap-x-1.5 text-[13px] text-muted-foreground tabular">
+                {a.comparable ? (
+                  <span className="min-[360px]:hidden">
+                    <Delta actual={c.centavos} anterior={c.anterior} />
+                  </span>
+                ) : null}
                 {pct(c.centavos / total)} · {c.cantidad} {c.cantidad === 1 ? "gasto" : "gastos"}
                 {a.comparable && c.anterior > 0 ? ` · antes ${dinero(c.anterior, a.moneda)}` : ""}
               </div>
@@ -874,9 +884,6 @@ function PorEtiqueta({ a, categoria }: { a: DatosAnalisis; categoria: string | n
             <div className="flex items-baseline gap-2">
               <Tag aria-hidden className="size-4 shrink-0 translate-y-[2px] text-tint" />
               <span className="min-w-0 flex-1 truncate text-[17px]">{e.nombre}</span>
-              <span className="text-[13px] text-muted-foreground tabular">
-                {e.cantidad} {e.cantidad === 1 ? "gasto" : "gastos"}
-              </span>
               <span className="flex shrink-0 flex-col items-end">
                 <span className="text-[17px] tabular">{dinero(e.centavos, a.moneda)}</span>
                 {a.comparable ? <Delta actual={e.centavos} anterior={e.anterior} /> : null}
@@ -884,6 +891,10 @@ function PorEtiqueta({ a, categoria }: { a: DatosAnalisis; categoria: string | n
             </div>
             <div className="mt-2 ml-6 h-[6px] rounded-full bg-fill">
               <span className="block h-full origin-left animate-crecer-x rounded-full bg-tint" style={{ width: `${(e.centavos / tope) * 100}%` }} />
+            </div>
+            {/* Abajo y no junto al nombre: en 320 px le quitaba casi todo el ancho. */}
+            <div className="mt-1 ml-6 text-[13px] text-muted-foreground tabular">
+              {e.cantidad} {e.cantidad === 1 ? "gasto" : "gastos"}
             </div>
           </button>
         ))}

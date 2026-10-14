@@ -28,16 +28,16 @@ for (const esquema of ["light", "dark"] as const) {
       await capturar(page, `mes-${sufijo}`);
       await capturar(page, `mes-completa-${sufijo}`, true);
 
-      await page.getByRole("radio", { name: "6M" }).click();
+      await page.getByRole("radio", { name: "6 meses" }).click();
       await expect(page.getByTestId("titulo-periodo")).toHaveText("may – oct 2026");
       await capturar(page, `6m-${sufijo}`);
       await capturar(page, `6m-completa-${sufijo}`, true);
 
-      await page.getByRole("radio", { name: "A" }).click();
+      await page.getByRole("radio", { name: "Año" }).click();
       await expect(page.getByTestId("titulo-periodo")).toHaveText("nov 2025 – oct 2026");
       await capturar(page, `anio-completa-${sufijo}`, true);
 
-      await page.getByRole("radio", { name: "S" }).click();
+      await page.getByRole("radio", { name: "Semana" }).click();
       await capturar(page, `semana-completa-${sufijo}`, true);
 
       await page.goto("/#analisis?categoria=cat-comida");

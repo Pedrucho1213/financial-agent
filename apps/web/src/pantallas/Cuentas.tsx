@@ -6,13 +6,12 @@ import { Anillos } from "../components/Anillos";
 import { HojaCuenta } from "../components/cuentas/HojaCuenta";
 import { HojaMover, type InicioMover } from "../components/cuentas/HojaMover";
 import { IconoCuenta } from "../components/cuentas/IconoCuenta";
-import { LogoMarca } from "../components/Logo";
+import { LogoMarca, LogoMovimiento } from "../components/Logo";
 import { Pantalla } from "../components/Pantalla";
 import { Button } from "../components/ui/button";
 import { FilaBoton, Grupo, TituloSeccion } from "../components/ui/lista";
 import { Skeleton } from "../components/ui/skeleton";
 import { ErrorApi, mensajeDeError } from "../lib/api";
-import { IconoCategoria } from "../lib/categorias";
 import { useEnLinea } from "../lib/conexion";
 import { abrirDetalle, useYo } from "../lib/consultas";
 import { useCuenta, useCuentas, useGuardarCuenta } from "../lib/cuentas";
@@ -118,7 +117,7 @@ export function Cuentas({ params }: { params: URLSearchParams }) {
             <section>
               <TituloSeccion>Tarjetas de crédito</TituloSeccion>
               <div className="@container">
-                <div className="grid grid-cols-2 gap-2.5 @max-[330px]:grid-cols-1">
+                <div className="grid grid-cols-2 gap-2.5 @max-[250px]:grid-cols-1">
                   {tarjetas.map((c) => (
                     <TarjetaCompacta key={c.id} c={c} moneda={moneda} hoy={hoy} />
                   ))}
@@ -362,7 +361,7 @@ function FilaCuenta({ c, moneda, hoy }: { c: CuentaConMes; moneda: string; hoy: 
 
 /**
  * Una tarjeta de crédito como plástico chico, del color del banco: cuánto debes, el uso y cuándo pagar. Dos por
- * renglón (una en pantallas muy angostas).
+ * renglón, también en 320 px.
  */
 function TarjetaCompacta({ c, moneda, hoy }: { c: CuentaConMes; moneda: string; hoy: string }) {
   // Con saldo a favor el uso sale negativo: se muestra como 0%.
@@ -383,7 +382,7 @@ function TarjetaCompacta({ c, moneda, hoy }: { c: CuentaConMes; moneda: string; 
         navegar(hashDe("cuenta", { id: c.id }));
       }}
       aria-label={`${c.nombre}, ${lineaCuenta(c, moneda)}`}
-      className="presionable relative flex min-h-[132px] min-w-0 flex-col overflow-hidden rounded-[18px] p-3 text-left text-white shadow-[0_1px_2px_rgb(0_0_0/0.12)]"
+      className="presionable relative flex min-h-[116px] min-w-0 flex-col overflow-hidden rounded-[18px] p-3 text-left text-white shadow-[0_1px_2px_rgb(0_0_0/0.12)]"
       style={{ background: `linear-gradient(150deg, color-mix(in srgb, ${fondo} 78%, white), ${fondo} 62%)` }}
     >
       <span className="flex items-center gap-1.5">
@@ -399,10 +398,14 @@ function TarjetaCompacta({ c, moneda, hoy }: { c: CuentaConMes; moneda: string; 
       </Ajustado>
       {uso !== null ? (
         <span aria-hidden className="mt-1.5 block h-1 overflow-hidden rounded-full bg-white/25">
-          <i className="block h-full rounded-full bg-white" style={{ width: `${Math.min(100, Math.max(uso > 0 ? 3 : 0, uso * 100))}%` }} />
+          <i
+            className="block h-full rounded-full"
+            // Como en la lista de antes: amarillo cuando ya va alto y rojo claro casi en el límite (sobre el color del banco).
+            style={{ width: `${Math.min(100, Math.max(uso > 0 ? 3 : 0, uso * 100))}%`, background: uso >= 0.9 ? "#ff8a80" : uso >= 0.7 ? "#ffd60a" : "#ffffff" }}
+          />
         </span>
       ) : null}
-      <span className="mt-1.5 block truncate text-[12px] leading-4 font-medium opacity-90">{lineaCuenta(c, moneda)}</span>
+      <span className="mt-1.5 line-clamp-2 block text-[12px] leading-4 font-medium break-words opacity-90">{lineaCuenta(c, moneda)}</span>
       {pago ? (
         <span className={cn("mt-0.5 block truncate text-[12px] leading-4 font-semibold", urgente ? "text-[#ffd60a]" : "opacity-90")}>
           Pagar {enCuantosDias(pago, hoy)}
@@ -685,7 +688,7 @@ function Recientes({ movimientos, cuentaId, moneda }: { movimientos: MovimientoA
           <FilaBoton
             key={m.id}
             sangria="4rem"
-            icono={<IconoCategoria nombre={m.categoria} tipo={m.tipo} />}
+            icono={<LogoMovimiento comercio={m.comercio} descripcion={m.descripcion} categoria={m.categoria} tipo={m.tipo} tamano={36} />}
             titulo={tituloDe(m)}
             subtitulo={`${diaCorto(m.fecha)} · ${direccion}`}
             valor={

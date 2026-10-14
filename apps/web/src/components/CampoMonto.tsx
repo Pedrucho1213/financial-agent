@@ -16,8 +16,9 @@ export function CampoMonto({ id, valor, onCambio, moneda, enfocar }: { id: strin
       </label>
       <div className="flex max-w-full items-start justify-center text-[52px] font-bold tracking-[-0.03em] tabular">
         <span className={cn("mt-[0.14em] mr-0.5 text-[0.52em] leading-none", !valor && "text-placeholder")}>$</span>
-        <span className="inline-grid">
-          <span aria-hidden className="invisible col-start-1 row-start-1 leading-[1.1] whitespace-pre">
+        {/* El texto invisible da el ancho y el campo va encima: así el «$» queda pegado al número. */}
+        <span className="relative inline-block">
+          <span aria-hidden className="invisible block leading-[1.1] whitespace-pre">
             {valor || "0"}
           </span>
           <input
@@ -30,7 +31,7 @@ export function CampoMonto({ id, valor, onCambio, moneda, enfocar }: { id: strin
             size={1}
             value={valor}
             onChange={(e) => onCambio(e.target.value.replace(/[^\d.,]/g, "").slice(0, 12))}
-            className="col-start-1 row-start-1 w-full min-w-0 bg-transparent p-0 text-center text-[1em] leading-[1.1] font-bold tracking-[inherit] outline-none placeholder:text-placeholder"
+            className="absolute inset-0 w-full min-w-0 bg-transparent p-0 text-center text-[1em] leading-[1.1] font-bold tracking-[inherit] outline-none placeholder:text-placeholder"
           />
         </span>
       </div>

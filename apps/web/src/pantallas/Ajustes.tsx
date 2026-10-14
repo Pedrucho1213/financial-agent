@@ -266,6 +266,7 @@ export function AjustesPerfil() {
               </IconoAjuste>
             }
             titulo="Cómo te saludo"
+            valor={d ? <span className="block max-w-[38vw] truncate">{d.usuario.nombre}</span> : undefined}
             chevron
             disabled={!d || !enLinea}
             onClick={() => setHoja("nombre")}

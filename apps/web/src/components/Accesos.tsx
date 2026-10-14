@@ -25,7 +25,7 @@ export function Accesos() {
               haptico();
               navegar(hashDe(id));
             }}
-            className="presionable flex min-w-0 flex-col items-center gap-1.5 py-0.5 @max-[340px]:flex-row @max-[340px]:gap-2 @max-[340px]:rounded-2xl @max-[340px]:bg-card @max-[340px]:px-2.5 @max-[340px]:py-2.5"
+            className="presionable flex min-w-0 flex-col items-center gap-1.5 py-0.5 @max-[340px]:flex-row @max-[340px]:gap-1.5 @max-[340px]:rounded-2xl @max-[340px]:bg-card @max-[340px]:px-2 @max-[340px]:py-2.5"
           >
             <span
               aria-hidden
@@ -34,7 +34,7 @@ export function Accesos() {
             >
               <Icono className="size-[26px] @max-[340px]:size-[17px]" strokeWidth={2} />
             </span>
-            <span className="max-w-full truncate text-[12px] font-medium @max-[380px]:text-[11px] @max-[380px]:tracking-[-0.01em] @max-[340px]:text-[13px] @max-[340px]:tracking-[-0.02em]">
+            <span className="max-w-full truncate text-[12px] font-medium @max-[380px]:text-[11px] @max-[380px]:tracking-[-0.01em] @max-[340px]:text-[12.5px] @max-[340px]:tracking-[-0.02em]">
               {titulo}
             </span>
           </button>

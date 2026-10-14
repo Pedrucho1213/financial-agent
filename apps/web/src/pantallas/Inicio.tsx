@@ -16,7 +16,7 @@ import { mensajeDeError } from "../lib/api";
 import { useEnLinea } from "../lib/conexion";
 import { abrirDetalle, useMovimientos, useTablero, useYo } from "../lib/consultas";
 import { abrirEditor } from "../lib/editor";
-import { diaCorto, diasHasta, dinero, dineroCorto, fechaLarga, hoyIso, mesActual, nombreMes, pct, sumarMeses } from "../lib/formato";
+import { diaCorto, diasHasta, dinero, dineroCorto, FRECUENCIAS, fechaLarga, hoyIso, mesActual, nombreMes, pct, sumarMeses } from "../lib/formato";
 import { haptico } from "../lib/haptico";
 import { hashDe, navegar } from "../lib/ruta";
 import type { Tablero } from "../lib/tipos";
@@ -260,8 +260,9 @@ function ProximosCobros({ t }: { t: Tablero }) {
                 <LogoPago nombre={r.nombre} tipo={r.tipo} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[17px]">{r.nombre}</span>
-                  <span className="block truncate text-[15px] text-muted-foreground">
+                  <span className="block text-[15px] leading-snug text-muted-foreground text-pretty">
                     {diaCorto(r.proximoCobro)} · {dias <= 0 ? "hoy" : dias === 1 ? "mañana" : `en ${dias} días`}
+                    {r.frecuencia ? ` · ${FRECUENCIAS[r.frecuencia] ?? r.frecuencia}` : ""}
                   </span>
                 </span>
                 <span className="shrink-0 text-[17px] tabular">{dinero(r.montoCentavos, r.moneda)}</span>
