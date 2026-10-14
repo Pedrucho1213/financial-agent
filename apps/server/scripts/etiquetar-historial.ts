@@ -1,8 +1,9 @@
 // Pone las etiquetas automáticas a lo que ya estaba anotado, en todas las cuentas: viaje por la ubicación y, con lo
 // que dijo cada quien al anotarlo, innecesario y las de contexto (Trabajo, Boda de Ana). Solo agrega etiquetas.
 //
-//   bun scripts/etiquetar-historial.ts              → prueba: dice qué pondría y guarda el plan; no escribe nada.
-//   bun scripts/etiquetar-historial.ts --aplicar    → respalda la base y aplica el plan que guardó la prueba.
+//   bun scripts/etiquetar-historial.ts [--plan ruta.json]  → prueba: abre la base en solo lectura, dice qué pondría
+//                                                            y guarda el plan (junto a la base, o en --plan).
+//   bun scripts/etiquetar-historial.ts --aplicar [--plan ruta.json]  → respalda la base y aplica ese plan.
 //   bun scripts/etiquetar-historial.ts --deshacer <marca>  → quita todo lo que agregó esa vez.
 //
 // La IA ve los gastos de cada cuenta en una sola consulta (o de 80 en 80); la prueba dice cuánto costó.
@@ -10,13 +11,16 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
-import { eq } from "drizzle-orm";
+import { Database } from "bun:sqlite";
 import { generateText } from "ai";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import { crearModelo } from "../src/ai/modelo";
 import { costoMicroUsd } from "../src/ai/uso";
 import { esDueno } from "../src/auth";
 import { config } from "../src/config";
-import { abrirBaseDatos } from "../src/db/client";
+import { abrirBaseDatos, type Db } from "../src/db/client";
+import * as schema from "../src/db/schema";
 import { movimientos, usuarios } from "../src/db/schema";
 import { crearContexto } from "../src/finanzas/contexto";
 import {
@@ -37,11 +41,15 @@ const { values } = parseArgs({
     aplicar: { type: "boolean", default: false },
     deshacer: { type: "string" },
     "sin-ia": { type: "boolean", default: false },
+    plan: { type: "string" },
   },
 });
 
-const db = abrirBaseDatos(config.baseDatos);
-const rutaPlan = join(dirname(config.baseDatos), "etiquetado-historial-plan.json");
+// La prueba abre la base en solo lectura (sin migraciones ni respaldos): si algo intentara escribir, SQLite lo
+// rechaza. Solo --aplicar y --deshacer la abren para escribir.
+const escribe = values.aplicar || !!values.deshacer;
+const db: Db = escribe ? abrirBaseDatos(config.baseDatos) : (drizzle(new Database(config.baseDatos, { readonly: true }), { schema }) as unknown as Db);
+const rutaPlan = values.plan ?? join(dirname(config.baseDatos), "etiquetado-historial-plan.json");
 const POR_CONSULTA = 80;
 
 if (values.deshacer) {
