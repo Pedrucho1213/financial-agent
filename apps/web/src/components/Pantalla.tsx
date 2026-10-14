@@ -63,7 +63,7 @@ export function Pantalla({
         <header className="mx-auto max-w-3xl px-safe pb-2">
           {encima ? <div className="text-[15px] font-medium text-muted-foreground">{encima}</div> : null}
           <div className="flex min-h-[41px] items-end justify-between gap-3">
-            <h1 className="min-w-0 truncate text-[34px] leading-[41px] max-[359px]:text-[30px] max-[359px]:leading-9 font-bold tracking-[-0.02em]">{titulo}</h1>
+            <h1 className="min-w-0 text-balance break-words text-[34px] leading-[41px] max-[359px]:text-[30px] max-[359px]:leading-9 font-bold tracking-[-0.02em]">{titulo}</h1>
             {junto}
           </div>
         </header>
@@ -74,7 +74,9 @@ export function Pantalla({
   );
 
   return (
-    <div className={cn("min-h-dvh", className)}>
+    // La app ya deja el alto de la pantalla y el espacio de la barra de abajo: aquí solo lo que queda,
+    // para que una pantalla corta no se pueda desplazar de más.
+    <div className={cn("min-h-[calc(100dvh-var(--barra-inferior)-28px)]", className)}>
       <div
         ref={barra}
         className={cn(

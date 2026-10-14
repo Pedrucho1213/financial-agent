@@ -14,10 +14,12 @@ export function useAjustar(ref: RefObject<HTMLElement | null>, activo = true) {
     const ajustar = () => {
       // Medir con su tamaño normal; si se sale, la proporción que falta.
       el.style.fontSize = base;
-      if (!el.clientWidth || el.scrollWidth <= el.clientWidth + 0.5) return;
+      // Igual también se ajusta: scrollWidth redondea y un texto que se pasa por medio pixel mide lo mismo.
+      if (!el.clientWidth || el.scrollWidth < el.clientWidth) return;
       const estilo = getComputedStyle(el);
       const relleno = Number.parseFloat(estilo.paddingLeft) + Number.parseFloat(estilo.paddingRight);
-      const ancho = el.clientWidth - relleno;
+      // Un pixel de holgura: con «truncate», medio pixel de más ya pinta «…».
+      const ancho = el.clientWidth - relleno - 1;
       const texto = el.scrollWidth - relleno;
       el.style.fontSize = `${Math.floor(((Number.parseFloat(estilo.fontSize) * ancho) / texto) * 10) / 10}px`;
     };

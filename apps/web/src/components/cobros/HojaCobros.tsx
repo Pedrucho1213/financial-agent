@@ -1,4 +1,4 @@
-import { Check, CircleCheck, CircleSlash, Clock, Receipt, Undo2 } from "lucide-react";
+import { Check, ChevronRight, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ErrorApi, mensajeDeError } from "../../lib/api";
@@ -17,11 +17,13 @@ import { useEnLinea } from "../../lib/conexion";
 import { useCuentas } from "../../lib/cuentas";
 import { diaCorto, dinero, hoyIso, leerMonto } from "../../lib/formato";
 import { haptico } from "../../lib/haptico";
+import { marcaDe } from "../../lib/marcas";
 import { useGuardarRecurrente } from "../../lib/recurrentes";
 import { hashDetalle, navegar } from "../../lib/ruta";
 import { useUnaVez } from "../../lib/una-vez";
+import { cn } from "../../lib/utils";
 import { CampoMonto } from "../CampoMonto";
-import { HojaCalendario } from "../HojaCalendario";
+import { LogoMarca, LogoMovimiento, LogoPago } from "../Logo";
 import { Spinner } from "../Spinner";
 import { Button } from "../ui/button";
 import { Fila, FilaBoton, Grupo } from "../ui/lista";
@@ -31,7 +33,20 @@ import { Switch } from "../ui/switch";
 
 type Vista = { tipo: "cargando" } | { tipo: "lista"; ids: string[] } | { tipo: "uno"; id: string; desdeLista: string[] | null };
 
+/** "1 de 3" y cómo pasar al que sigue sin contestar este. */
+type Progreso = { n: number; total: number; alSiguiente: (() => void) | null };
+
 const pendiente = (c: Cobro) => c.estado === "pendiente" || c.estado === "sin_confirmar";
+
+/** El que sigue de `lista` después de `actual` (dando la vuelta) que esté entre los `candidatos`. */
+function proximo(lista: string[], actual: string, candidatos: string[]) {
+  const i = lista.indexOf(actual);
+  for (let k = 1; k <= lista.length; k++) {
+    const id = lista[(i + k) % lista.length]!;
+    if (id !== actual && candidatos.includes(id)) return id;
+  }
+  return null;
+}
 
 /**
  * Al abrir, el foco va a la hoja y no al primer botón: abierta desde una notificación (sin un toque antes) Safari
@@ -44,19 +59,23 @@ const enfocarHoja = (e: Event) => {
 
 /**
  * La hoja que pregunta "¿ya se pagó?". Con un cobro, sus opciones; con varios, la lista (cada uno con "Se pagó" y
- * "Todo se pagó"). La abre la notificación, la tarjeta de Inicio o el centro de notificaciones.
+ * "Todo se pagó"); tocar uno lo abre como "1 de N" y "Siguiente" pasa al que sigue. La abre la notificación, la
+ * campana de Inicio o el centro de notificaciones.
  */
 export function HojaCobros() {
   const { abierta, ids, clave } = useHojaCobros();
   const q = useCobros(abierta);
   const datos = cobrosParaMostrar(q);
   const [vista, setVista] = useState<Vista>({ tipo: "cargando" });
+  // Los que ya se contestaron en esta vuelta ("todavía no" incluido: siguen por confirmar, pero ya no se repiten).
+  const [contestados, setContestados] = useState<string[]>([]);
   const listo = !!datos;
   const fallo = q.isError && !datos;
 
   // Al abrir, con los datos ya cargados, se decide qué mostrar (una vez: confirmar uno no cambia de lista a uno).
   useEffect(() => {
     if (!abierta) return;
+    setContestados([]);
     if (fallo) {
       cerrarCobros();
       // 404: el módulo no está abierto para esta cuenta (un enlace viejo): como si no hubiera nada.
@@ -92,13 +111,31 @@ export function HojaCobros() {
     if (abierta && vista.tipo === "lista" && datos && !filas.length) cerrarCobros();
   }, [abierta, vista.tipo, filas.length, !!datos]);
 
-  /** Después de contestar uno: de vuelta a la lista si quedan; si no, se cierra. */
+  /** Los de la lista que siguen esperando respuesta, sin contar los `hechos`. */
+  const quedan = (lista: string[], hechos: string[]) =>
+    lista.filter((id) => !hechos.includes(id) && (datos?.porConfirmar.some((c) => c.id === id) ?? false));
+
+  /** Después de contestar uno: el que sigue de la lista; si ya no queda ninguno, se cierra. */
   const siguiente = (resuelto: string) => {
     if (vista.tipo !== "uno") return;
-    const quedan = (vista.desdeLista ?? []).filter((id) => id !== resuelto && datos?.porConfirmar.some((c) => c.id === id));
-    if (quedan.length) setVista({ tipo: "lista", ids: quedan });
+    const lista = vista.desdeLista ?? [];
+    const hechos = [...contestados, resuelto];
+    setContestados(hechos);
+    const otro = proximo(lista, resuelto, quedan(lista, hechos));
+    if (otro) setVista({ tipo: "uno", id: otro, desdeLista: lista });
     else cerrarCobros();
   };
+
+  let progreso: Progreso | null = null;
+  if (vista.tipo === "uno" && vista.desdeLista && vista.desdeLista.length > 1) {
+    const lista = vista.desdeLista;
+    const otro = proximo(lista, vista.id, quedan(lista, contestados));
+    progreso = {
+      n: lista.indexOf(vista.id) + 1,
+      total: lista.length,
+      alSiguiente: otro ? () => setVista({ tipo: "uno", id: otro, desdeLista: lista }) : null,
+    };
+  }
 
   const titulo = cobro?.nombre ?? (vista.tipo === "lista" ? "Por confirmar" : "");
   return (
@@ -109,11 +146,16 @@ export function HojaCobros() {
             key={cobro.id}
             c={cobro}
             hoy={hoyIso()}
-            atras={vista.desdeLista && vista.desdeLista.length > 1 ? () => setVista({ tipo: "lista", ids: vista.desdeLista! }) : null}
+            atras={
+              vista.desdeLista && vista.desdeLista.length > 1
+                ? () => setVista({ tipo: "lista", ids: quedan(vista.desdeLista!, []) })
+                : null
+            }
+            progreso={progreso}
             alTerminar={() => siguiente(cobro.id)}
           />
         ) : vista.tipo === "lista" ? (
-          <Lista filas={filas} alAbrir={(id) => setVista({ tipo: "uno", id, desdeLista: vista.ids })} />
+          <Lista filas={filas} alAbrir={(id) => setVista({ tipo: "uno", id, desdeLista: filas.map((c) => c.id) })} />
         ) : (
           <SheetContent titulo={titulo || "Pagos"} descripcion="Cargando los pagos por confirmar">
             <div className="flex justify-center py-16">
@@ -132,6 +174,15 @@ function avisarPagado(textos: string, ids: string[], deshacer: (id: string) => v
   toast.success(textos, {
     action: { label: "Deshacer", onClick: () => ids.forEach(deshacer) },
   });
+}
+
+/** Botón de la barra de la hoja: "Cerrar", "Listo", "Atrás", "Siguiente"… */
+function BotonBarra({ alTocar, texto, fuerte = false, disabled }: { alTocar: () => void; texto: string; fuerte?: boolean; disabled?: boolean }) {
+  return (
+    <Button variant="plain" size="text" className={cn(fuerte && "font-semibold")} disabled={disabled} onClick={alTocar}>
+      {texto}
+    </Button>
+  );
 }
 
 function Lista({ filas, alAbrir }: { filas: Cobro[]; alAbrir: (id: string) => void }) {
@@ -168,11 +219,7 @@ function Lista({ filas, alAbrir }: { filas: Cobro[]; alAbrir: (id: string) => vo
       onOpenAutoFocus={enfocarHoja}
       titulo="Por confirmar"
       descripcion="Pagos fijos y suscripciones que ya tocaban"
-      derecha={
-        <Button variant="plain" size="text" className="font-semibold" onClick={cerrarCobros}>
-          Listo
-        </Button>
-      }
+      derecha={<BotonBarra texto="Listo" fuerte alTocar={cerrarCobros} />}
     >
       <div className="space-y-5 pb-2">
         <p className="px-4 pt-1 text-center text-[15px] leading-snug text-balance text-muted-foreground">
@@ -180,16 +227,32 @@ function Lista({ filas, alAbrir }: { filas: Cobro[]; alAbrir: (id: string) => vo
         </p>
         <Grupo>
           {filas.map((c) => (
-            <div key={c.id} data-cobro={c.id} className="relative flex items-center gap-3 pr-3 pl-4 [&:not(:first-child)]:before:absolute [&:not(:first-child)]:before:top-0 [&:not(:first-child)]:before:right-0 [&:not(:first-child)]:before:left-[4rem] [&:not(:first-child)]:before:h-[0.5px] [&:not(:first-child)]:before:bg-separator [&:not(:first-child)]:before:content-['']">
-              <HojaCalendario fecha={c.fecha} />
-              <button type="button" className="min-w-0 flex-1 py-2.5 text-left active:opacity-60" onClick={() => alAbrir(c.id)}>
-                <span className="block truncate text-[17px]">{c.nombre}</span>
-                <span className="block truncate text-[15px] text-muted-foreground">
+            <div
+              key={c.id}
+              data-cobro={c.id}
+              className="relative flex min-h-11 items-center gap-3 py-2.5 pr-3 pl-4 max-[360px]:gap-2.5 [&:not(:first-child)]:before:absolute [&:not(:first-child)]:before:top-0 [&:not(:first-child)]:before:right-0 [&:not(:first-child)]:before:left-[4.25rem] [&:not(:first-child)]:before:h-[0.5px] [&:not(:first-child)]:before:bg-separator [&:not(:first-child)]:before:content-['']"
+            >
+              <LogoPago nombre={c.nombre} tipo={c.tipo} />
+              {/* Toda la fila abre el cobro (menos "Se pagó", que va encima). */}
+              <button
+                type="button"
+                className="min-w-0 flex-1 text-left after:absolute after:inset-0 after:content-[''] active:opacity-60"
+                onClick={() => alAbrir(c.id)}
+              >
+                <span className="block truncate text-[17px] leading-[22px]">{c.nombre}</span>
+                <span className="line-clamp-2 text-[15px] leading-5 text-muted-foreground max-[360px]:text-[14px]">
                   <span className="tabular">{dinero(c.montoCentavos, c.moneda)}</span> · {cuandoFue(c.fecha, hoy, { corto: true })}
                   {c.cuenta ? ` · ${c.cuenta}` : ""}
                 </span>
               </button>
-              <Button variant="tinted" size="sm" aria-label={`${c.nombre} se pagó`} disabled={!enLinea} onClick={() => void pagado(c)}>
+              <Button
+                variant="tinted"
+                size="sm"
+                className="relative z-[1] max-[360px]:h-[30px] max-[360px]:px-3 max-[360px]:text-[14px]"
+                aria-label={`${c.nombre} se pagó`}
+                disabled={!enLinea}
+                onClick={() => void pagado(c)}
+              >
                 Se pagó
               </Button>
             </div>
@@ -204,23 +267,64 @@ function Lista({ filas, alAbrir }: { filas: Cobro[]; alAbrir: (id: string) => vo
   );
 }
 
-function UnCobro({ c, hoy, atras, alTerminar }: { c: Cobro; hoy: string; atras: (() => void) | null; alTerminar: () => void }) {
+function UnCobro({
+  c,
+  hoy,
+  atras,
+  progreso,
+  alTerminar,
+}: {
+  c: Cobro;
+  hoy: string;
+  atras: (() => void) | null;
+  progreso: Progreso | null;
+  alTerminar: () => void;
+}) {
   const [otroMonto, setOtroMonto] = useState(false);
   if (!pendiente(c)) return <Resuelto c={c} hoy={hoy} atras={atras} />;
   if (otroMonto) return <OtroMonto c={c} alVolver={() => setOtroMonto(false)} alTerminar={alTerminar} />;
-  return <Preguntar c={c} hoy={hoy} atras={atras} alOtroMonto={() => setOtroMonto(true)} alTerminar={alTerminar} />;
+  return <Preguntar c={c} hoy={hoy} atras={atras} progreso={progreso} alOtroMonto={() => setOtroMonto(true)} alTerminar={alTerminar} />;
 }
 
-function BotonAtras({ alTocar, texto = "Atrás" }: { alTocar: () => void; texto?: string }) {
+/** El logo del pago en grande, arriba de la hoja; con su palomita o su tache si ya se contestó. */
+function LogoGrande({ c, estado }: { c: Cobro; estado?: "pagado" | "saltado" }) {
   return (
-    <Button variant="plain" size="text" onClick={alTocar}>
-      {texto}
-    </Button>
+    <span className="relative inline-flex">
+      <LogoPago nombre={c.nombre} tipo={c.tipo} tamano={64} />
+      {estado ? (
+        <span
+          aria-hidden
+          className={cn(
+            "absolute -right-1.5 -bottom-1.5 flex size-6 items-center justify-center rounded-full text-white shadow-[0_0_0_2.5px_var(--background)]",
+            estado === "pagado" ? "bg-[var(--positive)]" : "bg-[var(--gray-icon)]",
+          )}
+        >
+          {estado === "pagado" ? <Check className="size-3.5" strokeWidth={3.2} /> : <X className="size-3.5" strokeWidth={3.2} />}
+        </span>
+      ) : null}
+    </span>
   );
 }
 
-/** "¿Ya se pagó?": sí (un toque), fue otro monto, ya lo había anotado, todavía no, o no se pagó. */
-function Preguntar({ c, hoy, atras, alOtroMonto, alTerminar }: { c: Cobro; hoy: string; atras: (() => void) | null; alOtroMonto: () => void; alTerminar: () => void }) {
+/**
+ * "¿Ya se pagó?": sí (un toque), fue otro monto, con qué cuenta, todavía no, o no se pagó; y si ya estaba anotado,
+ * cuál de los gastos es.
+ */
+function Preguntar({
+  c,
+  hoy,
+  atras,
+  progreso,
+  alOtroMonto,
+  alTerminar,
+}: {
+  c: Cobro;
+  hoy: string;
+  atras: (() => void) | null;
+  progreso: Progreso | null;
+  alOtroMonto: () => void;
+  alTerminar: () => void;
+}) {
   const accion = useAccionCobro();
   const pausar = useGuardarRecurrente();
   const enLinea = useEnLinea();
@@ -282,79 +386,71 @@ function Preguntar({ c, hoy, atras, alOtroMonto, alTerminar }: { c: Cobro; hoy: 
   return (
     <SheetContent
       onOpenAutoFocus={enfocarHoja}
-      titulo={c.nombre}
+      // Con varios, la barra dice en cuál vas; con uno, el nombre ya lo dice la pregunta grande.
+      titulo={progreso ? <span className="tabular">{`${progreso.n} de ${progreso.total}`}</span> : <span className="sr-only">{c.nombre}</span>}
       descripcion={`¿Ya se pagó ${c.nombre}?`}
-      izquierda={atras ? <BotonAtras alTocar={atras} /> : undefined}
+      izquierda={atras ? <BotonBarra texto="Atrás" alTocar={atras} /> : undefined}
       derecha={
-        <Button variant="plain" size="text" className="font-semibold" onClick={cerrarCobros}>
-          Cerrar
-        </Button>
+        progreso?.alSiguiente ? (
+          <BotonBarra texto="Siguiente" fuerte disabled={accion.isPending} alTocar={progreso.alSiguiente} />
+        ) : (
+          <BotonBarra texto="Cerrar" fuerte alTocar={cerrarCobros} />
+        )
       }
     >
-      <div className="space-y-6 pb-2">
-        <div className="flex flex-col items-center pt-2 text-center">
-          <HojaCalendario fecha={c.fecha} />
-          <p className="mt-3 text-[22px] leading-7 font-bold">¿Ya se pagó?</p>
-          <p className="mt-1 text-[15px] leading-snug text-muted-foreground" data-testid="cuando">
+      <div className="pb-2">
+        <div className="flex flex-col items-center px-2 pt-1 pb-4 text-center">
+          <LogoGrande c={c} />
+          <h3 className="mt-3 text-[22px] leading-7 font-bold text-balance [overflow-wrap:anywhere]">¿Ya se pagó {c.nombre}?</h3>
+          <p className="mt-1 text-[15px] leading-snug text-balance text-muted-foreground" data-testid="cuando">
             {monto} · {c.fecha >= hoy ? "se cobra" : "tocaba"} {cuandoFue(c.fecha, hoy)}
             {c.pospuesto ? " · me dijiste «todavía no»" : ""}
           </p>
         </div>
 
+        <Button size="lg" disabled={ocupado} onClick={() => void confirmar({}, `${c.nombre}: pagado ${monto}`)}>
+          {accion.isPending && accion.variables?.tipo === "confirmar" ? <Spinner className="size-5" /> : <Check strokeWidth={2.6} />}
+          Se pagó
+        </Button>
+
+        <Grupo className="mt-3.5" pie="Si no se pagó dos veces seguidas, te ofrezco pausarlo.">
+          <FilaBoton titulo="Fue otro monto" chevron disabled={ocupado} onClick={alOtroMonto} />
+          <FilaCuenta id={`cuenta-cobro-${c.id}`} valor={cuentaId} alCambiar={setCuentaId} nombreActual={c.cuenta} />
+          {!sinConfirmar ? (
+            <FilaBoton
+              titulo={c.pospuesto ? "Te vuelvo a preguntar mañana" : "Te pregunto mañana"}
+              disabled={ocupado}
+              onClick={() => void posponer()}
+            />
+          ) : null}
+          <FilaBoton titulo={<span className="text-destructive">No anoto nada esta vez</span>} disabled={ocupado} onClick={() => void saltar()} />
+        </Grupo>
+
         {c.sugerencias.length ? (
-          <Grupo titulo="¿Ya lo anotaste? Puede ser este" pie="Tócalo y queda como el pago, sin anotarlo dos veces.">
+          <Grupo className="mt-[22px]" titulo="¿Ya lo anotaste? Puede ser este" pie="Tócalo y queda como el pago, sin anotarlo dos veces.">
             {c.sugerencias.map((s) => (
               <FilaBoton
                 key={s.movimientoId}
-                sangria="3.75rem"
+                sangria="4.25rem"
                 data-sugerencia={s.movimientoId}
-                icono={
-                  <span aria-hidden className="flex size-[30px] items-center justify-center rounded-full bg-fill text-tint">
-                    <Receipt className="size-[17px]" />
+                icono={<LogoMovimiento comercio={s.titulo} categoria={null} tipo="gasto" />}
+                titulo={s.titulo}
+                subtitulo={
+                  // En pantallas angostas baja a otro renglón en lugar de cortarse.
+                  <span className="block whitespace-normal">
+                    <span className="tabular">{dinero(s.montoCentavos, s.moneda)}</span> · {diaCorto(s.fecha).replace(/\s/g, " ")}
+                    {s.cuenta ? ` · ${s.cuenta}` : ""}
                   </span>
                 }
-                titulo={s.titulo}
-                subtitulo={`${diaCorto(s.fecha)}${s.cuenta ? ` · ${s.cuenta}` : ""}`}
-                valor={<span className="font-medium text-foreground tabular">{dinero(s.montoCentavos, s.moneda)}</span>}
+                valor={
+                  <span className="inline-flex h-8 items-center rounded-full bg-fill px-3.5 text-[15px] font-semibold text-foreground">Es este</span>
+                }
                 disabled={ocupado}
                 onClick={() => void confirmar({ movimiento_id: s.movimientoId }, `${c.nombre}: pagado con lo que ya habías anotado`)}
               />
             ))}
           </Grupo>
         ) : null}
-
-        <FilaCuenta id={`cuenta-cobro-${c.id}`} valor={cuentaId} alCambiar={setCuentaId} nombreActual={c.cuenta} />
-
-        <div className="space-y-3">
-          <Button size="lg" disabled={ocupado} onClick={() => void confirmar({}, `${c.nombre}: pagado ${monto}`)}>
-            {accion.isPending && accion.variables?.tipo === "confirmar" ? <Spinner className="size-5" /> : <Check strokeWidth={2.6} />}
-            Sí, se pagó {monto}
-          </Button>
-          <Button size="lg" variant="gray" disabled={ocupado} onClick={alOtroMonto}>
-            Sí, pero fue otro monto
-          </Button>
-        </div>
-
-        <Grupo>
-          {!sinConfirmar ? (
-            <FilaBoton
-              sangria="3.25rem"
-              icono={<Clock className="size-[20px] text-tint" />}
-              titulo={<span className="text-tint">Todavía no</span>}
-              subtitulo={c.pospuesto ? "Te vuelvo a preguntar mañana" : "Te pregunto mañana"}
-              disabled={ocupado}
-              onClick={() => void posponer()}
-            />
-          ) : null}
-          <FilaBoton
-            sangria="3.25rem"
-            icono={<CircleSlash className="size-[20px] text-tint" />}
-            titulo={<span className="text-tint">Esta vez no se pagó</span>}
-            subtitulo="No anoto nada esta vez"
-            disabled={ocupado}
-            onClick={() => void saltar()}
-          />
-        </Grupo>
       </div>
     </SheetContent>
   );
@@ -403,7 +499,7 @@ function OtroMonto({ c, alVolver, alTerminar }: { c: Cobro; alVolver: () => void
     <SheetContent
       titulo={c.nombre}
       descripcion={`¿Cuánto se pagó de ${c.nombre}?`}
-      izquierda={<BotonAtras alTocar={alVolver} />}
+      izquierda={<BotonBarra texto="Atrás" alTocar={alVolver} />}
       derecha={
         <Button variant="plain" size="text" className="font-semibold" disabled={!listo} onClick={() => void guardar()}>
           {accion.isPending ? <Spinner className="size-5" etiqueta="Guardando" /> : "Guardar"}
@@ -430,7 +526,7 @@ function OtroMonto({ c, alVolver, alTerminar }: { c: Cobro; alVolver: () => void
               : undefined
           }
         >
-          <FilaCuenta id={`cuenta-otro-${c.id}`} valor={cuentaId} alCambiar={setCuentaId} nombreActual={c.cuenta} suelta />
+          <FilaCuenta id={`cuenta-otro-${c.id}`} valor={cuentaId} alCambiar={setCuentaId} nombreActual={c.cuenta} />
           {distinto ? (
             <Fila>
               <label htmlFor={`precio-${c.id}`} className="min-w-0 flex-1 py-2.5">
@@ -472,41 +568,27 @@ function Resuelto({ c, hoy, atras }: { c: Cobro; hoy: string; atras: (() => void
       onOpenAutoFocus={enfocarHoja}
       titulo={c.nombre}
       descripcion={`Cómo quedó el cobro de ${c.nombre}`}
-      izquierda={atras ? <BotonAtras alTocar={atras} /> : undefined}
-      derecha={
-        <Button variant="plain" size="text" className="font-semibold" onClick={cerrarCobros}>
-          Listo
-        </Button>
-      }
+      izquierda={atras ? <BotonBarra texto="Atrás" alTocar={atras} /> : undefined}
+      derecha={<BotonBarra texto="Listo" fuerte alTocar={cerrarCobros} />}
     >
-      <div className="space-y-6 pb-2">
-        <div className="flex flex-col items-center pt-2 text-center" data-estado={c.estado}>
-          <span
-            aria-hidden
-            className="flex size-14 items-center justify-center rounded-full"
-            style={{
-              backgroundColor: `color-mix(in srgb, ${pagado ? "var(--positive)" : "var(--gray-icon)"} 16%, transparent)`,
-              color: pagado ? "var(--positive)" : "var(--gray-icon)",
-            }}
-          >
-            {pagado ? <CircleCheck className="size-8" /> : <CircleSlash className="size-8" />}
-          </span>
-          <p className="mt-3 text-[22px] leading-7 font-bold">
+      <div className="space-y-5 pb-2">
+        <div className="flex flex-col items-center px-2 pt-1 text-center" data-estado={c.estado}>
+          <LogoGrande c={c} estado={pagado ? "pagado" : "saltado"} />
+          <h3 className="mt-3 text-[22px] leading-7 font-bold text-balance [overflow-wrap:anywhere]">
             {pagado ? `Pagado ${dinero(c.montoRealCentavos ?? c.montoCentavos, c.moneda)}` : "No se pagó"}
-          </p>
+          </h3>
           <p className="mt-1 text-[15px] leading-snug text-balance text-muted-foreground">
             Cobro {cuandoFue(c.fecha, hoy).replace(/^el /, "del ").replace(/^(hoy|ayer)$/, "de $1")}
-            {quien ? ` · lo confirmaste ${quien}` : ""}
+            {/* El "·" se queda al final del renglón, no al principio del que sigue. */}
+            {quien ? ` · lo confirmaste ${quien}` : ""}
             {pagado && c.montoRealCentavos !== null && c.montoRealCentavos !== c.montoCentavos
-              ? ` · normalmente ${dinero(c.montoCentavos, c.moneda)}`
+              ? ` · normalmente ${dinero(c.montoCentavos, c.moneda)}`
               : ""}
           </p>
         </div>
         <Grupo>
           {pagado && c.movimientoId ? (
             <FilaBoton
-              sangria="3.25rem"
-              icono={<Receipt className="size-[20px] text-tint" />}
               titulo="Ver el gasto"
               chevron
               onClick={() => {
@@ -516,9 +598,7 @@ function Resuelto({ c, hoy, atras }: { c: Cobro; hoy: string; atras: (() => void
             />
           ) : null}
           <FilaBoton
-            sangria="3.25rem"
-            icono={<Undo2 className="size-[20px] text-tint" />}
-            titulo={<span className="text-tint">{pagado ? "No se pagó, quitar el pago" : "Sí se pagó, corregir"}</span>}
+            titulo={<span className={pagado ? "text-destructive" : "text-tint"}>{pagado ? "No se pagó, quitar el pago" : "Sí se pagó, corregir"}</span>}
             subtitulo={pagado ? "Quito el gasto y te vuelvo a preguntar" : "Te vuelvo a preguntar si ya se pagó"}
             disabled={!enLinea || accion.isPending}
             onClick={() => void deshacer()}
@@ -529,35 +609,31 @@ function Resuelto({ c, hoy, atras }: { c: Cobro; hoy: string; atras: (() => void
   );
 }
 
-/** "Se pagó con": la cuenta del pago fijo, o la que se elija. */
+/** "Se pagó con": la cuenta del pago fijo, o la que se elija (la rueda del iPhone), con el logo de su banco. */
 function FilaCuenta({
   id,
   valor,
   alCambiar,
   nombreActual,
-  suelta = false,
 }: {
   id: string;
   valor: string;
   alCambiar: (v: string) => void;
   nombreActual: string | null;
-  /** Dentro de un Grupo que ya existe. */
-  suelta?: boolean;
 }) {
   const cuentas = useCuentas();
   const lista = (cuentas.data?.cuentas ?? []).filter((c) => !c.archivada || c.id === valor);
   if (!lista.length && !nombreActual) return null;
-  const texto = (valor && (lista.find((c) => c.id === valor)?.nombre ?? nombreActual)) || "Sin indicar";
-  const fila = (
+  const elegida = valor ? lista.find((c) => c.id === valor) : undefined;
+  const texto = (valor && (elegida?.nombre ?? nombreActual)) || "Sin indicar";
+  const marca = valor && elegida?.tipo !== "efectivo" ? marcaDe(texto, elegida?.institucion) : null;
+  return (
     <Fila>
-      <label htmlFor={id} className="shrink-0">
-        Se pagó con
-      </label>
       <SelectNativo
         id={id}
         value={valor}
         onChange={(e) => alCambiar(e.target.value)}
-        className="min-w-0 flex-1"
+        className="flex-1 self-stretch"
         opciones={
           <>
             <option value="">Sin indicar</option>
@@ -569,9 +645,17 @@ function FilaCuenta({
           </>
         }
       >
-        <span className="block truncate py-2.5 text-right text-[17px] text-muted-foreground">{texto}</span>
+        <div className="flex h-full min-h-11 items-center gap-3">
+          <label htmlFor={id} className="shrink-0">
+            Se pagó con
+          </label>
+          <span className="flex min-w-0 flex-1 items-center justify-end gap-1.5 text-muted-foreground">
+            {marca ? <LogoMarca clave={marca} tamano={22} /> : null}
+            <span className="truncate">{texto}</span>
+          </span>
+          <ChevronRight aria-hidden className="-mr-1 size-5 shrink-0 text-muted-foreground/60" />
+        </div>
       </SelectNativo>
     </Fila>
   );
-  return suelta ? fila : <Grupo>{fila}</Grupo>;
 }

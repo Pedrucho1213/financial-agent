@@ -71,11 +71,11 @@ function etiquetaFecha(iso: string) {
   return iso.slice(0, 4) === hoyIso(hoy).slice(0, 4) ? corta : `${corta} ${iso.slice(0, 4)}`;
 }
 
-const TIPOS_SEGMENTO: { valor: TipoMovimiento; etiqueta: string }[] = [
+const TIPOS_SEGMENTO: { valor: TipoMovimiento; etiqueta: string; corta?: string }[] = [
   { valor: "gasto", etiqueta: "Gasto" },
   { valor: "ingreso", etiqueta: "Ingreso" },
   { valor: "transferencia", etiqueta: "Traspaso" },
-  { valor: "pago_tarjeta", etiqueta: "Pago tarjeta" },
+  { valor: "pago_tarjeta", etiqueta: "Pago tarjeta", corta: "Tarjeta" },
 ];
 
 export function EditorMovimiento() {
@@ -182,7 +182,16 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
 
   return (
     <SheetContent
-      titulo={editando ? "Movimiento" : "Nuevo movimiento"}
+      // En 320 px «Nuevo» solo, para que no termine en «…» junto a Cancelar y Agregar.
+      titulo={
+        editando ? (
+          "Movimiento"
+        ) : (
+          <>
+            Nuevo<span className="max-[359px]:hidden"> movimiento</span>
+          </>
+        )
+      }
       descripcion={editando ? "Edita el movimiento" : "Agrega un movimiento"}
       izquierda={
         <Button variant="plain" size="text" onClick={cerrarEditor}>

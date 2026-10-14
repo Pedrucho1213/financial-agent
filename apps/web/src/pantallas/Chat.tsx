@@ -72,6 +72,8 @@ export function Chat() {
   // Bajar al último mensaje cuando llega algo nuevo.
   const ultimo = mensajes.at(-1);
   useLayoutEffect(() => {
+    // Sin mensajes no hay a dónde bajar: la pantalla vacía abre arriba.
+    if (!mensajes.length) return;
     final.current?.scrollIntoView({ block: "end", behavior: mensajes.length > 2 ? "smooth" : "auto" });
   }, [mensajes.length, ultimo?.texto, ultimo?.estado]);
 

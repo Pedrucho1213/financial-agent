@@ -1,5 +1,5 @@
 import { CircleAlert, Mic, Pencil, Search, Smartphone, Sparkles, Trash2, Wallet } from "lucide-react";
-import { lazy, type ReactNode, Suspense, useEffect, useMemo } from "react";
+import { lazy, type ReactNode, Suspense, useEffect } from "react";
 import { toast } from "sonner";
 import { Ajustado } from "../components/Ajustado";
 import { LogoCategoria, LogoMarca, LogoMovimiento } from "../components/Logo";
@@ -31,12 +31,13 @@ const ORIGENES: Record<MovimientoApp["origen"], { texto: string; Icono: typeof M
 };
 
 // En la zona del servidor, como el resto de la app: de viaje, la hora no cambia de día.
-const fechaLarga = (zonaHoraria?: string) =>
+// El año solo si no es el de hoy: así en 320 px la hora no baja sola a otro renglón.
+const fechaLarga = (zonaHoraria?: string, conAnio = true) =>
   new Intl.DateTimeFormat("es-MX", {
     weekday: "long",
     day: "numeric",
     month: "long",
-    year: "numeric",
+    ...(conAnio ? { year: "numeric" } : {}),
     hour: "numeric",
     minute: "2-digit",
     timeZone: zonaHoraria,
@@ -153,8 +154,9 @@ function Detalle({ m, enLinea }: { m: MovimientoApp; enLinea: boolean }) {
   // Transferencias y pagos de tarjeta: dinero que cambia de lugar, sin categoría.
   const mueve = m.tipo === "transferencia" || m.tipo === "pago_tarjeta";
   const zonaHoraria = useYo().data?.zonaHoraria;
-  const formato = useMemo(() => fechaLarga(zonaHoraria), [zonaHoraria]);
-  const fecha = formato.format(new Date(m.ocurridoEn));
+  const anio = (d: Date) => new Intl.DateTimeFormat("en-US", { year: "numeric", timeZone: zonaHoraria }).format(d);
+  const cuando = new Date(m.ocurridoEn);
+  const fecha = fechaLarga(zonaHoraria, anio(cuando) !== anio(new Date())).format(cuando);
 
   return (
     <div className="space-y-6 pt-4 pb-6">

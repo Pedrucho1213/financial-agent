@@ -116,6 +116,19 @@ export function Suscripciones({ params }: { params: URLSearchParams }) {
               {resumen(activas.filter((r) => r.tipo !== "ingreso").length, todas.filter((r) => r.estado === "pausada").length)}
               {lista.data!.mensualCentavos ? ` · ${dinero(lista.data!.mensualCentavos * 12, moneda)} al año` : ""}
             </p>
+            {/* Los logos de lo que se cobra hoy, encimados como en Wallet. */}
+            {activas.some((r) => r.tipo !== "ingreso") ? (
+              <div aria-hidden className="mt-3 flex">
+                {activas
+                  .filter((r) => r.tipo !== "ingreso")
+                  .slice(0, 10)
+                  .map((r, i) => (
+                    <span key={r.id} className={cn("inline-flex rounded-[10px] shadow-[0_0_0_2px_var(--card)]", i && "-ml-2")}>
+                      <LogoPago nombre={r.nombre} tipo={r.tipo} categoria={r.categoria} tamano={30} />
+                    </span>
+                  ))}
+              </div>
+            ) : null}
           </div>
 
           {SECCIONES.map(({ estado, titulo }) => {

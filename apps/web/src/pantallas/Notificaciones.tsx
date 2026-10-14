@@ -123,17 +123,35 @@ export function Notificaciones() {
               pie="En su fecha te pregunto si ya se pagaron. Si lo anotas por voz o con Apple Pay, se confirma solo."
             >
               {porConfirmar.map((c) => (
-                <div key={c.id} data-cobro={c.id} className={claseFila} style={sangria("4.25rem")}>
-                  <LogoPago nombre={c.nombre} tipo={c.tipo} />
-                  <button type="button" className="min-w-0 flex-1 py-2.5 text-left active:opacity-60" onClick={() => abrirCobros([c.id])}>
-                    <span className="line-clamp-2 text-[17px] leading-[22px]">¿Ya se pagó {c.nombre}?</span>
-                    <span className="line-clamp-2 text-[15px] leading-5 text-muted-foreground">
-                      <span className="tabular">{dinero(c.montoCentavos, c.moneda)}</span> · {cuandoFue(c.fecha, hoy, { corto: true })}
-                      {c.pospuesto ? " · te pregunto mañana" : c.estado === "sin_confirmar" ? " · sin contestar" : ""}
-                      {c.cuenta ? ` · ${c.cuenta}` : ""}
-                    </span>
+                // En pantallas angostas (≤360 px) la pregunta usa todo el ancho y "Se pagó" baja junto a los
+                // detalles, en chico. Toda la fila abre el cobro, menos "Se pagó", que va encima.
+                <div
+                  key={c.id}
+                  data-cobro={c.id}
+                  className={cn(claseFila, "grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 gap-y-0.5 py-2.5 max-[360px]:gap-x-2.5")}
+                  style={sangria("4.25rem")}
+                >
+                  <LogoPago nombre={c.nombre} tipo={c.tipo} className="col-start-1 row-start-1 row-end-3" />
+                  <button
+                    type="button"
+                    className="col-start-2 row-start-1 min-w-0 self-end text-left after:absolute after:inset-0 after:content-[''] active:opacity-60 max-[360px]:col-end-4"
+                    onClick={() => abrirCobros([c.id])}
+                  >
+                    <span className="line-clamp-2 text-[17px] leading-[22px] max-[360px]:text-[16px] max-[360px]:leading-[21px]">¿Ya se pagó {c.nombre}?</span>
                   </button>
-                  <Button variant="tinted" size="sm" aria-label={`${c.nombre} se pagó`} disabled={!enLinea} onClick={() => void pagado(c)}>
+                  <span className="col-start-2 row-start-2 min-w-0 self-start text-[15px] leading-5 text-muted-foreground max-[360px]:self-center max-[360px]:text-[14px] max-[360px]:leading-[19px]">
+                    <span className="tabular">{dinero(c.montoCentavos, c.moneda)}</span> · {cuandoFue(c.fecha, hoy, { corto: true })}
+                    {c.pospuesto ? " · te pregunto mañana" : c.estado === "sin_confirmar" ? " · sin contestar" : ""}
+                    {c.cuenta ? ` · ${c.cuenta}` : ""}
+                  </span>
+                  <Button
+                    variant="tinted"
+                    size="sm"
+                    className="relative z-[1] col-start-3 row-start-1 row-end-3 max-[360px]:row-start-2 max-[360px]:h-[30px] max-[360px]:px-3 max-[360px]:text-[14px]"
+                    aria-label={`${c.nombre} se pagó`}
+                    disabled={!enLinea}
+                    onClick={() => void pagado(c)}
+                  >
                     Se pagó
                   </Button>
                 </div>

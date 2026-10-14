@@ -271,8 +271,12 @@ test.describe("Movimientos", () => {
     await prepararSesion(page, api);
     await page.goto("/#movimientos");
     await expect(page.getByText("76 movimientos")).toBeVisible();
-    await page.getByRole("button", { name: /Ver más/ }).click();
-    await expect(page.getByRole("button", { name: /Ver más/ })).toHaveCount(0);
+    // Primero tres días; «Ver N más de octubre» abre el resto y trae la siguiente página.
+    await expect(page.locator("[data-movimiento]")).toHaveCount(8);
+    await page.getByRole("button", { name: "Ver 68 más de octubre" }).click();
+    await expect(page.getByRole("button", { name: /^Ver \d+ más/ })).toHaveCount(0);
+    await expect(page.locator("[data-movimiento]")).toHaveCount(76);
+    await expect(page.getByRole("button", { name: /^Ver septiembre/ })).toBeVisible();
     const paginas = api.de("GET", "/v1/movimientos").map((p) => p.consulta.get("offset"));
     expect(paginas).toContain("50");
 

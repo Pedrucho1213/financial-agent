@@ -128,7 +128,7 @@ describe("listas", () => {
     expect(lineaCuenta(debito("a", null), "MXN")).toBe("No sé cuánto hay");
     expect(lineaCuenta(credito("t", null, 1000_00), "MXN")).toBe("No sé cuánto debes");
     expect(lineaCuenta(debito("a", 100), "MXN")).toBe("Sin movimientos este mes");
-    expect(lineaCuenta(debito("a", 100, { mes: { entradaCentavos: 18_750_00, salidaCentavos: 3_400_50 } }), "MXN")).toBe("Este mes +$18,750 −$3,400.50");
+    expect(lineaCuenta(debito("a", 100, { mes: { entradaCentavos: 18_750_00, salidaCentavos: 3_400_50 } }), "MXN")).toBe("Este mes +\u2060$18,750 −\u2060$3,400.50");
     expect(lineaCuenta(credito("t", 4_500_00, 30_000_00), "MXN")).toBe("$25,500 disponible");
     expect(lineaCuenta(credito("t", 31_000_00, 30_000_00), "MXN")).toBe("Te pasaste $1,000");
     expect(lineaCuenta(credito("t", -200_00, 30_000_00), "MXN")).toBe("$200 a favor");

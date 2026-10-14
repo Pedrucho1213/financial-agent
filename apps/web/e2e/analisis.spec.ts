@@ -37,7 +37,7 @@ test.describe("Análisis", () => {
   test("semana, flechas y el periodo en la dirección", async ({ page }) => {
     await prepararSesion(page);
     await page.goto("/#analisis");
-    await page.getByRole("radio", { name: "S" }).click();
+    await page.getByRole("radio", { name: "Semana" }).click();
     await expect(page).toHaveURL(/periodo=semana/);
     await expect(titulo(page)).toHaveText("5–11 oct 2026");
     await expect(total(page)).toHaveText("$1,690.40");
@@ -51,7 +51,7 @@ test.describe("Análisis", () => {
     await expect(titulo(page)).toHaveText("5–11 oct 2026");
     // La semana actual no lleva ref en la dirección.
     await expect(page).not.toHaveURL(/ref=/);
-    await page.getByRole("radio", { name: "M", exact: true }).click();
+    await page.getByRole("radio", { name: "Mes", exact: true }).click();
     await expect(page).toHaveURL(/#analisis$/);
   });
 
@@ -336,9 +336,9 @@ test.describe("Análisis", () => {
       });
     await page.goto("/#analisis?periodo=anio");
     await expect(titulo(page)).toHaveText("nov 2025 – oct 2026");
-    await page.getByRole("radio", { name: "6M" }).click();
+    await page.getByRole("radio", { name: "6 meses" }).click();
     await expect(titulo(page)).toHaveText("may – oct 2026");
-    await page.getByRole("radio", { name: "S" }).click();
+    await page.getByRole("radio", { name: "Semana" }).click();
     await expect(total(page)).toHaveText("$1,690.40");
     await expect.poll(guardados, { timeout: 5_000 }).toEqual(["2026-09-28..2026-10-11"]);
   });

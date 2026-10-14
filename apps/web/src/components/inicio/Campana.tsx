@@ -104,11 +104,13 @@ function Burbuja({
       try {
         await accion.mutateAsync({ tipo: "confirmar", id: c.id });
         haptico();
+        // Abajo: arriba taparía el "Se pagó" del que sigue en la burbuja.
         toast.success(`${c.nombre}: pagado ${dinero(c.montoCentavos, c.moneda)}`, {
+          position: "bottom-center",
           action: { label: "Deshacer", onClick: () => accion.mutate({ tipo: "deshacer", id: c.id }) },
         });
       } catch (error) {
-        toast.error(mensajeDeError(error));
+        toast.error(mensajeDeError(error), { position: "bottom-center" });
       }
     });
 
@@ -136,86 +138,99 @@ function Burbuja({
       <div
         role="dialog"
         aria-label="Notificaciones"
-        className="fixed top-[calc(env(safe-area-inset-top)+52px)] right-[max(0.625rem,env(safe-area-inset-right))] left-[max(0.625rem,env(safe-area-inset-left))] z-[61] mx-auto max-h-[calc(100dvh-env(safe-area-inset-top)-140px)] max-w-[420px] origin-top-right animate-burbuja overflow-y-auto overscroll-contain rounded-[22px] border-[0.5px] border-[var(--vidrio-borde)] bg-[color-mix(in_srgb,var(--elevated)_94%,transparent)] shadow-[0_18px_50px_rgb(0_0_0/0.22),0_2px_8px_rgb(0_0_0/0.08)] backdrop-blur-2xl backdrop-saturate-[1.8] min-[452px]:mr-[max(0.625rem,env(safe-area-inset-right))]"
+        // Fondo sólido: con vidrio, lo de Inicio se leía a través. Lo de adentro se desplaza y "Ver todas" queda
+        // siempre abajo, a la vista.
+        className="fixed top-[calc(env(safe-area-inset-top)+52px)] right-[max(0.625rem,env(safe-area-inset-right))] left-[max(0.625rem,env(safe-area-inset-left))] z-[61] mx-auto flex max-h-[calc(100dvh-env(safe-area-inset-top)-140px)] max-w-[420px] origin-top-right animate-burbuja flex-col overflow-hidden rounded-[22px] border-[0.5px] border-[var(--vidrio-borde)] bg-elevated shadow-[0_18px_50px_rgb(0_0_0/0.22),0_2px_8px_rgb(0_0_0/0.08)] min-[452px]:mr-[max(0.625rem,env(safe-area-inset-right))]"
       >
-        {nada ? (
-          <div className="px-5 py-6 text-center">
-            <p className="text-[17px] font-semibold">Estás al día</p>
-            <p className="mt-0.5 text-[15px] text-muted-foreground">Nada espera tu respuesta.</p>
-          </div>
-        ) : null}
-
-        {porConfirmar.length ? (
-          <div className="pt-2">
-            <h2 className="px-4 pb-0.5 text-[13px] font-medium text-muted-foreground">Por confirmar</h2>
-            <div>
-            {porConfirmar.slice(0, MAXIMO).map((c) => (
-              <div key={c.id} data-cobro={c.id} className={fila}>
-                <LogoPago nombre={c.nombre} tipo={c.tipo} tamano={36} />
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 text-left active:opacity-60"
-                  onClick={() => {
-                    haptico();
-                    alCerrar();
-                    abrirCobros([c.id]);
-                  }}
-                >
-                  <span className="line-clamp-2 text-[16px] leading-5 font-semibold">¿Ya se pagó {c.nombre}?</span>
-                  <span className="mt-0.5 line-clamp-2 text-[14px] leading-5 text-muted-foreground">
-                    <span className="tabular">{dinero(c.montoCentavos, c.moneda)}</span> · {cuandoFue(c.fecha, hoy, { corto: true })}
-                    {c.cuenta ? ` · ${c.cuenta}` : ""}
-                  </span>
-                </button>
-                <Button variant="tinted" size="sm" aria-label={`${c.nombre} se pagó`} disabled={!enLinea} onClick={() => void pagado(c)}>
-                  Se pagó
-                </Button>
-              </div>
-            ))}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {nada ? (
+            <div className="px-5 py-6 text-center">
+              <p className="text-[17px] font-semibold">Estás al día</p>
+              <p className="mt-0.5 text-[15px] text-muted-foreground">Nada espera tu respuesta.</p>
             </div>
-          </div>
-        ) : null}
+          ) : null}
 
-        {porRevisar > 0 || avisos.length ? (
-          <div className={cn(porConfirmar.length && "mt-1 border-t-[0.5px] border-separator")}>
-            {porRevisar > 0 ? (
-              <button type="button" className={cn(fila, "fila-presionable")} onClick={() => ir(hashDe("movimientos", { revisar: "1", mes: "todo" }))}>
-                <span aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-orange text-white">
-                  <CircleAlert className="size-5" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="line-clamp-2 text-[16px] leading-5 font-semibold">
-                    {porRevisar} {porRevisar === 1 ? "movimiento" : "movimientos"} por revisar
-                  </span>
-                  <span className="mt-0.5 block truncate text-[14px] leading-5 text-muted-foreground">Les falta algo o no estoy seguro</span>
-                </span>
-                <ChevronRight aria-hidden className="size-5 shrink-0 text-muted-foreground/60" />
-              </button>
-            ) : null}
-            {avisos.slice(0, MAXIMO).map((a) => {
-              const [Icono, color] = ICONOS[a.tipo] ?? [TriangleAlert, "var(--tint)"];
-              return (
-                <button key={a.id} type="button" data-aviso={a.id} className={cn(fila, "fila-presionable items-start")} onClick={() => abrirAviso(a)}>
-                  <span
-                    aria-hidden
-                    className="flex size-9 shrink-0 items-center justify-center rounded-[10px]"
-                    style={{ backgroundColor: `color-mix(in srgb, ${color} 16%, var(--card))`, color }}
-                  >
-                    <Icono className="size-5" strokeWidth={2.2} />
+          {porConfirmar.length ? (
+            <div className="pt-2">
+              <h2 className="px-4 pb-0.5 text-[13px] font-medium text-muted-foreground">Por confirmar</h2>
+              <div>
+                {porConfirmar.slice(0, MAXIMO).map((c) => (
+                  // En pantallas angostas (≤360 px) la pregunta usa todo el ancho y "Se pagó" baja junto a los detalles,
+                  // en chico. Toda la fila abre el cobro, menos "Se pagó", que va encima.
+                  <div key={c.id} data-cobro={c.id} className={cn(fila, "grid grid-cols-[auto_minmax(0,1fr)_auto] gap-y-0.5 max-[360px]:gap-x-2.5")}>
+                    <LogoPago nombre={c.nombre} tipo={c.tipo} tamano={36} className="col-start-1 row-start-1 row-end-3" />
+                    <button
+                      type="button"
+                      className="col-start-2 row-start-1 min-w-0 self-end text-left after:absolute after:inset-0 after:content-[''] active:opacity-60 max-[360px]:col-end-4"
+                      onClick={() => {
+                        haptico();
+                        alCerrar();
+                        abrirCobros([c.id]);
+                      }}
+                    >
+                      <span className="line-clamp-2 text-[16px] leading-5 font-semibold">¿Ya se pagó {c.nombre}?</span>
+                    </button>
+                    <span className="col-start-2 row-start-2 min-w-0 self-start text-[14px] leading-5 text-muted-foreground max-[360px]:self-center">
+                      <span className="tabular">{dinero(c.montoCentavos, c.moneda)}</span> · {cuandoFue(c.fecha, hoy, { corto: true })}
+                      {c.cuenta ? ` · ${c.cuenta}` : ""}
+                    </span>
+                    <Button
+                      variant="tinted"
+                      size="sm"
+                      className="relative z-[1] col-start-3 row-start-1 row-end-3 max-[360px]:row-start-2 max-[360px]:h-[30px] max-[360px]:px-3 max-[360px]:text-[14px]"
+                      aria-label={`${c.nombre} se pagó`}
+                      disabled={!enLinea}
+                      onClick={() => void pagado(c)}
+                    >
+                      Se pagó
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {porRevisar > 0 || avisos.length ? (
+            <div className={cn(porConfirmar.length && "mt-1 border-t-[0.5px] border-separator")}>
+              {porRevisar > 0 ? (
+                <button type="button" className={cn(fila, "fila-presionable")} onClick={() => ir(hashDe("movimientos", { revisar: "1", mes: "todo" }))}>
+                  <span aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-orange text-white">
+                    <CircleAlert className="size-5" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="line-clamp-2 text-[16px] leading-5 font-semibold">{a.titulo}</span>
-                    <span className="mt-0.5 line-clamp-2 text-[14px] leading-5 text-muted-foreground">{a.texto}</span>
+                    <span className="line-clamp-2 text-[16px] leading-5 font-semibold">
+                      {porRevisar} {porRevisar === 1 ? "movimiento" : "movimientos"} por revisar
+                    </span>
+                    <span className="mt-0.5 block truncate text-[14px] leading-5 text-muted-foreground">Les falta algo o no estoy seguro</span>
                   </span>
+                  <ChevronRight aria-hidden className="size-5 shrink-0 text-muted-foreground/60" />
                 </button>
-              );
-            })}
-          </div>
-        ) : null}
+              ) : null}
+              {avisos.slice(0, MAXIMO).map((a) => {
+                const [Icono, color] = ICONOS[a.tipo] ?? [TriangleAlert, "var(--tint)"];
+                return (
+                  <button key={a.id} type="button" data-aviso={a.id} className={cn(fila, "fila-presionable items-start")} onClick={() => abrirAviso(a)}>
+                    <span
+                      aria-hidden
+                      className="flex size-9 shrink-0 items-center justify-center rounded-[10px]"
+                      style={{ backgroundColor: `color-mix(in srgb, ${color} 16%, var(--card))`, color }}
+                    >
+                      <Icono className="size-5" strokeWidth={2.2} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="line-clamp-2 text-[16px] leading-5 font-semibold">{a.titulo}</span>
+                      <span className="mt-0.5 line-clamp-2 text-[14px] leading-5 text-muted-foreground">{a.texto}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
 
         <button
           type="button"
-          className="flex h-12 w-full items-center justify-center border-t-[0.5px] border-separator text-[15px] font-semibold text-tint active:opacity-60"
+          className="flex h-12 w-full shrink-0 items-center justify-center border-t-[0.5px] border-separator bg-elevated text-[15px] font-semibold text-tint active:opacity-60"
           onClick={() => ir(hashDe("avisos"))}
         >
           Ver todas

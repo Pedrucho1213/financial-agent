@@ -68,7 +68,7 @@ test.describe("Cuentas y tarjetas", () => {
     const cuentas = page.getByRole("region", { name: "Lo que tienes" }).locator("..").locator("[data-cuenta]");
     // (El logo del banco va antes del nombre: Banamex lleva una «B».)
     await expect(cuentas).toHaveText([/^BBVA/, /^Efectivo/, /^Revolut/, /Banamex Oro/, /Nu/]);
-    await expect(fila(page, "BBVA")).toContainText("Este mes +$18,750 −$3,400");
+    await expect(fila(page, "BBVA")).toContainText("Este mes +\u2060$18,750 −\u2060$3,400");
     await expect(fila(page, "BBVA")).toContainText("$18,450.00");
     await expect(fila(page, "Revolut")).toContainText("No sé cuánto hay");
     await expect(fila(page, "Revolut")).not.toContainText("$");
@@ -463,7 +463,7 @@ test.describe("Etiquetas", () => {
   test("Análisis suma por etiqueta y lleva a sus movimientos", async ({ page }) => {
     await abrir(page, "#analisis");
     const seccion = page.getByRole("region", { name: "Por etiqueta" });
-    await expect(seccion.locator("[data-etiqueta]")).toHaveText([/^Viaje oaxaca2 gastos\$1,386\.00/, /^Trabajo2 gastos\$1,032\.50/]);
+    await expect(seccion.locator("[data-etiqueta]")).toHaveText([/^Viaje oaxaca\$1,386\.00.*2 gastos$/, /^Trabajo\$1,032\.50.*2 gastos$/]);
     await seccion.locator('[data-etiqueta="Trabajo"]').click();
     await expect(page).toHaveURL(/#movimientos\?.*etiqueta=eti-trabajo/);
     await expect(page.getByText("2 movimientos")).toBeVisible();
