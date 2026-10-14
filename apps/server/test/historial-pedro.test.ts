@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { MockLanguageModelV4 } from "ai/test";
 import { crearApp } from "../src/app";
 import { crearDispositivo } from "../src/auth";
-import { entradas } from "../src/db/schema";
+import { cuentas, entradas, movimientos } from "../src/db/schema";
 import { crearHerramientas } from "../src/ai/herramientas";
 import { analizar } from "../src/finanzas/analisis";
 import type { Contexto } from "../src/finanzas/contexto";
@@ -141,4 +141,42 @@ test("con pocos días registrados, el 'al mes' de un recorte dice de dónde sale
     crearMovimiento(ctx, { tipo: "gasto", monto, categoria: "Restaurantes", fecha: sumarDias(ctx.hoy, -dias) });
   const a = analizar(ctx, { enfoque: "ahorrar" });
   expect(a.respuesta).toContain("En Restaurantes llevas $1,225.90 en 2 días; a ese ritmo serían unos");
+});
+
+test("sin decir con qué pagó se le pregunta; 'con la tarjeta de crédito Revolut' se lo pone sin el modelo (14-oct)", async () => {
+  const autozone = llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 399, comercio: "AutoZone", categoria: "Auto" }] });
+  const { hablar, modelo, db, usuario } = montar([autozone, texto("Listo, AutoZone de $399.")]);
+  for (const [nombre, tipo] of [["Revolut", "debito"], ["Revolut crédito", "credito"], ["Nu", "credito"]] as const)
+    db.insert(cuentas).values({ usuarioId: usuario.id, nombre, tipo }).run();
+  const r1 = await hablar("gasté 399 en AutoZone", { espera_ms: 5000 });
+  expect(r1.respuesta).toEndWith("¿Con qué lo pagaste?");
+  const llamadas = modelo.doGenerateCalls.length;
+  const r2 = await hablar("Pues con la tarjeta de crédito Revolut", { espera_ms: 5000 });
+  expect(r2.conversacion_id).toBe(r1.conversacion_id);
+  expect(r2.respuesta).toBe("Listo, quedó AutoZone de 399 pesos en Auto con Revolut crédito.");
+  expect(modelo.doGenerateCalls).toHaveLength(llamadas);
+  const cuenta = db.select().from(cuentas).all().find((c) => c.id === db.select().from(movimientos).get()!.cuentaId);
+  expect(cuenta?.nombre).toBe("Revolut crédito");
+});
+
+test("si dice con qué pagó, o solo tiene una cuenta, no se pregunta", async () => {
+  const conNu = llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 120, comercio: "Oxxo", categoria: "Súper", cuenta: "Nu" }] });
+  const { hablar, db, usuario } = montar([conNu, texto("Listo.")]);
+  for (const nombre of ["Revolut", "Nu"]) db.insert(cuentas).values({ usuarioId: usuario.id, nombre, tipo: "debito" }).run();
+  expect((await hablar("gasté 120 en el Oxxo con la Nu", { espera_ms: 5000 })).respuesta).not.toContain("?");
+  const sinNu = llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 80, comercio: "Oxxo", categoria: "Súper" }] });
+  const una = montar([sinNu, texto("Listo.")]);
+  una.db.insert(cuentas).values({ usuarioId: una.usuario.id, nombre: "Revolut", tipo: "debito" }).run();
+  expect((await una.hablar("gasté 80 en el Oxxo", { espera_ms: 5000 })).respuesta).not.toContain("?");
+});
+
+test("'no sé' a '¿Con qué lo pagaste?' lo contesta el modelo y no toca el gasto", async () => {
+  const autozone = llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 399, comercio: "AutoZone", categoria: "Auto" }] });
+  const { hablar, modelo, db, usuario } = montar([autozone, texto("Va, lo dejo sin cuenta."), texto("Va, lo dejo sin cuenta.")]);
+  for (const nombre of ["Revolut", "Nu"]) db.insert(cuentas).values({ usuarioId: usuario.id, nombre, tipo: "debito" }).run();
+  await hablar("gasté 399 en AutoZone", { espera_ms: 5000 });
+  const llamadas = modelo.doGenerateCalls.length;
+  expect((await hablar("no sé, no me acuerdo", { espera_ms: 5000 })).respuesta).toBe("Va, lo dejo sin cuenta.");
+  expect(modelo.doGenerateCalls.length).toBeGreaterThan(llamadas);
+  expect(db.select().from(movimientos).get()!.cuentaId).toBeNull();
 });

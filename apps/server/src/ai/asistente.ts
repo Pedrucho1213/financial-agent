@@ -11,10 +11,11 @@ import { esEsperable, marcarComentario, notaDelGasto } from "../finanzas/comenta
 import { formatearMonto } from "../lib/dinero";
 import { montosDelTexto } from "../lib/numeros";
 import { esOrdenSobreLoAnotado, esPregunta, normalizar, pideInformacion, tipoDelTexto } from "../lib/texto";
-import { confirmacionDirecta, confirmarRegistro, type Ejecutada, type Movimiento, preguntarSiRepite } from "./confirmacion";
+import { confirmacionDirecta, confirmarEdicion, confirmarRegistro, type Ejecutada, type Movimiento, preguntarSiRepite } from "./confirmacion";
 import { construirInstrucciones, datosDelUsuario } from "./instrucciones";
 import { pagoDeFrase } from "../finanzas/applepay";
 import { preguntaDeTarjeta } from "../finanzas/tarjeta-wallet";
+import { cuentaContestada, gastosSinCuentaDeAntes, preguntaConQuePago, PREGUNTO_CON_QUE_PAGO } from "./con-que-pago";
 import { crearHerramientas, type Accion } from "./herramientas";
 import { comoVoySinModelo, CONSULTAS_ANALISIS, saludDeVozSinModelo } from "./herramientas-analisis";
 import { CONSULTAS_PLANES } from "./herramientas-planes";
@@ -745,6 +746,24 @@ function textoDe(mensaje: ModelMessage | undefined): string {
   return mensaje.content.map((parte) => (parte.type === "text" ? parte.text : "")).join(" ").trim();
 }
 
+/**
+ * "Con la Nu" después de "¿Con qué lo pagaste?": se le pone esa cuenta a lo que se anotó sin ella, sin el modelo,
+ * que con un "con la Nu" a secas podía anotar otro gasto con el monto de antes.
+ */
+async function conQuePagoSinModelo(ctx: Contexto, entrada: Entrada, anterior: string, pregunto: boolean, acciones: Accion[]): Promise<string | undefined> {
+  if (!pregunto || !PREGUNTO_CON_QUE_PAGO.test(anterior.trim())) return undefined;
+  const cuenta = cuentaContestada(ctx, entrada.texto);
+  const ids = cuenta ? gastosSinCuentaDeAntes(ctx, entrada) : [];
+  if (!cuenta || !ids.length) return undefined;
+  const editar = crearHerramientas(ctx, acciones).editar_movimiento;
+  const editados: Movimiento[] = [];
+  for (const id of ids) {
+    const r = await editar.execute!({ id, cambios: { cuenta: cuenta.nombre } }, { toolCallId: `con-que-pago-${id}`, messages: [], context: {} });
+    if (r && typeof r === "object" && "editado" in r) editados.push(r.editado as Movimiento);
+  }
+  return editados.length ? confirmarEdicion(editados, ctx.hoy) : undefined;
+}
+
 /** `corregirCuenta` antes del modelo; si no corrigió nada, no deja rastro en `acciones`. */
 async function cuentaSinModelo(ctx: Contexto, texto: string, acciones: Accion[]): Promise<string | undefined> {
   const antes = acciones.length;
@@ -1038,6 +1057,7 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   const directo =
     dictadoRepetido(ctx, entrada) ??
     pendienteSinModelo(ctx, entrada) ??
+    (await conQuePagoSinModelo(ctx, entrada, anterior, pregunto, acciones)) ??
     comoVoySinModelo(ctx, entrada.texto, acciones) ??
     saludDeVozSinModelo(ctx, entrada.texto, acciones) ??
     (await cuentaSinModelo(ctx, entrada.texto, acciones));
@@ -1125,7 +1145,13 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   const anotoPago = acciones.some(
     (a) => a.herramienta === "registrar_movimientos" && Array.isArray((a.resultado as { registrados?: unknown } | null)?.registrados),
   );
-  const preguntaTarjeta = anotoPago && ctx.tarjetaPorAclarar ? preguntaDeTarjeta(ctx.tarjetaPorAclarar) : undefined;
+  // Un gasto dictado sin decir con qué se pagó también se anotó sin cuenta: se le pregunta, salvo que ya pregunte algo.
+  const preguntaTarjeta =
+    anotoPago && ctx.tarjetaPorAclarar
+      ? preguntaDeTarjeta(ctx.tarjetaPorAclarar)
+      : anotoPago && entrada.origen === "voz" && !texto.includes("?")
+        ? preguntaConQuePago(ctx, entrada.id)
+        : undefined;
   if (preguntaTarjeta) mensajesRespuesta = [...mensajesRespuesta, { role: "assistant", content: preguntaTarjeta }];
   const puedeAgregar = acciones.length > 0 && !texto.includes("?") && !preguntaTarjeta;
   // Un gasto que deja la tarjeta casi sin crédito o la cuenta en poco o en negativo también es un dato que importa.

@@ -108,6 +108,11 @@ export function confirmarRegistro(registrados: Movimiento[], hoy: string): strin
   return `Listo, ${enumerar(registrados.map((m) => describirMovimiento(m, hoy)))}${deSiempre}.${revisar}`;
 }
 
+/** "Listo, quedó AutoZone de $399 en Auto con Revolut crédito." */
+export function confirmarEdicion(editados: Movimiento[], hoy: string): string {
+  return `Listo, ${editados.length === 1 ? "quedó" : "quedaron"} ${enumerar(editados.map((m) => describirMovimiento(m, hoy)))}.`;
+}
+
 /**
  * La confirmación hablada de un paso que solo guardó, corrigió o borró, armada con lo que de verdad
  * quedó en la base. Así no hace falta otra vuelta del modelo solo para decir "Listo".

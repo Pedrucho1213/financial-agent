@@ -5,7 +5,7 @@ import { esPregunta, normalizar } from "../lib/texto";
 // "El súper de hoy fue con la tarjeta de crédito Nu", "el Uber de ayer lo pagué con la BBVA".
 const PAGO_CON = /^(?:y )?(.+?) (?:fue|era|lo pague|la pague|lo pagamos|se pago) con (.+)$/;
 // Lo que va después de "con" tiene que sonar a medio de pago, no a "la cena fue con mis amigos".
-const MEDIO_DE_PAGO =
+export const MEDIO_DE_PAGO =
   /\b(tarjeta|efectivo|cash|credito|debito|transferencia|spei|vales|monedero|mercado pago|paypal|bbva|nu|banorte|santander|hsbc|banamex|citibanamex|scotiabank|inbursa|azteca|banregio|amex|american express|liverpool|klar|stori|uala|openbank|bancoppel|coppel|hey banco|rappicard|didi card)\b/;
 // "con Nu, no con BBVA", "con la Nu y el Uber con BBVA": dice más de una cosa y eso lo decide el modelo.
 const VARIAS_COSAS = /\b(con|no|y|o|ni|pero|sino)\b/;
