@@ -221,7 +221,7 @@ export function Plan({ params }: { params: URLSearchParams }) {
 }
 
 function subtituloPresupuesto(p: Presupuesto, moneda: string): ReactNode {
-  if (p.restanteCentavos < 0) return <span className="text-negative">Te pasaste {dinero(-p.restanteCentavos, moneda)}</span>;
+  if (p.restanteCentavos < 0) return enVariasLineas(<span className="text-negative">Te pasaste {dinero(-p.restanteCentavos, moneda)}</span>);
   const base = <DeTotal antes="Quedan" parte={pesos(p.restanteCentavos, moneda)} total={pesos(p.limiteCentavos, moneda)} />;
   // Solo se avisa del ritmo cuando de verdad no alcanza.
   if (p.proyeccionCentavos > p.limiteCentavos)

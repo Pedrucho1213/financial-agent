@@ -1,4 +1,5 @@
 import { lazy, Suspense, useState } from "react";
+import { Ajustado } from "../Ajustado";
 import { abrirDetalle, useTablero } from "../../lib/consultas";
 import { diaCorto, dinero, nombreMes } from "../../lib/formato";
 import { haptico } from "../../lib/haptico";
@@ -50,13 +51,13 @@ function UltimosMeses({ t }: { t: Tablero }) {
             <div className="flex items-center gap-1.5 text-[13px] font-medium text-muted-foreground">
               <span aria-hidden className="size-2.5 rounded-[3px] bg-[var(--serie-1)]" /> Gastado
             </div>
-            <div className="truncate text-[20px] leading-7 font-bold tracking-[-0.01em] tabular">{dinero(elegido?.gastadoCentavos ?? 0, t.moneda)}</div>
+            <Ajustado como="div" className="truncate text-[20px] leading-7 font-bold tracking-[-0.01em] tabular">{dinero(elegido?.gastadoCentavos ?? 0, t.moneda)}</Ajustado>
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 text-[13px] font-medium text-muted-foreground">
               <span aria-hidden className="size-2.5 rounded-[3px] bg-[var(--serie-5)]" /> Ingresado
             </div>
-            <div className="truncate text-[20px] leading-7 font-bold tracking-[-0.01em] tabular">{dinero(elegido?.ingresadoCentavos ?? 0, t.moneda)}</div>
+            <Ajustado como="div" className="truncate text-[20px] leading-7 font-bold tracking-[-0.01em] tabular">{dinero(elegido?.ingresadoCentavos ?? 0, t.moneda)}</Ajustado>
           </div>
         </div>
         <p className="mt-0.5 text-[13px] text-muted-foreground">{elegido ? nombreMes(elegido.mes) : ""}</p>

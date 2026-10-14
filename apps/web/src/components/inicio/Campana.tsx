@@ -161,8 +161,8 @@ function Burbuja({
                     abrirCobros([c.id]);
                   }}
                 >
-                  <span className="block truncate text-[16px] leading-5 font-semibold">¿Ya se pagó {c.nombre}?</span>
-                  <span className="mt-0.5 block truncate text-[14px] leading-5 text-muted-foreground">
+                  <span className="line-clamp-2 text-[16px] leading-5 font-semibold">¿Ya se pagó {c.nombre}?</span>
+                  <span className="mt-0.5 line-clamp-2 text-[14px] leading-5 text-muted-foreground">
                     <span className="tabular">{dinero(c.montoCentavos, c.moneda)}</span> · {cuandoFue(c.fecha, hoy, { corto: true })}
                     {c.cuenta ? ` · ${c.cuenta}` : ""}
                   </span>
@@ -184,7 +184,7 @@ function Burbuja({
                   <CircleAlert className="size-5" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[16px] leading-5 font-semibold">
+                  <span className="line-clamp-2 text-[16px] leading-5 font-semibold">
                     {porRevisar} {porRevisar === 1 ? "movimiento" : "movimientos"} por revisar
                   </span>
                   <span className="mt-0.5 block truncate text-[14px] leading-5 text-muted-foreground">Les falta algo o no estoy seguro</span>
@@ -204,8 +204,8 @@ function Burbuja({
                     <Icono className="size-5" strokeWidth={2.2} />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[16px] leading-5 font-semibold">{a.titulo}</span>
-                    <span className="mt-0.5 line-clamp-2 block text-[14px] leading-5 text-muted-foreground">{a.texto}</span>
+                    <span className="line-clamp-2 text-[16px] leading-5 font-semibold">{a.titulo}</span>
+                    <span className="mt-0.5 line-clamp-2 text-[14px] leading-5 text-muted-foreground">{a.texto}</span>
                   </span>
                 </button>
               );

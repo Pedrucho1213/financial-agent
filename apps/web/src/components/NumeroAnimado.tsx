@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useAjustar } from "./Ajustado";
 
 /**
  * Número que cuenta hasta su valor cuando cambia, sin re-renderizar React en cada cuadro.
@@ -8,14 +9,18 @@ export function NumeroAnimado({
   valor,
   formato,
   duracion = 700,
+  ajustar = false,
   className,
 }: {
   valor: number;
   formato: (n: number) => string;
   duracion?: number;
+  /** Achicar la letra si el número no cabe en su renglón (ver useAjustar). */
+  ajustar?: boolean;
   className?: string;
 }) {
   const ref = useRef<HTMLSpanElement>(null);
+  useAjustar(ref, ajustar);
   const anterior = useRef(0);
   const fmt = useRef(formato);
   fmt.current = formato;

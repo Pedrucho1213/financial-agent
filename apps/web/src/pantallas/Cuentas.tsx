@@ -1,6 +1,7 @@
 import { Archive, ArchiveRestore, ArrowLeftRight, CreditCard, Lightbulb, List, Mic, Pencil, Plus, Tag } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
+import { Ajustado } from "../components/Ajustado";
 import { Anillos } from "../components/Anillos";
 import { HojaCuenta } from "../components/cuentas/HojaCuenta";
 import { HojaMover, type InicioMover } from "../components/cuentas/HojaMover";
@@ -204,7 +205,7 @@ function Resumen({ datos, moneda, alDecirLimite }: { datos: CuentasApi; moneda: 
     <section aria-label="Lo que tienes" className="rounded-[20px] bg-card p-4">
       <h2 className="text-[15px] font-medium text-muted-foreground">Lo que tienes</h2>
       {conocido ? (
-        <p
+        <Ajustado
           data-testid="neto"
           className={cn(
             "mt-0.5 truncate text-[40px] leading-[1.15] font-bold tracking-[-0.025em] tabular max-[379px]:text-[32px]",
@@ -213,7 +214,7 @@ function Resumen({ datos, moneda, alDecirLimite }: { datos: CuentasApi; moneda: 
           )}
         >
           {dinero(t.netoCentavos, moneda)}
-        </p>
+        </Ajustado>
       ) : (
         <p className="mt-1 text-[22px] leading-7 font-bold tracking-tight">Todavía no sé cuánto tienes</p>
       )}
@@ -346,7 +347,7 @@ function FilaCuenta({ c, moneda, hoy }: { c: CuentaConMes; moneda: string; hoy: 
       <IconoCuenta tipo={c.tipo} nombre={c.nombre} institucion={c.institucion} />
       <div className="min-w-0 flex-1 py-2.5">
         <div className="truncate">{c.nombre}</div>
-        <div className={cn("text-[15px] leading-snug", c.conocido ? "text-muted-foreground" : "text-placeholder")}>{lineaCuenta(c, moneda)}</div>
+        <div className={cn("text-[15px] leading-snug [overflow-wrap:anywhere]", c.conocido ? "text-muted-foreground" : "text-placeholder")}>{lineaCuenta(c, moneda)}</div>
         {uso !== null ? <BarraUso uso={uso} className="mt-1.5 max-w-[14rem]" /> : null}
         {pago ? (
           <div className={cn("mt-1 text-[13px]", diasEntreFechas(hoy, pago) > 3 ? "text-muted-foreground" : "font-medium text-orange")}>
@@ -393,9 +394,9 @@ function TarjetaCompacta({ c, moneda, hoy }: { c: CuentaConMes; moneda: string; 
       <span className="mt-auto pt-2 text-[11px] leading-4 font-bold tracking-[0.04em] uppercase opacity-80">
         {c.deudaCentavos === null ? "¿Cuánto debes?" : c.deudaCentavos > 0 ? "Debes" : "Sin deuda"}
       </span>
-      <span className="block truncate text-[22px] leading-7 font-bold tracking-[-0.02em] tabular">
+      <Ajustado como="span" className="block truncate text-[22px] leading-7 font-bold tracking-[-0.02em] tabular">
         {c.deudaCentavos === null ? "—" : dinero(Math.max(0, c.deudaCentavos), moneda)}
-      </span>
+      </Ajustado>
       {uso !== null ? (
         <span aria-hidden className="mt-1.5 block h-1 overflow-hidden rounded-full bg-white/25">
           <i className="block h-full rounded-full bg-white" style={{ width: `${Math.min(100, Math.max(uso > 0 ? 3 : 0, uso * 100))}%` }} />
@@ -562,7 +563,7 @@ function HeroCuenta({
       <h2 className="text-[15px] font-medium text-muted-foreground">Tienes</h2>
       {c.saldoCentavos !== null ? (
         <>
-          <p
+          <Ajustado
             data-testid="saldo"
             className={cn(
               "mt-0.5 truncate text-[40px] leading-[1.15] font-bold tracking-[-0.025em] tabular max-[379px]:text-[32px]",
@@ -571,7 +572,7 @@ function HeroCuenta({
             )}
           >
             {dinero(c.saldoCentavos, moneda)}
-          </p>
+          </Ajustado>
           <p className="mt-1 text-[13px] leading-snug text-muted-foreground">
             {c.saldoEn ? `Me lo dijiste ${haceCuanto(c.saldoEn)}; desde ahí sumo y resto lo que anotas con ${c.nombre}.` : null}
             {c.saldoCentavos < 0 ? " Quedó en negativo: seguro cambió, dime cuánto hay." : null}
@@ -617,9 +618,13 @@ function HeroTarjeta({ c, moneda, hoy, alDecir }: { c: EstadoCuenta; moneda: str
         <dl className="min-w-0 flex-1 space-y-2">
           <div>
             <dt className="text-[13px] font-medium text-muted-foreground">{c.deudaCentavos !== null && c.deudaCentavos < 0 ? "A tu favor" : "Debes"}</dt>
-            <dd data-testid="deuda" className="truncate text-[28px] leading-8 font-bold tracking-[-0.02em] tabular max-[379px]:text-[22px] max-[379px]:leading-7">
+            <Ajustado
+              como="dd"
+              data-testid="deuda"
+              className="truncate text-[28px] leading-8 font-bold tracking-[-0.02em] tabular max-[379px]:text-[22px] max-[379px]:leading-7"
+            >
               {c.deudaCentavos === null ? <span className="text-[20px] text-muted-foreground">No sé</span> : dinero(Math.abs(c.deudaCentavos), moneda)}
-            </dd>
+            </Ajustado>
           </div>
           {c.disponibleCentavos !== null ? (
             <div>

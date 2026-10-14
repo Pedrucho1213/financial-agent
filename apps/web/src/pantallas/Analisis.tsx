@@ -821,7 +821,12 @@ function Lugares({ a }: { a: DatosAnalisis }) {
               )
             }
             titulo={c.nombre}
-            subtitulo={`${c.cantidad} ${c.cantidad === 1 ? "vez" : "veces"} · ${dinero(Math.round(c.centavos / Math.max(1, c.cantidad)), a.moneda)} c/u`}
+            subtitulo={
+              // En dos renglones si no cabe: el monto por vez no se corta con "…".
+              <span className="block whitespace-normal">
+                {c.cantidad} {c.cantidad === 1 ? "vez" : "veces"} · <span className="whitespace-nowrap">{dinero(Math.round(c.centavos / Math.max(1, c.cantidad)), a.moneda)} c/u</span>
+              </span>
+            }
             valor={
               <span className="flex flex-col items-end">
                 <span className="text-foreground tabular">{dinero(c.centavos, a.moneda)}</span>
