@@ -30,7 +30,7 @@ export function Pantalla({
   derecha?: ReactNode;
   children: ReactNode;
   className?: string;
-  /** La barra siempre se ve compacta (Chat). */
+  /** La barra siempre se ve compacta (IA). */
   barraFija?: boolean;
   /** Activa jalar para refrescar. */
   alRefrescar?: () => Promise<unknown>;
