@@ -34,6 +34,7 @@ import {
 import { pagoDeFrase } from "./applepay";
 import type { Contexto } from "./contexto";
 import { etiquetasActivas, idsDeEtiquetas, nombresDeEtiquetas, soloPropias } from "./etiquetas";
+import { ajustarInnecesario, etiquetaDeViaje, heredadasDelComercio } from "./etiquetas-auto";
 import { aprenderTarjeta } from "./tarjeta-wallet";
 
 export type TipoMovimiento = (typeof TIPOS_MOVIMIENTO)[number];
@@ -246,13 +247,21 @@ export function crearMovimiento(ctx: Contexto, datos: DatosMovimiento) {
   if (datos.tipo === "pago_tarjeta" && !destino && cuenta && (cuenta.tipo === "credito" || cuenta.tipo === "otra")) {
     [destino, cuenta] = [volverCredito(ctx, cuenta), undefined];
   }
-  // Las que dijo, y las que están activas esos días ("todo lo de esta semana es del viaje") si es un gasto.
-  const etiquetas = [
+  // Las que dijo, y las que están activas esos días ("todo lo de esta semana es del viaje") si es un gasto. Un gasto
+  // lejos de donde suele estar lleva solo la de su viaje, y uno en un comercio que ya etiquetó, la de ese comercio.
+  const esGasto = datos.tipo === "gasto";
+  const viaje = esGasto ? etiquetaDeViaje(ctx, fecha) : { ids: [] };
+  let etiquetas = [
     ...new Set([
       ...(datos.etiquetaIds ? soloPropias(ctx, datos.etiquetaIds) : idsDeEtiquetas(ctx, datos.etiquetas ?? [])),
-      ...(datos.tipo === "gasto" ? etiquetasActivas(ctx, fecha) : []),
+      ...(esGasto ? etiquetasActivas(ctx, fecha) : []),
+      ...viaje.ids,
+      ...(esGasto && !datos.etiquetaIds ? heredadasDelComercio(ctx, comercio?.id) : []),
     ]),
   ];
+  // "Innecesario" con reglas fijas: antojos y delivery siempre, un restaurante solo si él lo dice, y nunca donde ya se
+  // lo quitó. Lo que se elige en la app se respeta tal cual.
+  if (esGasto && !datos.etiquetaIds) etiquetas = ajustarInnecesario(ctx, etiquetas, { comercioId: comercio?.id, categoriaId: categoria.id, cats });
 
   const fila = ctx.db
     .insert(movimientos)
@@ -281,7 +290,7 @@ export function crearMovimiento(ctx: Contexto, datos: DatosMovimiento) {
     .returning()
     .get();
   registrarEnBitacora(ctx, "movimientos", fila.id, "crear", undefined, fila);
-  return { ...describir(ctx, fila, cats), revisar: fila.revisar || undefined };
+  return { ...describir(ctx, fila, cats), revisar: fila.revisar || undefined, viaje_nuevo: viaje.nueva };
 }
 
 export function obtenerPropio(ctx: Contexto, id: string): Movimiento {

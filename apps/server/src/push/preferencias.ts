@@ -19,6 +19,8 @@ export const GRUPO_DE_AVISO: Record<(typeof TIPOS_AVISO)[number], GrupoAviso> = 
   suscripcion_duplicada: "fugas",
   gasto_inusual: "fugas",
   prestamo: "deudas",
+  // Cuánto costó un viaje (finanzas/etiquetas-auto.ts): es de lo que gastó, como un presupuesto.
+  viaje: "presupuestos",
 };
 
 /** Lo de siempre: todo encendido, de 9 a 21 h. */

@@ -10,6 +10,7 @@ import { type Contexto, crearContexto } from "./contexto";
 import { estadoPresupuestos, limitesDelMes, listarMetas, listarMsi, listarPrestamos, registrarMensualidades } from "./planes";
 import { proximoCobro } from "./recurrentes";
 import { estadosDeCuentas } from "./cuentas";
+import { viajesTerminados } from "./etiquetas-auto";
 
 // El revisor nocturno busca fugas y cosas por venir y las deja como avisos. Es solo SQL y reglas:
 // no usa el modelo de IA, así que no lo carga ni gasta memoria en la Mac.
@@ -411,6 +412,7 @@ export function revisar(ctx: Contexto) {
     ...suscripcionesDuplicadas(ctx, cats),
     ...gastoInusual(ctx, cats),
     ...metasYPrestamos(ctx),
+    ...viajesTerminados(ctx),
   ];
   const nuevos = hallazgos.filter((a) => guardarAviso(ctx, a));
   ctx.db.update(usuarios).set({ revisadoPara: ctx.hoy }).where(eq(usuarios.id, ctx.usuarioId)).run();

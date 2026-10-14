@@ -4,6 +4,8 @@ import { formatearMonto } from "../lib/dinero";
 import { armarFecha, diaSemana, partes, sumarDias, sumarMeses, ultimoDiaDelMes } from "../lib/fechas";
 import { normalizar } from "../lib/texto";
 import { type Categoria, listarCategorias } from "./catalogos";
+import { idsDeEtiquetas } from "./etiquetas";
+import { INNECESARIO } from "./etiquetas-auto";
 import type { Contexto } from "./contexto";
 import { disponible, estadoPresupuestos, porPagarEsteMes } from "./planes";
 import { listarRecurrentes } from "./recurrentes";
@@ -245,14 +247,28 @@ function ideasDeAhorro(ctx: Contexto, cats: Categoria[]): Hallazgo[] {
     ideas.push({ tipo: "hormiga", texto: textoHormiga(ctx, g), ahorroMensualCentavos: redondear(alMes(g.totalCentavos) / 2) });
   }
 
+  // Lo que la IA marcó como innecesario (antojos, compras de impulso): dejar la mitad. Lo que ya salió como hormiga
+  // no se cuenta otra vez.
+  const yaEnHormiga = (m: Mov) => hormigas.some((g) => g.clave === `c${m.comercioId}` || g.clave === `k${m.categoriaId}`);
+  const [idInnecesario] = idsDeEtiquetas(ctx, [INNECESARIO], { soloExistentes: true });
+  const innecesarios = idInnecesario ? ultimos30.filter((m) => m.etiquetas.includes(idInnecesario) && m.moneda === ctx.monedaBase && !yaEnHormiga(m)) : [];
+  const deInnecesarios = alMes(innecesarios.reduce((s, m) => s + m.montoCentavos, 0));
+  if (redondear(deInnecesarios / 2) >= 20_000) {
+    ideas.push({
+      tipo: "recortable",
+      texto: `Lo que marqué como innecesario te cuesta unos ${$(redondear(deInnecesarios))} al mes; dejar la mitad te ahorra ${$(redondear(deInnecesarios / 2))}.`,
+      ahorroMensualCentavos: redondear(deInnecesarios / 2),
+    });
+  }
+
   // Suscripciones repetidas (dos de streaming): cancelar la más barata.
   for (const a of suscripcionesDuplicadas(ctx, cats)) ideas.push({ tipo: "suscripciones", texto: a.texto, ahorroMensualCentavos: a.menorMensualCentavos });
 
   // Lo recortable que más pesa (restaurantes, delivery, salidas...): bajarle un tercio.
   // Lo que ya salió como hormiga (por comercio o por categoría) no se cuenta otra vez.
-  const yaEnHormiga = (m: Mov) => hormigas.some((g) => g.clave === `c${m.comercioId}` || g.clave === `k${m.categoriaId}`);
+  // Lo innecesario que ya se dijo arriba tampoco.
   const recortable = ultimos30.filter((m) => {
-    if (m.recurrenteId || m.msiId || yaEnHormiga(m)) return false;
+    if (m.recurrenteId || m.msiId || yaEnHormiga(m) || innecesarios.includes(m)) return false;
     const c = cats.find((x) => x.id === m.categoriaId);
     const padre = c?.padreId ? cats.find((x) => x.id === c.padreId) : undefined;
     return !!c && (RECORTABLES.has(normalizar(c.nombre)) || (padre ?? c).naturaleza === "gusto") && !FIJAS.has(normalizar(c.nombre)) && !FIJAS.has(normalizar(padre?.nombre ?? ""));
