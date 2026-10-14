@@ -79,6 +79,9 @@ function UltimosMeses({ t }: { t: Tablero }) {
   );
 }
 
+/** De $100,000 para arriba el monto va compacto: completo, a 320 px deja el nombre en una columna de 5 letras. */
+const TOPE_COMPACTO = 100_000_00;
+
 function Mayores({ t }: { t: Tablero }) {
   if (!t.mayores.length) return null;
   return (
@@ -100,7 +103,7 @@ function Mayores({ t }: { t: Tablero }) {
             icono={<LogoMovimiento comercio={m.comercio} descripcion={m.descripcion} categoria={m.categoria} tipo={m.tipo} />}
             titulo={m.comercio ?? m.descripcion ?? m.categoria ?? "Gasto"}
             subtitulo={`${diaCorto(m.fecha)}${m.categoria ? ` · ${m.categoria.split(">").pop()?.trim()}` : ""}`}
-            valor={<span className="font-medium text-foreground tabular">{dinero(m.montoCentavos, m.moneda)}</span>}
+            valor={<span className="font-medium text-foreground tabular">{dinero(m.montoCentavos, m.moneda, { compacto: m.montoCentavos >= TOPE_COMPACTO })}</span>}
             onClick={() => abrirDetalle(m)}
           />
         ))}
@@ -129,7 +132,7 @@ function Frecuentes({ t }: { t: Tablero }) {
             }
             titulo={f.nombre}
             subtitulo={`${f.cantidad} ${f.cantidad === 1 ? "vez" : "veces"} este mes`}
-            valor={<span className="font-medium text-foreground tabular">{dinero(f.centavos, t.moneda)}</span>}
+            valor={<span className="font-medium text-foreground tabular">{dinero(f.centavos, t.moneda, { compacto: f.centavos >= TOPE_COMPACTO })}</span>}
             onClick={() => navegar(hashDe("movimientos", { mes: t.mes, q: f.nombre }))}
           />
         ))}

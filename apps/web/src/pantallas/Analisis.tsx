@@ -839,7 +839,8 @@ function Lugares({ a }: { a: DatosAnalisis }) {
             }
             valor={
               <span className="flex flex-col items-end">
-                <span className="text-foreground tabular">{dinero(c.centavos, a.moneda)}</span>
+                {/* De $100,000 para arriba, compacto: si no, a 320 px el nombre del comercio queda en una columna. */}
+                <span className="text-foreground tabular">{dinero(c.centavos, a.moneda, { compacto: c.centavos >= 100_000_00 })}</span>
                 {a.comparable ? <Delta actual={c.centavos} anterior={c.anterior} /> : null}
               </span>
             }

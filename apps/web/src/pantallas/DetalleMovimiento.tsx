@@ -162,7 +162,7 @@ function Detalle({ m, enLinea }: { m: MovimientoApp; enLinea: boolean }) {
     <div className="space-y-6 pt-4 pb-6">
       <header className="flex flex-col items-center text-center animate-entrar">
         <LogoMovimiento comercio={m.comercio} descripcion={m.descripcion} categoria={m.categoria} tipo={m.tipo} tamano={72} />
-        <h1 className="mt-3 max-w-full truncate px-4 text-[22px] leading-7 font-semibold">{titulo}</h1>
+        <h1 className="mt-3 line-clamp-2 max-w-full px-4 text-[22px] leading-7 font-semibold text-balance break-words">{titulo}</h1>
         <Ajustado
           className={cn(
             "mt-1 max-w-full px-4 text-[44px] leading-[1.15] font-bold tracking-[-0.025em] tabular",
@@ -197,27 +197,21 @@ function Detalle({ m, enLinea }: { m: MovimientoApp; enLinea: boolean }) {
       <Grupo>
         <Fila titulo="Tipo" valor={TIPOS[m.tipo] ?? m.tipo} />
         {mueve ? null : (
-          <Fila
+          <FilaTexto
             titulo="Categoría"
-            valor={
-              <ConIcono icono={m.categoria ? <LogoCategoria nombre={m.categoria} tipo={m.tipo} tamano={22} /> : null}>
-                {m.categoria?.replace(" > ", " › ") ?? "Sin categoría"}
-              </ConIcono>
-            }
+            icono={m.categoria ? <LogoCategoria nombre={m.categoria} tipo={m.tipo} tamano={22} /> : undefined}
+            texto={m.categoria?.replace(" > ", " › ") ?? "Sin categoría"}
           />
         )}
         {m.cuenta ? (
-          <Fila titulo={mueve ? "Desde" : m.tipo === "ingreso" ? "Llegó a" : "Pagado con"} valor={<ConIcono icono={<LogoCuenta nombre={m.cuenta} />}>{m.cuenta}</ConIcono>} />
+          <FilaTexto titulo={mueve ? "Desde" : m.tipo === "ingreso" ? "Llegó a" : "Pagado con"} icono={<LogoCuenta nombre={m.cuenta} />} texto={m.cuenta} />
         ) : null}
         {m.cuentaDestino ? (
-          <Fila
-            titulo={m.tipo === "pago_tarjeta" ? "Tarjeta" : "Hacia"}
-            valor={<ConIcono icono={<LogoCuenta nombre={m.cuentaDestino} />}>{m.cuentaDestino}</ConIcono>}
-          />
+          <FilaTexto titulo={m.tipo === "pago_tarjeta" ? "Tarjeta" : "Hacia"} icono={<LogoCuenta nombre={m.cuentaDestino} />} texto={m.cuentaDestino} />
         ) : null}
-        {m.etiquetas?.length ? <Fila titulo="Etiquetas" valor={m.etiquetas.map((e) => `#${e.nombre}`).join(" ")} /> : null}
-        {m.descripcion && m.comercio ? <Fila titulo="Nota" valor={m.descripcion} /> : null}
-        {m.lugar ? <Fila titulo="Lugar" valor={m.lugar} /> : null}
+        {m.etiquetas?.length ? <FilaTexto titulo="Etiquetas" texto={m.etiquetas.map((e) => `#${e.nombre}`).join(" ")} /> : null}
+        {m.descripcion && m.comercio ? <FilaTexto titulo="Nota" texto={m.descripcion} /> : null}
+        {m.lugar ? <FilaTexto titulo="Lugar" texto={m.lugar} /> : null}
         {m.moneda !== "MXN" ? <Fila titulo="Moneda" valor={m.moneda} /> : null}
       </Grupo>
 
@@ -288,6 +282,26 @@ function Detalle({ m, enLinea }: { m: MovimientoApp; enLinea: boolean }) {
         />
       </Grupo>
     </div>
+  );
+}
+
+/**
+ * Un dato que puede ser largo (cuenta, nota, lugar, etiquetas). Si cabe va a la derecha como los demás; si no,
+ * baja a su propio renglón debajo de la etiqueta, para que la etiqueta nunca se aplaste (a 320 px caben ~28 letras).
+ */
+function FilaTexto({ titulo, texto, icono }: { titulo: string; texto: string; icono?: ReactNode }) {
+  if (titulo.length + texto.length + (icono ? 4 : 0) <= 28)
+    return <Fila titulo={titulo} valor={icono ? <ConIcono icono={icono}>{texto}</ConIcono> : texto} />;
+  return (
+    <Fila>
+      <div className="min-w-0 flex-1 py-2.5">
+        <div className="text-[15px] text-muted-foreground">{titulo}</div>
+        <div data-seleccionable className="flex items-start gap-1.5 break-words text-pretty">
+          {icono ? <span className="mt-0.5 shrink-0">{icono}</span> : null}
+          <span className="min-w-0">{texto}</span>
+        </div>
+      </div>
+    </Fila>
   );
 }
 

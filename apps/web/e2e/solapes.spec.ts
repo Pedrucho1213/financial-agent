@@ -91,6 +91,20 @@ async function solapes(page: Page) {
       if (el.scrollWidth > el.clientWidth + 1 && el.clientWidth > 0)
         malos.push(`cortado: «${el.textContent.trim().slice(0, 40)}» ${el.scrollWidth}>${el.clientWidth} <${el.tagName.toLowerCase()} class="${String(el.className).slice(0, 60)}">`);
     }
+    // Palabras cortas partidas en renglones («N / ota»): una columna aplastada por su vecina.
+    const w2 = document.createTreeWalker(raiz, NodeFilter.SHOW_TEXT);
+    for (let n = w2.nextNode(); n; n = w2.nextNode()) {
+      const el = n.parentElement;
+      if (!el || !visible(el) || el.closest(".sr-only, .leaflet-container")) continue;
+      for (const p of (n.textContent ?? "").matchAll(/[\p{L}\p{N}]+/gu)) {
+        if (p[0].length < 2 || p[0].length > 10) continue;
+        const rango = document.createRange();
+        rango.setStart(n, p.index);
+        rango.setEnd(n, p.index + p[0].length);
+        const tops = new Set([...rango.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)));
+        if (tops.size > 1) malos.push(`partida: «${p[0]}» en «${(n.textContent ?? "").trim().slice(0, 40)}» <${el.tagName.toLowerCase()} class="${String(el.className).slice(0, 60)}">`);
+      }
+    }
     for (const x of textos) if (x.r.right > innerWidth + 1 || x.r.left < -1) malos.push(`fuera: «${x.t}»`);
     return [...new Set(malos)];
   });
@@ -103,6 +117,9 @@ function api(largos: boolean) {
     const m = a.movimientos[0]!;
     m.comercio = "Restaurante La Casa de las Enchiladas Potosinas";
     m.montoCentavos = 1_234_567_89;
+    m.descripcion = "Pago al trabajador por la instalación del motor para el portón de la casa (mitad)";
+    m.cuenta = "Mercado Pago Crédito Platinum";
+    m.lugar = "Calle Benito Juárez 1234, Colonia Centro, San Luis Potosí";
     a.movimientos[1]!.comercio = "Farmacias del Ahorro Sucursal Insurgentes";
     for (const c of a.cuentas!.cuentas) if (c.nombre === "Banamex Oro") c.nombre = "Mercado Pago Crédito Platinum";
     for (const c of a.cuentas!.cuentas) if (c.nombre === "BBVA") c.saldo = 1_234_567_89;
