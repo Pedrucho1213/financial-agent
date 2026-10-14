@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b2fee721-22a4-4c9b-bdf4-2e2d1ad9a3e9",
+  "id": "b7c759d0-7379-4f5f-afed-2e7f43a9cb77",
   "prevId": "9a3f7c06-b134-4b6e-bce7-a8309b945224",
   "tables": {
     "avisos": {
@@ -330,185 +330,6 @@
         "categorias_usuario_id_usuarios_id_fk": {
           "name": "categorias_usuario_id_usuarios_id_fk",
           "tableFrom": "categorias",
-          "tableTo": "usuarios",
-          "columnsFrom": [
-            "usuario_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "cobros": {
-      "name": "cobros",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "usuario_id": {
-          "name": "usuario_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "recurrente_id": {
-          "name": "recurrente_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "fecha": {
-          "name": "fecha",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "monto_esperado_centavos": {
-          "name": "monto_esperado_centavos",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "moneda": {
-          "name": "moneda",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'MXN'"
-        },
-        "estado": {
-          "name": "estado",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'pendiente'"
-        },
-        "movimiento_id": {
-          "name": "movimiento_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "movimiento_creado": {
-          "name": "movimiento_creado",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "monto_real_centavos": {
-          "name": "monto_real_centavos",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "confirmado_por": {
-          "name": "confirmado_por",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "confirmado_en": {
-          "name": "confirmado_en",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "precio_anterior_centavos": {
-          "name": "precio_anterior_centavos",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "posponer_hasta": {
-          "name": "posponer_hasta",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "notificaciones": {
-          "name": "notificaciones",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "notificado_en": {
-          "name": "notificado_en",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "pregunta": {
-          "name": "pregunta",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "preguntado_en": {
-          "name": "preguntado_en",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "creado_en": {
-          "name": "creado_en",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
-        }
-      },
-      "indexes": {
-        "cobros_recurrente_fecha": {
-          "name": "cobros_recurrente_fecha",
-          "columns": [
-            "recurrente_id",
-            "fecha"
-          ],
-          "isUnique": true
-        },
-        "cobros_usuario_estado": {
-          "name": "cobros_usuario_estado",
-          "columns": [
-            "usuario_id",
-            "estado"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "cobros_usuario_id_usuarios_id_fk": {
-          "name": "cobros_usuario_id_usuarios_id_fk",
-          "tableFrom": "cobros",
           "tableTo": "usuarios",
           "columnsFrom": [
             "usuario_id"
@@ -2028,21 +1849,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "confirmar_solo": {
-          "name": "confirmar_solo",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "comercio_id": {
-          "name": "comercio_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "entrada_id": {
           "name": "entrada_id",
           "type": "text",
@@ -2217,6 +2023,122 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "uso_ia": {
+      "name": "uso_ia",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "usuario_id": {
+          "name": "usuario_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "entrada_id": {
+          "name": "entrada_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "dia": {
+          "name": "dia",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "modelo": {
+          "name": "modelo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tokens_entrada": {
+          "name": "tokens_entrada",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "tokens_cache_lectura": {
+          "name": "tokens_cache_lectura",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "tokens_cache_escritura": {
+          "name": "tokens_cache_escritura",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "tokens_salida": {
+          "name": "tokens_salida",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "costo_micro_usd": {
+          "name": "costo_micro_usd",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "creado_en": {
+          "name": "creado_en",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        }
+      },
+      "indexes": {
+        "uso_ia_usuario_dia": {
+          "name": "uso_ia_usuario_dia",
+          "columns": [
+            "usuario_id",
+            "dia"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "uso_ia_usuario_id_usuarios_id_fk": {
+          "name": "uso_ia_usuario_id_usuarios_id_fk",
+          "tableFrom": "uso_ia",
+          "tableTo": "usuarios",
+          "columnsFrom": [
+            "usuario_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "usuarios": {
       "name": "usuarios",
       "columns": {
@@ -2258,13 +2180,6 @@
         },
         "revisado_para": {
           "name": "revisado_para",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "preferencias_avisos": {
-          "name": "preferencias_avisos",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

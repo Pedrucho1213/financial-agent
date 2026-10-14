@@ -22,6 +22,20 @@ import { CONSULTAS_PLANES } from "./herramientas-planes";
 import { CONSULTAS_CUENTAS } from "./herramientas-cuentas";
 import { datoDeCuentas, hablaDeCuentas, nombresDeTarjetas } from "../finanzas/cuentas";
 import { correccionDeCuenta } from "./respaldo";
+import { fechaLocal } from "../lib/fechas";
+import {
+  anotarUso,
+  AVISO_MODO_BASICO,
+  avisoDeConsultas,
+  bloqueoIa,
+  consultasDe,
+  type LimitesIa,
+  MAX_SALIDA_BASICO,
+  primeraVez,
+  respuestaSinIa,
+  sinModeloDificil,
+  usoDeHoy,
+} from "./uso";
 
 export type Peticion = {
   texto: string;
@@ -75,6 +89,10 @@ export type Dependencias = {
   paralelo?: number;
   /** Cuánto razona en saldos, tarjetas y correcciones cuando una herramienta rechaza el primer intento (IA_RAZONAMIENTO_DIFICIL); sin valor o "no", nunca. */
   razonamientoDificil?: string;
+  /** Topes de IA por cuenta (ai/uso.ts); sin valor, ninguno. */
+  limitesIa?: LimitesIa;
+  /** Después de cada llamada al modelo: para avisarle al dueño si el gasto se dispara (ai/uso.ts, vigilarGasto). */
+  alGastar?: (dia: string) => void;
 };
 
 export type OpcionesHablar = {
@@ -592,11 +610,14 @@ export function precalentar(deps: Dependencias, usuarioId: string): Promise<unkn
   if (previo && Date.now() - previo.desde < PRECALENTADO_VIGENTE_MS) return previo.trabajo;
   const trabajo = enCola(deps, usuarioId, async () => {
     const ctx = crearContexto({ db: deps.db, usuarioId, zonaHoraria: deps.zonaHoraria, monedaBase: deps.monedaBase });
+    // Con Claude, precalentar escribe la caché y cuesta: sin IA por hoy no se precalienta (abrir el Atajo una y otra vez
+    // no puede gastar más que el tope del día).
+    if (bloqueoIa(deps.db, usuarioId, ctx.hoy, deps.limitesIa)) return;
     // Las mismas definiciones, pero sin poder ejecutar nada.
     const herramientas = Object.fromEntries(
       Object.entries(crearHerramientas(ctx, [])).map(([nombre, h]) => [nombre, { ...h, execute: undefined }]),
     );
-    await generateText({
+    const resultado = await generateText({
       model: deps.modelo,
       instructions: construirInstrucciones(ctx),
       messages: [{ role: "user", content: "Hola" }],
@@ -605,6 +626,11 @@ export function precalentar(deps: Dependencias, usuarioId: string): Promise<unkn
       maxRetries: 0,
       abortSignal: AbortSignal.timeout(60_000),
     }).catch(() => undefined);
+    // Con Claude, precalentar también cuesta (escribe la caché): cuenta en el gasto, no como consulta.
+    if (resultado) {
+      anotarUso(deps.db, { usuarioId, dia: ctx.hoy, pasos: resultado.steps });
+      deps.alGastar?.(ctx.hoy);
+    }
   });
   precalentados.set(usuarioId, { desde: Date.now(), trabajo });
   return trabajo;
@@ -900,6 +926,9 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   });
   // Un intento anterior que falló a medias no debe dejar registros duplicados.
   revertirEntrada(ctx, entrada.id);
+  // El día de hoy, no el del dictado: un dictado que esperó en la cola cuenta en las consultas del día en que se procesa.
+  const dia = fechaLocal(new Date(), deps.zonaHoraria);
+  let usoModelo = false;
 
   const acciones: Accion[] = [];
   const mensajeUsuario: ModelMessage = { role: "user", content: entrada.texto };
@@ -946,17 +975,23 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   // Saldos, tarjetas y correcciones razonan cuando el primer intento no basta: si una herramienta lo rechazó ("esas
   // cifras no las dijo", "nombró otra tarjeta") o en el reintento. Razonar desde el principio los hacía 3 o 4 veces más
   // lentos (QA, W6: mediana de 11 s en saldos). Un gasto o una pregunta sencilla nunca razonan.
+  // Quien ya gastó su tope del mes en el modelo difícil sigue con el principal (ai/uso.ts), y en modo básico también.
+  // Modo básico: ya usó sus consultas de hoy, pero no se queda sin IA; sigue con el principal y respuestas más cortas
+  // mientras no llegue a su tope en USD del día (ai/uso.ts).
+  const bloqueo = bloqueoIa(db, usuarioId, dia, deps.limitesIa, entrada.id);
+  const basico = bloqueo === "consultas";
   const razonar =
-    deps.razonamientoDificil && deps.razonamientoDificil !== "no" && entrada.origen === "voz" &&
-    (hablaDeCuentas(entrada.texto, nombresDeTarjetas(ctx)) || esOrdenSobreLoAnotado(entrada.texto))
+    deps.razonamientoDificil && deps.razonamientoDificil !== "no" && entrada.origen === "voz" && !basico &&
+    (hablaDeCuentas(entrada.texto, nombresDeTarjetas(ctx)) || esOrdenSobreLoAnotado(entrada.texto)) &&
+    !sinModeloDificil(db, usuarioId, dia, deps.limitesIa)
       ? deps.razonamientoDificil
       : undefined;
   const conRazonamiento = razonar ? { providerOptions: { local: { reasoningEffort: razonar } }, maxOutputTokens: 2500 } : undefined;
-  const generar = (aviso = "", enLaMac = false) => {
+  const generar = async (aviso = "", enLaMac = false) => {
     confirmacion = undefined;
     // El aviso de un reintento va con los datos, justo antes del dictado, no en las instrucciones.
     const datos = [datosNuevos, aviso.trim()].filter(Boolean).join("\n\n");
-    return generateText({
+    const resultado = await generateText({
       model: deps.modelo,
       instructions: construirInstrucciones(ctx),
       // El resumen va aparte y no se guarda: cambia en cada turno y Ollama sigue reutilizando los datos de antes.
@@ -982,7 +1017,7 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
       temperature: 0.2,
       // Las respuestas son de una o dos frases; esto solo frena a un modelo que no para de escribir (al razonar,
       // lo que piensa también cuenta: por eso 2500).
-      ...(conRazonamiento && aviso ? conRazonamiento : { maxOutputTokens: 600 }),
+      ...(conRazonamiento && aviso ? conRazonamiento : { maxOutputTokens: basico ? MAX_SALIDA_BASICO : 600 }),
       // Con Claude, saldos, tarjetas y correcciones van desde el primer paso al modelo de IA_MODELO_DIFICIL (ai/modelo.ts):
       // en la batería con el modelo real, Sonnet desde el principio acertó las 28 secuencias de Pedro y Haiku 25.
       // Si Claude solo pensó en voz alta (sin herramientas), se le pide al de la Mac (`enLaMac`, ai/modelo.ts).
@@ -992,6 +1027,10 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
       maxRetries: 1,
       abortSignal: AbortSignal.timeout(90_000),
     });
+    usoModelo = true;
+    anotarUso(db, { usuarioId, entradaId: entrada.id, dia, pasos: resultado.steps });
+    deps.alGastar?.(dia);
+    return resultado;
   };
   let texto: string;
   let mensajesRespuesta: ModelMessage[];
@@ -1007,9 +1046,17 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
     comoVoySinModelo(ctx, entrada.texto, acciones) ??
     saludDeVozSinModelo(ctx, entrada.texto, acciones) ??
     (await cuentaSinModelo(ctx, entrada.texto, acciones));
+  // Sin IA por hoy (tope en USD o pausa de la app): un pago de Apple Pay se anota con lo que dio la Cartera; lo demás
+  // se explica y espera.
+  const sinTope = directo || basico ? undefined : bloqueo;
   if (directo) {
     texto = directo;
     mensajesRespuesta = [{ role: "assistant", content: directo }];
+  } else if (sinTope) {
+    texto =
+      (entrada.origen === "apple_pay" ? await anotarPagoDirecto(ctx, entrada.texto, acciones) : undefined) ??
+      respuestaSinIa(sinTope, deps.limitesIa?.consultasDia ?? 0);
+    mensajesRespuesta = [{ role: "assistant", content: texto }];
   } else {
     try {
       let resultado = await generar();
@@ -1115,9 +1162,20 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   const contestado = limpiarParaVoz(sinPreguntasDeMas(texto)) || respuestaPorOmision(acciones);
   const hablado = preguntaTarjeta ? `${contestado} ${preguntaTarjeta}` : contestado;
   const extra = precio?.pregunta ?? dato ?? comentario ?? preguntaPago?.pregunta ?? cobros?.aviso;
+  // Si contó más de una consulta por lo largo, o quedan pocas hoy, se dice al final; detrás de una pregunta no (tiene
+  // que ser lo último que se oye), salvo que con esta se hayan acabado.
+  const uso = usoModelo ? usoDeHoy(db, usuarioId, dia, deps.limitesIa) : undefined;
+  // En modo básico se avisa una vez al día, en la primera respuesta.
+  const quedan = !uso
+    ? undefined
+    : basico
+      ? primeraVez(db, `modo-basico:${usuarioId}:${dia}`) ? AVISO_MODO_BASICO : undefined
+      : !`${hablado} ${extra ?? ""}`.includes("?") || uso.quedan === 0
+        ? avisoDeConsultas(uso, consultasDe(entrada.texto))
+        : undefined;
 
   const respuesta: Respuesta = {
-    respuesta: extra ? `${hablado} ${extra}` : hablado,
+    respuesta: [hablado, extra, quedan].filter(Boolean).join(" "),
     conversacion_id: conversacionId,
     acciones,
     ...(dato ? { dato } : {}),

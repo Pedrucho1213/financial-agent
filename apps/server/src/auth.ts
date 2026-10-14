@@ -1,4 +1,4 @@
-import { and, eq, gte, isNull, ne } from "drizzle-orm";
+import { and, eq, gte, isNull, ne, sql } from "drizzle-orm";
 import { createMiddleware } from "hono/factory";
 import type { Db } from "./db/client";
 import { dispositivos, invitaciones, usuarios } from "./db/schema";
@@ -28,6 +28,15 @@ function crearDispositivoConId(db: Db, usuarioId: string, nombre: string) {
 
 export function crearUsuario(db: Db, nombre: string) {
   return db.insert(usuarios).values({ nombre, usuario: usuarioLibre(db, nombre) }).returning().get();
+}
+
+/** La cuenta dueña de la instalación: la primera que se creó (la de `bun run invitar -- --nombre ...` en una base vacía). */
+export function idDueno(db: Db): string | undefined {
+  return db.select({ id: usuarios.id }).from(usuarios).orderBy(usuarios.creadoEn, sql`rowid`).limit(1).get()?.id;
+}
+
+export function esDueno(db: Db, usuarioId: string): boolean {
+  return idDueno(db) === usuarioId;
 }
 
 // ── Usuario y código personal ─────────────────────────────────────────────────────────────────────
