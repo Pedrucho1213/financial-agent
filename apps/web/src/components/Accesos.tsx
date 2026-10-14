@@ -9,7 +9,9 @@ import { useRecurrentes } from "../lib/recurrentes";
 import { hashDe, navegar } from "../lib/ruta";
 import { faltan, sinDeudaConocida } from "../lib/saldos";
 import { cn } from "../lib/utils";
+import { detalleCorto, saludParaMostrar, useSalud } from "../lib/salud";
 import { Anillos } from "./Anillos";
+import { Medidor } from "./salud/Medidor";
 
 /**
  * Tarjetas en Inicio: cuentas a lo ancho (lo que tiene menos lo que debe); luego análisis, etiquetas, presupuestos y
@@ -57,6 +59,22 @@ export function Accesos({ mes, moneda }: { mes: string; moneda: string }) {
       icono={
         <span aria-hidden className="flex size-[52px] items-center justify-center rounded-full bg-[var(--serie-7)]/15 text-[var(--serie-7)]">
           <Repeat className="size-[22px]" />
+        </span>
+      }
+    />
+  ) : null;
+  // Salud financiera: solo la ve quien tiene el módulo (a las demás cuentas el servidor contesta 404).
+  const salud = saludParaMostrar(useSalud(conCuentas));
+  const tarjetaSalud = salud ? (
+    <Tarjeta
+      key="salud"
+      ancha
+      titulo="Salud financiera"
+      detalle={detalleCorto(salud)}
+      alTocar={() => navegar(hashDe("salud"))}
+      icono={
+        <span aria-hidden className="flex size-[52px] items-center justify-center">
+          <Medidor compacto puntaje={salud.puntaje} nivel={salud.nivelSinAlertas ?? salud.nivel} />
         </span>
       }
     />
@@ -148,6 +166,7 @@ export function Accesos({ mes, moneda }: { mes: string; moneda: string }) {
           </span>
         }
       />
+      {tarjetaSalud}
       {analisis(false)}
       <Tarjeta
         titulo="Etiquetas"

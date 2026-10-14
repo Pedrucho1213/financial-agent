@@ -1,6 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { analizar } from "../finanzas/analisis";
+import { saludSinModelo } from "../finanzas/salud";
 import type { Contexto } from "../finanzas/contexto";
 import { normalizar } from "../lib/texto";
 import type { Accion } from "./herramientas";
@@ -42,4 +43,15 @@ export function comoVoySinModelo(ctx: Contexto, texto: string, acciones: Accion[
   const a = analizar(ctx, argumentos);
   acciones.push({ herramienta: "analizar", argumentos, resultado: { respuesta: a.respuesta, hallazgos: a.hallazgos.map((h) => h.texto) } });
   return a.respuesta;
+}
+
+/**
+ * "¿Cómo está mi salud financiera?" y "¿cómo estoy comparado con los mexicanos?", sin pasar por el modelo.
+ * Solo para quien tiene el módulo de salud abierto; a los demás no les cambia nada.
+ */
+export function saludDeVozSinModelo(ctx: Contexto, texto: string, acciones: Accion[]): string | undefined {
+  const r = saludSinModelo(ctx, texto);
+  if (!r) return undefined;
+  acciones.push({ herramienta: "analizar", argumentos: { enfoque: r.enfoque }, resultado: { respuesta: r.respuesta, hallazgos: [] } });
+  return r.respuesta;
 }

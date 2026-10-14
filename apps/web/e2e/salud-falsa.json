@@ -1,0 +1,605 @@
+{
+  "sinIngreso": {
+    "nivel": "sobregirado",
+    "nivelSinAlertas": null,
+    "puntaje": null,
+    "titulo": "Sobregirado",
+    "resumen": "Por esto: Revolut crédito va al 91% de su límite.",
+    "alertas": [
+      "Revolut crédito va al 91% de su límite."
+    ],
+    "pilares": [
+      {
+        "clave": "margen",
+        "nombre": "Margen",
+        "peso": 30,
+        "puntos": null,
+        "valor": null,
+        "frase": "Cuánto te sobra de lo que te entra.",
+        "consejo": "Me falta tu ingreso."
+      },
+      {
+        "clave": "colchon",
+        "nombre": "Colchón",
+        "peso": 20,
+        "puntos": 40,
+        "valor": "1 mes",
+        "frase": "Lo que tienes cubre 1 mes de tus gastos.",
+        "consejo": "Para 3 meses te faltan unos $37,300."
+      },
+      {
+        "clave": "deuda",
+        "nombre": "Deuda",
+        "peso": 25,
+        "puntos": 18,
+        "valor": "66% de uso",
+        "frase": "Usas el 66% de tus tarjetas.",
+        "consejo": "Baja Revolut crédito de 91% a menos de 70%: son $7,150."
+      },
+      {
+        "clave": "gustos",
+        "nombre": "Gustos",
+        "peso": 15,
+        "puntos": null,
+        "valor": null,
+        "frase": "Tus gustos son el 41% de lo que gastas.",
+        "consejo": "Para calificarlo me falta tu ingreso."
+      },
+      {
+        "clave": "compromisos",
+        "nombre": "Pagos fijos",
+        "peso": 10,
+        "puntos": null,
+        "valor": "$1,837",
+        "frase": "Tienes $1,837 al mes de pagos fijos.",
+        "consejo": "Para calificarlo me falta tu ingreso."
+      }
+    ],
+    "ingresos": {
+      "esteMesCentavos": 0,
+      "mensualCentavos": null,
+      "enOtraMoneda": false
+    },
+    "base": {
+      "desde": "2026-10-07",
+      "hasta": "2026-10-14",
+      "dias": 8,
+      "gastoMensualCentavos": 1868240,
+      "pocosDatos": true
+    },
+    "mexico": [
+      {
+        "clave": "sin_ingreso",
+        "titulo": "Si dejaras de ganar",
+        "tu": "3.8 meses",
+        "mexico": "De lo básico (línea de pobreza)",
+        "frase": "Con lo que tienes cubrirías lo básico 3.8 meses y tu nivel de vida actual 1 mes."
+      },
+      {
+        "clave": "comer_fuera",
+        "titulo": "Comer fuera",
+        "tu": "$5,060 al mes",
+        "mexico": "Una persona gasta $415 al mes",
+        "frase": "A tu ritmo de estos 8 días, comer fuera te cuesta unos $5,060 al mes, 12 veces lo de una persona promedio. Es el 27% de tu gasto; en México, el 8%."
+      }
+    ],
+    "rubros": [
+      {
+        "clave": "alimentos",
+        "nombre": "Comida",
+        "tuProporcion": 0.5243449501873314,
+        "mexicoProporcion": 0.377
+      },
+      {
+        "clave": "transporte",
+        "nombre": "Transporte y teléfono",
+        "tuProporcion": 0.2972732191309937,
+        "mexicoProporcion": 0.195
+      },
+      {
+        "clave": "esparcimiento",
+        "nombre": "Educación y diversión",
+        "tuProporcion": 0.028272604862888035,
+        "mexicoProporcion": 0.096
+      },
+      {
+        "clave": "vivienda",
+        "nombre": "Vivienda y servicios",
+        "tuProporcion": 0,
+        "mexicoProporcion": 0.091
+      },
+      {
+        "clave": "cuidado",
+        "nombre": "Cuidado personal",
+        "tuProporcion": 0,
+        "mexicoProporcion": 0.078
+      },
+      {
+        "clave": "hogar",
+        "nombre": "Cosas para la casa",
+        "tuProporcion": 0,
+        "mexicoProporcion": 0.063
+      },
+      {
+        "clave": "ropa",
+        "nombre": "Ropa y calzado",
+        "tuProporcion": 0,
+        "mexicoProporcion": 0.038
+      },
+      {
+        "clave": "salud",
+        "nombre": "Salud",
+        "tuProporcion": 0.15010922581878683,
+        "mexicoProporcion": 0.034
+      },
+      {
+        "clave": "otros",
+        "nombre": "Otros",
+        "tuProporcion": 0,
+        "mexicoProporcion": 0.027
+      }
+    ],
+    "consejos": [
+      {
+        "texto": "Abónale unos $7,150 a Revolut crédito para bajarla a menos de 70% y salir de Sobregirado. Mientras, no la uses para gastos nuevos."
+      },
+      {
+        "texto": "Comes fuera unas 4.4 veces por semana ($270 cada vez). Una vez menos por semana te deja unos $1,140 al mes.",
+        "ahorroMensualCentavos": 114000
+      },
+      {
+        "texto": "En Taxi y apps llevas $561.52 en 8 días; a ese ritmo serían unos $2,100 al mes, y bajarle un tercio te dejaría $700.",
+        "ahorroMensualCentavos": 70000
+      },
+      {
+        "texto": "Cuando te paguen, dime \"me pagaron tantos pesos\" y te doy tu calificación completa y tu lugar en México."
+      }
+    ],
+    "faltan": [
+      "No tengo ingresos tuyos. Cuando te paguen, dime \"me pagaron tantos pesos\" y te califico completo."
+    ],
+    "fuentes": [
+      {
+        "nombre": "INEGI, ENIGH 2024",
+        "fecha": "2025-07",
+        "url": "https://www.inegi.org.mx/programas/enigh/nc/2024/"
+      },
+      {
+        "nombre": "INEGI, líneas de pobreza por ingresos",
+        "fecha": "2026-07",
+        "url": "https://www.inegi.org.mx/temas/lineaspobreza/"
+      },
+      {
+        "nombre": "INEGI, medición de pobreza 2024",
+        "fecha": "2025-08",
+        "url": "https://www.inegi.org.mx/temas/pobreza/"
+      },
+      {
+        "nombre": "INEGI, ENSAFI 2023",
+        "fecha": "2024-06",
+        "url": "https://www.inegi.org.mx/programas/ensafi/2023/"
+      },
+      {
+        "nombre": "CONASAMI, salario mínimo 2026",
+        "fecha": "2025-12",
+        "url": "https://www.gob.mx/conasami"
+      }
+    ]
+  },
+  "conIngreso": {
+    "nivel": "sobregirado",
+    "nivelSinAlertas": "excelente",
+    "puntaje": 74,
+    "titulo": "Sobregirado",
+    "resumen": "Por esto: Revolut crédito va al 91% de su límite. Sin eso estarías en Excelente, con 74 de 100.",
+    "alertas": [
+      "Revolut crédito va al 91% de su límite."
+    ],
+    "pilares": [
+      {
+        "clave": "margen",
+        "nombre": "Margen",
+        "peso": 30,
+        "puntos": 100,
+        "valor": "82%",
+        "frase": "Te sobra el 82% de lo que te entra.",
+        "consejo": "Vas muy bien: aparta lo que sobra en cuanto te paguen."
+      },
+      {
+        "clave": "colchon",
+        "nombre": "Colchón",
+        "peso": 20,
+        "puntos": 40,
+        "valor": "1 mes",
+        "frase": "Lo que tienes cubre 1 mes de tus gastos.",
+        "consejo": "Para 3 meses te faltan unos $37,300."
+      },
+      {
+        "clave": "deuda",
+        "nombre": "Deuda",
+        "peso": 25,
+        "puntos": 43,
+        "valor": "66% de uso",
+        "frase": "Debes 1.4 meses de ingreso y usas el 66% de tus tarjetas.",
+        "consejo": "Baja Revolut crédito de 91% a menos de 70%: son $7,150."
+      },
+      {
+        "clave": "gustos",
+        "nombre": "Gustos",
+        "peso": 15,
+        "puntos": 100,
+        "valor": "8%",
+        "frase": "Tus gustos se llevan el 8% de lo que te entra (sano: hasta 30%).",
+        "consejo": "Bien: tus gustos caben en el 30%."
+      },
+      {
+        "clave": "compromisos",
+        "nombre": "Pagos fijos",
+        "peso": 10,
+        "puntos": 100,
+        "valor": "2%",
+        "frase": "Tus pagos fijos son el 2% de lo que te entra.",
+        "consejo": "Tus pagos fijos están en orden."
+      }
+    ],
+    "ingresos": {
+      "esteMesCentavos": 10101000,
+      "mensualCentavos": 10101000,
+      "enOtraMoneda": false
+    },
+    "base": {
+      "desde": "2026-10-07",
+      "hasta": "2026-10-14",
+      "dias": 8,
+      "gastoMensualCentavos": 1868240,
+      "pocosDatos": true
+    },
+    "mexico": [
+      {
+        "clave": "ingreso",
+        "titulo": "Tu lugar por ingreso",
+        "tu": "$101,000",
+        "mexico": "Promedio de un hogar: $27,771",
+        "frase": "Estás en el decil X de los hogares de México: ganas más que alrededor del 90%.",
+        "decil": 10
+      },
+      {
+        "clave": "perceptor",
+        "titulo": "Frente a quien trabaja",
+        "tu": "9.4 veces",
+        "mexico": "Una persona que trabaja gana $10,757 en promedio",
+        "frase": "Ganas 9.4 veces lo de una persona promedio que trabaja y 11 salarios mínimos."
+      },
+      {
+        "clave": "pobreza",
+        "titulo": "Distancia a la pobreza",
+        "tu": "21 veces",
+        "mexico": "Línea de pobreza: $4,884 por persona",
+        "frase": "Si vives solo de tu ingreso, estás 21 veces arriba de la línea de pobreza."
+      },
+      {
+        "clave": "sin_ingreso",
+        "titulo": "Si dejaras de ganar",
+        "tu": "3.8 meses",
+        "mexico": "De lo básico (línea de pobreza)",
+        "frase": "Con lo que tienes cubrirías lo básico 3.8 meses y tu nivel de vida actual 1 mes."
+      },
+      {
+        "clave": "colchon",
+        "titulo": "Una urgencia de un mes",
+        "tu": "Todavía no",
+        "mexico": "Solo 36% de los mexicanos podría",
+        "frase": "Una urgencia de un mes de ingreso no la cubrirías con tus ahorros; tampoco el 64% de los mexicanos."
+      },
+      {
+        "clave": "comer_fuera",
+        "titulo": "Comer fuera",
+        "tu": "$5,060 al mes",
+        "mexico": "Una persona gasta $415 al mes",
+        "frase": "A tu ritmo de estos 8 días, comer fuera te cuesta unos $5,060 al mes, 12 veces lo de una persona promedio. Es el 27% de tu gasto; en México, el 8%."
+      }
+    ],
+    "rubros": [
+      {
+        "clave": "alimentos",
+        "nombre": "Comida",
+        "tuProporcion": 0.5243449501873314,
+        "mexicoProporcion": 0.377
+      },
+      {
+        "clave": "transporte",
+        "nombre": "Transporte y teléfono",
+        "tuProporcion": 0.2972732191309937,
+        "mexicoProporcion": 0.195
+      },
+      {
+        "clave": "esparcimiento",
+        "nombre": "Educación y diversión",
+        "tuProporcion": 0.028272604862888035,
+        "mexicoProporcion": 0.096
+      },
+      {
+        "clave": "vivienda",
+        "nombre": "Vivienda y servicios",
+        "tuProporcion": 0,
+        "mexicoProporcion": 0.091
+      },
+      {
+        "clave": "cuidado",
+        "nombre": "Cuidado personal",
+        "tuProporcion": 0,
+        "mexicoProporcion": 0.078
+      },
+      {
+        "clave": "hogar",
+        "nombre": "Cosas para la casa",
+        "tuProporcion": 0,
+        "mexicoProporcion": 0.063
+      },
+      {
+        "clave": "ropa",
+        "nombre": "Ropa y calzado",
+        "tuProporcion": 0,
+        "mexicoProporcion": 0.038
+      },
+      {
+        "clave": "salud",
+        "nombre": "Salud",
+        "tuProporcion": 0.15010922581878683,
+        "mexicoProporcion": 0.034
+      },
+      {
+        "clave": "otros",
+        "nombre": "Otros",
+        "tuProporcion": 0,
+        "mexicoProporcion": 0.027
+      }
+    ],
+    "consejos": [
+      {
+        "texto": "Abónale unos $7,150 a Revolut crédito para bajarla a menos de 70% y salir de Sobregirado. Mientras, no la uses para gastos nuevos."
+      },
+      {
+        "texto": "Comes fuera unas 4.4 veces por semana ($270 cada vez). Una vez menos por semana te deja unos $1,140 al mes.",
+        "ahorroMensualCentavos": 114000
+      },
+      {
+        "texto": "En Taxi y apps llevas $561.52 en 8 días; a ese ritmo serían unos $2,100 al mes, y bajarle un tercio te dejaría $700.",
+        "ahorroMensualCentavos": 70000
+      },
+      {
+        "texto": "Para 3 meses te faltan unos $37,300."
+      }
+    ],
+    "faltan": [],
+    "fuentes": [
+      {
+        "nombre": "INEGI, ENIGH 2024",
+        "fecha": "2025-07",
+        "url": "https://www.inegi.org.mx/programas/enigh/nc/2024/"
+      },
+      {
+        "nombre": "INEGI, líneas de pobreza por ingresos",
+        "fecha": "2026-07",
+        "url": "https://www.inegi.org.mx/temas/lineaspobreza/"
+      },
+      {
+        "nombre": "INEGI, medición de pobreza 2024",
+        "fecha": "2025-08",
+        "url": "https://www.inegi.org.mx/temas/pobreza/"
+      },
+      {
+        "nombre": "INEGI, ENSAFI 2023",
+        "fecha": "2024-06",
+        "url": "https://www.inegi.org.mx/programas/ensafi/2023/"
+      },
+      {
+        "nombre": "CONASAMI, salario mínimo 2026",
+        "fecha": "2025-12",
+        "url": "https://www.gob.mx/conasami"
+      }
+    ]
+  },
+  "optimizando": {
+    "nivel": "optimizando",
+    "nivelSinAlertas": "optimizando",
+    "puntaje": 100,
+    "titulo": "Optimizando",
+    "resumen": "Te sobra el 31% de lo que te entra. No debes nada.",
+    "alertas": [],
+    "pilares": [
+      {
+        "clave": "margen",
+        "nombre": "Margen",
+        "peso": 30,
+        "puntos": 100,
+        "valor": "31%",
+        "frase": "Te sobra el 31% de lo que te entra.",
+        "consejo": "Vas muy bien: aparta lo que sobra en cuanto te paguen."
+      },
+      {
+        "clave": "colchon",
+        "nombre": "Colchón",
+        "peso": 20,
+        "puntos": 100,
+        "valor": "6.7 meses",
+        "frase": "Lo que tienes cubre 6.7 meses de tus gastos.",
+        "consejo": "Colchón completo: lo que pase de 6 meses ponlo a trabajar."
+      },
+      {
+        "clave": "deuda",
+        "nombre": "Deuda",
+        "peso": 25,
+        "puntos": 100,
+        "valor": "Sin deuda",
+        "frase": "No debes nada.",
+        "consejo": "Tu deuda está sana."
+      },
+      {
+        "clave": "gustos",
+        "nombre": "Gustos",
+        "peso": 15,
+        "puntos": 100,
+        "valor": "5%",
+        "frase": "Tus gustos se llevan el 5% de lo que te entra (sano: hasta 30%).",
+        "consejo": "Bien: tus gustos caben en el 30%."
+      },
+      {
+        "clave": "compromisos",
+        "nombre": "Pagos fijos",
+        "peso": 10,
+        "puntos": 100,
+        "valor": "0%",
+        "frase": "Tus pagos fijos son el 0% de lo que te entra.",
+        "consejo": "Tus pagos fijos están en orden."
+      }
+    ],
+    "ingresos": {
+      "esteMesCentavos": 2500000,
+      "mensualCentavos": 4318182,
+      "enOtraMoneda": false
+    },
+    "base": {
+      "desde": "2026-07-19",
+      "hasta": "2026-10-14",
+      "dias": 88,
+      "gastoMensualCentavos": 2970909,
+      "pocosDatos": false
+    },
+    "mexico": [
+      {
+        "clave": "ingreso",
+        "titulo": "Tu lugar por ingreso",
+        "tu": "$43,200",
+        "mexico": "Promedio de un hogar: $27,771",
+        "frase": "Estás en el decil IX de los hogares de México: ganas más que alrededor del 80%.",
+        "decil": 9
+      },
+      {
+        "clave": "perceptor",
+        "titulo": "Frente a quien trabaja",
+        "tu": "4 veces",
+        "mexico": "Una persona que trabaja gana $10,757 en promedio",
+        "frase": "Ganas 4 veces lo de una persona promedio que trabaja y 4.5 salarios mínimos."
+      },
+      {
+        "clave": "pobreza",
+        "titulo": "Distancia a la pobreza",
+        "tu": "8.8 veces",
+        "mexico": "Línea de pobreza: $4,884 por persona",
+        "frase": "Si vives solo de tu ingreso, estás 8.8 veces arriba de la línea de pobreza."
+      },
+      {
+        "clave": "sin_ingreso",
+        "titulo": "Si dejaras de ganar",
+        "tu": "41 meses",
+        "mexico": "De lo básico (línea de pobreza)",
+        "frase": "Con lo que tienes cubrirías lo básico 41 meses y tu nivel de vida actual 6.7 meses."
+      },
+      {
+        "clave": "colchon",
+        "titulo": "Una urgencia de un mes",
+        "tu": "Sí la pagas",
+        "mexico": "Solo 36% de los mexicanos podría",
+        "frase": "Podrías pagar con tus ahorros una urgencia de un mes de ingreso; solo el 36% de los mexicanos podría."
+      },
+      {
+        "clave": "comer_fuera",
+        "titulo": "Comer fuera",
+        "tu": "$2,070 al mes",
+        "mexico": "Una persona gasta $415 al mes",
+        "frase": "Comer fuera te cuesta unos $2,070 al mes, 5 veces lo de una persona promedio. Es el 7% de tu gasto; en México, el 8%."
+      }
+    ],
+    "rubros": [
+      {
+        "clave": "alimentos",
+        "nombre": "Comida",
+        "tuProporcion": 0.4883720930232558,
+        "mexicoProporcion": 0.377
+      },
+      {
+        "clave": "transporte",
+        "nombre": "Transporte y teléfono",
+        "tuProporcion": 0.09302325581395349,
+        "mexicoProporcion": 0.195
+      },
+      {
+        "clave": "esparcimiento",
+        "nombre": "Educación y diversión",
+        "tuProporcion": 0,
+        "mexicoProporcion": 0.096
+      },
+      {
+        "clave": "vivienda",
+        "nombre": "Vivienda y servicios",
+        "tuProporcion": 0.4186046511627907,
+        "mexicoProporcion": 0.091
+      },
+      {
+        "clave": "cuidado",
+        "nombre": "Cuidado personal",
+        "tuProporcion": 0,
+        "mexicoProporcion": 0.078
+      },
+      {
+        "clave": "hogar",
+        "nombre": "Cosas para la casa",
+        "tuProporcion": 0,
+        "mexicoProporcion": 0.063
+      },
+      {
+        "clave": "ropa",
+        "nombre": "Ropa y calzado",
+        "tuProporcion": 0,
+        "mexicoProporcion": 0.038
+      },
+      {
+        "clave": "salud",
+        "nombre": "Salud",
+        "tuProporcion": 0,
+        "mexicoProporcion": 0.034
+      },
+      {
+        "clave": "otros",
+        "nombre": "Otros",
+        "tuProporcion": 0,
+        "mexicoProporcion": 0.027
+      }
+    ],
+    "consejos": [
+      {
+        "texto": "En Restaurantes se te van unos $2,000 al mes; bajarle un tercio te deja $700.",
+        "ahorroMensualCentavos": 70000
+      }
+    ],
+    "faltan": [],
+    "fuentes": [
+      {
+        "nombre": "INEGI, ENIGH 2024",
+        "fecha": "2025-07",
+        "url": "https://www.inegi.org.mx/programas/enigh/nc/2024/"
+      },
+      {
+        "nombre": "INEGI, líneas de pobreza por ingresos",
+        "fecha": "2026-07",
+        "url": "https://www.inegi.org.mx/temas/lineaspobreza/"
+      },
+      {
+        "nombre": "INEGI, medición de pobreza 2024",
+        "fecha": "2025-08",
+        "url": "https://www.inegi.org.mx/temas/pobreza/"
+      },
+      {
+        "nombre": "INEGI, ENSAFI 2023",
+        "fecha": "2024-06",
+        "url": "https://www.inegi.org.mx/programas/ensafi/2023/"
+      },
+      {
+        "nombre": "CONASAMI, salario mínimo 2026",
+        "fecha": "2025-12",
+        "url": "https://www.gob.mx/conasami"
+      }
+    ]
+  }
+}
