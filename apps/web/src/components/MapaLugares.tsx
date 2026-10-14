@@ -11,11 +11,16 @@ export type Lugar = {
   lon: number;
   centavos: number;
   cantidad: number;
+  /** Color del círculo (el de la marca o la categoría) y del número. Sin esto, el tinte de la app. */
+  fondo?: string;
+  tinta?: string;
+  /** Lugar en la lista, dentro del círculo. */
+  numero?: number;
 };
 
 // Mosaicos de CARTO (claro y oscuro): limpios, sin anuncios y legibles como Mapas de Apple.
-// Pedirlos le dice a CARTO qué zona estás viendo (no tus gastos), así que solo se usan si el
-// usuario enciende "Mostrar calles". Sin ellos, el mapa es un fondo propio con los nombres.
+// Pedirlos le dice a CARTO qué zona estás viendo (no tus gastos). Salen por omisión y el usuario los
+// puede apagar con "Mostrar calles"; sin ellos, el mapa es un fondo propio con los nombres.
 const MOSAICOS = {
   claro: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
   oscuro: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
@@ -23,7 +28,8 @@ const MOSAICOS = {
 const CREDITOS = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>';
 
 /**
- * Mapa con un círculo por lugar, del tamaño de lo gastado ahí. Tocar un círculo lo elige.
+ * Mapa con un círculo por lugar, del tamaño de lo gastado ahí y del color de su marca, con su número de la
+ * lista. Tocar un círculo lo elige.
  * Con `interactivo={false}` es una vista fija (detalle de un movimiento).
  */
 export function MapaLugares({
@@ -47,7 +53,7 @@ export function MapaLugares({
   const caja = useRef<HTMLDivElement>(null);
   const mapa = useRef<L.Map | null>(null);
   const capa = useRef<L.TileLayer | null>(null);
-  const circulos = useRef(new Map<string, L.CircleMarker>());
+  const circulos = useRef(new Map<string, L.Marker>());
   const elegir = useRef(alElegir);
   elegir.current = alElegir;
   const oscuro = useModoOscuro();
@@ -108,22 +114,34 @@ export function MapaLugares({
     }
     const maximo = Math.max(...lugares.map((l) => l.centavos));
     for (const l of lugares) {
-      const radio = 7 + Math.sqrt(l.centavos / Math.max(1, maximo)) * 17;
-      const c = L.circleMarker([l.lat, l.lon], {
-        radius: radio,
-        className: "fa-lugar",
-        weight: 2,
-        bubblingMouseEvents: false,
+      const proporcion = Math.sqrt(l.centavos / Math.max(1, maximo));
+      // Con número el círculo no baja de 11 px de radio, para que se lea.
+      const radio = l.numero ? 11 + proporcion * 13 : 7 + proporcion * 17;
+      const lado = Math.round(radio * 2);
+      // Todo va como texto, no como HTML: el comercio puede venir de Apple Pay o del dictado.
+      const cont = document.createElement("span");
+      cont.className = "fa-lugar-cont";
+      const circulo = document.createElement("span");
+      circulo.className = "fa-lugar tabular";
+      circulo.style.width = circulo.style.height = `${lado}px`;
+      if (l.fondo) circulo.style.setProperty("--fondo", l.fondo);
+      if (l.tinta) circulo.style.setProperty("--tinta", l.tinta);
+      if (l.numero) circulo.textContent = String(l.numero);
+      cont.append(circulo);
+      // Sin calles, el nombre al lado del círculo es lo que da contexto.
+      if (!conCalles) {
+        const nombreLugar = document.createElement("span");
+        nombreLugar.className = "fa-etiqueta";
+        nombreLugar.textContent = l.nombre;
+        cont.append(nombreLugar);
+      }
+      const c = L.marker([l.lat, l.lon], {
+        icon: L.divIcon({ html: cont, className: "fa-lugar-icono", iconSize: [lado, lado], iconAnchor: [lado / 2, lado / 2] }),
+        title: l.nombre,
+        keyboard: interactivo,
         interactive: interactivo,
       }).addTo(m);
       c.on("click", () => elegir.current?.(l.clave));
-      // Sin calles, el nombre al lado del círculo es lo que da contexto. Va como texto, no como HTML:
-      // el comercio puede venir de Apple Pay o del dictado y Leaflet insertaría un string como innerHTML.
-      if (!conCalles) {
-        const nombreLugar = document.createElement("span");
-        nombreLugar.textContent = l.nombre;
-        c.bindTooltip(nombreLugar, { permanent: true, direction: "right", offset: [radio, 0], className: "fa-etiqueta" });
-      }
       circulos.current.set(l.clave, c);
     }
     const limites = L.latLngBounds(lugares.map((l) => [l.lat, l.lon] as [number, number]));
@@ -135,11 +153,11 @@ export function MapaLugares({
   // Resalta el elegido y lo lleva arriba del centro, donde no lo tapa la tarjeta de abajo.
   useEffect(() => {
     const m = mapa.current;
+    m?.getContainer().classList.toggle("fa-con-elegido", !!seleccionado && circulos.current.has(seleccionado));
     for (const [clave, c] of circulos.current) {
-      const el = c.getElement();
-      el?.classList.toggle("fa-lugar-elegido", clave === seleccionado);
+      c.getElement()?.querySelector(".fa-lugar")?.classList.toggle("fa-lugar-elegido", clave === seleccionado);
+      c.setZIndexOffset(clave === seleccionado ? 1000 : 0);
       if (clave === seleccionado && m) {
-        c.bringToFront();
         const punto = m.latLngToContainerPoint(c.getLatLng());
         const tamano = m.getSize();
         m.panBy([punto.x - tamano.x / 2, punto.y - tamano.y * 0.38], { animate: true });

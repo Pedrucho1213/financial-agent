@@ -423,8 +423,58 @@
   background-size: 28px 28px;
   background-color: var(--card);
 }
+.fa-lugar-icono {
+  /* El contenedor mide lo que el círculo; el nombre sale a la derecha sin moverlo. */
+  overflow: visible;
+}
+.fa-lugar-cont {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* Círculo del color de la marca, con borde blanco y su número, como en el diseño. */
+.fa-lugar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 9999px;
+  border: 2.5px solid #fff;
+  background: var(--fondo, var(--tint));
+  color: var(--tinta, #fff);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.25);
+  transition:
+    transform 0.25s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.2s ease;
+}
+.fa-lugar-icono.leaflet-interactive .fa-lugar {
+  cursor: pointer;
+}
+/* Con uno elegido, los demás se apagan un poco y el elegido crece con un anillo del tinte. */
+.fa-con-elegido .fa-lugar {
+  opacity: 0.55;
+}
+.fa-con-elegido .fa-lugar.fa-lugar-elegido,
+.fa-lugar-elegido {
+  opacity: 1;
+  transform: scale(1.18);
+  box-shadow:
+    0 0 0 3px var(--tint),
+    0 4px 12px rgb(0 0 0 / 0.3);
+}
 .fa-mapa .fa-etiqueta {
-  border: 0;
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 4px);
+  transform: translateY(-50%);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   border-radius: 8px;
   padding: 2px 7px;
   background-color: var(--vidrio);
@@ -432,21 +482,13 @@
   color: var(--foreground);
   font-size: 12px;
   font-weight: 600;
+  pointer-events: none;
 }
-.fa-mapa .fa-etiqueta::before {
-  display: none;
+.fa-con-elegido .fa-etiqueta {
+  opacity: 0.6;
 }
-.fa-lugar {
-  fill: var(--tint);
-  fill-opacity: 0.28;
-  stroke: var(--tint);
-  stroke-opacity: 0.9;
-  transition: fill-opacity 0.2s ease;
-}
-.fa-lugar-elegido {
-  fill-opacity: 0.85;
-  stroke: var(--card);
-  stroke-width: 3;
+.fa-con-elegido .fa-lugar-elegido + .fa-etiqueta {
+  opacity: 1;
 }
 
 /* Borde de colores que gira mientras la IA piensa (como el brillo de Siri). */
