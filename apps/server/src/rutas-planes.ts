@@ -15,6 +15,7 @@ import {
   fijarPresupuesto,
   listarMetas,
   listarMsi,
+  deudasPorPersona,
   listarPrestamos,
   metaApp,
   quitarPresupuesto,
@@ -99,7 +100,12 @@ export function rutasPlanes(v1: Hono<{ Variables: VariablesAuth }>, contexto: (u
     return c.json({ ok: true });
   });
 
-  v1.get("/prestamos", (c) => c.json(listarPrestamos(contexto(c.get("usuarioId")), { todos: c.req.query("todos") === "1" })));
+  v1.get("/prestamos", (c) => {
+    const ctx = contexto(c.get("usuarioId"));
+    const todos = c.req.query("todos") === "1";
+    // `personas`: una deuda por persona y sentido, con sus abonos, para el apartado de Deudas de la app.
+    return c.json({ ...listarPrestamos(ctx, { todos }), personas: deudasPorPersona(ctx, { todos }) });
+  });
 
   v1.get("/msi", (c) => c.json(listarMsi(contexto(c.get("usuarioId")), { todas: c.req.query("todas") === "1" })));
 

@@ -372,7 +372,7 @@ export const NOMBRE_TIPO: Record<TipoCuenta, string> = {
 // ------------------------------------------------------------------ Mover dinero entre cuentas
 
 // Lo que suena a una cuenta propia y no a una persona: "Revolut", "mi cuenta de ahorro", "efectivo".
-const PARECE_CUENTA =
+export const PARECE_CUENTA =
   /\b(cuenta|tarjeta|tdc|tdd|efectivo|cash|cartera|ahorro|ahorros|inversion|nomina|debito|credito|monedero|vales|cajero|banco|bbva|bancomer|nu|banorte|santander|hsbc|banamex|citibanamex|scotiabank|scotia|inbursa|azteca|banregio|bancoppel|coppel|afirme|bajio|amex|american express|liverpool|klar|stori|uala|openbank|revolut|hey|invex|rappicard|didi|mercado pago|paypal|spin|albo|fondeadora|cetes|gbm|nu ?bank|vexi|plata)\b/;
 
 export type DatosMover = {

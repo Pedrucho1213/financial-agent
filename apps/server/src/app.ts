@@ -3,6 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
 import { z } from "zod";
 import { consultarEntrada, conversacionParaChat, conversacionReciente, type Dependencias, type Respuesta, ErrorEnProceso, ErrorIA, hablar } from "./ai/asistente";
+import { hablaDePrestamo } from "./ai/herramientas-planes";
 import { guardarDescarga, limpiarDescargas, tomarDescarga } from "./atajo/descargas";
 import { ErrorFirma, firmarAtajo, generarAtajo, generarAtajoApplePay, guionBienvenida, NOMBRE_ATAJO_APPLE_PAY } from "./atajo/generar";
 import {
@@ -568,7 +569,8 @@ export function crearApp(opciones: OpcionesApp) {
     const enReloj = /watch/i.test(p.equipo ?? "") || /watch/i.test(agente);
     // "Tengo 20 mil en Revolut", "le pagué 3 mil a la Nu": no es un gasto sino cómo quedan sus cuentas,
     // y eso se oye al momento en vez de un "Anotado".
-    const actualizaCuentas = hablaDeCuentas(p.texto, nombresDeTarjetas(contexto(usuarioId)));
+    // Igual con un préstamo o un abono a una persona ("le transferí 2 mil a mi mamá"): se oye cuánto queda.
+    const actualizaCuentas = hablaDeCuentas(p.texto, nombresDeTarjetas(contexto(usuarioId))) || hablaDePrestamo(contexto(usuarioId), p.texto);
     const rapida = delAtajo && !pregunta && !actualizaCuentas && !enReloj && tienePush(db, usuarioId);
     // Sin nada que comentar (nada raro en el gasto, poco historial, ya comentó lo del día), no la espera.
     const esperaMs =

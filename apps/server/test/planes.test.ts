@@ -234,7 +234,7 @@ describe("herramientas de la IA", () => {
     // Las metas y personas van en los datos del usuario para que la IA las reconozca.
     const instrucciones = datosDelUsuario(ctx);
     expect(instrucciones).toContain("Sus metas: Viaje.");
-    expect(instrucciones).toContain("Préstamos pendientes con: Juan.");
+    expect(instrucciones).toContain("Préstamos pendientes con: Juan (le debe al usuario).");
   });
 
   test("préstamos, metas y meses sin intereses no se registran como gasto", async () => {

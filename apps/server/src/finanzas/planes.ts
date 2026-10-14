@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, isNotNull, isNull, lte } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lte } from "drizzle-orm";
 import { bitacora, comercios, comprasMsi, cuentas, metas, movimientos, prestamosPersonales, presupuestos, recurrentes } from "../db/schema";
 import { aCentavos, formatearMonto } from "../lib/dinero";
 import { armarFecha, partes, resolverFecha, resolverPeriodo, sumarDias, sumarMeses, ultimoDiaDelMes } from "../lib/fechas";
@@ -424,10 +424,46 @@ function prestamosAbiertos(ctx: Contexto) {
     .all();
 }
 
-const limpiarPersona = (persona: string) => persona.trim().replace(/^(a|al|a la|la|el|mi|con|de) /i, "").trim();
+// "A mi mamá", "con la tía Rosa": las palabras de enfrente no son parte del nombre.
+const limpiarPersona = (persona: string) => persona.trim().replace(/^((a|al|la|el|mi|mis|su|con|de) )+/i, "").trim();
+
+/** Formas de decir a la misma persona: "mi mamá", "mi madre" y "mi jefa" son ella. La primera es la que se guarda. */
+export const PARENTESCOS: readonly (readonly string[])[] = [
+  ["mama", "madre", "mami", "jefa", "jefecita", "mamita"],
+  // "Mi jefe" suele ser el del trabajo; "mi jefa", la mamá.
+  ["papa", "padre", "papi", "jefecito", "papito"],
+  ["abuela", "abuelita"],
+  ["abuelo", "abuelito"],
+  ["esposa", "mujer"],
+  ["esposo", "marido"],
+];
+const parentescoDe = new Map(PARENTESCOS.flatMap((grupo) => grupo.map((p) => [p, grupo[0]!] as const)));
+
+/** El nombre para comparar: sin "a mi", sin acentos y con el parentesco en su forma de siempre ("madre" es "mama"). */
+export function clavePersona(persona: string): string {
+  return normalizar(limpiarPersona(persona))
+    .split(" ")
+    .map((w) => parentescoDe.get(w) ?? w)
+    .join(" ");
+}
+
+const COMO_SE_ESCRIBE: Record<string, string> = { mama: "Mamá", papa: "Papá", abuela: "Abuela", abuelo: "Abuelo", esposa: "Esposa", esposo: "Esposo" };
+const esParentesco = (persona: string) => !!COMO_SE_ESCRIBE[clavePersona(persona)];
+
+/** Cómo se le dice al usuario: "tu mamá" para un parentesco, el nombre para los demás. */
+export function nombrePersona(persona: string): string {
+  return esParentesco(persona) ? `tu ${COMO_SE_ESCRIBE[clavePersona(persona)]!.toLowerCase()}` : persona;
+}
+
+/** Todas las formas de decir la primera palabra del nombre: "Mamá" → mama, madre, mami... */
+export function variantesPersona(persona: string): string[] {
+  const primera = clavePersona(persona).split(" ")[0] ?? "";
+  return [...(PARENTESCOS.find((g) => g[0] === primera) ?? [primera])];
+}
+
 const mismaPersona = (a: string, b: string) => {
-  const x = normalizar(limpiarPersona(a));
-  const y = normalizar(limpiarPersona(b));
+  const x = clavePersona(a);
+  const y = clavePersona(b);
   return x === y || x.split(" ")[0] === y || y.split(" ")[0] === x;
 };
 
@@ -436,7 +472,7 @@ const mismaPersona = (a: string, b: string) => {
  * hay dos Juanes, no adivina: pide que pregunte cuál.
  */
 function deLaPersona(filas: Prestamo[], persona: string): Prestamo[] {
-  const exactas = filas.filter((p) => normalizar(p.persona) === normalizar(limpiarPersona(persona)));
+  const exactas = filas.filter((p) => clavePersona(p.persona) === clavePersona(persona));
   if (exactas.length) return exactas;
   const parecidas = filas.filter((p) => mismaPersona(p.persona, persona));
   const nombres = [...new Set(parecidas.map((p) => p.persona))];
@@ -475,6 +511,74 @@ export function listarPrestamos(ctx: Contexto, opciones: { todos?: boolean; pers
   return { prestamos: lista, meDebenCentavos: suma("me_deben"), deboCentavos: suma("debo") };
 }
 
+export type MovimientoDeDeuda = { tipo: "prestamo" | "abono"; fecha: string; montoCentavos: number; cuenta: string | null };
+
+/**
+ * Las deudas con cada persona, una por persona y sentido ("le debes a Mamá"), con lo prestado, lo abonado y cada
+ * movimiento: los préstamos y los abonos, de qué cuenta salió o a cuál llegó, si lo dijo. Los abonos salen de la
+ * bitácora, así que un abono deshecho ("deshaz eso") ya no aparece. Sin `todos`, solo las que tienen algo pendiente.
+ */
+export function deudasPorPersona(ctx: Contexto, opciones: { todos?: boolean } = {}) {
+  const filas = listarPrestamos(ctx, { todos: true }).prestamos;
+  const ids = filas.map((p) => p.id);
+  const cambios = ids.length
+    ? ctx.db
+        .select()
+        .from(bitacora)
+        .where(
+          and(
+            eq(bitacora.usuarioId, ctx.usuarioId),
+            eq(bitacora.tabla, "prestamos_personales"),
+            inArray(bitacora.accion, ["crear", "editar"]),
+            isNull(bitacora.deshechoEn),
+            inArray(bitacora.registroId, ids),
+          ),
+        )
+        .orderBy(asc(bitacora.creadoEn))
+        .all()
+    : [];
+  // El dinero que salió o llegó con el préstamo o el abono: un movimiento de un solo lado del mismo dictado.
+  const entradas = [...new Set(cambios.map((c) => c.entradaId).filter((x): x is string => !!x))];
+  const nombres = nombresDeCuentas(ctx);
+  const deEntrada = new Map<string, string>();
+  if (entradas.length) {
+    for (const m of ctx.db
+      .select()
+      .from(movimientos)
+      .where(and(eq(movimientos.usuarioId, ctx.usuarioId), inArray(movimientos.entradaId, entradas), isNull(movimientos.eliminadoEn), eq(movimientos.tipo, "transferencia")))
+      .all()) {
+      const cuentaId = m.cuentaId ?? m.cuentaDestinoId;
+      if (m.entradaId && cuentaId && /^(Préstamo|Pago a)|me pagó$/.test(m.descripcion ?? "")) deEntrada.set(m.entradaId, nombres.get(cuentaId) ?? "");
+    }
+  }
+  const grupos = new Map<string, { persona: string; direccion: Direccion; prestadoCentavos: number; pagadoCentavos: number; pendienteCentavos: number; desde: string; movimientos: (MovimientoDeDeuda & { entradaId: string | null })[] }>();
+  for (const p of filas) {
+    const clave = `${clavePersona(p.persona)}|${p.direccion}`;
+    const g = grupos.get(clave) ?? { persona: p.persona, direccion: p.direccion, prestadoCentavos: 0, pagadoCentavos: 0, pendienteCentavos: 0, desde: p.creadoEn, movimientos: [] };
+    g.prestadoCentavos += p.montoCentavos;
+    g.pagadoCentavos += p.pagadoCentavos;
+    g.pendienteCentavos += p.pendienteCentavos;
+    if (p.creadoEn < g.desde) g.desde = p.creadoEn;
+    const creado = cambios.find((x) => x.registroId === p.id && x.accion === "crear")?.entradaId;
+    g.movimientos.push({ tipo: "prestamo", fecha: p.creadoEn, montoCentavos: p.montoCentavos, cuenta: (creado && deEntrada.get(creado)) || null, entradaId: null });
+    for (const c of cambios.filter((x) => x.registroId === p.id && x.accion === "editar")) {
+      const abono = Number(c.despues?.pagadoCentavos ?? 0) - Number(c.antes?.pagadoCentavos ?? 0);
+      if (abono <= 0) continue;
+      // Un abono que saldó un préstamo y siguió con otro es uno solo.
+      const mismo = c.entradaId ? g.movimientos.find((m) => m.tipo === "abono" && m.entradaId === c.entradaId) : undefined;
+      if (mismo) mismo.montoCentavos += abono;
+      else g.movimientos.push({ tipo: "abono", fecha: c.creadoEn, montoCentavos: abono, cuenta: (c.entradaId && deEntrada.get(c.entradaId)) || null, entradaId: c.entradaId });
+    }
+    grupos.set(clave, g);
+  }
+  return [...grupos.values()]
+    .filter((g) => opciones.todos || g.pendienteCentavos > 0)
+    .map(({ movimientos: lista, ...g }) => ({
+      ...g,
+      movimientos: lista.sort((a, b) => b.fecha.localeCompare(a.fecha)).map(({ entradaId: _, ...m }) => m),
+    }));
+}
+
 /** "Le presté 500 a Juan" (me_deben) o "Juan me prestó 1000" (debo). */
 export function registrarPrestamo(ctx: Contexto, datos: { persona: string; direccion: Direccion; monto: number; descripcion?: string }) {
   const persona = limpiarPersona(datos.persona);
@@ -483,15 +587,16 @@ export function registrarPrestamo(ctx: Contexto, datos: { persona: string; direc
   // Mismo nombre que un préstamo anterior: se escribe igual para que se sumen. "Juan" es "Juan Pérez" si
   // es el único Juan; "Juan López" no es el "Juan" que ya estaba.
   const abiertos = prestamosAbiertos(ctx);
-  const exacta = abiertos.find((p) => normalizar(p.persona) === normalizar(persona))?.persona;
-  const dePila = [...new Set(abiertos.filter((p) => normalizar(p.persona).split(" ")[0] === normalizar(persona)).map((p) => p.persona))];
+  const exacta = abiertos.find((p) => clavePersona(p.persona) === clavePersona(persona))?.persona;
+  const dePila = [...new Set(abiertos.filter((p) => clavePersona(p.persona).split(" ")[0] === clavePersona(persona)).map((p) => p.persona))];
   if (!exacta && dePila.length > 1) throw new ErrorFinanzas(`Coinciden ${dePila.join(" y ")}. Pregunta cuál.`);
   const conocida = exacta ?? dePila[0];
   const fila = ctx.db
     .insert(prestamosPersonales)
     .values({
       usuarioId: ctx.usuarioId,
-      persona: conocida ?? persona.charAt(0).toUpperCase() + persona.slice(1),
+      // "Mi madre" y "mi mamá" se guardan igual: "Mamá".
+      persona: conocida ?? COMO_SE_ESCRIBE[clavePersona(persona)] ?? persona.charAt(0).toUpperCase() + persona.slice(1),
       direccion: datos.direccion,
       montoCentavos: aCentavos(datos.monto),
       descripcion: datos.descripcion?.trim() || null,

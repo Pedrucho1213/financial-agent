@@ -25,7 +25,7 @@ type Mov = ReturnType<typeof buscarMovimientos>["movimientos"][number];
 export type Resultado = Respuesta & { movimientos: Mov[]; recurrentes: ReturnType<typeof listarRecurrentes>["recurrentes"]; ctx: Contexto };
 
 export type Caso = {
-  grupo: "registro" | "dificil" | "charla" | "consulta" | "edicion" | "conversacion" | "recurrentes" | "autonomia" | "planes" | "analisis" | "cuentas";
+  grupo: "registro" | "dificil" | "charla" | "consulta" | "edicion" | "conversacion" | "recurrentes" | "autonomia" | "planes" | "analisis" | "cuentas" | "deudas";
   frase: string;
   preparar?: (ctx: Contexto) => void;
   /** Lo que el usuario dijo antes en la misma conversación. */
@@ -91,6 +91,13 @@ const conCuentas = (...datos: Parameters<typeof fijarCuenta>[1][]) => (ctx: Cont
 const tarjetaNu = { cuenta: "Nu", tipo: "credito" as const, limite: 20000, deuda: 3000 };
 const debitoBbva = { cuenta: "BBVA", tipo: "debito" as const, saldo: 10000 };
 const tiposDe = (r: Resultado) => r.movimientos.map((m) => m.tipo).join();
+const sinGastos = (r: Resultado) => r.movimientos.every((m) => m.tipo !== "gasto" && m.tipo !== "ingreso");
+const revolut = { cuenta: "Revolut", tipo: "debito" as const, saldo: 19291 };
+const revolutCredito = { cuenta: "Revolut crédito", tipo: "credito" as const, limite: 34000, deuda: 5000 };
+const nuDePedro = { cuenta: "Nu", tipo: "credito" as const, limite: 33600, deuda: 3000, diaCorte: 3, diaPago: 23 };
+const deboAMama = (ctx: Contexto) => {
+  registrarPrestamo(previa(ctx), { persona: "Mamá", direccion: "debo", monto: 30000 });
+};
 
 export const CASOS: Caso[] = [
   // Registro
@@ -1328,5 +1335,116 @@ export const CASOS: Caso[] = [
     frase: "Mi hermano me prestó 2 mil y me los depositó a Bancomer",
     preparar: conCuentas({ cuenta: "Bancomer", saldo: 10000 }),
     verificar: (r) => motivo(saldo(r, /bancomer|bbva/) === 1_200_000 && r.movimientos.every((m) => m.tipo !== "ingreso"), { cuentas: estadosDeCuentas(r.ctx), movimientos: r.movimientos }),
+  },
+
+  // Deudas con personas y tarjetas, como las dice Pedro (2026-10-14). Cuentas como las suyas: Revolut de débito
+  // y de crédito, y la Nu con su corte y su pago.
+  {
+    grupo: "deudas",
+    frase: "Le debo 30 mil a mi mamá",
+    preparar: conCuentas(revolut, revolutCredito),
+    verificar: (r) => {
+      const l = listarPrestamos(r.ctx);
+      return motivo(l.deboCentavos === 3_000_000 && r.movimientos.length === 0 && !cuenta(r, /mama|madre/), { l, movimientos: r.movimientos, resp: r.respuesta });
+    },
+  },
+  {
+    grupo: "deudas",
+    previos: ["Le debo 30 mil a mi mamá"],
+    frase: "Le acabo de transferir 2 mil a mi mamá desde mi cuenta Revolut",
+    preparar: conCuentas(revolut, revolutCredito),
+    verificar: (r) => {
+      const l = listarPrestamos(r.ctx);
+      return motivo(
+        l.deboCentavos === 2_800_000 && saldo(r, /^revolut$/) === 1_729_100 && deuda(r, /revolut credito/) === 500_000 && sinGastos(r) && dice(r, "28,000"),
+        { l, cuentas: estadosDeCuentas(r.ctx), movimientos: r.movimientos, resp: r.respuesta },
+      );
+    },
+  },
+  {
+    grupo: "deudas",
+    frase: "Le deposité 1500 a mi madre",
+    preparar: deboAMama,
+    verificar: (r) => motivo(listarPrestamos(r.ctx).deboCentavos === 2_850_000 && sinGastos(r), { l: listarPrestamos(r.ctx), movimientos: r.movimientos, resp: r.respuesta }),
+  },
+  {
+    grupo: "deudas",
+    frase: "A mi mamá le mandé 2 mil de Revolut",
+    preparar: (ctx) => {
+      conCuentas(revolut, revolutCredito)(ctx);
+      deboAMama(ctx);
+    },
+    verificar: (r) =>
+      motivo(listarPrestamos(r.ctx).deboCentavos === 2_800_000 && saldo(r, /^revolut$/) === 1_729_100 && sinGastos(r), {
+        cuentas: estadosDeCuentas(r.ctx),
+        movimientos: r.movimientos,
+        resp: r.respuesta,
+      }),
+  },
+  {
+    grupo: "deudas",
+    frase: "¿Cuánto le debo a mi mamá?",
+    preparar: deboAMama,
+    verificar: (r) => motivo(dice(r, "30,000") && r.movimientos.length === 0, r.respuesta),
+  },
+  {
+    grupo: "deudas",
+    previos: ["Le debo 30 mil a mi mamá", "Le acabo de transferir 2 mil a mi mamá desde mi cuenta Revolut"],
+    frase: "¿Cuánto me falta para terminar de pagarle?",
+    preparar: conCuentas(revolut),
+    verificar: (r) => motivo(dice(r, "28,000"), { resp: r.respuesta, l: listarPrestamos(r.ctx) }),
+  },
+  {
+    grupo: "deudas",
+    previos: ["Mi hermano me prestó 5 mil"],
+    frase: "Ya le pagué 2 mil a mi hermano",
+    verificar: (r) => motivo(listarPrestamos(r.ctx).deboCentavos === 300_000 && sinGastos(r), { l: listarPrestamos(r.ctx), movimientos: r.movimientos, resp: r.respuesta }),
+  },
+  {
+    grupo: "deudas",
+    // Sin deuda con ella es otra cosa (un gasto, o pregunta): no se inventa un préstamo ni una cuenta "Mamá".
+    frase: "Le transferí 3 mil a mi mamá",
+    preparar: conCuentas(revolut),
+    verificar: (r) =>
+      motivo(listarPrestamos(r.ctx).prestamos.length === 0 && !cuenta(r, /mama|madre/), { prestamos: listarPrestamos(r.ctx), cuentas: estadosDeCuentas(r.ctx), resp: r.respuesta }),
+  },
+  {
+    grupo: "deudas",
+    // Con una deuda con mamá, mover dinero entre sus cuentas sigue siendo eso.
+    frase: "Transferí 2 mil de Revolut a BBVA",
+    preparar: (ctx) => {
+      conCuentas(revolut, debitoBbva)(ctx);
+      deboAMama(ctx);
+    },
+    verificar: (r) =>
+      motivo(listarPrestamos(r.ctx).deboCentavos === 3_000_000 && saldo(r, /^revolut$/) === 1_729_100 && saldo(r, /bbva/) === 1_200_000, {
+        cuentas: estadosDeCuentas(r.ctx),
+        resp: r.respuesta,
+      }),
+  },
+  {
+    grupo: "deudas",
+    frase: "Le debo 15 mil a la Nu",
+    preparar: conCuentas(nuDePedro),
+    verificar: (r) => motivo(deuda(r, /^nu$/) === 1_500_000 && listarPrestamos(r.ctx).prestamos.length === 0, { cuentas: estadosDeCuentas(r.ctx), resp: r.respuesta }),
+  },
+  {
+    grupo: "deudas",
+    frase: "Ya le deposité 5 mil a la Nu desde Revolut",
+    preparar: conCuentas(revolut, { ...nuDePedro, deuda: 8000 }),
+    verificar: (r) =>
+      motivo(deuda(r, /^nu$/) === 300_000 && saldo(r, /^revolut$/) === 1_429_100 && sinGastos(r), { cuentas: estadosDeCuentas(r.ctx), movimientos: r.movimientos }),
+  },
+  {
+    grupo: "deudas",
+    frase: "Acabo de comprar unos audífonos de 1,200 con la Nu",
+    preparar: conCuentas(nuDePedro),
+    verificar: (r) => motivo(tiposDe(r) === "gasto" && deuda(r, /^nu$/) === 420_000, { cuentas: estadosDeCuentas(r.ctx), movimientos: r.movimientos }),
+  },
+  {
+    grupo: "deudas",
+    frase: "¿Cuándo pago la Nu?",
+    preparar: conCuentas(nuDePedro),
+    verificar: (r) => motivo(/\b23\b/.test(r.respuesta) && r.movimientos.length === 0, r.respuesta),
   },
 ];
