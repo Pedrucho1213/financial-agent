@@ -256,9 +256,9 @@ test.describe("Dónde gastas", () => {
     // Los dos Oxxo a unos metros son el mismo lugar.
     await expect(page.getByRole("button", { name: /^2 Oxxo|Oxxo.*2 veces/ })).toBeVisible();
     await expect(page.locator(".fa-lugar")).toHaveCount(5);
-    // Sin calles no se pide nada a CARTO y cada lugar lleva su nombre.
-    await expect(page.locator(".fa-etiqueta").filter({ hasText: "Walmart" })).toBeVisible();
-    expect(mosaicos).toHaveLength(0);
+    // Las calles salen desde que se abre.
+    await expect(page.getByRole("switch", { name: "Mostrar calles" })).toBeChecked();
+    await expect.poll(() => mosaicos.length).toBeGreaterThan(0);
 
     await lugares.first().click();
     await expect(page.locator(".fa-lugar-elegido")).toHaveCount(1);
@@ -271,7 +271,7 @@ test.describe("Dónde gastas", () => {
     await expect.poll(() => api.de("GET", "/v1/movimientos").some((p) => p.consulta.get("desde") === "2026-08-01")).toBe(true);
   });
 
-  test("«Mostrar calles» pide el fondo a CARTO y se recuerda", async ({ page }) => {
+  test("apagar «Mostrar calles» deja de pedir el fondo a CARTO, pone los nombres y se recuerda", async ({ page }) => {
     await prepararSesion(page);
     const mosaicos: string[] = [];
     page.on("request", (r) => {
@@ -279,11 +279,17 @@ test.describe("Dónde gastas", () => {
     });
     await page.goto("/#mapa");
     await expect(page.locator(".fa-lugar")).toHaveCount(5);
-    await page.getByRole("switch", { name: "Mostrar calles" }).click();
-    await expect.poll(() => mosaicos.length).toBeGreaterThan(0);
     await expect(page.locator(".fa-etiqueta")).toHaveCount(0);
+    await page.getByRole("switch", { name: "Mostrar calles" }).click();
+    // Sin calles cada lugar lleva su nombre.
+    await expect(page.locator(".fa-etiqueta").filter({ hasText: "Walmart" })).toBeVisible();
     await page.reload();
-    await expect(page.getByRole("switch", { name: "Mostrar calles" })).toBeChecked();
+    await expect(page.locator(".fa-lugar")).toHaveCount(5);
+    await expect(page.getByRole("switch", { name: "Mostrar calles" })).not.toBeChecked();
+    mosaicos.length = 0;
+    await page.getByRole("radio", { name: "3 meses" }).click();
+    await expect(page.locator(".fa-etiqueta").filter({ hasText: "Walmart" })).toBeVisible();
+    expect(mosaicos).toHaveLength(0);
   });
 
   test("el nombre de un comercio se muestra como texto, nunca como HTML", async ({ page }) => {
@@ -291,6 +297,7 @@ test.describe("Dónde gastas", () => {
     const pemex = api.movimientos.find((m) => m.comercio === "Pemex")!;
     pemex.comercio = '<img src=x id="inyectado"><a href="https://ejemplo.com">Gana</a>';
     await prepararSesion(page, api);
+    await page.addInitScript(() => localStorage.setItem("fa_mapa_calles", "0"));
     await page.goto("/#mapa");
     await expect(page.locator(".fa-etiqueta").filter({ hasText: "<img src=x" })).toBeVisible();
     await expect(page.locator("#inyectado")).toHaveCount(0);

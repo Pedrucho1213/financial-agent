@@ -19,8 +19,8 @@ export type Lugar = {
 };
 
 // Mosaicos de CARTO (claro y oscuro): limpios, sin anuncios y legibles como Mapas de Apple.
-// Pedirlos le dice a CARTO qué zona estás viendo (no tus gastos), así que solo se usan si el
-// usuario enciende "Mostrar calles". Sin ellos, el mapa es un fondo propio con los nombres.
+// Pedirlos le dice a CARTO qué zona estás viendo (no tus gastos). Salen por omisión y el usuario los
+// puede apagar con "Mostrar calles"; sin ellos, el mapa es un fondo propio con los nombres.
 const MOSAICOS = {
   claro: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
   oscuro: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
