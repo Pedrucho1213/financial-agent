@@ -123,17 +123,53 @@ const HACIA_ADELANTE = /\b(subio|sube|subira|bajo|baja|bajara|aumento|a partir|d
 // Algo que se repite: "cada día 15", "cada mes", "mensual", "cada quincena".
 const SE_REPITE = /\b(cada|al mes|por mes|a la semana|por semana|al ano|mensual|mensualmente|semanal|quincenal|anual|diario)\b/;
 
-// El comercio es el título del registro y con él se agrupa ("Ver todo en…"). El 14-oct quedó "Trabajador (instalación
-// de motor para portón)", que no cabía: lo que va entre paréntesis, tras una coma o tras " - " es el detalle.
+// El comercio es el título del registro: se ve en la lista y en el detalle, y con él se agrupa ("Ver todo en…").
+// El 14-oct quedó "Trabajador (instalación de motor para portón)", que no cabía. Lo que va entre paréntesis, tras una
+// coma o tras " - " es el detalle; y un título de más de 4 palabras o 30 letras se corta donde empieza la explicación
+// ("Instalación de motor | para automatizar el portón"). El texto completo queda en la descripción.
 const DETALLE_DEL_TITULO = /^(.+?)\s*(?:\(\s*(.+?)\s*\)?|[,:;–—]\s*(.+)|\s-\s+(.+))$/;
+const MAX_PALABRAS_TITULO = 4;
+const MAX_LETRAS_TITULO = 30;
+const CORTES_DEL_TITULO = new Set(["para", "que", "porque", "por", "con", "en", "desde", "a", "al", "y"]);
+const CONECTOR_AL_FINAL = /\s+(de|del|la|el|los|las|y|a|al|en|para|por|con|que)$/i;
 
-/** "Trabajador (motor del portón)" → comercio "Trabajador" y, si no traía, descripción "motor del portón". */
+const palabrasDe = (texto: string) => texto.split(/\s+/).filter(Boolean);
+const esLargo = (texto: string) => palabrasDe(texto).length > MAX_PALABRAS_TITULO || texto.length > MAX_LETRAS_TITULO;
+const conMayuscula = (texto: string) => texto.charAt(0).toUpperCase() + texto.slice(1);
+
+function acortar(titulo: string): string {
+  const palabras = palabrasDe(titulo);
+  const corte = palabras.findIndex((p, i) => i >= 2 && CORTES_DEL_TITULO.has(p.toLowerCase()));
+  let corto = corte > 0 && corte <= MAX_PALABRAS_TITULO ? palabras.slice(0, corte) : palabras.slice(0, MAX_PALABRAS_TITULO);
+  while (corto.length > 1 && corto.join(" ").length > MAX_LETRAS_TITULO) corto = corto.slice(0, -1);
+  let texto = corto.join(" ");
+  while (CONECTOR_AL_FINAL.test(texto)) texto = texto.replace(CONECTOR_AL_FINAL, "");
+  return texto;
+}
+
+/**
+ * El título del registro, corto: "Trabajador (motor del portón)" → "Trabajador", con "Motor del portón" en la
+ * descripción si no traía. Sin comercio, una descripción larga también se vuelve título corto y se queda completa.
+ */
 export function tituloCorto<M extends { comercio?: string; descripcion?: string }>(m: M): M {
-  const partes = m.comercio?.trim().match(DETALLE_DEL_TITULO);
-  if (!partes) return m;
-  const [, base, ...detalles] = partes;
-  const detalle = detalles.find(Boolean);
-  return { ...m, comercio: base, descripcion: m.descripcion || (detalle && detalle.charAt(0).toUpperCase() + detalle.slice(1)) };
+  let comercio = m.comercio?.trim() || undefined;
+  let descripcion = m.descripcion?.trim() || undefined;
+  if (comercio) {
+    const partes = comercio.match(DETALLE_DEL_TITULO);
+    if (partes) {
+      const [, base, ...detalles] = partes;
+      const detalle = detalles.find(Boolean);
+      comercio = base!;
+      descripcion ||= detalle && conMayuscula(detalle);
+    }
+    if (esLargo(comercio)) {
+      descripcion ||= comercio;
+      comercio = acortar(comercio);
+    }
+  } else if (descripcion && esLargo(descripcion)) {
+    comercio = acortar(descripcion);
+  }
+  return comercio === m.comercio && descripcion === m.descripcion ? m : { ...m, comercio, descripcion };
 }
 
 /** Las herramientas que la IA puede usar. Cada una solo toca datos del usuario del contexto. */

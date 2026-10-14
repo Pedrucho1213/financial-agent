@@ -181,6 +181,8 @@ test("'no sé' a '¿Con qué lo pagaste?' lo contesta el modelo y no toca el gas
   expect(db.select().from(movimientos).get()!.cuentaId).toBeNull();
 });
 
+const titulo = (m: { comercio?: string; descripcion?: string }) => tituloCorto(m);
+
 test("el título del registro queda corto: lo de entre paréntesis pasa a la descripción (14-oct)", async () => {
   const { ctx } = preparar();
   const r = await llamar({ ...ctx, textoOriginal: "Acabo de transferir 2 mil pesos a un trabajador que vino a instalar un motor para mi portón" }, "registrar_movimientos", {
@@ -192,6 +194,14 @@ test("el título del registro queda corto: lo de entre paréntesis pasa a la des
     ["7-Eleven", "7-Eleven"],
     ["Liverpool, Perisur", "Liverpool"],
     ["Motor del portón", "Motor del portón"],
-  ]) expect(tituloCorto({ comercio: dicho }).comercio).toBe(queda);
-  expect(tituloCorto({ comercio: "Plomero (fuga)", descripcion: "Arreglo del baño" }).descripcion).toBe("Arreglo del baño");
+  ]) expect(titulo({ comercio: dicho }).comercio).toBe(queda);
+  expect(titulo({ comercio: "Plomero (fuga)", descripcion: "Arreglo del baño" }).descripcion).toBe("Arreglo del baño");
+  // Sin paréntesis pero largo: se corta donde empieza la explicación y lo completo queda en la descripción.
+  expect(titulo({ comercio: "Instalación de motor para automatizar el portón" })).toEqual({
+    comercio: "Instalación de motor",
+    descripcion: "Instalación de motor para automatizar el portón",
+  });
+  expect(titulo({ descripcion: "Comida para el perro que compré en la veterinaria" }).comercio).toBe("Comida para el perro");
+  expect(titulo({ comercio: "Pago de la colegiatura de mi hermana menor" }).comercio).toBe("Pago de la colegiatura");
+  expect(titulo({ descripcion: "Pago de luz" })).toEqual({ descripcion: "Pago de luz" });
 });
