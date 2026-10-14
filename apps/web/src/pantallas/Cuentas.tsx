@@ -364,7 +364,9 @@ function FilaCuenta({ c, moneda, hoy }: { c: CuentaConMes; moneda: string; hoy: 
  * renglón (una en pantallas muy angostas).
  */
 function TarjetaCompacta({ c, moneda, hoy }: { c: CuentaConMes; moneda: string; hoy: string }) {
-  const uso = usoCredito(c);
+  // Con saldo a favor el uso sale negativo: se muestra como 0%.
+  const crudo = usoCredito(c);
+  const uso = crudo === null ? null : Math.max(0, crudo);
   const marca = marcaDe(c.nombre, c.institucion);
   const m = marca ? MARCAS[marca] : undefined;
   // Con un color de marca claro (PayPal, Coppel) el texto blanco no se lee: va el gris oscuro.
