@@ -8,7 +8,7 @@ import { formatearMonto } from "../lib/dinero";
 import { normalizar } from "../lib/texto";
 import { listarCategorias } from "./catalogos";
 import type { Contexto } from "./contexto";
-import { casa, ciudadCercana, distanciaKm, INNECESARIO, innecesarioRechazado, KM_DE_VIAJE, NOMBRES_MES } from "./etiquetas-auto";
+import { casa, ciudadCercana, diceInnecesario, distanciaKm, INNECESARIO, innecesarioRechazado, KM_DE_VIAJE, NOMBRES_MES, SIEMPRE_INNECESARIO, SOLO_SI_LO_DICE } from "./etiquetas-auto";
 
 type Mov = typeof movimientos.$inferSelect;
 export type Agregado = { movimientoId: string; etiqueta: string; motivo: "viaje" | "innecesario" | "contexto"; quePaso: string };
@@ -98,6 +98,7 @@ export function lineasParaIa(ctx: Contexto): LineaParaIa[] {
       !m.msiId &&
       !(idInnecesario && m.etiquetas.includes(idInnecesario)) &&
       ![c?.nombre, padre?.nombre].some((n) => n && NUNCA_INNECESARIO.has(normalizar(n))) &&
+      !(c && SOLO_SI_LO_DICE.has(normalizar(c.nombre)) && !diceInnecesario(m.textoOriginal ?? undefined)) &&
       !(idInnecesario && innecesarioRechazado({ ...ctx, textoOriginal: undefined }, idInnecesario, { comercioId: m.comercioId, categoriaId: m.categoriaId }));
     const ya = m.etiquetas.map((id) => suyas.get(id)).filter(Boolean);
     const partes = [
@@ -112,10 +113,19 @@ export function lineasParaIa(ctx: Contexto): LineaParaIa[] {
   });
 }
 
+/** Sin IA: los antojos y el delivery son innecesarios (como al anotarlos), salvo donde él ya lo quitó. */
+export function planPorCategoria(ctx: Contexto, lineas: LineaParaIa[]): Agregado[] {
+  const cats = listarCategorias(ctx.db, ctx.usuarioId);
+  const quePasoDe = describirGasto(ctx);
+  return lineas
+    .filter((l) => l.puedeSerInnecesario && SIEMPRE_INNECESARIO.has(normalizar(cats.find((c) => c.id === l.movimiento.categoriaId)?.nombre ?? "")))
+    .map((l) => ({ movimientoId: l.movimiento.id, etiqueta: INNECESARIO, motivo: "innecesario" as const, quePaso: quePasoDe(l.movimiento) }));
+}
+
 /** Lo que se le pide a la IA: una lista numerada; contesta "número: etiquetas" solo de los que llevan alguna. */
 export function preguntaParaIa(lineas: string[], existentes: string[]): string {
   return `Estos son gastos de una persona en México, con lo que dijo al anotarlos. Ponle etiquetas solo a los que les queden:
-- "${INNECESARIO}" si es claramente prescindible: un antojo, comida a domicilio, una compra de impulso, apuestas, o dice que no lo necesitaba. Nunca súper, vivienda, servicios, salud, transporte, educación o deudas. Si dudas, no.
+- "${INNECESARIO}" si es claramente prescindible: un antojo, comida a domicilio, una compra de impulso, apuestas, o dice que no lo necesitaba. Nunca súper, restaurantes, vivienda, servicios, salud, transporte, educación o deudas. Si dudas, no.
 - Una etiqueta corta de contexto si lo que dijo deja claro para qué o para quién fue (Trabajo, Boda de Ana, Mudanza, Mamá).${existentes.length ? ` Si ya tiene una que lo diga, usa esa: ${existentes.map((e) => `"${e}"`).join(", ")}.` : ""}
 La categoría, el comercio, la cuenta y la ciudad no son etiquetas. Máximo dos por gasto.
 Contesta una línea por gasto etiquetado, así: "3: Innecesario" o "7: Trabajo". Si ninguno lleva, contesta "ninguno".
@@ -194,7 +204,7 @@ export function aplicarPlan(ctx: Contexto, plan: Agregado[], marca: string) {
     for (const [movimientoId, ids] of porMovimiento) {
       const m = tx.select({ etiquetas: movimientos.etiquetas }).from(movimientos).where(and(eq(movimientos.id, movimientoId), eq(movimientos.usuarioId, ctx.usuarioId))).get();
       if (!m) continue;
-      const nuevos = ids.filter((id) => !m.etiquetas.includes(id));
+      const nuevos = [...new Set(ids)].filter((id) => !m.etiquetas.includes(id));
       if (!nuevos.length) continue;
       tx.update(movimientos).set({ etiquetas: [...m.etiquetas, ...nuevos] }).where(eq(movimientos.id, movimientoId)).run();
       registro.movimientos.push({ id: movimientoId, ids: nuevos });

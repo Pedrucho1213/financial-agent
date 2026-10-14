@@ -6,7 +6,7 @@ import { analizar } from "../src/finanzas/analisis";
 import type { Contexto } from "../src/finanzas/contexto";
 import { eliminarEtiqueta, resumenEtiquetas } from "../src/finanzas/etiquetas";
 import { ciudadCercana, etiquetasAutoHabilitadas, viajesTerminados } from "../src/finanzas/etiquetas-auto";
-import { aplicarPlan, deshacerEtiquetado, leerRespuesta, lineasParaIa, planDeViajes, preguntaParaIa } from "../src/finanzas/etiquetas-historial";
+import { aplicarPlan, deshacerEtiquetado, leerRespuesta, lineasParaIa, planDeViajes, planPorCategoria, preguntaParaIa } from "../src/finanzas/etiquetas-historial";
 import { buscarMovimientos, crearMovimiento, editarMovimiento } from "../src/finanzas/movimientos";
 import { sumarDias } from "../src/lib/fechas";
 import { AHORA, preparar } from "./ayuda";
@@ -42,13 +42,13 @@ describe("etiquetas automáticas", () => {
   test("un gasto lejos de casa lleva la etiqueta de su viaje; la confirmación la dice solo la primera vez", () => {
     const { ctx } = preparar();
     enCasa(ctx);
-    const primero = gasto(en(ctx, CANCUN), 450, "Tacos", { categoria: "Antojos" });
+    const primero = gasto(en(ctx, CANCUN), 450, "Tacos", { categoria: "Restaurantes" });
     const segundo = gasto(en(ctx, CANCUN), 900, "Hotel", { categoria: "Viajes" });
     expect(primero.etiquetas).toEqual(["Viaje Cancún"]);
     expect(primero.viaje_nuevo).toBe("Viaje Cancún");
     expect(segundo.etiquetas).toEqual(["Viaje Cancún"]);
     expect(segundo.viaje_nuevo).toBeUndefined();
-    expect(confirmarRegistro([primero], ctx.hoy)).toBe("Listo, Tacos de $450 en Antojos. Lo etiqueté como Viaje Cancún.");
+    expect(confirmarRegistro([primero], ctx.hoy)).toBe("Listo, Tacos de $450 en Restaurantes. Lo etiqueté como Viaje Cancún.");
     expect(confirmarRegistro([segundo], ctx.hoy)).toBe("Listo, Hotel de $900 en Viajes.");
     // Cerca de casa (Toluca está a 60 km) no es viaje, ni sin ubicación.
     expect(gasto(en(ctx, TOLUCA), 80, "Café").etiquetas).toBeUndefined();
@@ -93,8 +93,8 @@ describe("etiquetas automáticas", () => {
     gasto(en(ctx), 500, "Office Depot", { etiquetas: ["Trabajo"] });
     expect(gasto(en(ctx), 200, "Office Depot").etiquetas).toEqual(["Trabajo"]);
     // Innecesario no se hereda: es de esa compra.
-    gasto(en(ctx), 150, "Rappi", { etiquetas: ["Innecesario"] });
-    expect(gasto(en(ctx), 180, "Rappi").etiquetas).toBeUndefined();
+    gasto(en(ctx), 1500, "Liverpool", { etiquetas: ["Innecesario"], categoria: "Ropa y calzado" });
+    expect(gasto(en(ctx), 900, "Liverpool", { categoria: "Ropa y calzado" }).etiquetas).toBeUndefined();
     // Si se la quita a la última, la que sigue ya no la lleva.
     const [ultima] = buscarMovimientos(ctx, { texto: "Office Depot", periodo: "todo", limite: 1 }).movimientos;
     editarMovimiento(en(ctx), ultima!.id, { quitarEtiquetas: ["Trabajo"] });
@@ -108,6 +108,21 @@ describe("etiquetas automáticas", () => {
     expect(gasto(en(ctx), 65, "Starbucks", { etiquetas: ["Innecesario"] }).etiquetas).toBeUndefined();
     expect(gasto(en(ctx, undefined, "este sí fue innecesario"), 70, "Starbucks", { etiquetas: ["Innecesario"] }).etiquetas).toEqual(["Innecesario"]);
     expect(gasto(en(ctx), 300, "Uber Eats", { etiquetas: ["Innecesario"] }).etiquetas).toEqual(["Innecesario"]);
+  });
+
+  test("antojos y delivery son innecesarios sin IA; un restaurante solo si la frase lo dice", () => {
+    const { ctx } = preparar();
+    expect(gasto(en(ctx, undefined, "gasté 180 en unos churros"), 180, "Churrería", { categoria: "Antojos" }).etiquetas).toEqual(["Innecesario"]);
+    expect(gasto(en(ctx), 250, "Rappi", { categoria: "Delivery" }).etiquetas).toEqual(["Innecesario"]);
+    expect(gasto(en(ctx), 700, "La Lola", { categoria: "Restaurantes", etiquetas: ["Innecesario"] }).etiquetas).toBeUndefined();
+    expect(gasto(en(ctx, undefined, "una cena por puro antojo"), 900, "Sonora Grill", { categoria: "Restaurantes", etiquetas: ["Innecesario"] }).etiquetas).toEqual(["Innecesario"]);
+    // Con las automáticas apagadas no se pone sola.
+    process.env.ETIQUETAS_AUTO = "0";
+    try {
+      expect(gasto(en(ctx), 60, "Oxxo", { categoria: "Antojos" }).etiquetas).toBeUndefined();
+    } finally {
+      delete process.env.ETIQUETAS_AUTO;
+    }
   });
 
   test("la confirmación dice lo innecesario y las de contexto", () => {
@@ -161,6 +176,8 @@ describe("etiquetar el historial", () => {
     expect(viajes.map((a) => [a.etiqueta, a.quePaso])).toEqual([["Viaje Cancún", "Tacos de $450 del 2026-10-07"]]);
 
     const lineas = lineasParaIa(ctx);
+    // Sin IA, los antojos ya salen como innecesarios.
+    expect(planPorCategoria(ctx, lineas).map((a) => [a.etiqueta, a.quePaso])).toEqual([["Innecesario", "Tacos de $450 del 2026-10-07"]]);
     const n = (comercio: string) => lineas.findIndex((l) => l.linea.includes(comercio)) + 1;
     expect(lineas[n("La Docena") - 1]!.linea).toContain('dijo: "comida con los del trabajo"');
     // Sin etiquetas, la pregunta no le ofrece ninguna para reutilizar (la IA tomaba "(no tiene)" como una).

@@ -31,6 +31,7 @@ import {
   leerRespuesta,
   lineasParaIa,
   planDeViajes,
+  planPorCategoria,
   preguntaParaIa,
   susEtiquetas,
 } from "../src/finanzas/etiquetas-historial";
@@ -68,8 +69,8 @@ async function armarPlan(): Promise<Plan> {
   const plan: Plan = { marca, hecho: new Date().toISOString(), cuentas: [] };
   for (const u of db.select({ id: usuarios.id }).from(usuarios).all()) {
     const ctx = crearContexto({ db, usuarioId: u.id, zonaHoraria: config.zonaHoraria, monedaBase: config.moneda });
-    const agregados = planDeViajes(ctx);
     const lineas = lineasParaIa(ctx);
+    const agregados = [...planDeViajes(ctx), ...planPorCategoria(ctx, lineas)];
     if (!values["sin-ia"]) {
       const quePaso = describirGasto(ctx);
       for (let i = 0; i < lineas.length; i += POR_CONSULTA) {
@@ -80,7 +81,13 @@ async function armarPlan(): Promise<Plan> {
         agregados.push(...leerRespuesta(r.text, tramo, quePaso));
       }
     }
-    plan.cuentas.push({ usuarioId: u.id, agregados });
+    // Lo mismo dos veces (por categoría y por la IA) va una sola.
+    const vistos = new Set<string>();
+    const unicos = agregados.filter((a) => {
+      const clave = `${a.movimientoId}:${a.etiqueta.toLowerCase()}`;
+      return !vistos.has(clave) && !!vistos.add(clave);
+    });
+    plan.cuentas.push({ usuarioId: u.id, agregados: unicos });
   }
   return plan;
 }

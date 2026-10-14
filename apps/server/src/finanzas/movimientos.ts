@@ -34,7 +34,7 @@ import {
 import { pagoDeFrase } from "./applepay";
 import type { Contexto } from "./contexto";
 import { etiquetasActivas, idsDeEtiquetas, nombresDeEtiquetas, soloPropias } from "./etiquetas";
-import { etiquetaDeViaje, heredadasDelComercio, INNECESARIO, innecesarioRechazado } from "./etiquetas-auto";
+import { ajustarInnecesario, etiquetaDeViaje, heredadasDelComercio } from "./etiquetas-auto";
 import { aprenderTarjeta } from "./tarjeta-wallet";
 
 export type TipoMovimiento = (typeof TIPOS_MOVIMIENTO)[number];
@@ -259,11 +259,9 @@ export function crearMovimiento(ctx: Contexto, datos: DatosMovimiento) {
       ...(esGasto && !datos.etiquetaIds ? heredadasDelComercio(ctx, comercio?.id) : []),
     ]),
   ];
-  // "Innecesario" que ya le quitó a algo de ahí no se vuelve a poner solo.
-  const [innecesario] = idsDeEtiquetas(ctx, [INNECESARIO], { soloExistentes: true });
-  if (innecesario && etiquetas.includes(innecesario) && !datos.etiquetaIds && innecesarioRechazado(ctx, innecesario, { comercioId: comercio?.id, categoriaId: categoria.id })) {
-    etiquetas = etiquetas.filter((e) => e !== innecesario);
-  }
+  // "Innecesario" con reglas fijas: antojos y delivery siempre, un restaurante solo si él lo dice, y nunca donde ya se
+  // lo quitó. Lo que se elige en la app se respeta tal cual.
+  if (esGasto && !datos.etiquetaIds) etiquetas = ajustarInnecesario(ctx, etiquetas, { comercioId: comercio?.id, categoriaId: categoria.id, cats });
 
   const fila = ctx.db
     .insert(movimientos)

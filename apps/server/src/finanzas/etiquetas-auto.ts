@@ -12,6 +12,12 @@ import { idsDeEtiquetas, listarVigentes } from "./etiquetas";
 
 /** La etiqueta que la IA pone a un antojo o una compra de impulso. */
 export const INNECESARIO = "Innecesario";
+/** Subcategorías que siempre son innecesarias, sin preguntarle a la IA: así sale parejo. */
+export const SIEMPRE_INNECESARIO = new Set(["antojos", "delivery"]);
+/** Comer fuera no es innecesario solo por ser restaurante: solo si él lo dice. */
+export const SOLO_SI_LO_DICE = new Set(["restaurantes"]);
+/** La frase dice que fue innecesario: "fue un antojo", "por impulso", "no lo necesitaba". */
+export const diceInnecesario = (texto: string | undefined) => /innecesari|antojo|capricho|impulso|no lo necesitaba|no me hac[ií]a falta/i.test(texto ?? "");
 
 /**
  * Si las etiquetas automáticas están abiertas para este usuario. Abiertas a todas las cuentas (Pedro, 14-oct-2026);
@@ -247,7 +253,7 @@ export function heredadasDelComercio(ctx: Contexto, comercioId: string | undefin
  * solo ahí. Si él mismo dice que fue innecesario, sí se pone.
  */
 export function innecesarioRechazado(ctx: Contexto, idInnecesario: string, de: { comercioId?: string | null; categoriaId?: string | null }): boolean {
-  if (/innecesari/i.test(ctx.textoOriginal ?? "")) return false;
+  if (diceInnecesario(ctx.textoOriginal)) return false;
   const tenia = (x: Record<string, unknown> | null) => Array.isArray(x?.etiquetas) && (x.etiquetas as string[]).includes(idInnecesario);
   const ediciones = ctx.db
     .select({ antes: bitacora.antes, despues: bitacora.despues })
@@ -302,4 +308,26 @@ export function viajesTerminados(ctx: Contexto): AvisoNuevo[] {
     });
   }
   return avisos;
+}
+
+/**
+ * Las etiquetas de un gasto nuevo con "Innecesario" ya decidido: se pone sola en antojos y delivery, se quita de un
+ * restaurante si la frase no lo dice, y nunca donde él ya se la quitó a algo igual.
+ */
+export function ajustarInnecesario(
+  ctx: Contexto,
+  ids: string[],
+  de: { comercioId?: string | null; categoriaId?: string | null; cats: { id: string; nombre: string }[] },
+): string[] {
+  if (!etiquetasAutoHabilitadas(ctx.db, ctx.usuarioId)) return ids;
+  const hoja = normalizar(de.cats.find((c) => c.id === de.categoriaId)?.nombre ?? "");
+  const dicho = diceInnecesario(ctx.textoOriginal);
+  let [id] = idsDeEtiquetas(ctx, [INNECESARIO], { soloExistentes: true });
+  let quiere = !!id && ids.includes(id);
+  if (SIEMPRE_INNECESARIO.has(hoja)) quiere = true;
+  if (SOLO_SI_LO_DICE.has(hoja) && !dicho) quiere = false;
+  if (quiere && id && innecesarioRechazado(ctx, id, de)) quiere = false;
+  if (!quiere) return id ? ids.filter((e) => e !== id) : ids;
+  if (!id) [id] = idsDeEtiquetas(ctx, [INNECESARIO]);
+  return ids.includes(id!) ? ids : [...ids, id!];
 }
