@@ -19,13 +19,14 @@ import { estadosDeCuentas, fijarCuenta } from "../src/finanzas/cuentas";
 import { etiquetasActivas, resumenEtiquetas } from "../src/finanzas/etiquetas";
 import { resolverFecha, resolverPeriodo, sumarDias } from "../src/lib/fechas";
 import { normalizar } from "../src/lib/texto";
+import { cobros } from "../src/db/schema";
 
 type Mov = ReturnType<typeof buscarMovimientos>["movimientos"][number];
 
 export type Resultado = Respuesta & { movimientos: Mov[]; recurrentes: ReturnType<typeof listarRecurrentes>["recurrentes"]; ctx: Contexto };
 
 export type Caso = {
-  grupo: "registro" | "dificil" | "charla" | "consulta" | "edicion" | "conversacion" | "recurrentes" | "autonomia" | "planes" | "analisis" | "cuentas" | "deudas";
+  grupo: "registro" | "dificil" | "charla" | "consulta" | "edicion" | "conversacion" | "recurrentes" | "autonomia" | "planes" | "analisis" | "cuentas" | "deudas" | "cobros";
   frase: string;
   preparar?: (ctx: Contexto) => void;
   /** Lo que el usuario dijo antes en la misma conversación. */
@@ -97,6 +98,17 @@ const revolutCredito = { cuenta: "Revolut crédito", tipo: "credito" as const, l
 const nuDePedro = { cuenta: "Nu", tipo: "credito" as const, limite: 33600, deuda: 3000, diaCorte: 3, diaPago: 23 };
 const deboAMama = (ctx: Contexto) => {
   registrarPrestamo(previa(ctx), { persona: "Mamá", direccion: "debo", monto: 30000 });
+};
+
+// Confirmación de cobros (CONFIRMAR_COBROS; en la base de prueba el único usuario es el dueño). Netflix se cobra hoy.
+const netflixHoy = (ctx: Contexto) => {
+  const dia = Math.min(Number(ctx.hoy.slice(8, 10)), 28);
+  crearRecurrente(previa(ctx), { nombre: "Netflix", tipo: "suscripcion", monto: 219, frecuencia: "mensual", dia });
+  crearRecurrente(previa(ctx), { nombre: "Spotify", tipo: "suscripcion", monto: 129, frecuencia: "mensual", dia });
+};
+const cobroDe = (r: Resultado, nombre: string) => {
+  const id = r.recurrentes.find((x) => x.nombre === nombre)?.id;
+  return r.ctx.db.select().from(cobros).all().find((c) => c.recurrenteId === id && c.estado !== "pendiente");
 };
 
 export const CASOS: Caso[] = [
@@ -1446,5 +1458,53 @@ export const CASOS: Caso[] = [
     frase: "¿Cuándo pago la Nu?",
     preparar: conCuentas(nuDePedro),
     verificar: (r) => motivo(/\b23\b/.test(r.respuesta) && r.movimientos.length === 0, r.respuesta),
+  },
+
+  // Cobros de suscripciones: "ya pagué", "fue otro monto", "no se pagó" y que lo demás no cambie.
+  {
+    grupo: "cobros",
+    frase: "Ya pagué Netflix",
+    preparar: netflixHoy,
+    verificar: (r) => {
+      const c = cobroDe(r, "Netflix");
+      return motivo(c?.estado === "pagado" && montos(r).join() === "$219" && !cobroDe(r, "Spotify"), { c, montos: montos(r), respuesta: r.respuesta });
+    },
+  },
+  {
+    grupo: "cobros",
+    frase: "Pagué Netflix pero fueron 249",
+    preparar: netflixHoy,
+    verificar: (r) => {
+      const c = cobroDe(r, "Netflix");
+      return motivo(c?.estado === "pagado" && c.montoRealCentavos === 249_00 && montos(r).join() === "$249", { c, montos: montos(r), respuesta: r.respuesta });
+    },
+  },
+  {
+    grupo: "cobros",
+    frase: "Este mes no pagué Spotify",
+    preparar: netflixHoy,
+    verificar: (r) => {
+      const c = cobroDe(r, "Spotify");
+      return motivo(c?.estado === "saltado" && r.movimientos.length === 0 && !cobroDe(r, "Netflix"), { c, respuesta: r.respuesta });
+    },
+  },
+  {
+    grupo: "cobros",
+    frase: "Netflix 219",
+    preparar: netflixHoy,
+    // Anotado como gasto normal: queda como el pago del cobro de hoy, una sola vez.
+    verificar: (r) => motivo(cobroDe(r, "Netflix")?.estado === "pagado" && montos(r).join() === "$219", { montos: montos(r), respuesta: r.respuesta }),
+  },
+  {
+    grupo: "cobros",
+    frase: "Gasté 85 en un café",
+    preparar: netflixHoy,
+    verificar: (r) => motivo(montos(r).join() === "$85" && !cobroDe(r, "Netflix") && !cobroDe(r, "Spotify"), { montos: montos(r), respuesta: r.respuesta }),
+  },
+  {
+    grupo: "cobros",
+    frase: "¿Cuánto pago al mes de suscripciones?",
+    preparar: netflixHoy,
+    verificar: (r) => motivo(dice(r, "348") && r.movimientos.length === 0, r.respuesta),
   },
 ];
