@@ -46,12 +46,13 @@ export type LimitesIa = {
 export const PAUSA_MES = 0.9;
 export const PAUSA_DIA = 0.2;
 
-// USD por millón de tokens (octubre de 2026): https://platform.claude.com/docs/en/about-claude/pricing
+// USD por millón de tokens de Haiku, Sonnet y Opus 5.5 (octubre de 2026; lectura = "hits and refreshes"):
+// https://platform.claude.com/docs/en/about-claude/pricing
 // Un modelo de Claude que no está aquí se cobra como Sonnet, para no quedarse corto; los de la Mac no cuestan.
 const PRECIOS = [
   { familia: "haiku", entrada: 0.1, escritura: 0.125, lectura: 0.01, salida: 0.5 },
   { familia: "sonnet", entrada: 2, escritura: 2.5, lectura: 0.1, salida: 10 },
-  { familia: "opus", entrada: 4, escritura: 5, lectura: 0.4, salida: 20 },
+  { familia: "opus", entrada: 4, escritura: 5, lectura: 0.2, salida: 20 },
 ] as const;
 
 const precioDe = (modelo: string) =>

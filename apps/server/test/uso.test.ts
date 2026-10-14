@@ -76,6 +76,10 @@ describe("costo", () => {
     expect(haiku).toBe(310);
     const sonnet = costoMicroUsd("claude-sonnet-5-5-20260901", { inputTokens: 1000, inputTokenDetails: { noCacheTokens: 1000, cacheReadTokens: 0, cacheWriteTokens: 0 }, outputTokens: 100, outputTokenDetails: { textTokens: 100, reasoningTokens: undefined }, totalTokens: 1100 });
     expect(sonnet).toBe(3000);
+    // Lectura de caché: Sonnet 5.5 a 0.10 y Opus 5.5 a 0.20 USD por millón.
+    const leido = { inputTokens: 10000, inputTokenDetails: { noCacheTokens: 0, cacheReadTokens: 10000, cacheWriteTokens: 0 }, outputTokens: 0, outputTokenDetails: { textTokens: 0, reasoningTokens: undefined }, totalTokens: 10000 };
+    expect(costoMicroUsd("claude-sonnet-5-5", leido)).toBe(1000);
+    expect(costoMicroUsd("claude-opus-5-5", leido)).toBe(2000);
     // Lo que contesta la Mac no cuesta.
     expect(costoMicroUsd("gemma4:12b-it-qat", { inputTokens: 1000, inputTokenDetails: { noCacheTokens: 1000, cacheReadTokens: 0, cacheWriteTokens: 0 }, outputTokens: 100, outputTokenDetails: { textTokens: 100, reasoningTokens: undefined }, totalTokens: 1100 })).toBe(0);
   });
