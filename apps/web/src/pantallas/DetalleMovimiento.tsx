@@ -162,7 +162,7 @@ function Detalle({ m, enLinea }: { m: MovimientoApp; enLinea: boolean }) {
     <div className="space-y-6 pt-4 pb-6">
       <header className="flex flex-col items-center text-center animate-entrar">
         <LogoMovimiento comercio={m.comercio} descripcion={m.descripcion} categoria={m.categoria} tipo={m.tipo} tamano={72} />
-        <h1 className="mt-3 line-clamp-2 max-w-full px-4 text-[22px] leading-7 font-semibold text-balance break-words">{titulo}</h1>
+        <h1 className="mt-3 max-w-full px-4 text-[22px] leading-7 font-semibold text-balance break-words">{titulo}</h1>
         <Ajustado
           className={cn(
             "mt-1 max-w-full px-4 text-[44px] leading-[1.15] font-bold tracking-[-0.025em] tabular",

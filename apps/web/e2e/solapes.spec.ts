@@ -91,6 +91,14 @@ async function solapes(page: Page) {
       if (el.scrollWidth > el.clientWidth + 1 && el.clientWidth > 0)
         malos.push(`cortado: «${el.textContent.trim().slice(0, 40)}» ${el.scrollWidth}>${el.clientWidth} <${el.tagName.toLowerCase()} class="${String(el.className).slice(0, 60)}">`);
     }
+    // Nombres de movimientos y títulos cortados con «…»: a 320 px uno cortado no dice qué fue.
+    for (const el of raiz.querySelectorAll("[data-movimiento] *, h1")) {
+      if (!visible(el) || !el.textContent?.trim()) continue;
+      const s = getComputedStyle(el);
+      const conPuntos = s.textOverflow === "ellipsis" && el.scrollWidth > el.clientWidth + 1;
+      const recortado = s.webkitLineClamp !== "none" && el.scrollHeight > el.clientHeight + 1;
+      if (conPuntos || recortado) malos.push(`con «…»: «${el.textContent.trim().slice(0, 40)}»`);
+    }
     // Palabras cortas partidas en renglones («N / ota»): una columna aplastada por su vecina.
     const w2 = document.createTreeWalker(raiz, NodeFilter.SHOW_TEXT);
     for (let n = w2.nextNode(); n; n = w2.nextNode()) {
@@ -121,6 +129,7 @@ function api(largos: boolean) {
     m.cuenta = "Mercado Pago Crédito Platinum";
     m.lugar = "Calle Benito Juárez 1234, Colonia Centro, San Luis Potosí";
     a.movimientos[1]!.comercio = "Farmacias del Ahorro Sucursal Insurgentes";
+    a.movimientos[2]!.comercio = "Trabajador (instalación de motor para el portón de la casa)";
     for (const c of a.cuentas!.cuentas) if (c.nombre === "Banamex Oro") c.nombre = "Mercado Pago Crédito Platinum";
     for (const c of a.cuentas!.cuentas) if (c.nombre === "BBVA") c.saldo = 1_234_567_89;
     const p = a.plan.personas?.[0] as { persona: string } | undefined;
