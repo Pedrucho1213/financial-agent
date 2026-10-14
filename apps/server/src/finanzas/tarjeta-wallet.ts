@@ -59,6 +59,25 @@ export function cuentaDeTarjeta(db: Db, usuarioId: string, tarjeta: string | und
   return { opciones: (candidatas.length ? candidatas : activas).slice(0, MAX_OPCIONES) };
 }
 
+/**
+ * Lo que contestó a "¿con cuál tarjeta?" (o lo que corrigió en la app) se aprende: el nombre de la Cartera queda
+ * como alias de esa cuenta y el próximo pago con esa tarjeta ya no pregunta (2026-10-14: "Revolut Mastercard" era
+ * su Revolut crédito). Si ese nombre ya era alias de otra cuenta, sus dos tarjetas se llaman igual en la Cartera:
+ * se quita de las dos y se sigue preguntando.
+ */
+export function aprenderTarjeta(db: Db, usuarioId: string, tarjeta: string | undefined, cuentaId: string): void {
+  if (tarjetaSinNombre(tarjeta)) return;
+  const dicha = normalizar(tarjeta!);
+  const propias = db.select().from(cuentas).where(eq(cuentas.usuarioId, usuarioId)).all();
+  const elegida = propias.find((c) => c.id === cuentaId);
+  if (!elegida || !TIPOS_CON_TARJETA.has(elegida.tipo)) return;
+  const esDicha = (a: string) => normalizar(a) === dicha;
+  const otras = propias.filter((c) => c.id !== cuentaId && c.alias.some(esDicha));
+  for (const c of otras) db.update(cuentas).set({ alias: c.alias.filter((a) => !esDicha(a)) }).where(eq(cuentas.id, c.id)).run();
+  if (otras.length || normalizar(elegida.nombre) === dicha || elegida.alias.some(esDicha)) return;
+  db.update(cuentas).set({ alias: [...elegida.alias, tarjeta!.trim()] }).where(eq(cuentas.id, cuentaId)).run();
+}
+
 /** El inicio de la pregunta: la notificación de un pago que la trae abre el chat para contestarla. */
 export const PREGUNTA_TARJETA = "¿Con cuál tarjeta pagaste";
 

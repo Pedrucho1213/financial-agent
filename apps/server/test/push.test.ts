@@ -8,7 +8,7 @@ import { avisos, cuentas, dispositivos, entradas as entradasTabla, mensajes as m
 import { fraseDePago, montoDeWallet, pagoDeFrase, pagoDeTransaccion } from "../src/finanzas/applepay";
 import { enviarAvisosDelDia } from "../src/push/avisos-manana";
 import { notificacionDeDictado } from "../src/push/dictados";
-import { cuentaDeTarjeta, preguntaDeTarjeta } from "../src/finanzas/tarjeta-wallet";
+import { aprenderTarjeta, cuentaDeTarjeta, preguntaDeTarjeta } from "../src/finanzas/tarjeta-wallet";
 import { eq } from "drizzle-orm";
 import { clavesVapid, type EnviarPush, ErrorSuscripcion, espera, notificar, suscribir, tienePush } from "../src/push/notificaciones";
 import { cifrar, endpointValido, enviarPush, firmaVapid, generarClavesVapid, temaPush } from "../src/push/webpush";
@@ -649,6 +649,47 @@ describe("Apple Pay", () => {
     expect(enviadas[0]!.cuerpo).toContain("¿Con cuál tarjeta pagaste: Revolut o Revolut crédito?");
     expect(enviadas[0]!.cuerpo).toEndWith("Toca para contestarme.");
     expect(enviadas[0]!.url).toStartWith("/#chat?conversacion=");
+  });
+
+  test("lo que contesta se aprende: el siguiente pago con esa tarjeta ya no pregunta", async () => {
+    const pago = (comercio: string) => llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 64, comercio, categoria: "Otros gastos", cuenta: "Revolut" }] });
+    const { pedir, activar, enviadas, db, usuario } = montar([pago("Bazar"), texto("Listo, Bazar de $64."), pago("Oxxo"), texto("Listo, Oxxo de $64.")]);
+    const ids = cuentasDePedro(db, usuario.id);
+    await activar();
+    await pedir("/v1/hablar", "POST", { origen: "apple_pay", client_id: "applepay-aprende-01", monto: "$64.00", comercio: "Bazar", tarjeta: "Revolut Mastercard" });
+    await hasta(() => enviadas.length > 0);
+    expect(enviadas[0]!.cuerpo).toContain("¿Con cuál tarjeta pagaste: Revolut o Revolut crédito?");
+    // Contesta (por voz o en la app, las dos pasan por editarMovimiento): fue la de crédito.
+    const primero = db.select().from(movimientos).get()!;
+    expect((await pedir(`/v1/movimientos/${primero.id}`, "PATCH", { cuenta: "Revolut crédito" })).status).toBe(200);
+    expect(db.select().from(cuentas).where(eq(cuentas.id, ids["Revolut crédito"]!)).get()!.alias).toEqual(["Revolut Mastercard"]);
+    await pedir("/v1/hablar", "POST", { origen: "apple_pay", client_id: "applepay-aprende-02", monto: "$64.00", comercio: "Oxxo", tarjeta: "Revolut Mastercard" });
+    await hasta(() => enviadas.length > 1);
+    const segundo = db.select().from(movimientos).all().find((m) => m.id !== primero.id)!;
+    expect(segundo.cuentaId).toBe(ids["Revolut crédito"]!);
+    expect(enviadas[1]!.cuerpo).not.toContain("¿Con cuál tarjeta");
+    expect(enviadas[1]!.url).toStartWith("/#movimientos?detalle=");
+    // Un dictado que dice "Revolut" sigue siendo la de débito.
+    expect(db.select().from(cuentas).all()).toHaveLength(6);
+  });
+
+  test("si sus dos tarjetas se llaman igual en la Cartera, deja de adivinar y vuelve a preguntar", () => {
+    const { db, usuario } = montar([]);
+    const ids = cuentasDePedro(db, usuario.id);
+    const alias = (nombre: string) => db.select().from(cuentas).where(eq(cuentas.id, ids[nombre]!)).get()!.alias;
+    aprenderTarjeta(db, usuario.id, "Revolut", ids["Revolut crédito"]!);
+    expect(alias("Revolut crédito")).toEqual(["Revolut"]);
+    expect(cuentaDeTarjeta(db, usuario.id, "Revolut").cuenta?.nombre).toBe("Revolut crédito");
+    // Otro pago con "Revolut" resultó ser la de débito: el nombre no distingue, se quita.
+    aprenderTarjeta(db, usuario.id, "Revolut", ids.Revolut!);
+    expect(alias("Revolut crédito")).toEqual([]);
+    expect(alias("Revolut")).toEqual([]);
+    expect(cuentaDeTarjeta(db, usuario.id, "Revolut").cuenta).toBeUndefined();
+    // Ni "Forma de pago" ni el efectivo se aprenden.
+    aprenderTarjeta(db, usuario.id, "Forma de pago", ids.Nu!);
+    aprenderTarjeta(db, usuario.id, "Nu Mastercard", ids.Efectivo!);
+    expect(alias("Nu")).toEqual([]);
+    expect(alias("Efectivo")).toEqual([]);
   });
 
   test("el nombre del comercio no puede dar órdenes: la IA solo puede anotar", async () => {
