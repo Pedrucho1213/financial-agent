@@ -1,0 +1,3 @@
+[test]
+# Las pruebas de siempre corren sin la confirmación de cobros (la que solo ve la cuenta dueña); las suyas la prenden.
+preload = ["./test/entorno.ts"]

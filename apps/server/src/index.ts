@@ -5,6 +5,7 @@ import { crearApp } from "./app";
 import { config } from "./config";
 import { abrirBaseDatos } from "./db/client";
 import { enviarAvisosDelDia } from "./push/avisos-manana";
+import { enviarPreguntasDeCobros } from "./push/cobros";
 import { avisoDeDictado } from "./push/dictados";
 import { tienePush } from "./push/notificaciones";
 import { programarRevisor, revisarPendientes } from "./finanzas/revisor";
@@ -61,9 +62,14 @@ const servidor = Bun.serve({ hostname: config.host, port: config.puerto, fetch: 
 const retomados = reanudarPendientes(deps);
 if (retomados) console.log(`Retomando ${retomados} dictado(s) que quedaron a medias.`);
 
-// Los avisos del revisor nocturno salen como notificación en la mañana (ver HORARIO_AVISOS).
-const revisarAvisos = () =>
-  enviarAvisosDelDia(db, config.zonaHoraria).catch((error) => console.error("No se pudieron mandar los avisos:", error));
+// Los avisos del revisor nocturno salen como notificación en la mañana (ver HORARIO_AVISOS); en la tarde, la
+// pregunta de los cobros que esperan confirmación.
+const revisarAvisos = async () => {
+  await enviarAvisosDelDia(db, config.zonaHoraria).catch((error) => console.error("No se pudieron mandar los avisos:", error));
+  await enviarPreguntasDeCobros(db, config.zonaHoraria, config.moneda).catch((error) =>
+    console.error("No se pudo preguntar por los cobros:", error),
+  );
+};
 setInterval(revisarAvisos, 5 * 60_000);
 void revisarAvisos();
 console.log(`Asistente financiero escuchando en http://${config.host}:${config.puerto} con el modelo ${config.ia.modelo}`);

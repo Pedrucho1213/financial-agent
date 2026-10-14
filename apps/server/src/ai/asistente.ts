@@ -7,6 +7,7 @@ import { habitoMencionado, hablaDeOtroMonto } from "../finanzas/habitos";
 import { revertirEntrada } from "../finanzas/movimientos";
 import { datoDePresupuesto } from "../finanzas/planes";
 import { cobrosPorAvisar } from "../finanzas/recurrentes";
+import { cobrosDeLaEntrada, cobrosHabilitado, preguntaDeCobro, preguntaDePrecio, respuestaACobroSinModelo } from "../finanzas/cobros";
 import { esEsperable, marcarComentario, notaDelGasto } from "../finanzas/comentario";
 import { formatearMonto } from "../lib/dinero";
 import { montosDelTexto } from "../lib/numeros";
@@ -996,7 +997,11 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   let mensajesRespuesta: ModelMessage[];
   // Lo que se resuelve sin el modelo: el mismo dictado repetido, o "el súper de hoy fue con la Nu"
   // cuando hay un solo súper que corregir (el modelo solía preguntar el monto antes, QA-080).
+  // "Sí" o "todavía no" a "¿ya se cobró Netflix?": se resuelve aquí, sin gastar una vuelta del modelo.
+  const deCobro = pregunto && entrada.origen === "voz" ? respuestaACobroSinModelo(ctx, entrada.texto, anterior) : undefined;
+  if (deCobro) acciones.push({ herramienta: "marcar_cobro", argumentos: { texto: entrada.texto }, resultado: deCobro.resultado });
   const directo =
+    deCobro?.respuesta ??
     dictadoRepetido(ctx, entrada) ??
     pendienteSinModelo(ctx, entrada) ??
     comoVoySinModelo(ctx, entrada.texto, acciones) ??
@@ -1088,14 +1093,28 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
   const anotados = categoriasAnotadas(acciones);
   const comentario = puedeAgregar && !dato && nota && anotados.length && !anotados.some(esEsperable) ? nota : undefined;
   if (comentario) marcarComentario(ctx);
-  const hablaDeCobros = acciones.some((a) => a.herramienta.endsWith("_recurrente") || a.herramienta === "listar_recurrentes");
+  const hablaDeCobros = acciones.some((a) => a.herramienta.endsWith("_recurrente") || a.herramienta === "listar_recurrentes" || a.herramienta === "marcar_cobro");
   // Con notificaciones, lo que no se oye llega en la notificación.
   const alguienLoVe = !enSegundoPlano.has(entrada.id) || !!deps.notificaSinEspera?.(usuarioId);
+  // Pagó una suscripción con otro monto ("fueron 249"): ¿ese es el precio nuevo? Si no, un cobro que ya llegó y nadie
+  // confirmó: "Por cierto, ¿ya se cobró Netflix?". Solo si alguien lo está oyendo: el "sí" lo contesta en voz.
+  const oyendo = entrada.origen === "voz" && !enSegundoPlano.has(entrada.id);
+  const conConfirmacion = cobrosHabilitado(db, usuarioId);
+  const precio = conConfirmacion && puedeAgregar && oyendo && !preguntaTarjeta ? preguntaDePrecio(ctx, entrada.id) : undefined;
+  const preguntaPago =
+    conConfirmacion && puedeAgregar && oyendo && !preguntaTarjeta && !precio && !dato && !comentario
+      ? preguntaDeCobro(ctx, cobrosDeLaEntrada(ctx, entrada.id).map(({ c }) => c.recurrenteId))
+      : undefined;
   const cobros =
-    puedeAgregar && !dato && !comentario && !hablaDeCobros && alguienLoVe ? cobrosPorAvisar(ctx, loQuePago(acciones)) : undefined;
+    puedeAgregar && !dato && !comentario && !hablaDeCobros && alguienLoVe && !precio && !preguntaPago
+      ? cobrosPorAvisar(ctx, loQuePago(acciones), { desdeManana: conConfirmacion })
+      : undefined;
+  const preguntaCobro = precio?.pregunta ?? preguntaPago?.pregunta;
+  // Se guarda como lo último que dijo: así el "sí" que conteste sabe de qué hablaba.
+  if (preguntaCobro) mensajesRespuesta = [...mensajesRespuesta, { role: "assistant", content: preguntaCobro }];
   const contestado = limpiarParaVoz(sinPreguntasDeMas(texto)) || respuestaPorOmision(acciones);
   const hablado = preguntaTarjeta ? `${contestado} ${preguntaTarjeta}` : contestado;
-  const extra = dato ?? comentario ?? cobros?.aviso;
+  const extra = precio?.pregunta ?? dato ?? comentario ?? preguntaPago?.pregunta ?? cobros?.aviso;
 
   const respuesta: Respuesta = {
     respuesta: extra ? `${hablado} ${extra}` : hablado,
@@ -1112,6 +1131,8 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
     tx.update(entradas).set({ estado: "listo", respuesta }).where(eq(entradas.id, entrada.id)).run();
     // Con la respuesta guardada: si algo falla antes, el aviso se da en el próximo dictado.
     cobros?.marcar();
+    precio?.marcar();
+    preguntaPago?.marcar();
   });
   return respuesta;
 }

@@ -156,6 +156,11 @@ export function confirmacionDirecta(texto: string, hoy: string, ejecutadas: Ejec
     if (registrados.length === 0 || OTRA_ACCION.test(plano) || montosDichos(texto) > registrados.length) return undefined;
     return confirmarRegistro(registrados, hoy);
   }
+  // "Ya pagué Netflix" y "este mes no pagué Spotify" traen su confirmación.
+  if (nombre === "marcar_cobro") {
+    const confirmaciones = ejecutadas.map((e) => (e.resultado as { confirmacion?: string }).confirmacion);
+    return confirmaciones.every(Boolean) ? confirmaciones.join(" ") : undefined;
+  }
   if (ejecutadas.length === 1 && nombre === "recordar") return "Listo, lo voy a recordar.";
   if (ejecutadas.length === 1 && nombre === "olvidar") return "Listo, ya lo olvidé.";
 

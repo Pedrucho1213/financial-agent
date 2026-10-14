@@ -3,6 +3,7 @@ import {
   bitacora,
   comercios,
   comprasMsi,
+  cobros,
   cuentas,
   entradas,
   etiquetas as tablaEtiquetas,
@@ -149,14 +150,16 @@ const TABLAS_PLANES = {
   compras_msi: comprasMsi,
   cuentas,
   etiquetas: tablaEtiquetas,
+  // Un cobro solo se edita (pagado, saltado): deshacer regresa sus columnas.
+  cobros,
 } as const;
 
 // Lo que se hace al deshacer la creación de un registro de estas tablas (y lo contrario al rehacerla).
 // Una cuenta no se borra: se archiva, porque otros movimientos pueden usarla.
 const quitarCreado = (tabla: keyof typeof TABLAS_PLANES, ahora: string): Record<string, unknown> =>
-  tabla === "cuentas" ? { archivada: true } : { eliminadoEn: ahora };
+  tabla === "cobros" ? {} : tabla === "cuentas" ? { archivada: true } : { eliminadoEn: ahora };
 const volverCreado = (tabla: keyof typeof TABLAS_PLANES): Record<string, unknown> =>
-  tabla === "cuentas" ? { archivada: false } : { eliminadoEn: null };
+  tabla === "cobros" ? {} : tabla === "cuentas" ? { archivada: false } : { eliminadoEn: null };
 
 // Saldos que se mueven por abonos: se deshace la diferencia, no el valor, para no borrar otro abono
 // que llegó después ("aparté 500" y luego "aparté 200"; deshacer el primero deja los 200).

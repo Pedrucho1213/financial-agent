@@ -1,5 +1,5 @@
 import { and, asc, eq, gte, inArray, isNotNull, isNull, lte } from "drizzle-orm";
-import { bitacora, comercios, comprasMsi, cuentas, metas, movimientos, prestamosPersonales, presupuestos, recurrentes } from "../db/schema";
+import { bitacora, cobros, comercios, comprasMsi, cuentas, metas, movimientos, prestamosPersonales, presupuestos, recurrentes } from "../db/schema";
 import { aCentavos, formatearMonto } from "../lib/dinero";
 import { armarFecha, partes, resolverFecha, resolverPeriodo, sumarDias, sumarMeses, ultimoDiaDelMes } from "../lib/fechas";
 import { normalizar } from "../lib/texto";
@@ -7,7 +7,7 @@ import { encontrarCategoria, encontrarOCrearCuenta, idsConHijas, listarCategoria
 import type { Contexto } from "./contexto";
 import { cambioDeCuenta, crearMovimiento, ErrorFinanzas, registrarEnBitacora } from "./movimientos";
 import { estadosDeCuentas, totalesDeCuentas } from "./cuentas";
-import { proximoCobro } from "./recurrentes";
+import { cobrosEntre, esPagoDe, inicioDelCiclo } from "./recurrentes";
 
 // Presupuestos, metas de ahorro, préstamos entre personas y compras a meses sin intereses.
 // Todo se calcula aquí; la IA solo lee los resultados ya hechos.
@@ -821,19 +821,6 @@ export function registrarMsi(ctx: Contexto, datos: { descripcion: string; total:
 
 // ---------------------------------------------------------------- ¿Cuánto puedo gastar hoy?
 
-/** Fechas de cobro de un recurrente entre dos días (incluidos). */
-function cobrosEntre(r: Pick<typeof recurrentes.$inferSelect, "frecuencia" | "dia" | "mes">, desde: string, hasta: string) {
-  const fechas: string[] = [];
-  let dia = desde;
-  while (dia <= hasta) {
-    const proximo = proximoCobro(r, dia);
-    if (proximo > hasta) break;
-    fechas.push(proximo);
-    dia = sumarDias(proximo, 1);
-  }
-  return fechas;
-}
-
 /** Los gastos desde una fecha, con el texto en que se buscan los pagos fijos (descripción, dictado y comercio). */
 function pagosRecientes(ctx: Contexto, desde: string) {
   const nombresComercio = new Map(
@@ -850,44 +837,18 @@ function pagosRecientes(ctx: Contexto, desde: string) {
     montoCentavos: m.montoCentavos,
     texto: normalizar([m.descripcion, m.textoOriginal].filter(Boolean).join(" ")),
     comercio: m.comercioId ? (nombresComercio.get(m.comercioId) ?? "") : "",
+    comercioId: m.comercioId,
   }));
 }
 
-/**
- * Desde cuándo un gasto cuenta como pago del cobro de `fecha`: a la mitad entre el cobro anterior y
- * este. Así la renta del 10 pagada el 5 cuenta, y el Netflix de septiembre anotado un día tarde no.
- */
-function inicioDelCiclo(r: Pick<typeof recurrentes.$inferSelect, "frecuencia" | "dia" | "mes">, fecha: string) {
-  const anterior = cobrosEntre(r, sumarDias(fecha, r.frecuencia === "anual" ? -370 : -40), sumarDias(fecha, -1)).at(-1);
-  if (!anterior) return sumarDias(fecha, -15);
-  const dias = Math.round((Date.parse(fecha) - Date.parse(anterior)) / 86_400_000);
-  return sumarDias(anterior, Math.floor(dias / 2));
-}
-
-const PALABRAS_VACIAS = new Set(["pago", "pagos", "cobro", "del", "las", "los", "para", "mensual", "mensualidad", "plan", "cuota"]);
-
-/**
- * Si ya hay un gasto de este pago fijo en este ciclo, hasta hoy, de un monto parecido. Coincide por el
- * nombre en cualquier sentido ("renta" y "Renta del departamento"), por el comercio, o por la primera
- * palabra que distingue al pago.
- */
+/** Si ya hay un gasto de este pago fijo en este ciclo, hasta hoy, de un monto parecido. */
 function yaSePago(
-  r: Pick<typeof recurrentes.$inferSelect, "id" | "nombre" | "montoCentavos">,
+  r: Pick<typeof recurrentes.$inferSelect, "id" | "nombre" | "montoCentavos" | "comercioId">,
   desde: string,
   hasta: string,
   pagos: ReturnType<typeof pagosRecientes>,
 ) {
-  const nombre = normalizar(r.nombre);
-  const clave = nombre.split(" ").find((p) => p.length > 3 && !PALABRAS_VACIAS.has(p));
-  const contiene = (texto: string, parte: string) => !!parte && new RegExp(`\\b${parte.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(texto);
-  return pagos.some((m) => {
-    if (m.fecha < desde || m.fecha > hasta) return false;
-    if (m.recurrenteId === r.id) return true;
-    // Por el nombre solo si el monto se parece: "tenis para el gym" de 1,500 no es la mensualidad del Gym.
-    if (m.montoCentavos < r.montoCentavos * 0.5 || m.montoCentavos > r.montoCentavos * 1.5) return false;
-    if (contiene(m.texto, nombre) || (m.comercio.length > 3 && (contiene(nombre, m.comercio) || contiene(m.comercio, nombre)))) return true;
-    return !!clave && (contiene(m.texto, clave) || contiene(m.comercio, clave));
-  });
+  return pagos.some((m) => m.fecha >= desde && m.fecha <= hasta && esPagoDe(r, m));
 }
 
 /**
@@ -897,10 +858,30 @@ function yaSePago(
 export function porPagarEsteMes(ctx: Contexto, fijos = recurrentesActivosEnBase(ctx)): number {
   const { desde, hasta } = limitesDelMes(ctx);
   const pagados = pagosRecientes(ctx, sumarMeses(desde, -1));
+  // Con la confirmación de cobros, lo que dijo (pagado, este mes no) manda; un cobro de este mes que ya pasó y
+  // nadie confirmó también se debe.
+  const confirmados = new Map(
+    ctx.db
+      .select({ recurrenteId: cobros.recurrenteId, fecha: cobros.fecha, estado: cobros.estado })
+      .from(cobros)
+      .where(and(eq(cobros.usuarioId, ctx.usuarioId), gte(cobros.fecha, desde), lte(cobros.fecha, hasta)))
+      .all()
+      .map((c) => [`${c.recurrenteId}:${c.fecha}`, c.estado]),
+  );
+  const estadoDe = (r: { id: string }, f: string) => confirmados.get(`${r.id}:${f}`);
   const porPagarFijos = fijos
     .filter((r) => r.tipo !== "ingreso")
-    .flatMap((r) => cobrosEntre(r, ctx.hoy, hasta).map((f, i) => ({ r, f, i })))
-    .filter(({ r, f, i }) => i > 0 || !yaSePago(r, inicioDelCiclo(r, f), ctx.hoy, pagados))
+    .flatMap((r) => [
+      ...cobrosEntre(r, desde, sumarDias(ctx.hoy, -1))
+        .filter((f) => estadoDe(r, f) === "pendiente")
+        .map((f) => ({ r, f, i: -1 })),
+      ...cobrosEntre(r, ctx.hoy, hasta).map((f, i) => ({ r, f, i })),
+    ])
+    .filter(({ r, f, i }) => {
+      const estado = estadoDe(r, f);
+      if (estado) return estado === "pendiente";
+      return i !== 0 || !yaSePago(r, inicioDelCiclo(r, f), ctx.hoy, pagados);
+    })
     .reduce((s, { r }) => s + r.montoCentavos, 0);
   const mensualidades = ctx.db
     .select({ fecha: movimientos.fecha, msiId: movimientos.msiId })

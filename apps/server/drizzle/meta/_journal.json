@@ -71,6 +71,13 @@
       "when": 1791773617071,
       "tag": "0009_estado_recurrentes",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1791990871028,
+      "tag": "0010_cobros_y_avisos",
+      "breakpoints": true
     }
   ]
 }

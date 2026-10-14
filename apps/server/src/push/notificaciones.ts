@@ -14,6 +14,8 @@ export type Notificacion = {
   urgencia?: OpcionesEnvio["urgencia"];
   /** Cuánto guarda Apple la notificación si el iPhone está apagado (segundos). */
   ttl?: number;
+  /** El número que muestra el ícono de la app (0 lo quita). Sin él, no se toca. */
+  insignia?: number;
 };
 
 export type EnviarPush = (
@@ -120,7 +122,7 @@ function recortar(texto: string, max: number): string {
 }
 
 export function mensajeDe(n: Notificacion): string {
-  const datos = { titulo: recortar(n.titulo, 120), cuerpo: recortar(n.cuerpo, 600), url: n.url ?? "/", etiqueta: n.etiqueta };
+  const datos = { titulo: recortar(n.titulo, 120), cuerpo: recortar(n.cuerpo, 600), url: n.url ?? "/", etiqueta: n.etiqueta, insignia: n.insignia };
   const json = JSON.stringify(datos);
   // Muy improbable con estos recortes, pero el cifrado no acepta más.
   return new TextEncoder().encode(json).length <= MAX_MENSAJE ? json : JSON.stringify({ ...datos, cuerpo: recortar(n.cuerpo, 200) });
