@@ -155,6 +155,28 @@
         "texto": "Cuando te paguen, dime \"me pagaron tantos pesos\" y te doy tu calificación completa y tu lugar en México."
       }
     ],
+    "curiosidades": [
+      {
+        "clave": "comer_fuera_dias",
+        "dato": "16 días",
+        "texto": "Lo que comes fuera en un mes es lo que gana en 16 días alguien con salario mínimo."
+      },
+      {
+        "clave": "salario_minimo",
+        "dato": "1.9 salarios mínimos",
+        "texto": "Lo que gastas en un mes ($18,700) es lo que gana en 1.9 meses alguien con salario mínimo."
+      },
+      {
+        "clave": "mas_grande",
+        "dato": "$900",
+        "texto": "Tu gasto más grande de estos 8 días fue $900 en Gasolina, el 8 de octubre."
+      },
+      {
+        "clave": "fijos_al_anio",
+        "dato": "$22,000 al año",
+        "texto": "Tus pagos fijos suman $22,000 al año: lo básico de una persona en México por 4.5 meses."
+      }
+    ],
     "faltan": [
       "No tengo ingresos tuyos. Cuando te paguen, dime \"me pagaron tantos pesos\" y te califico completo."
     ],
@@ -371,6 +393,33 @@
         "texto": "Para 3 meses te faltan unos $37,300."
       }
     ],
+    "curiosidades": [
+      {
+        "clave": "comer_fuera_dias",
+        "dato": "16 días",
+        "texto": "Lo que comes fuera en un mes es lo que gana en 16 días alguien con salario mínimo."
+      },
+      {
+        "clave": "salario_minimo",
+        "dato": "1.9 salarios mínimos",
+        "texto": "Lo que gastas en un mes ($18,700) es lo que gana en 1.9 meses alguien con salario mínimo."
+      },
+      {
+        "clave": "mas_grande",
+        "dato": "$900",
+        "texto": "Tu gasto más grande de estos 8 días fue $900 en Gasolina, el 8 de octubre."
+      },
+      {
+        "clave": "fijos_al_anio",
+        "dato": "$22,000 al año",
+        "texto": "Tus pagos fijos suman $22,000 al año: lo básico de una persona en México por 4.5 meses."
+      },
+      {
+        "clave": "racha",
+        "dato": "7 días",
+        "texto": "Llevas 7 días seguidos registrando tus gastos."
+      }
+    ],
     "faltan": [],
     "fuentes": [
       {
@@ -571,6 +620,28 @@
       {
         "texto": "En Restaurantes se te van unos $2,000 al mes; bajarle un tercio te deja $700.",
         "ahorroMensualCentavos": 70000
+      }
+    ],
+    "curiosidades": [
+      {
+        "clave": "comer_fuera_dias",
+        "dato": "7 días",
+        "texto": "Lo que comes fuera en un mes es lo que gana en 7 días alguien con salario mínimo."
+      },
+      {
+        "clave": "dia_fuerte",
+        "dato": "Miércoles",
+        "texto": "Los miércoles gastas 1.9 veces lo de un día normal."
+      },
+      {
+        "clave": "salario_minimo",
+        "dato": "3.1 salarios mínimos",
+        "texto": "Lo que gastas en un mes ($29,700) es lo que gana en 3.1 meses alguien con salario mínimo."
+      },
+      {
+        "clave": "mas_grande",
+        "dato": "$12,000",
+        "texto": "Tu gasto más grande de estos 88 días fue $12,000 en Renta, el 2 de agosto."
       }
     ],
     "faltan": [],

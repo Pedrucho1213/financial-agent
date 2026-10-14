@@ -53,6 +53,9 @@ test("sin ingresos: Sobregirado por la tarjeta, sin calificación, y dice qué f
   await expect(page.locator('[data-mexico="ingreso"]')).toHaveCount(0);
   await expect(page.locator('[data-rubro="alimentos"]')).toContainText("Tú 52% · México 38%");
   await expect(page.getByText("Con 8 días de registros: se irá afinando.")).toBeVisible();
+  await expect(page.locator("[data-curiosidad]")).toHaveCount(4);
+  await expect(page.locator('[data-curiosidad="comer_fuera_dias"]')).toContainText("16 días");
+  await expect(page.locator('[data-curiosidad="mas_grande"]')).toContainText("Tu gasto más grande de estos 8 días fue $900 en Gasolina, el 8 de octubre.");
   await expect(page.getByText("no asesoría financiera")).toBeVisible();
 });
 
@@ -81,6 +84,13 @@ test("la página no se pasa de ancho en un teléfono de 320", async ({ page }) =
   await expect(page.getByTestId("titulo-salud")).toBeVisible();
   const ancho = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(ancho).toBeLessThanOrEqual(320);
+});
+
+test("un servidor sin datos curiosos no rompe la página", async ({ page }) => {
+  const { curiosidades: _, ...viejo } = FIXTURA.sinIngreso as Record<string, unknown>;
+  await abrir(page, "#salud", viejo);
+  await expect(page.getByTestId("titulo-salud")).toHaveText("Sobregirado");
+  await expect(page.locator("[data-curiosidad]")).toHaveCount(0);
 });
 
 test("si el servidor ya no la da (404), la página lo dice", async ({ page }) => {

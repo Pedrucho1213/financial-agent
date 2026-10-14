@@ -1,8 +1,8 @@
 import { and, asc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { movimientos, recurrentes, usuarios } from "../db/schema";
+import { comercios, movimientos, recurrentes, usuarios } from "../db/schema";
 import { formatearMonto } from "../lib/dinero";
-import { armarFecha, partes, sumarDias, sumarMeses, ultimoDiaDelMes } from "../lib/fechas";
+import { armarFecha, diaSemana, partes, sumarDias, sumarMeses, ultimoDiaDelMes } from "../lib/fechas";
 import { normalizar } from "../lib/texto";
 import { analizar, RECORTABLES } from "./analisis";
 import { type Categoria, listarCategorias } from "./catalogos";
@@ -63,6 +63,12 @@ export type Comparacion = {
 
 export type Rubro = { clave: ClaveRubro; nombre: string; tuProporcion: number; mexicoProporcion: number };
 export type Consejo = { texto: string; ahorroMensualCentavos?: number };
+/** Un dato curioso: el número grande y la frase que lo cuenta. */
+export type Curiosidad = {
+  clave: "favorito" | "comer_fuera_dias" | "dia_fuerte" | "salario_minimo" | "mas_grande" | "fijos_al_anio" | "hormiga" | "racha";
+  dato: string;
+  texto: string;
+};
 
 export type SaludFinanciera = {
   nivel: Nivel | null;
@@ -94,6 +100,8 @@ export type SaludFinanciera = {
   mexico: Comparacion[];
   rubros: Rubro[];
   consejos: Consejo[];
+  /** Datos curiosos de sus registros y México (hasta 6). */
+  curiosidades: Curiosidad[];
   faltan: string[];
   fuentes: typeof FUENTES;
 };
@@ -135,13 +143,13 @@ const RUBRO_DE_HOJA: Record<string, ClaveRubro> = {
 };
 
 /**
- * Si el módulo está abierto para este usuario. Primero solo la cuenta dueña de la instalación (la que se
- * creó primero), para probarlo antes de abrirlo a todos. SALUD_FINANCIERA=todos lo abre; =0 lo apaga.
+ * Si el módulo está abierto para este usuario. Abierto para todas las cuentas; SALUD_FINANCIERA=0 lo apaga y
+ * SALUD_FINANCIERA=dueno lo deja solo a la cuenta dueña (la que se creó primero), por si hay que volver atrás.
  */
 export function saludHabilitada(db: Db, usuarioId: string, entorno: string | undefined = process.env.SALUD_FINANCIERA): boolean {
   const modo = (entorno ?? "").trim().toLowerCase();
   if (modo === "0" || modo === "no" || modo === "apagado") return false;
-  if (modo === "todos") return true;
+  if (modo !== "dueno" && modo !== "dueño") return true;
   const dueno = db.select({ id: usuarios.id }).from(usuarios).orderBy(usuarios.creadoEn, sql`rowid`).limit(1).get();
   return dueno?.id === usuarioId;
 }
@@ -555,9 +563,137 @@ export function saludFinanciera(ctx: Contexto): SaludFinanciera {
     mexico,
     rubros,
     consejos: consejos.slice(0, 5),
+    curiosidades: curiosidadesDe(ctx, { cats, gastos, todos, desde, dias, hayRitmo, gastoMensual, fijosMensuales, alMes }),
     faltan,
     fuentes: FUENTES,
   };
+}
+
+// ---------------------------------------------------------------- Datos curiosos
+
+const NOMBRES_DIA = ["", "lunes", "martes", "miércoles", "jueves", "viernes", "sábados", "domingos"];
+const NOMBRES_MES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+const HORMIGA_CENTAVOS = 100_00;
+const fechaCorta = (fecha: string) => `${partes(fecha).dia} de ${NOMBRES_MES[partes(fecha).mes - 1]}`;
+
+/**
+ * Datos curiosos con sus registros y las cifras de México: su lugar favorito, el día que más gasta, su compra
+ * más grande, cuánto es eso en salarios mínimos... Solo lo que sus datos alcanzan a decir, hasta 6.
+ */
+function curiosidadesDe(
+  ctx: Contexto,
+  d: { cats: Categoria[]; gastos: Mov[]; todos: Mov[]; desde: string | null; dias: number; hayRitmo: boolean; gastoMensual: number | null; fijosMensuales: number; alMes: (c: number) => number },
+): Curiosidad[] {
+  const $ = (c: number) => formatearMonto(c, ctx.monedaBase);
+  const variables = d.gastos.filter((m) => !m.recurrenteId && !m.msiId);
+  const suma = (xs: Mov[]) => xs.reduce((s, m) => s + m.montoCentavos, 0);
+  const diaMinimo = SALARIO_MINIMO_CENTAVOS / DIAS_MES;
+  const enDias = d.dias === 1 ? "hoy" : `en ${d.dias} días`;
+  const nombres = new Map(
+    ctx.db
+      .select({ id: comercios.id, nombre: comercios.nombre })
+      .from(comercios)
+      .where(eq(comercios.usuarioId, ctx.usuarioId))
+      .all()
+      .map((c) => [c.id, c.nombre]),
+  );
+  const out: Curiosidad[] = [];
+
+  // Su lugar favorito: el comercio al que más va.
+  const visitas = new Map<string, Mov[]>();
+  for (const m of variables) if (m.comercioId && nombres.has(m.comercioId)) visitas.set(m.comercioId, [...(visitas.get(m.comercioId) ?? []), m]);
+  const [favorito, susVisitas] = [...visitas].sort((a, b) => b[1].length - a[1].length || suma(b[1]) - suma(a[1]))[0] ?? [];
+  if (favorito && susVisitas!.length >= 3) {
+    out.push({
+      clave: "favorito",
+      dato: `${susVisitas!.length} visitas`,
+      texto: `Tu lugar favorito es ${nombres.get(favorito)}: fuiste ${susVisitas!.length} veces ${enDias} y dejaste ${$(redondear(suma(susVisitas!)))}.`,
+    });
+  }
+
+  // Comer fuera, en días de trabajo con salario mínimo.
+  const fuera = variables.filter((m) => esComerFuera(d.cats, m));
+  if (d.hayRitmo && fuera.length) {
+    const diasDeTrabajo = d.alMes(suma(fuera)) / diaMinimo;
+    if (diasDeTrabajo >= 1) {
+      out.push({
+        clave: "comer_fuera_dias",
+        dato: `${Math.round(diasDeTrabajo)} días`,
+        texto: `Lo que comes fuera en un mes es lo que gana en ${Math.round(diasDeTrabajo)} días alguien con salario mínimo.`,
+      });
+    }
+  }
+
+  // El día de la semana que más gasta, contra un día normal (con dos semanas, para que cada día se repita).
+  if (d.desde && d.dias >= 14 && variables.length) {
+    const veces = new Array(8).fill(0);
+    for (let f = d.desde; f <= ctx.hoy; f = sumarDias(f, 1)) veces[diaSemana(f)]++;
+    const porDia = new Array(8).fill(0);
+    for (const m of variables) porDia[diaSemana(m.fecha)] += m.montoCentavos;
+    const promedioDia = suma(variables) / d.dias;
+    const fuerte = [1, 2, 3, 4, 5, 6, 7].sort((a, b) => porDia[b] / veces[b] - porDia[a] / veces[a])[0]!;
+    const razon = porDia[fuerte] / veces[fuerte] / promedioDia;
+    if (razon >= 1.4) {
+      out.push({
+        clave: "dia_fuerte",
+        dato: NOMBRES_DIA[fuerte]!.replace(/^./, (x) => x.toUpperCase()),
+        texto: `Los ${NOMBRES_DIA[fuerte]} gastas ${unDecimal(razon)} veces lo de un día normal.`,
+      });
+    }
+  }
+
+  // Su mes de gastos, en salarios mínimos.
+  if (d.gastoMensual && d.gastoMensual > 0) {
+    const x = d.gastoMensual / SALARIO_MINIMO_CENTAVOS;
+    out.push({
+      clave: "salario_minimo",
+      dato: `${unDecimal(x)} ${x >= 0.95 && x < 1.05 ? "salario mínimo" : "salarios mínimos"}`,
+      texto: `Lo que gastas en un mes (${$(redondear(d.gastoMensual))}) es lo que gana en ${meses(x)} alguien con salario mínimo.`,
+    });
+  }
+
+  // Su compra más grande.
+  const grande = [...variables].sort((a, b) => b.montoCentavos - a.montoCentavos)[0];
+  if (grande && variables.length >= 3) {
+    const donde = (grande.comercioId && nombres.get(grande.comercioId)) || categoriaYPadre(d.cats, grande.categoriaId).c?.nombre;
+    out.push({
+      clave: "mas_grande",
+      dato: $(grande.montoCentavos),
+      texto: `Tu gasto más grande ${enDias === "hoy" ? "de hoy" : `de estos ${d.dias} días`} fue ${$(grande.montoCentavos)}${donde ? ` en ${donde}` : ""}, el ${fechaCorta(grande.fecha)}.`,
+    });
+  }
+
+  // Sus pagos fijos en un año, contra lo básico de una persona en México.
+  if (d.fijosMensuales > 0) {
+    const anual = d.fijosMensuales * 12;
+    out.push({
+      clave: "fijos_al_anio",
+      dato: `${$(redondear(anual))} al año`,
+      texto: `Tus pagos fijos suman ${$(redondear(anual))} al año: lo básico de una persona en México por ${meses(anual / LINEA_POBREZA_CENTAVOS)}.`,
+    });
+  }
+
+  // Gastos hormiga: las compras chiquitas.
+  const hormiga = variables.filter((m) => m.montoCentavos < HORMIGA_CENTAVOS);
+  if (hormiga.length >= 5) {
+    out.push({
+      clave: "hormiga",
+      dato: `${hormiga.length} compras`,
+      texto: `Hiciste ${hormiga.length} compras de menos de ${$(HORMIGA_CENTAVOS)} ${enDias}; juntas suman ${$(redondear(suma(hormiga)))}.`,
+    });
+  }
+
+  // Racha: días seguidos con algo registrado, hasta hoy o ayer.
+  const conRegistro = new Set(d.todos.map((m) => m.fecha));
+  let dia = conRegistro.has(ctx.hoy) ? ctx.hoy : sumarDias(ctx.hoy, -1);
+  let racha = 0;
+  while (conRegistro.has(dia)) {
+    racha++;
+    dia = sumarDias(dia, -1);
+  }
+  if (racha >= 3) out.push({ clave: "racha", dato: `${racha} días`, texto: `Llevas ${racha} días seguidos registrando tus gastos.` });
+
+  return out.slice(0, 6);
 }
 
 // ---------------------------------------------------------------- Por voz, sin modelo

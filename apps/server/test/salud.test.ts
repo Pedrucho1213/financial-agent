@@ -12,7 +12,7 @@ import { aportarMeta, crearMeta, registrarPrestamo } from "../src/finanzas/plane
 import { crearRecurrente } from "../src/finanzas/recurrentes";
 import { decilDeIngreso, DECILES_HOGAR_CENTAVOS } from "../src/finanzas/referencias-mx";
 import { interpolar, nivelDe, saludFinanciera, saludHabilitada, saludSinModelo } from "../src/finanzas/salud";
-import { sumarDias } from "../src/lib/fechas";
+import { diaSemana, sumarDias } from "../src/lib/fechas";
 import { preparar, texto } from "./ayuda";
 
 // Martes 14 de octubre de 2026, 10:00 en Ciudad de México.
@@ -287,18 +287,80 @@ describe("salud financiera", () => {
   });
 });
 
-describe("solo para la cuenta dueña mientras se prueba", () => {
-  test("la cuenta que se creó primero sí; otra no; SALUD_FINANCIERA lo abre o lo apaga", () => {
+describe("datos curiosos", () => {
+  /** Cuatro semanas registrando: súper diario, La Docena los fines de semana, OXXO y una compra grande. */
+  function conCostumbres() {
+    const p = preparar({ ahora: HOY });
+    const g = (monto: number, categoria: string, fecha: string, comercio?: string) =>
+      crearMovimiento(previa(p.ctx), { tipo: "gasto", monto, categoria, fecha, ...(comercio ? { comercio } : {}) });
+    for (let i = 0; i < 28; i++) {
+      const f = sumarDias("2026-10-14", -i);
+      g(150, "Súper", f);
+      if (diaSemana(f) >= 6) g(900, "Restaurantes", f, "La Docena");
+    }
+    g(45, "Café", "2026-10-13", "OXXO");
+    g(60, "Antojos", "2026-10-12", "OXXO");
+    g(38, "Antojos", "2026-10-11", "OXXO");
+    g(4_200, "Electrónica", "2026-10-03");
+    return p;
+  }
+
+  test("cuatro semanas: lugar favorito, comer fuera en días de salario mínimo, el día fuerte, la compra más grande y la racha", () => {
+    const { ctx } = conCostumbres();
+    const c = saludFinanciera(ctx).curiosidades;
+    expect(c.map((x) => x.clave)).toEqual(["favorito", "comer_fuera_dias", "dia_fuerte", "salario_minimo", "mas_grande", "racha"]);
+    const de = (clave: string) => c.find((x) => x.clave === clave)!;
+    expect(de("favorito")).toEqual({ clave: "favorito", dato: "8 visitas", texto: "Tu lugar favorito es La Docena: fuiste 8 veces en 28 días y dejaste $7,200." });
+    expect(de("comer_fuera_dias").texto).toBe("Lo que comes fuera en un mes es lo que gana en 25 días alguien con salario mínimo.");
+    expect(de("dia_fuerte")).toMatchObject({ dato: "Sábados", texto: "Los sábados gastas 3.7 veces lo de un día normal." });
+    expect(de("salario_minimo").texto).toBe("Lo que gastas en un mes ($17,100) es lo que gana en 1.8 meses alguien con salario mínimo.");
+    expect(de("mas_grande").texto).toBe("Tu gasto más grande de estos 28 días fue $4,200 en Electrónica, el 3 de octubre.");
+    expect(de("racha").texto).toBe("Llevas 28 días seguidos registrando tus gastos.");
+  });
+
+  test("como la base de Pedro (una semana): no inventa día fuerte ni racha; sí sus pagos fijos al año", () => {
+    const { ctx } = comoPedro();
+    const c = saludFinanciera(ctx).curiosidades;
+    const claves = c.map((x) => x.clave);
+    expect(claves).not.toContain("dia_fuerte");
+    expect(claves).not.toContain("racha");
+    expect(claves).not.toContain("favorito");
+    expect(claves).toContain("salario_minimo");
+    expect(c.find((x) => x.clave === "fijos_al_anio")!.texto).toBe("Tus pagos fijos suman $22,000 al año: lo básico de una persona en México por 4.5 meses.");
+    expect(c.find((x) => x.clave === "mas_grande")!.texto).toBe("Tu gasto más grande de estos 8 días fue $900 en Gasolina, el 8 de octubre.");
+  });
+
+  test("las compras chiquitas se cuentan como hormiga", () => {
+    const { ctx } = preparar({ ahora: HOY });
+    for (let i = 0; i < 6; i++) crearMovimiento(previa(ctx), { tipo: "gasto", monto: 35, categoria: "Café", fecha: sumarDias("2026-10-12", -i) });
+    expect(saludFinanciera(ctx).curiosidades.find((x) => x.clave === "hormiga")).toEqual({
+      clave: "hormiga",
+      dato: "6 compras",
+      texto: "Hiciste 6 compras de menos de $100 en 8 días; juntas suman $210.",
+    });
+  });
+
+  test("sin registros no hay datos curiosos", () => {
+    const { ctx } = preparar({ ahora: HOY });
+    expect(saludFinanciera(ctx).curiosidades).toEqual([]);
+  });
+});
+
+describe("para todas las cuentas", () => {
+  test("abierta para todas; SALUD_FINANCIERA=dueno la deja solo a la dueña y =0 la apaga", () => {
     const { db, usuario } = preparar({ ahora: HOY });
     const otra = crearUsuario(db, "Ana");
     expect(saludHabilitada(db, usuario.id)).toBe(true);
-    expect(saludHabilitada(db, otra.id)).toBe(false);
-    expect(saludHabilitada(db, otra.id, "todos")).toBe(true);
+    expect(saludHabilitada(db, otra.id)).toBe(true);
+    expect(saludHabilitada(db, otra.id, "")).toBe(true);
+    expect(saludHabilitada(db, usuario.id, "dueno")).toBe(true);
+    expect(saludHabilitada(db, otra.id, "dueno")).toBe(false);
+    expect(saludHabilitada(db, otra.id, "dueño")).toBe(false);
     expect(saludHabilitada(db, usuario.id, "0")).toBe(false);
-    expect(saludHabilitada(db, usuario.id, "")).toBe(true);
+    expect(saludHabilitada(db, otra.id, "0")).toBe(false);
   });
 
-  test("GET /v1/salud-financiera: la dueña la ve, otra cuenta recibe 404, y no escribe nada", async () => {
+  test("GET /v1/salud-financiera: cada cuenta ve la suya, se puede cerrar o apagar, y no escribe nada", async () => {
     const { db, usuario, ctx } = comoPedro();
     const otra = crearUsuario(db, "Ana");
     sembrarCategorias(db, otra.id);
@@ -312,7 +374,13 @@ describe("solo para la cuenta dueña mientras se prueba", () => {
     expect(r.status).toBe(200);
     const cuerpo = (await r.json()) as Record<string, unknown>;
     expect(cuerpo).toMatchObject({ nivel: "sobregirado", titulo: "Sobregirado", puntaje: null });
+    // Ana ve la suya (sin datos), no la de Pedro.
+    const deAna = await pedir(tokenAna);
+    expect(deAna.status).toBe(200);
+    expect(await deAna.json()).toMatchObject({ nivel: null, alertas: [], curiosidades: [] });
+    process.env.SALUD_FINANCIERA = "dueno";
     expect((await pedir(tokenAna)).status).toBe(404);
+    expect((await pedir(tokenPedro)).status).toBe(200);
     process.env.SALUD_FINANCIERA = "0";
     expect((await pedir(tokenPedro)).status).toBe(404);
     // Pedir con el token actualiza su "último uso": eso no es de la salud financiera. Lo demás, igual.
@@ -363,11 +431,20 @@ describe("por voz, sin modelo", () => {
     expect(r.respuesta).toContain("veces arriba de la línea de pobreza");
   });
 
-  test("a otra cuenta no le cambia nada: va al modelo como antes", async () => {
+  test("otra cuenta oye la suya, sin modelo", async () => {
     const { db, modelo, decir } = montar();
     const otra = crearUsuario(db, "Ana");
     sembrarCategorias(db, otra.id);
     const r = await decir("¿Cómo está mi salud financiera?", otra.id);
+    expect(modelo.doGenerateCalls).toHaveLength(0);
+    expect(r.respuesta).toStartWith("Todavía no te puedo calificar.");
+    expect(r.respuesta).not.toContain("Revolut");
+  });
+
+  test("con el módulo apagado va al modelo como antes", async () => {
+    const { modelo, decir } = montar();
+    process.env.SALUD_FINANCIERA = "0";
+    const r = await decir("¿Cómo está mi salud financiera?");
     expect(modelo.doGenerateCalls.length).toBeGreaterThan(0);
     expect(r.respuesta).toContain("el modelo");
   });

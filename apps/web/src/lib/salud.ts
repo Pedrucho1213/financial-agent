@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, ErrorApi } from "./api";
 
-// GET /v1/salud-financiera: la calificación, sus pilares y la comparación con México. La calcula el servidor
-// sin modelo y solo leyendo. Mientras se prueba, solo la cuenta dueña la recibe: a las demás les contesta 404
-// y la app no la muestra (ni la tarjeta de Inicio ni la página).
+// GET /v1/salud-financiera: la calificación, sus pilares, la comparación con México y datos curiosos. La calcula
+// el servidor sin modelo y solo leyendo. Si el servidor la apaga (o es uno viejo sin ella) contesta 404 y la app
+// no la muestra (ni la tarjeta de Inicio ni la página).
 
 export type NivelSalud = "sobregirado" | "en_riesgo" | "vamos_bien" | "excelente" | "optimizando";
 
@@ -26,6 +26,12 @@ export type ComparacionSalud = {
   decil?: number;
 };
 
+export type CuriosidadSalud = {
+  clave: "favorito" | "comer_fuera_dias" | "dia_fuerte" | "salario_minimo" | "mas_grande" | "fijos_al_anio" | "hormiga" | "racha";
+  dato: string;
+  texto: string;
+};
+
 export type SaludFinanciera = {
   nivel: NivelSalud | null;
   nivelSinAlertas: NivelSalud | null;
@@ -39,6 +45,8 @@ export type SaludFinanciera = {
   mexico: ComparacionSalud[];
   rubros: { clave: string; nombre: string; tuProporcion: number; mexicoProporcion: number }[];
   consejos: { texto: string; ahorroMensualCentavos?: number }[];
+  /** Puede faltar si el servidor es anterior a los datos curiosos. */
+  curiosidades?: CuriosidadSalud[];
   faltan: string[];
   fuentes: readonly { nombre: string; fecha: string; url: string }[];
 };
@@ -81,7 +89,7 @@ export function detalleCorto(s: SaludFinanciera): string {
 
 /**
  * La clave empieza con "movimientos": un gasto nuevo, borrado o corregido la refresca (refrescarDatos). Un minuto
- * fresca, como Análisis. Un 404 (cuenta sin el módulo o servidor viejo) no se reintenta: simplemente no sale.
+ * fresca, como Análisis. Un 404 (módulo apagado o servidor viejo) no se reintenta: simplemente no sale.
  */
 export function useSalud(activo = true) {
   return useQuery({
