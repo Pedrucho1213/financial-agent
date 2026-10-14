@@ -1,10 +1,11 @@
-import { Archive, ArchiveRestore, ArrowLeftRight, Lightbulb, List, Mic, Pencil, Plus, Tag } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowLeftRight, CreditCard, Lightbulb, List, Mic, Pencil, Plus, Tag } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import { Anillos } from "../components/Anillos";
 import { HojaCuenta } from "../components/cuentas/HojaCuenta";
 import { HojaMover, type InicioMover } from "../components/cuentas/HojaMover";
 import { IconoCuenta } from "../components/cuentas/IconoCuenta";
+import { LogoMarca } from "../components/Logo";
 import { Pantalla } from "../components/Pantalla";
 import { Button } from "../components/ui/button";
 import { FilaBoton, Grupo, TituloSeccion } from "../components/ui/lista";
@@ -16,6 +17,7 @@ import { abrirDetalle, useYo } from "../lib/consultas";
 import { useCuenta, useCuentas, useGuardarCuenta } from "../lib/cuentas";
 import { diaCorto, dinero, haceCuanto, hoyIso, pct } from "../lib/formato";
 import { haptico } from "../lib/haptico";
+import { MARCAS, marcaDe } from "../lib/marcas";
 import { hashDe, navegar, volver } from "../lib/ruta";
 import {
   colorUso,
@@ -114,11 +116,13 @@ export function Cuentas({ params }: { params: URLSearchParams }) {
           {tarjetas.length ? (
             <section>
               <TituloSeccion>Tarjetas de crédito</TituloSeccion>
-              <Grupo>
-                {tarjetas.map((c) => (
-                  <FilaCuenta key={c.id} c={c} moneda={moneda} hoy={hoy} />
-                ))}
-              </Grupo>
+              <div className="@container">
+                <div className="grid grid-cols-2 gap-2.5 @max-[330px]:grid-cols-1">
+                  {tarjetas.map((c) => (
+                    <TarjetaCompacta key={c.id} c={c} moneda={moneda} hoy={hoy} />
+                  ))}
+                </div>
+              </div>
             </section>
           ) : null}
 
@@ -334,12 +338,12 @@ function FilaCuenta({ c, moneda, hoy }: { c: CuentaConMes; moneda: string; hoy: 
   }
   return (
     <FilaBoton
-      sangria="4rem"
+      sangria="4.25rem"
       data-cuenta={c.nombre}
       onClick={() => navegar(hashDe("cuenta", { id: c.id }))}
       aria-label={`${c.nombre}, ${lineaCuenta(c, moneda)}`}
     >
-      <IconoCuenta tipo={c.tipo} />
+      <IconoCuenta tipo={c.tipo} nombre={c.nombre} institucion={c.institucion} />
       <div className="min-w-0 flex-1 py-2.5">
         <div className="truncate">{c.nombre}</div>
         <div className={cn("text-[15px] leading-snug", c.conocido ? "text-muted-foreground" : "text-placeholder")}>{lineaCuenta(c, moneda)}</div>
@@ -352,6 +356,56 @@ function FilaCuenta({ c, moneda, hoy }: { c: CuentaConMes; moneda: string; hoy: 
       </div>
       {valor ? <div className="shrink-0 text-muted-foreground">{valor}</div> : null}
     </FilaBoton>
+  );
+}
+
+/**
+ * Una tarjeta de crédito como plástico chico, del color del banco: cuánto debes, el uso y cuándo pagar. Dos por
+ * renglón (una en pantallas muy angostas).
+ */
+function TarjetaCompacta({ c, moneda, hoy }: { c: CuentaConMes; moneda: string; hoy: string }) {
+  const uso = usoCredito(c);
+  const marca = marcaDe(c.nombre, c.institucion);
+  const m = marca ? MARCAS[marca] : undefined;
+  // Con un color de marca claro (PayPal, Coppel) el texto blanco no se lee: va el gris oscuro.
+  const fondo = m && m.tinta.toLowerCase() === "#ffffff" ? m.fondo : "#2c2c2e";
+  const pago = c.diaPago && c.deudaCentavos !== null && c.deudaCentavos > 0 ? proximaFecha(c.diaPago, hoy) : null;
+  const urgente = pago !== null && diasEntreFechas(hoy, pago) <= 3;
+  return (
+    <button
+      type="button"
+      data-cuenta={c.nombre}
+      onClick={() => {
+        haptico();
+        navegar(hashDe("cuenta", { id: c.id }));
+      }}
+      aria-label={`${c.nombre}, ${lineaCuenta(c, moneda)}`}
+      className="presionable relative flex min-h-[132px] min-w-0 flex-col overflow-hidden rounded-[18px] p-3 text-left text-white shadow-[0_1px_2px_rgb(0_0_0/0.12)]"
+      style={{ background: `linear-gradient(150deg, color-mix(in srgb, ${fondo} 78%, white), ${fondo} 62%)` }}
+    >
+      <span className="flex items-center gap-1.5">
+        {marca ? <LogoMarca clave={marca} tamano={22} className="shadow-[0_0_0_1px_rgb(255_255_255/0.35)]" /> : <CreditCard aria-hidden className="size-[18px] shrink-0 opacity-90" />}
+        <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">{c.nombre}</span>
+        {uso !== null ? <span className="shrink-0 text-[13px] font-semibold tabular opacity-90">{pct(uso)}</span> : null}
+      </span>
+      <span className="mt-auto pt-2 text-[11px] leading-4 font-bold tracking-[0.04em] uppercase opacity-80">
+        {c.deudaCentavos === null ? "¿Cuánto debes?" : c.deudaCentavos > 0 ? "Debes" : "Sin deuda"}
+      </span>
+      <span className="block truncate text-[22px] leading-7 font-bold tracking-[-0.02em] tabular">
+        {c.deudaCentavos === null ? "—" : dinero(Math.max(0, c.deudaCentavos), moneda)}
+      </span>
+      {uso !== null ? (
+        <span aria-hidden className="mt-1.5 block h-1 overflow-hidden rounded-full bg-white/25">
+          <i className="block h-full rounded-full bg-white" style={{ width: `${Math.min(100, Math.max(uso > 0 ? 3 : 0, uso * 100))}%` }} />
+        </span>
+      ) : null}
+      <span className="mt-1.5 block truncate text-[12px] leading-4 font-medium opacity-90">{lineaCuenta(c, moneda)}</span>
+      {pago ? (
+        <span className={cn("mt-0.5 block truncate text-[12px] leading-4 font-semibold", urgente ? "text-[#ffd60a]" : "opacity-90")}>
+          Pagar {enCuantosDias(pago, hoy)}
+        </span>
+      ) : null}
+    </button>
   );
 }
 
