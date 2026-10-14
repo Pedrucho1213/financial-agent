@@ -173,7 +173,8 @@ export function cuandoFue(fecha: string, hoy: string, { corto = false } = {}) {
   const d = (Date.parse(`${hoy}T12:00:00`) - Date.parse(`${fecha}T12:00:00`)) / 86400000;
   if (Math.round(d) === 1) return "ayer";
   const f = new Date(`${fecha}T12:00:00`);
-  if (corto) return new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short" }).format(f).replace(".", "");
+  // Con espacio que no se rompe: en una fila angosta "1 oct" no se parte en dos renglones.
+  if (corto) return new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short" }).format(f).replace(".", "").replace(/\s/g, " ");
   return `el ${new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "long" }).format(f)}`;
 }
 

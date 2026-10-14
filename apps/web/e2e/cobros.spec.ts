@@ -61,7 +61,7 @@ test("Inicio pregunta en su fecha y «Se pagó» es un toque, con Deshacer", asy
   await expect(campana(page)).toHaveAccessibleName("Notificaciones, 5 pendientes");
   await abrirCampana(page);
   // Agua dijo "todavía no": hoy no estorba.
-  await expect(tarjeta(page).locator("[data-cobro]")).toHaveText([/Renta\?\$9,500\.00 · 1 oct/, /Disney\+\?\$159\.00 · hoy · Nu/]);
+  await expect(tarjeta(page).locator("[data-cobro]")).toHaveText([/Renta\?\$9,500\.00 · 1\soct/, /Disney\+\?\$159\.00 · hoy · Nu/]);
 
   await tarjeta(page).getByRole("button", { name: "Disney+ se pagó" }).click();
   await expect(page.getByText("Disney+: pagado $159.00")).toBeVisible();
@@ -76,15 +76,15 @@ test("Inicio pregunta en su fecha y «Se pagó» es un toque, con Deshacer", asy
 
 test("la notificación abre la hoja de ese cobro y deja la dirección limpia", async ({ page }) => {
   await abrir(page, "#inicio?confirmar=cob-disney");
-  await expect(hoja(page)).toContainText("¿Ya se pagó?");
+  await expect(hoja(page)).toContainText("¿Ya se pagó Disney+?");
   await expect(hoja(page).getByTestId("cuando")).toHaveText("$159.00 · se cobra hoy");
   await expect(page).toHaveURL(/#inicio$/);
   // Lo que ya está anotado se ofrece primero, para no anotarlo dos veces.
-  await expect(hoja(page).locator("[data-sugerencia]")).toHaveText([/DISNEY PLUS5 oct · Nu\$179\.00/]);
-  await expect(hoja(page).getByRole("button", { name: "Sí, se pagó $159.00" })).toBeVisible();
-  await expect(hoja(page).getByRole("button", { name: "Sí, pero fue otro monto" })).toBeVisible();
-  await expect(hoja(page).getByRole("button", { name: /Todavía no/ })).toBeVisible();
-  await expect(hoja(page).getByRole("button", { name: /Esta vez no se pagó/ })).toBeVisible();
+  await expect(hoja(page).locator("[data-sugerencia]")).toHaveText([/DISNEY PLUS\$179\.00 · 5\soct · NuEs este/]);
+  await expect(hoja(page).getByRole("button", { name: "Se pagó", exact: true })).toBeVisible();
+  await expect(hoja(page).getByRole("button", { name: "Fue otro monto" })).toBeVisible();
+  await expect(hoja(page).getByRole("button", { name: "Te pregunto mañana" })).toBeVisible();
+  await expect(hoja(page).getByRole("button", { name: "No anoto nada esta vez" })).toBeVisible();
 
   // Recargar no la vuelve a abrir.
   await page.reload();
@@ -117,7 +117,7 @@ test("«Es este»: liga el gasto que ya estaba anotado", async ({ page }) => {
 
 test("«Fue otro monto»: si se repite el de la vez pasada, propone el precio nuevo", async ({ page }) => {
   const api = await abrir(page, "#inicio?confirmar=cob-disney");
-  await hoja(page).getByRole("button", { name: "Sí, pero fue otro monto" }).click();
+  await hoja(page).getByRole("button", { name: "Fue otro monto" }).click();
   await expect(hoja(page)).toContainText("Normalmente $159.00");
   await expect(page.getByLabel("Monto")).toBeFocused();
   await expect(hoja(page).getByRole("button", { name: "Escribe cuánto fue" })).toBeDisabled();
@@ -139,11 +139,11 @@ test("«Fue otro monto»: si se repite el de la vez pasada, propone el precio nu
 
 test("«Atrás» desde otro monto no pierde nada y se puede cambiar la cuenta", async ({ page }) => {
   const api = await abrir(page, "#inicio?confirmar=cob-disney");
-  await hoja(page).getByRole("button", { name: "Sí, pero fue otro monto" }).click();
+  await hoja(page).getByRole("button", { name: "Fue otro monto" }).click();
   await hoja(page).getByRole("button", { name: "Atrás" }).click();
-  await expect(hoja(page)).toContainText("¿Ya se pagó?");
+  await expect(hoja(page)).toContainText("¿Ya se pagó Disney+?");
   await hoja(page).getByLabel("Se pagó con").selectOption("cta-bbva");
-  await hoja(page).getByRole("button", { name: "Sí, se pagó $159.00" }).click();
+  await hoja(page).getByRole("button", { name: "Se pagó", exact: true }).click();
   await expect(page.getByText("Disney+: pagado $159.00")).toBeVisible();
   expect(ultimo(api, "/v1/cobros/cob-disney/confirmar")).toEqual({ cuenta_id: "cta-bbva" });
 });
@@ -152,8 +152,8 @@ test("«Todavía no» lo deja para mañana", async ({ page }) => {
   const api = await abrir(page, "#inicio");
   await abrirCampana(page);
   await tarjeta(page).getByText("¿Ya se pagó Renta?").click();
-  await hoja(page).getByRole("button", { name: /Todavía no/ }).click();
-  await expect(page.getByText("Te pregunto mañana")).toBeVisible();
+  await hoja(page).getByRole("button", { name: "Te pregunto mañana" }).click();
+  await expect(page.locator("[data-sonner-toast]").getByText("Te pregunto mañana")).toBeVisible();
   expect(api.de("POST", "/v1/cobros/cob-renta/posponer")).toHaveLength(1);
   await abrirCampana(page);
   await expect(tarjeta(page).locator("[data-cobro]")).toHaveText([/Disney\+/]);
@@ -161,7 +161,7 @@ test("«Todavía no» lo deja para mañana", async ({ page }) => {
 
 test("«Esta vez no se pagó» dos veces seguidas ofrece pausarla", async ({ page }) => {
   const api = await abrir(page, "#inicio?confirmar=cob-renta");
-  await hoja(page).getByRole("button", { name: /Esta vez no se pagó/ }).click();
+  await hoja(page).getByRole("button", { name: "No anoto nada esta vez" }).click();
   await expect(page.getByText("Renta: no se pagó esta vez")).toBeVisible();
   await expect(page.getByText("¿Pausar Renta?")).toBeVisible();
   await page.getByRole("button", { name: "Pausar" }).click();
@@ -171,11 +171,16 @@ test("«Esta vez no se pagó» dos veces seguidas ofrece pausarla", async ({ pag
 
 test("varios en la notificación: la lista y «Todo se pagó»", async ({ page }) => {
   const api = await abrir(page, "#inicio?confirmar=cob-renta,cob-disney");
-  await expect(hoja(page).locator("[data-cobro]")).toHaveText([/Renta\$9,500\.00 · 1 octSe pagó/, /Disney\+\$159\.00 · hoy · NuSe pagó/]);
+  await expect(hoja(page).locator("[data-cobro]")).toHaveText([/Renta\$9,500\.00 · 1\soctSe pagó/, /Disney\+\$159\.00 · hoy · NuSe pagó/]);
 
   // Tocar uno abre su hoja y "Atrás" regresa a la lista.
   await hoja(page).getByText("Renta", { exact: true }).click();
-  await expect(hoja(page)).toContainText("¿Ya se pagó?");
+  await expect(hoja(page)).toContainText("¿Ya se pagó Renta?");
+  // Abierto desde la lista dice en cuál vas, y "Siguiente" pasa al otro sin contestar este.
+  await expect(hoja(page).getByRole("heading", { name: "1 de 2" })).toBeVisible();
+  await hoja(page).getByRole("button", { name: "Siguiente" }).click();
+  await expect(hoja(page)).toContainText("¿Ya se pagó Disney+?");
+  await expect(hoja(page).getByRole("heading", { name: "2 de 2" })).toBeVisible();
   await hoja(page).getByRole("button", { name: "Atrás" }).click();
   await hoja(page).getByRole("button", { name: "Todo se pagó" }).click();
   await expect(page.getByText("Los dos quedaron pagados")).toBeVisible();
@@ -183,6 +188,20 @@ test("varios en la notificación: la lista y «Todo se pagó»", async ({ page }
   await expect(hoja(page)).toHaveCount(0);
   await abrirCampana(page);
   await expect(tarjeta(page).locator("[data-cobro]")).toHaveCount(0);
+});
+
+test("uno por uno desde la lista: al contestar pasa al siguiente y al final se cierra", async ({ page }) => {
+  const api = await abrir(page, "#inicio?confirmar=cob-renta,cob-disney");
+  await hoja(page).getByText("Renta", { exact: true }).click();
+  await hoja(page).getByRole("button", { name: "Se pagó", exact: true }).click();
+  await expect(page.getByText("Renta: pagado $9,500.00")).toBeVisible();
+  await expect(hoja(page)).toContainText("¿Ya se pagó Disney+?");
+  await expect(hoja(page).getByRole("heading", { name: "2 de 2" })).toBeVisible();
+  // Ya no queda otro: en lugar de "Siguiente", "Cerrar".
+  await expect(hoja(page).getByRole("button", { name: "Siguiente" })).toHaveCount(0);
+  await hoja(page).getByRole("button", { name: "Te pregunto mañana" }).click();
+  await expect(hoja(page)).toHaveCount(0);
+  expect(api.de("POST", "/v1/cobros/cob-disney/posponer")).toHaveLength(1);
 });
 
 test("en la lista, contestar uno por uno la cierra al final", async ({ page }) => {
@@ -201,7 +220,7 @@ test("si ya se contestó por voz, la notificación muestra cómo quedó y se pue
   await expect(page.getByText("Listo, quité el pago")).toBeVisible();
   expect(api.de("POST", "/v1/cobros/cob-spotify/deshacer")).toHaveLength(1);
   // Vuelve a preguntar, en la misma hoja.
-  await expect(hoja(page)).toContainText("¿Ya se pagó?");
+  await expect(hoja(page)).toContainText("¿Ya se pagó Spotify?");
   expect(cobrosDe(api).find((c) => c.id === "cob-spotify")?.estado).toBe("pendiente");
 });
 
@@ -219,16 +238,16 @@ test("la campana abre el centro de notificaciones", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Notificaciones" })).toBeVisible();
   // Agua sale aquí aunque dijo "todavía no".
   await expect(page.locator("section").filter({ hasText: "Por confirmar" }).locator("[data-cobro]")).toHaveText([
-    /¿Ya se pagó Renta\?\$9,500\.00 · 1 oct/,
-    /¿Ya se pagó Agua\?\$310\.00 · 4 oct · te pregunto mañana/,
+    /¿Ya se pagó Renta\?\$9,500\.00 · 1\soct/,
+    /¿Ya se pagó Agua\?\$310\.00 · 4\soct · te pregunto mañana/,
     /¿Ya se pagó Disney\+\?\$159\.00 · hoy/,
   ]);
   await expect(page.locator("[data-aviso]")).toHaveCount(2);
   // Lo que falta revisar, con su logo; tocarlo abre el movimiento.
   await expect(page.locator("section").filter({ hasText: "Por revisar" }).locator("[data-revisar]")).toHaveCount(2);
   await expect(page.locator("section").filter({ hasText: "Anteriores" }).locator("[data-cobro]")).toHaveText([
-    /Spotify20 sept? · por voz\$129\.00/,
-    /Max.*No se pagó · 3 sept?/,
+    /Spotify20\ssept? · por voz\$129\.00/,
+    /Max.*No se pagó · 3\ssept?/,
   ]);
 
   // Un aviso: se marca leído y lleva a donde dice.
@@ -312,9 +331,9 @@ test.describe("capturas", () => {
       await capturar(page, `inicio-${sufijo}`);
 
       await page.goto("/#inicio?confirmar=cob-disney");
-      await expect(hoja(page)).toContainText("¿Ya se pagó?");
+      await expect(hoja(page)).toContainText("¿Ya se pagó Disney+?");
       await capturar(page, `hoja-${sufijo}`);
-      await hoja(page).getByRole("button", { name: "Sí, pero fue otro monto" }).click();
+      await hoja(page).getByRole("button", { name: "Fue otro monto" }).click();
       await page.getByLabel("Monto").fill("179");
       await capturar(page, `otro-monto-${sufijo}`);
       await hoja(page).getByRole("button", { name: "Atrás" }).click();
@@ -350,7 +369,7 @@ test.describe("capturas", () => {
     // Nada se sale de la pantalla.
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
     await page.goto("/#inicio?confirmar=cob-disney");
-    await expect(hoja(page)).toContainText("¿Ya se pagó?");
+    await expect(hoja(page)).toContainText("¿Ya se pagó Disney+?");
     await capturar(page, "hoja-320");
     await page.goto("/#inicio?confirmar=cob-renta,cob-disney");
     await expect(hoja(page).locator("[data-cobro]")).toHaveCount(2);
