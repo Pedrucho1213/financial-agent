@@ -177,6 +177,8 @@ describe("etiquetar el historial", () => {
     eliminarEtiqueta(ctx, { nombre: "Trabajo" });
     const r = aplicarPlan(ctx, [...viajes, ...ia.filter((a) => !a.etiqueta.startsWith("Boda"))], "prueba");
     expect(r).toEqual({ cambiados: 1, creadas: 2 });
+    // Reintentar con la misma marca no borra lo que --deshacer necesita.
+    expect(aplicarPlan(ctx, viajes, "prueba")).toEqual({ cambiados: 0, creadas: 0 });
     expect(etiquetasDe(ctx, "Tacos")).toEqual([["Viaje Cancún", "Innecesario"]]);
     expect(etiquetasDe(ctx, "La Docena")).toEqual([[]]);
 

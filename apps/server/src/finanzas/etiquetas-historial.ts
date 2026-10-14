@@ -198,9 +198,13 @@ export function aplicarPlan(ctx: Contexto, plan: Agregado[], marca: string) {
       tx.update(movimientos).set({ etiquetas: [...m.etiquetas, ...nuevos] }).where(eq(movimientos.id, movimientoId)).run();
       registro.movimientos.push({ id: movimientoId, ids: nuevos });
     }
+    // Si una corrida anterior con la misma marca ya pasó por esta cuenta (falló más adelante y se reintenta), se suma
+    // a lo que agregó entonces: así --deshacer lo sigue quitando todo.
+    const previo = tx.select().from(configuracion).where(eq(configuracion.clave, clave(marca, ctx.usuarioId))).get()?.valor as typeof registro | undefined;
+    const valor = previo ? { movimientos: [...previo.movimientos, ...registro.movimientos], creadas: [...previo.creadas, ...registro.creadas] } : registro;
     tx.insert(configuracion)
-      .values({ clave: clave(marca, ctx.usuarioId), valor: registro })
-      .onConflictDoUpdate({ target: configuracion.clave, set: { valor: registro } })
+      .values({ clave: clave(marca, ctx.usuarioId), valor })
+      .onConflictDoUpdate({ target: configuracion.clave, set: { valor } })
       .run();
   });
   return { cambiados: registro.movimientos.length, creadas: registro.creadas.length };
