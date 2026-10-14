@@ -1,16 +1,15 @@
-// Si el usuario quiere calles se recuerda en este dispositivo.
+// Las calles salen por omisión; si el usuario las apaga se recuerda en este dispositivo.
 const CLAVE_CALLES = "fa_mapa_calles";
 export function leerCalles() {
   try {
-    return localStorage.getItem(CLAVE_CALLES) === "1";
+    return localStorage.getItem(CLAVE_CALLES) !== "0";
   } catch {
-    return false;
+    return true;
   }
 }
 export function guardarCalles(v: boolean) {
   try {
-    if (v) localStorage.setItem(CLAVE_CALLES, "1");
-    else localStorage.removeItem(CLAVE_CALLES);
+    localStorage.setItem(CLAVE_CALLES, v ? "1" : "0");
   } catch {
     // Sin almacenamiento solo dura esta visita.
   }

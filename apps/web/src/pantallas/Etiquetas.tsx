@@ -1,6 +1,7 @@
 import { List, Mic, Plus, Sparkles, Tag, Trash } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { ContenidoConMonto } from "../components/ContenidoConMonto";
 import { Pantalla } from "../components/Pantalla";
 import { Spinner } from "../components/Spinner";
 import { Button } from "../components/ui/button";
@@ -87,10 +88,10 @@ export function Etiquetas({ params }: { params: URLSearchParams }) {
               type="button"
               data-activa={e.nombre}
               onClick={() => setHoja(e)}
-              className="fila-presionable flex w-full items-start gap-3 rounded-[20px] bg-tint/10 p-4 text-left"
+              className="fila-presionable flex w-full items-start gap-2.5 rounded-[14px] bg-tint/12 px-3.5 py-3 text-left"
             >
               <Sparkles aria-hidden className="mt-0.5 size-[18px] shrink-0 text-tint" />
-              <span className="min-w-0 text-[15px] leading-snug">
+              <span className="min-w-0 text-[15px] leading-[20px]">
                 <span className="font-semibold">#{e.nombre}</span>{" "}
                 {e.activaDesde! > hoy
                   ? `se pondrá sola en tus gastos del ${diaCorto(e.activaDesde!)} al ${diaCorto(e.activaHasta!)}.`
@@ -111,7 +112,7 @@ export function Etiquetas({ params }: { params: URLSearchParams }) {
                           <span className="min-w-0 truncate">#{e.nombre}</span>
                           <span className="shrink-0 font-medium tabular">{dinero(e.gastadoCentavos, moneda)}</span>
                         </span>
-                        <span className="mt-1 block h-2 overflow-hidden rounded-full bg-fill">
+                        <span className="mt-1.5 block h-1.5 overflow-hidden rounded-full bg-fill">
                           <span
                             className="block h-full origin-left animate-crecer-x rounded-full bg-tint"
                             style={{ width: `${Math.max(2, (e.gastadoCentavos / tope) * 100)}%` }}
@@ -141,28 +142,26 @@ export function Etiquetas({ params }: { params: URLSearchParams }) {
               }
             >
               {lista.map((e) => (
-                <FilaBoton
-                  key={e.id}
-                  sangria="4rem"
-                  data-etiqueta={e.nombre}
-                  icono={
-                    <span aria-hidden className={cn("flex size-9 shrink-0 items-center justify-center rounded-full", vigente(e, hoy) ? "bg-tint text-white" : "bg-tint/15 text-tint")}>
-                      <Tag className="size-[18px]" strokeWidth={2.2} />
-                    </span>
-                  }
-                  titulo={e.nombre}
-                  subtitulo={<span className="block whitespace-normal">{lineaEtiqueta(e, periodo)}</span>}
-                  valor={
-                    e.gastadoCentavos || e.ingresadoCentavos ? (
-                      <span className="block text-right tabular">
-                        {e.gastadoCentavos ? <span className="block font-medium text-foreground">{dinero(e.gastadoCentavos, moneda)}</span> : null}
-                        {e.ingresadoCentavos ? <span className="block text-[13px] text-positive">+{dinero(e.ingresadoCentavos, moneda)}</span> : null}
+                <FilaBoton key={e.id} sangria="4rem" data-etiqueta={e.nombre} onClick={() => setHoja(e)}>
+                  <ContenidoConMonto
+                    icono={
+                      <span aria-hidden className={cn("flex size-9 shrink-0 items-center justify-center rounded-[10px]", vigente(e, hoy) ? "bg-tint text-white" : "bg-tint/15 text-tint")}>
+                        <Tag className="size-[18px]" strokeWidth={2.2} />
                       </span>
-                    ) : undefined
-                  }
-                  chevron
-                  onClick={() => setHoja(e)}
-                />
+                    }
+                    titulo={e.nombre}
+                    subtitulo={lineaEtiqueta(e, periodo)}
+                    valor={
+                      e.gastadoCentavos || e.ingresadoCentavos ? (
+                        <span className="block text-right tabular">
+                          {e.gastadoCentavos ? <span className="block font-medium text-foreground">{dinero(e.gastadoCentavos, moneda)}</span> : null}
+                          {e.ingresadoCentavos ? <span className="block text-[13px] text-positive">+{dinero(e.ingresadoCentavos, moneda)}</span> : null}
+                        </span>
+                      ) : undefined
+                    }
+                    chevron
+                  />
+                </FilaBoton>
               ))}
               <FilaBoton
                 sangria="4rem"

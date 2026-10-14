@@ -35,7 +35,7 @@ export function CasillasCodigo({
             <div
               key={i}
               className={cn(
-                "flex h-14 items-center justify-center rounded-xl bg-card text-[26px] font-semibold tabular transition-[box-shadow] duration-150",
+                "flex h-14 items-center justify-center rounded-xl bg-card text-[26px] font-semibold tabular shadow-[0_1px_3px_rgb(0_0_0/0.08)] transition-[box-shadow] duration-150",
                 activa && "ring-2 ring-primary",
                 error && "ring-2 ring-destructive/70",
               )}

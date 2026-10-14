@@ -195,6 +195,7 @@ export type GastoConLugar = {
   lugar: string | null;
   comercio: string | null;
   descripcion: string | null;
+  categoria: string | null;
 };
 
 /** Gastos con ubicación en un rango, para el mapa. Solo guarda lo que el mapa usa. */
@@ -219,6 +220,7 @@ export function useGastosConLugar(desde: string, hasta: string) {
             lugar: m.lugar,
             comercio: m.comercio,
             descripcion: m.descripcion,
+            categoria: m.categoria,
           });
         }
         if (pagina.movimientos.length < 500 || offset + 500 >= pagina.total) break;
