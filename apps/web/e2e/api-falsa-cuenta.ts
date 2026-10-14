@@ -15,6 +15,16 @@ export type EstadoFalso = {
   servidor: ServidorFalso | null;
   ia: { modelo?: string; disponible: boolean; cargada: boolean };
   cola: { pendientes: number; conError: number };
+  uso?: {
+    consultas: number;
+    limite: number | null;
+    quedan: number | null;
+    maxCaracteres: number;
+    caracteresPorConsulta: number;
+    aviso?: string;
+    modoBasico?: boolean;
+    mes?: { costoUsd: number; presupuestoUsd: number | null };
+  };
 };
 
 /** Desplegado 5 días antes y arrancado 3 horas antes de la hora fija de las pruebas (18:30 UTC). */
@@ -40,7 +50,12 @@ function estadoDe(api: ApiFalsa) {
  */
 export function ponerEstado(
   api: ApiFalsa,
-  cambios: { servidor?: Partial<ServidorFalso> | null; ia?: Partial<EstadoFalso["ia"]>; cola?: Partial<EstadoFalso["cola"]> } | null,
+  cambios: {
+    servidor?: Partial<ServidorFalso> | null;
+    ia?: Partial<EstadoFalso["ia"]>;
+    cola?: Partial<EstadoFalso["cola"]>;
+    uso?: EstadoFalso["uso"];
+  } | null,
 ) {
   if (cambios === null) {
     estados.set(api, null);
@@ -51,6 +66,7 @@ export function ponerEstado(
     servidor: cambios.servidor === null || e.servidor === null ? null : { ...e.servidor, ...cambios.servidor },
     ia: cambios.servidor === null ? { disponible: e.ia.disponible, cargada: e.ia.cargada, ...cambios.ia } : { ...e.ia, ...cambios.ia },
     cola: { ...e.cola, ...cambios.cola },
+    ...(cambios.uso ?? e.uso ? { uso: cambios.uso ?? e.uso } : {}),
   });
 }
 

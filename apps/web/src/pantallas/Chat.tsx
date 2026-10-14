@@ -1,4 +1,4 @@
-import { ArrowUp, AudioLines, Check, CircleAlert, Clock, MessageCircle, Mic, RotateCw, Search, SquarePen, Volume2, VolumeX, X } from "lucide-react";
+import { ArrowUp, AudioLines, Check, CircleAlert, Clock, Mic, RotateCw, Search, Sparkles, SquarePen, Volume2, VolumeX, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Pantalla } from "../components/Pantalla";
@@ -16,7 +16,7 @@ import {
   yaSeLeyo,
 } from "../lib/chat";
 import { mensajeDeError } from "../lib/api";
-import { useEstadoSistema } from "../lib/cuenta";
+import { type EstadoSistema, useEstadoSistema } from "../lib/cuenta";
 import { hashDe, navegar, useRuta } from "../lib/ruta";
 import { useEnLinea } from "../lib/conexion";
 import { useDictado } from "../lib/dictado";
@@ -106,7 +106,7 @@ export function Chat() {
       if (pregunta && a.enLinea && a.ultimoId === m.id && !a.texto.trim()) a.dictado.empezar("", true);
     });
   }, [mensajes, leerEnVoz]);
-  // Al salir del chat se calla (lo que llegue mientras tanto se lee al volver).
+  // Al salir de la IA se calla (lo que llegue mientras tanto se lee al volver).
   useEffect(() => () => callar(), []);
 
   const alternarLectura = () => {
@@ -116,7 +116,8 @@ export function Chat() {
 
   return (
     <Pantalla
-      titulo="Chat"
+      titulo="IA"
+      tituloCompacto={<TituloIa uso={uso} />}
       barraFija
       className="bg-card dark:bg-background"
       derecha={
@@ -156,7 +157,7 @@ export function Chat() {
               aria-hidden
               className="flex size-16 items-center justify-center rounded-[18px] bg-linear-to-b from-[#5ac8fa] to-[#007aff] text-white shadow-[0_8px_24px_rgb(0_122_255/0.3)]"
             >
-              <MessageCircle className="size-8" fill="currentColor" strokeWidth={0} />
+              <Sparkles className="size-8" fill="currentColor" strokeWidth={1.5} />
             </span>
             <h1 className="mt-5 text-[28px] leading-tight font-bold tracking-[-0.02em]">¿En qué te ayudo?</h1>
             <p className="mt-2 max-w-[18rem] text-[17px] leading-snug text-balance text-muted-foreground">
@@ -164,12 +165,9 @@ export function Chat() {
                 ? "Pregunta por tus gastos o dime lo que compraste. Toca el micrófono para hablar."
                 : "Pregunta por tus gastos o dime lo que compraste."}
             </p>
-            {uso?.aviso || uso?.limite != null ? (
-              <p className={cn("mt-2 max-w-[20rem] text-[15px] text-balance", uso.aviso && !uso.modoBasico ? "text-negative" : "text-muted-foreground")}>
-                {uso.aviso ??
-                  (uso.quedan === 0
-                    ? "Ya usaste tus consultas de IA de hoy. Mañana se renuevan."
-                    : `Te quedan ${uso.quedan} de ${uso.limite} consultas de IA hoy.`)}
+            {uso?.aviso ? (
+              <p className={cn("mt-2 max-w-[20rem] text-[15px] text-balance", uso.modoBasico ? "text-muted-foreground" : "text-negative")}>
+                {uso.aviso}
               </p>
             ) : null}
             <Grupo className="mt-8 w-full text-left">
@@ -207,7 +205,7 @@ export function Chat() {
           teclado ? "bottom-[calc(var(--teclado,0px)+8px)]" : "bottom-[calc(var(--barra-inferior)+10px)]",
         )}
       >
-        <Contador largo={largo} maximo={maximo} porConsulta={uso?.caracteresPorConsulta ?? 500} uso={uso} />
+        <Contador largo={largo} maximo={maximo} porConsulta={uso?.caracteresPorConsulta ?? 500} />
         <div className="pointer-events-auto mx-auto flex max-w-3xl items-end gap-2 px-safe">
           {dictado.disponible ? (
             dictado.escuchando ? (
@@ -290,42 +288,62 @@ export function Chat() {
 }
 
 /**
- * Arriba del campo: cuántos caracteres lleva cuando el mensaje ya cuenta como más de una consulta o se acerca al máximo,
- * y cuántas consultas le quedan hoy cuando son pocas. Nada para la cuenta dueña con mensajes cortos.
+ * Arriba del campo, solo cuando el mensaje ya cuenta como más de una consulta o se pasa del máximo: cuántos caracteres
+ * lleva. Lo que le queda hoy va bajo el título (TituloIa).
  */
-function Contador({
-  largo,
-  maximo,
-  porConsulta,
-  uso,
-}: {
-  largo: number;
-  maximo: number;
-  porConsulta: number;
-  uso: { limite: number | null; quedan: number | null; modoBasico?: boolean } | undefined;
-}) {
-  const consultas = Math.max(1, Math.ceil(largo / porConsulta));
-  const pocas = uso?.quedan != null && uso.quedan <= 10;
-  const partes: string[] = [];
-  if (largo > maximo) partes.push(`${largo}/${maximo} · Muy largo, divídelo en partes`);
-  else if (largo > porConsulta) partes.push(`${largo}/${maximo} · Cuenta como ${consultas} consultas`);
-  if (pocas && largo <= maximo) partes.push(
-      uso.quedan === 0 ? (uso.modoBasico ? "Modo básico hasta mañana" : "Sin IA hasta mañana") : uso.quedan === 1 ? "Te queda 1 consulta hoy" : `Te quedan ${uso.quedan} consultas hoy`,
-    );
-  if (!partes.length) return null;
-  const alerta = largo > maximo || (uso?.quedan === 0 && !uso.modoBasico);
+function Contador({ largo, maximo, porConsulta }: { largo: number; maximo: number; porConsulta: number }) {
+  if (largo <= porConsulta) return null;
+  const muyLargo = largo > maximo;
   return (
     <div className="pointer-events-none mx-auto mb-1.5 flex max-w-3xl justify-end px-safe">
       <span
         role="status"
         className={cn(
           "vidrio animate-aparecer rounded-full px-3 py-1 text-[12px] font-semibold tabular-nums",
-          alerta ? "text-negative" : "text-muted-foreground",
+          muyLargo ? "text-negative" : "text-muted-foreground",
         )}
       >
-        {partes.join(" · ")}
+        {largo}/{maximo} · {muyLargo ? "Muy largo, divídelo en partes" : `Cuenta como ${Math.ceil(largo / porConsulta)} consultas`}
       </span>
     </div>
+  );
+}
+
+const usd = (n: number) => `$${n.toFixed(2)}`;
+
+/**
+ * "IA" y, debajo y en pequeño, lo que le queda hoy, como el "en línea" de Mensajes: las consultas, el modo básico o
+ * por qué no hay IA. La cuenta dueña, que no tiene tope, ve lo gastado del mes contra el presupuesto.
+ */
+function TituloIa({ uso }: { uso: EstadoSistema["uso"] }) {
+  const linea = !uso
+    ? undefined
+    : uso.modoBasico
+      ? "Modo básico hasta mañana"
+      : uso.aviso
+        ? "Sin IA por ahora"
+        : uso.quedan != null
+          ? uso.quedan === 1
+            ? "Te queda 1 consulta hoy"
+            : `Te quedan ${uso.quedan} consultas hoy`
+          : uso.mes?.presupuestoUsd
+            ? `${usd(uso.mes.costoUsd)} de ${usd(uso.mes.presupuestoUsd)} USD este mes`
+            : undefined;
+  const alerta = !!uso?.aviso && !uso.modoBasico;
+  return (
+    <span className="flex flex-col items-center leading-tight">
+      <span>IA</span>
+      {linea ? (
+        <span
+          className={cn(
+            "animate-aparecer text-[11px] font-normal tabular-nums",
+            alerta ? "text-negative" : "text-muted-foreground",
+          )}
+        >
+          {linea}
+        </span>
+      ) : null}
+    </span>
   );
 }
 

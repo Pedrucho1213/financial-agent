@@ -46,8 +46,8 @@ export function notificacionDeDictado(entrada: Entrada, respuesta: Respuesta | u
     return {
       titulo: applePay ? "No pude anotar tu pago" : "No pude anotarlo",
       cuerpo: applePay
-        ? `No pude procesar tu pago con Apple Pay (${entrada.texto}). Toca para aclararlo en el chat.`
-        : `No pude procesar «${entrada.texto}». Toca para aclararlo en el chat.`,
+        ? `No pude procesar tu pago con Apple Pay (${entrada.texto}). Toca para aclararlo con la IA.`
+        : `No pude procesar «${entrada.texto}». Toca para aclararlo con la IA.`,
       url: urlDelChat(entrada.conversacionId),
       etiqueta,
       urgencia: "high",

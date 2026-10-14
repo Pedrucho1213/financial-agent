@@ -254,7 +254,7 @@ function Detalle({ m, enLinea }: { m: MovimientoApp; enLinea: boolean }) {
         <FilaBoton
           sangria="3.4rem"
           icono={<Sparkles aria-hidden className="size-5 text-tint" />}
-          titulo={<span className="text-tint">Preguntar al chat</span>}
+          titulo={<span className="text-tint">Preguntarle a la IA</span>}
           disabled={!enLinea}
           onClick={() => {
             haptico();

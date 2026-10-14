@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import { ApiFalsa, comoAppDeInicio, HOY, portapapelesFalso, prepararSesion, TOKEN } from "./api-falsa";
+import { ponerEstado } from "./api-falsa-cuenta";
 
 const PASOS_DESCARGA = [/Toca «Descargar»/, /Archivos › Descargas/, /En Atajos toca «Agregar atajo»/];
 
@@ -310,6 +311,33 @@ test.describe("Movimientos", () => {
 });
 
 test.describe("Chat", () => {
+  test("la pestaña se llama IA y bajo el título dice, sin estorbar, lo que queda hoy", async ({ page }) => {
+    const api = new ApiFalsa();
+    const uso = { consultas: 8, limite: 40, quedan: 32, maxCaracteres: 1500, caracteresPorConsulta: 500 };
+    ponerEstado(api, { servidor: null, uso });
+    await prepararSesion(page, api);
+    await page.goto("/#chat");
+    await expect(page.getByRole("link", { name: "IA", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByText("Te quedan 32 consultas hoy")).toBeVisible();
+
+    // Al acabarse sus consultas sigue en modo básico, con la explicación en la pantalla vacía.
+    const aviso = "Modo básico hasta mañana: ya usaste tus consultas de hoy y las respuestas son más cortas.";
+    ponerEstado(api, { uso: { ...uso, consultas: 41, quedan: 0, aviso, modoBasico: true } });
+    await page.reload();
+    await expect(page.getByText("Modo básico hasta mañana", { exact: true })).toBeVisible();
+    await expect(page.getByText(aviso)).toBeVisible();
+  });
+
+  test("la cuenta dueña, sin tope de consultas, ve lo gastado del mes", async ({ page }) => {
+    const api = new ApiFalsa();
+    ponerEstado(api, {
+      uso: { consultas: 12, limite: null, quedan: null, maxCaracteres: 1500, caracteresPorConsulta: 500, mes: { costoUsd: 1.2, presupuestoUsd: 50 } },
+    });
+    await prepararSesion(page, api);
+    await page.goto("/#chat");
+    await expect(page.getByText("$1.20 de $50.00 USD este mes")).toBeVisible();
+  });
+
   test("respuesta pendiente con esperar y luego consulta la entrada", async ({ page }) => {
     const api = new ApiFalsa();
     api.hablar = [
@@ -751,8 +779,8 @@ test.describe("Ritmo y Destacados", () => {
     await page.goto("/");
     const agregar = page.getByRole("button", { name: "Agregar movimiento" });
     await expect(agregar).toBeVisible();
-    await page.getByRole("link", { name: "Chat" }).click();
-    await expect(page.getByRole("link", { name: "Chat" })).toHaveAttribute("aria-current", "page");
+    await page.getByRole("link", { name: "IA", exact: true }).click();
+    await expect(page.getByRole("link", { name: "IA", exact: true })).toHaveAttribute("aria-current", "page");
     await expect(agregar).toBeHidden();
   });
 });
