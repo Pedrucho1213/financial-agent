@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { expect, test } from "@playwright/test";
+import { expect, type Locator, test } from "@playwright/test";
 import { ApiFalsa, comoAppDeInicio, HOY, portapapelesFalso, prepararSesion, TOKEN } from "./api-falsa";
 import { ponerEstado } from "./api-falsa-cuenta";
 
@@ -42,7 +42,7 @@ test.describe("Entrar", () => {
     await page.getByLabel("Tu nombre").fill("Pedro");
     await continuar.click();
 
-    await expect(page.getByRole("heading", { name: /Octubre/ })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Gastado" })).toBeVisible();
     expect(await page.evaluate(() => localStorage.getItem("fa_token"))).toBe(TOKEN);
     expect(api.de("POST", "/v1/registro")[0]?.cuerpo).toEqual({ codigo: "ABC123", nombre: "Pedro", dispositivo: "iPhone" });
     expect(page.url()).not.toContain("codigo=");
@@ -72,7 +72,7 @@ test.describe("Entrar", () => {
     await expect(page.getByLabel("Tu nombre")).toHaveCount(0);
     await page.getByLabel("Dispositivo").fill("iPhone 13");
     await page.getByRole("button", { name: "Agregar dispositivo" }).click();
-    await expect(page.getByRole("heading", { name: /Octubre/ })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Gastado" })).toBeVisible();
     expect(api.de("POST", "/v1/registro")[0]?.cuerpo).toEqual({ codigo: "DEV456", dispositivo: "iPhone 13" });
   });
 
@@ -115,34 +115,41 @@ test.describe("Entrar en computadora", () => {
 });
 
 test.describe("Inicio", () => {
-  test("tarjetas, comparación y las dos gráficas", async ({ page }) => {
+  test("tarjetas, comparación, lo de hoy y en qué se va", async ({ page }) => {
     const api = await prepararSesion(page);
     await page.goto("/");
 
-    await expect(page.getByRole("heading", { name: /Octubre/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Hola, Pedro" })).toBeVisible();
+    await expect(page.getByText("Martes 6 de octubre")).toBeVisible();
     const gastado = page.getByRole("region", { name: "Gastado" });
     await expect(gastado).toContainText("$16,754.70");
     await expect(gastado).toContainText("20% más que al 6 de septiembre");
-    await expect(gastado).toContainText("$269.50"); // hoy
-    await expect(page.getByRole("region", { name: "Ingresado" })).toContainText("$18,750.00");
-    await expect(page.getByRole("region", { name: "Balance" })).toContainText("+$1,995.30");
-    await expect(page.getByText("2 movimientos por revisar")).toBeVisible();
+    await expect(gastado).toContainText("Hoy $269.50");
+    await expect(gastado).toContainText("Entró $18,750.00");
+    // Sin cuentas en el servidor, la segunda tarjeta no sale.
+    await expect(page.getByRole("region", { name: "Lo que tienes" })).toHaveCount(0);
 
-    // Dona y barras (ECharts con SVG).
-    const dona = page.getByRole("img", { name: "Gastos por categoría" });
-    const barras = page.getByRole("img", { name: /últimos 6 meses/ });
-    await expect(dona.locator("svg path").first()).toBeAttached();
-    await expect(barras.locator("svg path").first()).toBeAttached();
-    expect(await barras.locator("svg path").count()).toBeGreaterThan(10);
+    // Hoy: tres movimientos con su hora y su logo.
+    const hoy = page.getByRole("region", { name: "Hoy" });
+    await expect(hoy.locator("[data-movimiento]")).toHaveCount(3);
+    await expect(hoy.locator("[data-marca=oxxo]")).toBeVisible();
+    await expect(hoy).toContainText(/\d{1,2}:\d{2} · /);
 
-    await expect(page.getByText("Mayores gastos")).toBeVisible();
-    await expect(page.getByText("Lo que más repites")).toBeVisible();
-    await expect(page.getByText("Smart Fit")).toBeVisible();
+    // En qué se va: tres categorías y «Ver las 6».
+    const enQue = page.getByRole("region", { name: "En qué se va" });
+    await expect(enQue).toContainText("$16,754.70 en 6 categorías");
+    await expect(enQue.getByRole("button", { name: /^Vivienda/ })).toBeVisible();
+    await expect(enQue.getByRole("button", { name: /^Salud/ })).toHaveCount(0);
+    await enQue.getByRole("button", { name: "Ver las 6" }).click();
+    await expect(enQue.getByRole("button", { name: "Ver menos" })).toBeVisible();
+    expect(await enQue.locator("button[class*=fila-presionable], div[class*=items-center]").count()).toBeGreaterThan(5);
+
+    await expect(page.getByRole("region", { name: "Próximos cobros" })).toContainText("Smart Fit");
     expect(api.de("GET", "/v1/tablero")[0]?.consulta.get("mes")).toBe(HOY.slice(0, 7));
 
-    // Mes anterior.
-    await page.getByRole("button", { name: "Mes anterior" }).click();
-    await expect(page.getByRole("heading", { name: /Septiembre/ })).toBeVisible();
+    // Otro mes, desde «Octubre ▾».
+    await page.getByLabel("Cambiar de mes").selectOption("2026-09");
+    await expect(page.getByText("Viendo septiembre")).toBeVisible();
     await expect(page).toHaveURL(/#inicio\?mes=2026-09/);
   });
 
@@ -160,7 +167,8 @@ test.describe("Inicio", () => {
   test("el aviso de por revisar abre la lista con revisar=1", async ({ page }) => {
     const api = await prepararSesion(page);
     await page.goto("/");
-    await page.getByText("2 movimientos por revisar").click();
+    await page.getByRole("button", { name: /^Notificaciones/ }).click();
+    await page.getByRole("dialog", { name: "Notificaciones" }).getByText("2 movimientos por revisar").click();
     await expect(page.getByText("Farmacia San Pablo")).toBeVisible();
     await expect(page.getByText("2 movimientos")).toBeVisible();
     expect(api.de("GET", "/v1/movimientos").at(-1)?.consulta.get("revisar")).toBe("1");
@@ -263,8 +271,8 @@ test.describe("Movimientos", () => {
     await prepararSesion(page, api);
     await page.goto("/#movimientos");
     await expect(page.getByText("76 movimientos")).toBeVisible();
-    await page.getByRole("button", { name: /Cargar más/ }).click();
-    await expect(page.getByRole("button", { name: /Cargar más/ })).toHaveCount(0);
+    await page.getByRole("button", { name: /Ver más/ }).click();
+    await expect(page.getByRole("button", { name: /Ver más/ })).toHaveCount(0);
     const paginas = api.de("GET", "/v1/movimientos").map((p) => p.consulta.get("offset"));
     expect(paginas).toContain("50");
 
@@ -820,7 +828,15 @@ test.describe("Service worker", () => {
   });
 });
 
-test.describe("Ritmo y Destacados", () => {
+/** «Para ti» enseña uno a la vez: pasa con «Siguiente» hasta que se ve el botón. */
+async function hastaVer(paraTi: Locator, boton: string) {
+  for (let i = 0; i < 12 && !(await paraTi.getByRole("button", { name: boton }).count()); i++) {
+    await paraTi.getByRole("button", { name: "Siguiente" }).click();
+    await paraTi.page().waitForTimeout(450);
+  }
+}
+
+test.describe("Ritmo y Para ti", () => {
   test("pasar el dedo por la gráfica muestra lo gastado a ese día", async ({ page }) => {
     await prepararSesion(page);
     await page.goto("/");
@@ -862,17 +878,23 @@ test.describe("Ritmo y Destacados", () => {
     api.hablar = [200, { respuesta: "Guarda $500 por semana.", conversacion_id: "conv-9", acciones: [] }];
     await prepararSesion(page, api);
     await page.goto("/");
-    const destacados = page.getByRole("region", { name: "Destacados" });
-    await expect(destacados).toContainText("cerrarás octubre en unos $27,100");
-    await expect(destacados).toContainText("3 compras en Oxxo este mes: $136");
-    await expect(destacados).toContainText("Te queda el 11% de lo que te entró en octubre");
+    const paraTi = page.getByRole("region", { name: "Para ti" });
+    await expect(paraTi).toContainText("cerrarás octubre en unos $27,100");
+    await expect(paraTi).toContainText("3 compras en Oxxo este mes: $136");
+    await expect(paraTi).toContainText("Te queda el 11% de lo que te entró en octubre");
 
-    await destacados.getByRole("button", { name: "Ver compras" }).click();
+    // Uno a la vez: las flechas pasan al siguiente.
+    await expect(paraTi.getByText(/^1 de \d+$/)).toBeVisible();
+    await paraTi.getByRole("button", { name: "Siguiente" }).click();
+    await expect(paraTi.getByText(/^2 de \d+$/)).toBeVisible();
+    await hastaVer(paraTi, "Ver compras");
+    await paraTi.getByRole("button", { name: "Ver compras" }).click();
     await expect(page).toHaveURL(/#movimientos\?.*q=Oxxo/);
     await expect(page.getByText("3 movimientos")).toBeVisible();
 
     await page.goBack();
-    await page.getByRole("region", { name: "Destacados" }).getByRole("button", { name: "Pedir un plan" }).click();
+    await hastaVer(page.getByRole("region", { name: "Para ti" }), "Pedir un plan");
+    await page.getByRole("region", { name: "Para ti" }).getByRole("button", { name: "Pedir un plan" }).click();
     await expect(page).toHaveURL(/#chat$/);
     await expect(page.getByText("Guarda $500 por semana.")).toBeVisible();
     const hablar = api.de("POST", "/v1/hablar")[0]?.cuerpo as Record<string, unknown>;

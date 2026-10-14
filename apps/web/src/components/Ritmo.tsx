@@ -2,7 +2,6 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { haptico } from "../lib/haptico";
 import { cn } from "../lib/utils";
 
-const ALTO = 92;
 const ARRIBA = 8;
 
 /** Suma acumulada: [10, 0, 5] -> [10, 10, 15]. */
@@ -23,6 +22,7 @@ export function Ritmo({
   hasta,
   seleccionado,
   alElegir,
+  alto: ALTO = 92,
   className,
 }: {
   /** Acumulado del mes (índice 0 = día 1); puede ser más corto que el mes. */
@@ -34,6 +34,8 @@ export function Ritmo({
   hasta: number;
   seleccionado: number | null;
   alElegir: (dia: number | null) => void;
+  /** Alto de la gráfica en px. */
+  alto?: number;
   className?: string;
 }) {
   const id = useId().replace(/:/g, "");
@@ -63,7 +65,7 @@ export function Ritmo({
     // El mes anterior se dibuja sobre los mismos días; si era más corto, termina antes.
     const lineaAnterior = trazo(anterior, Math.min(anterior.length, diasMes));
     return { x, y, lineaActual, area, lineaAnterior };
-  }, [actual, anterior, diasMes, hasta, ancho]);
+  }, [actual, anterior, diasMes, hasta, ancho, ALTO]);
 
   const elegirDesde = (clientX: number) => {
     const el = svg.current;

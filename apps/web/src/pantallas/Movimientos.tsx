@@ -1,6 +1,7 @@
-import { ChevronDown, CreditCard, FileDown, Map as MapIcon, Mic, ReceiptText, Smartphone, X } from "lucide-react";
+import { ChevronDown, Map as MapIcon, ReceiptText, X } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { FilaDeslizable } from "../components/FilaDeslizable";
+import { ContenidoMovimiento, IconoOrigen, Monto, tituloDe } from "../components/FilaMovimiento";
 import { Pantalla } from "../components/Pantalla";
 import { Spinner } from "../components/Spinner";
 import { Badge } from "../components/ui/badge";
@@ -11,7 +12,7 @@ import { SelectNativo } from "../components/ui/select";
 import { Skeleton } from "../components/ui/skeleton";
 import { eliminarConDeshacer } from "../lib/acciones";
 import { mensajeDeError } from "../lib/api";
-import { IconoCategoria, OpcionesCategorias } from "../lib/categorias";
+import { OpcionesCategorias } from "../lib/categorias";
 import { useEnLinea } from "../lib/conexion";
 import { abrirDetalle, type FiltrosMovimientos, useCategorias, useMovimientos } from "../lib/consultas";
 import { useCuentas, useEtiquetas } from "../lib/cuentas";
@@ -20,7 +21,7 @@ import { diaCorto, dinero, mesActual, nombreDia, nombreMes, sumarMeses, TIPOS } 
 import { rangoTexto } from "../lib/periodos";
 import { useMedia } from "../lib/medios";
 import { hashDe, navegar } from "../lib/ruta";
-import type { MovimientoApp, Origen, TipoMovimiento } from "../lib/tipos";
+import type { MovimientoApp, TipoMovimiento } from "../lib/tipos";
 import { cn } from "../lib/utils";
 
 const TIPOS_VALIDOS: TipoMovimiento[] = ["gasto", "ingreso", "transferencia", "pago_tarjeta"];
@@ -226,7 +227,7 @@ export function Movimientos({ params }: { params: URLSearchParams }) {
               disabled={consulta.isFetchingNextPage}
               onClick={() => consulta.fetchNextPage()}
             >
-              {consulta.isFetchingNextPage ? <Spinner /> : `Cargar más (${total - movimientos.length})`}
+              {consulta.isFetchingNextPage ? <Spinner /> : `Ver más (${total - movimientos.length})`}
             </Button>
           ) : null}
         </>
@@ -246,46 +247,6 @@ function Chip({ activo, children }: { activo?: boolean; children: ReactNode }) {
       {children}
     </span>
   );
-}
-
-const ICONO_ORIGEN: Record<Origen, [typeof Mic, string]> = {
-  voz: [Mic, "Dictado por voz"],
-  app: [Smartphone, "Desde la app"],
-  apple_pay: [CreditCard, "Apple Pay"],
-  importacion: [FileDown, "Importado"],
-};
-
-export function IconoOrigen({ origen, className }: { origen: Origen; className?: string }) {
-  const [Icono, etiqueta] = ICONO_ORIGEN[origen] ?? ICONO_ORIGEN.app;
-  return <Icono role="img" aria-label={etiqueta} className={cn("size-[13px] shrink-0 text-muted-foreground", className)} strokeWidth={2.2} />;
-}
-
-export function Monto({ m, className }: { m: MovimientoApp; className?: string }) {
-  const texto = dinero(Math.abs(m.montoCentavos), m.moneda);
-  return (
-    <span
-      className={cn(
-        "tabular whitespace-nowrap",
-        m.tipo === "ingreso" && "text-positive",
-        (m.tipo === "transferencia" || m.tipo === "pago_tarjeta") && "text-muted-foreground",
-        className,
-      )}
-    >
-      {m.tipo === "gasto" ? `−${texto}` : m.tipo === "ingreso" ? `+${texto}` : texto}
-    </span>
-  );
-}
-
-export function tituloDe(m: MovimientoApp) {
-  return m.comercio ?? m.descripcion ?? m.categoria?.split(">").pop()?.trim() ?? TIPOS[m.tipo] ?? "Movimiento";
-}
-
-export function subtituloDe(m: MovimientoApp) {
-  const categoria = m.categoria?.split(">").pop()?.trim() ?? (m.tipo === "gasto" ? "Sin categoría" : TIPOS[m.tipo]);
-  // Transferencias y pagos: de dónde a dónde.
-  if (m.cuentaDestino) return `${categoria} · ${m.cuenta ?? "?"} → ${m.cuentaDestino}`;
-  const etiquetas = m.etiquetas?.length ? ` · ${m.etiquetas.map((e) => `#${e.nombre}`).join(" ")}` : "";
-  return `${m.cuenta ? `${categoria} · ${m.cuenta}` : categoria}${etiquetas}`;
 }
 
 /** "BBVA", o en una transferencia o pago de tarjeta "BBVA → Nu". */
@@ -328,24 +289,12 @@ function ListaPorDia({
                   key={m.id}
                   etiqueta={`${tituloDe(m)}, ${dinero(Math.abs(m.montoCentavos), m.moneda)}`}
                   alTocar={() => abrirDetalle(m)}
+                  alEditar={() => abrirEditor(m)}
                   alEliminar={() => alEliminar(m)}
                   deshabilitada={deshabilitada}
-                  className="[&:not(:first-child)]:before:absolute [&:not(:first-child)]:before:top-0 [&:not(:first-child)]:before:right-0 [&:not(:first-child)]:before:left-16 [&:not(:first-child)]:before:z-[1] [&:not(:first-child)]:before:h-[0.5px] [&:not(:first-child)]:before:bg-separator [&:not(:first-child)]:before:content-['']"
+                  className="[&:not(:first-child)]:before:absolute [&:not(:first-child)]:before:top-0 [&:not(:first-child)]:before:right-0 [&:not(:first-child)]:before:left-[68px] [&:not(:first-child)]:before:z-[1] [&:not(:first-child)]:before:h-[0.5px] [&:not(:first-child)]:before:bg-separator [&:not(:first-child)]:before:content-['']"
                 >
-                  <div className="flex min-h-[62px] items-center gap-3 px-4 py-2" data-movimiento={m.id}>
-                    <IconoCategoria nombre={m.categoria} tipo={m.tipo} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="truncate text-[17px]">{tituloDe(m)}</span>
-                        <IconoOrigen origen={m.origen} />
-                      </div>
-                      <div className="truncate text-[15px] text-muted-foreground">{subtituloDe(m)}</div>
-                    </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1">
-                      <Monto m={m} className="text-[17px]" />
-                      {m.revisar ? <Badge variant="warning">Revisar</Badge> : null}
-                    </div>
-                  </div>
+                  <ContenidoMovimiento m={m} />
                 </FilaDeslizable>
               ))}
             </div>

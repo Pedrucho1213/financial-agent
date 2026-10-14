@@ -17,10 +17,8 @@ test.describe("Inicio con cuentas", () => {
   test("en vez del balance del mes (negativo) muestra lo que tiene, y lleva a sus cuentas", async ({ page }) => {
     await abrir(page, "#inicio");
     await expect(page.getByRole("region", { name: "Balance" })).toHaveCount(0);
-    const tienes = page.getByRole("button", { name: /^Tienes −\$12,450\.00/ });
-    await expect(tienes).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Cuentas y tarjetas −\$12,450\.00 · debes \$32,100\.00/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Etiquetas/ })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Lo que tienes" })).toContainText("$19,650.00 en cuentas menos $32,100.00 que debes");
+    const tienes = page.getByRole("button", { name: /^Lo que tienes: −\$12,450\.00/ });
     await tienes.click();
     await expect(page).toHaveURL(/#cuentas$/);
     await expect(page.getByTestId("neto")).toHaveText("−$12,450.00");
@@ -30,21 +28,20 @@ test.describe("Inicio con cuentas", () => {
     const api = conCuentas(new ApiFalsa());
     for (const c of api.cuentas!.cuentas) Object.assign(c, { saldo: null, deuda: null });
     await abrir(page, "#inicio", api);
-    await expect(page.getByRole("region", { name: "Balance" })).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Cuentas y tarjetas No sé cuánto tienes todavía/ })).toBeVisible();
-    await page.getByRole("button", { name: "¿Cuánto tienes?" }).click();
+    await expect(page.getByRole("region", { name: "Balance" })).toContainText("¿Cuánto tienes?");
+    await expect(page.getByRole("region", { name: "Lo que tienes" })).toHaveCount(0);
+    await page.getByRole("button", { name: "¿Cuánto tienes? Ver cuentas" }).click();
     await expect(page).toHaveURL(/#cuentas$/);
     await expect(page.getByText("Todavía no sé cuánto tienes")).toBeVisible();
     await expect(page.getByTestId("neto")).toHaveCount(0);
   });
 
-  test("un servidor sin cuentas (404) deja Inicio como estaba y la pantalla lo explica", async ({ page }) => {
+  test("un servidor sin cuentas (404) deja solo lo gastado en Inicio y la pantalla lo explica", async ({ page }) => {
     await prepararSesion(page);
     await page.goto("/#inicio");
-    await expect(page.getByRole("region", { name: "Balance" })).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Análisis Tendencias/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Cuentas y tarjetas/ })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /^Etiquetas/ })).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Gastado" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Balance" })).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Lo que tienes" })).toHaveCount(0);
     await page.goto("/#cuentas");
     await expect(page.getByText("Aún no está en tu servidor")).toBeVisible();
     await page.goto("/#etiquetas");
@@ -570,8 +567,7 @@ test.describe("Lo que encontró la revisión del #42", () => {
   test("«Tienes» dice qué cuentas no entran en la suma", async ({ page }) => {
     await abrir(page, "#inicio");
     await expect(page.getByTestId("faltan")).toHaveText("Falta Revolut");
-    await expect(page.getByRole("button", { name: /^Tienes −\$12,450\.00, falta Revolut\. Ver cuentas$/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Cuentas y tarjetas −\$12,450\.00 · debes \$32,100\.00 · falta Revolut/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Lo que tienes: −\$12,450\.00, falta Revolut\. Ver cuentas$/ })).toBeVisible();
   });
 
   test("«Por etiqueta» en una semana lleva a los gastos de esa semana con esa etiqueta", async ({ page }) => {
@@ -644,7 +640,7 @@ test.describe("Una tarjeta sin límite: no se sabe cuánto debe", () => {
   test("en Inicio también dice que faltan", async ({ page }) => {
     await abrir(page, "#inicio", comoPedro());
     await expect(page.getByTestId("faltan")).toHaveText("Faltan Efectivo y Nu");
-    await expect(page.getByRole("button", { name: /^Cuentas y tarjetas .* · faltan Efectivo y Nu/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Lo que tienes: .*, faltan Efectivo y Nu\. Ver cuentas$/ })).toBeVisible();
   });
 
   test("solo con tarjetas sin límite dice el crédito disponible y no inventa el uso", async ({ page }) => {

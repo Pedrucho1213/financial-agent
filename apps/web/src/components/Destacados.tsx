@@ -1,25 +1,18 @@
 import {
   CalendarDays,
-  ChevronRight,
   Droplet,
   Gauge,
   type LucideIcon,
   PieChart,
   PiggyBank,
   Repeat,
-  Sparkles,
 } from "lucide-react";
-import { type ReactNode, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
-import { preguntarAlChat } from "../lib/chat";
+import type { ReactNode } from "react";
 import { dineroCorto, diasHasta, nombreMes, pct, sumarMeses } from "../lib/formato";
-import { haptico } from "../lib/haptico";
-import { hashDe, navegar } from "../lib/ruta";
+import { hashDe } from "../lib/ruta";
 import type { Tablero } from "../lib/tipos";
-import { cn } from "../lib/utils";
-import { TituloSeccion } from "./ui/lista";
 
-type Destacado = {
+export type Destacado = {
   id: string;
   Icono: LucideIcon;
   /** Color del tema (variable CSS). */
@@ -177,117 +170,4 @@ export function construirDestacados(
   }
 
   return lista;
-}
-
-/** Carrusel de tarjetas teñidas (como Destacados de Salud), con puntos de página. */
-export function Destacados({ items, enLinea }: { items: Destacado[]; enLinea: boolean }) {
-  const carril = useRef<HTMLDivElement>(null);
-  const [pagina, setPagina] = useState(0);
-  const ids = useMemo(() => items.map((i) => i.id).join(), [items]);
-
-  if (!items.length) return null;
-
-  const irA = (i: number) => {
-    const el = carril.current?.children[i] as HTMLElement | undefined;
-    el?.scrollIntoView({ behavior: "smooth", inline: "start", block: "nearest" });
-  };
-
-  const actuar = (d: Destacado) => {
-    haptico();
-    if (d.accion.ir) {
-      navegar(d.accion.ir);
-      return;
-    }
-    if (d.accion.pregunta) {
-      if (!preguntarAlChat(d.accion.pregunta)) toast("Espera a que termine la respuesta anterior.");
-      navegar(hashDe("chat"));
-    }
-  };
-
-  return (
-    <section aria-label="Destacados" aria-roledescription="carrusel">
-      <TituloSeccion>
-        <span className="flex items-center gap-1.5">
-          Destacados <Sparkles aria-hidden className="size-[18px] text-tint" strokeWidth={2.2} />
-        </span>
-      </TituloSeccion>
-      <div
-        key={ids}
-        ref={carril}
-        className="carrusel -mx-4 scroll-px-4 gap-3 px-4 pb-1"
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          const primero = el.children[0] as HTMLElement | undefined;
-          if (!primero) return;
-          const paso = primero.offsetWidth + 12;
-          const n = Math.min(items.length - 1, Math.max(0, Math.round(el.scrollLeft / paso)));
-          if (n !== pagina) setPagina(n);
-        }}
-      >
-        {items.map((d, i) => {
-          const usaChat = !d.accion.ir;
-          return (
-            <article
-              key={d.id}
-              aria-label={`${i + 1} de ${items.length}: ${d.etiqueta}`}
-              className="flex min-h-[176px] w-[84%] max-w-[340px] shrink-0 animate-entrar flex-col rounded-[20px] p-4"
-              style={{
-                backgroundColor: `color-mix(in srgb, ${d.color} 11%, var(--card))`,
-                boxShadow: `inset 0 0 0 0.5px color-mix(in srgb, ${d.color} 22%, transparent)`,
-                animationDelay: `${i * 60}ms`,
-              }}
-            >
-              <div
-                className="flex items-center gap-2 text-[13px] font-semibold"
-                style={{ color: `color-mix(in srgb, ${d.color} 78%, var(--foreground))` }}
-              >
-                <span
-                  aria-hidden
-                  className="flex size-6 items-center justify-center rounded-[7px] text-white"
-                  style={{ backgroundColor: d.color }}
-                >
-                  <d.Icono className="size-[15px]" strokeWidth={2.4} />
-                </span>
-                {d.etiqueta}
-              </div>
-              <p className="mt-2.5 text-[19px] leading-[1.25] font-semibold tracking-[-0.01em] text-pretty">{d.titulo}</p>
-              {d.detalle ? <p className="mt-1 text-[15px] leading-snug text-muted-foreground">{d.detalle}</p> : null}
-              <button
-                type="button"
-                disabled={usaChat && !enLinea}
-                onClick={() => actuar(d)}
-                className="-mx-1 mt-auto flex h-9 items-center gap-0.5 self-start rounded-full px-1 pt-2 text-[15px] font-semibold transition-opacity active:opacity-50 disabled:opacity-40"
-                style={{ color: `color-mix(in srgb, ${d.color} 85%, var(--foreground))` }}
-              >
-                {d.accion.texto}
-                <ChevronRight className="size-4" strokeWidth={2.6} />
-              </button>
-            </article>
-          );
-        })}
-      </div>
-      {items.length > 1 ? (
-        <div className="mt-2.5 flex justify-center gap-1.5" role="tablist" aria-label="Páginas">
-          {items.map((d, i) => (
-            <button
-              key={d.id}
-              type="button"
-              role="tab"
-              aria-selected={i === pagina}
-              aria-label={`Ir a ${d.etiqueta}`}
-              onClick={() => irA(i)}
-              className="relative flex h-2 items-center after:absolute after:-inset-2 after:content-['']"
-            >
-              <span
-                className={cn(
-                  "block h-2 rounded-full transition-[width,background-color] duration-300 ease-ios",
-                  i === pagina ? "w-5 bg-foreground/70" : "w-2 bg-foreground/20",
-                )}
-              />
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </section>
-  );
 }

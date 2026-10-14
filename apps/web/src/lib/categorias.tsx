@@ -5,6 +5,7 @@ import {
   Car,
   Coffee,
   CreditCard,
+  Droplet,
   Dumbbell,
   Fuel,
   Gift,
@@ -34,6 +35,9 @@ const POR_NOMBRE: Record<string, [LucideIcon, string]> = {
   vivienda: [House, "#ff9500"],
   renta: [House, "#ff9500"],
   luz: [Zap, "#ffcc00"],
+  agua: [Droplet, "#30b0c7"],
+  gas: [Fuel, "#ff9500"],
+  internet: [Wifi, "#5ac8fa"],
   "internet y teléfono": [Wifi, "#5ac8fa"],
   comida: [Utensils, "#ff9500"],
   súper: [ShoppingCart, "#34c759"],
@@ -58,16 +62,22 @@ const POR_NOMBRE: Record<string, [LucideIcon, string]> = {
   freelance: [Wallet, "#34c759"],
 };
 
+/** El icono de una categoría por su nombre ("Comida > Café" usa el de Café), o null si no tiene uno propio. */
+export function iconoDeNombre(nombre: string | null | undefined): [LucideIcon, string] | null {
+  if (!nombre) return null;
+  const partes = nombre.split(">").map((p) => p.trim().toLowerCase());
+  for (const p of [...partes].reverse()) {
+    const e = POR_NOMBRE[p];
+    if (e) return e;
+  }
+  return null;
+}
+
 export function iconoCategoria(nombre: string | null, tipo: TipoMovimiento): [LucideIcon, string] {
   if (tipo === "transferencia") return [ArrowLeftRight, "#8e8e93"];
   if (tipo === "pago_tarjeta") return [CreditCard, "#8e8e93"];
-  if (nombre) {
-    const partes = nombre.split(">").map((p) => p.trim().toLowerCase());
-    for (const p of [...partes].reverse()) {
-      const e = POR_NOMBRE[p];
-      if (e) return e;
-    }
-  }
+  const propio = iconoDeNombre(nombre);
+  if (propio) return propio;
   return tipo === "ingreso" ? [Wallet, "#34c759"] : [Receipt, "#8e8e93"];
 }
 
@@ -76,8 +86,8 @@ export function IconoCategoria({ nombre, tipo, className }: { nombre: string | n
   return (
     <span
       aria-hidden
-      className={`flex size-9 shrink-0 items-center justify-center rounded-full ${className ?? ""}`}
-      style={{ backgroundColor: `${color}26`, color }}
+      className={`flex size-9 shrink-0 items-center justify-center rounded-[10px] ${className ?? ""}`}
+      style={{ backgroundColor: `color-mix(in srgb, ${color} 16%, var(--card))`, color }}
     >
       <Icono className="size-[18px]" strokeWidth={2.2} />
     </span>

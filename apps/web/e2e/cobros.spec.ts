@@ -15,7 +15,13 @@ const abrir = async (page: Page, hash: string, api = completa()) => {
   await page.goto(`/${hash}`);
   return api;
 };
-const tarjeta = (page: Page) => page.getByRole("region", { name: "Pagos por confirmar" });
+// Los pagos por confirmar viven en la burbuja de la campana de Inicio.
+const campana = (page: Page) => page.getByRole("button", { name: /^Notificaciones/ });
+const tarjeta = (page: Page) => page.getByRole("dialog", { name: "Notificaciones" });
+const abrirCampana = async (page: Page) => {
+  await campana(page).click();
+  await expect(tarjeta(page)).toBeVisible();
+};
 const hoja = (page: Page) => page.getByRole("dialog");
 const ultimo = (api: ApiFalsa, ruta: string | RegExp) => api.de("POST", ruta).at(-1)?.cuerpo;
 
@@ -23,9 +29,12 @@ test.describe("sin el módulo (otras cuentas o servidor viejo)", () => {
   test("no aparece nada: ni tarjeta, ni campana, ni ajustes, ni «Se paga sola»", async ({ page }) => {
     const api = conRecurrentes(conCuentas(new ApiFalsa()));
     await abrir(page, "#inicio", api);
-    await expect(page.getByRole("region", { name: "Avisos" })).toBeVisible();
-    await expect(tarjeta(page)).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /^Notificaciones/ })).toHaveCount(0);
+    // La campana sigue (por revisar y avisos del revisor), sin pagos por confirmar.
+    await expect(page.getByRole("region", { name: "Para ti" })).toBeVisible();
+    await abrirCampana(page);
+    await expect(tarjeta(page).locator("[data-cobro]")).toHaveCount(0);
+    await expect(tarjeta(page)).not.toContainText("Por confirmar");
+    await page.keyboard.press("Escape");
     // Se preguntó una vez y no se reintenta.
     expect(api.de("GET", "/v1/cobros")).toHaveLength(1);
 
@@ -48,15 +57,17 @@ test.describe("sin el módulo (otras cuentas o servidor viejo)", () => {
 
 test("Inicio pregunta en su fecha y «Se pagó» es un toque, con Deshacer", async ({ page }) => {
   const api = await abrir(page, "#inicio");
+  // 2 por confirmar, los movimientos por revisar y 2 avisos nuevos.
+  await expect(campana(page)).toHaveAccessibleName("Notificaciones, 5 pendientes");
+  await abrirCampana(page);
   // Agua dijo "todavía no": hoy no estorba.
-  await expect(tarjeta(page).locator("[data-cobro]")).toHaveText([/Renta\$9,500\.00 · 1 oct/, /Disney\+\$159\.00 · hoy · Nu/]);
-  await expect(page.getByRole("button", { name: "Notificaciones, 2 por confirmar" })).toBeVisible();
+  await expect(tarjeta(page).locator("[data-cobro]")).toHaveText([/Renta\?\$9,500\.00 · 1 oct/, /Disney\+\?\$159\.00 · hoy · Nu/]);
 
   await tarjeta(page).getByRole("button", { name: "Disney+ se pagó" }).click();
   await expect(page.getByText("Disney+: pagado $159.00")).toBeVisible();
   expect(ultimo(api, "/v1/cobros/cob-disney/confirmar")).toEqual({});
   await expect(tarjeta(page).locator("[data-cobro]")).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "Notificaciones, 1 por confirmar" })).toBeVisible();
+  await expect(campana(page)).toHaveAccessibleName("Notificaciones, 4 pendientes");
 
   await page.getByRole("button", { name: "Deshacer" }).click();
   await expect.poll(() => api.de("POST", "/v1/cobros/cob-disney/deshacer").length).toBe(1);
@@ -77,7 +88,7 @@ test("la notificación abre la hoja de ese cobro y deja la dirección limpia", a
 
   // Recargar no la vuelve a abrir.
   await page.reload();
-  await expect(tarjeta(page)).toBeVisible();
+  await expect(campana(page)).toBeVisible();
   await expect(hoja(page)).toHaveCount(0);
 });
 
@@ -100,6 +111,7 @@ test("«Es este»: liga el gasto que ya estaba anotado", async ({ page }) => {
   // El Deshacer del aviso funciona aunque la hoja ya se cerró.
   await page.getByRole("button", { name: "Deshacer" }).click();
   await expect.poll(() => api.de("POST", "/v1/cobros/cob-disney/deshacer").length).toBe(1);
+  await abrirCampana(page);
   await expect(tarjeta(page).locator("[data-cobro]")).toHaveCount(2);
 });
 
@@ -138,10 +150,12 @@ test("«Atrás» desde otro monto no pierde nada y se puede cambiar la cuenta", 
 
 test("«Todavía no» lo deja para mañana", async ({ page }) => {
   const api = await abrir(page, "#inicio");
-  await tarjeta(page).getByText("Renta", { exact: true }).click();
+  await abrirCampana(page);
+  await tarjeta(page).getByText("¿Ya se pagó Renta?").click();
   await hoja(page).getByRole("button", { name: /Todavía no/ }).click();
   await expect(page.getByText("Te pregunto mañana")).toBeVisible();
   expect(api.de("POST", "/v1/cobros/cob-renta/posponer")).toHaveLength(1);
+  await abrirCampana(page);
   await expect(tarjeta(page).locator("[data-cobro]")).toHaveText([/Disney\+/]);
 });
 
@@ -167,7 +181,8 @@ test("varios en la notificación: la lista y «Todo se pagó»", async ({ page }
   await expect(page.getByText("Los dos quedaron pagados")).toBeVisible();
   expect(ultimo(api, "/v1/cobros/confirmar")).toEqual({ ids: ["cob-renta", "cob-disney"] });
   await expect(hoja(page)).toHaveCount(0);
-  await expect(tarjeta(page)).toHaveCount(0);
+  await abrirCampana(page);
+  await expect(tarjeta(page).locator("[data-cobro]")).toHaveCount(0);
 });
 
 test("en la lista, contestar uno por uno la cierra al final", async ({ page }) => {
@@ -198,7 +213,8 @@ test("una notificación de algo que ya no existe no abre nada", async ({ page })
 
 test("la campana abre el centro de notificaciones", async ({ page }) => {
   const api = await abrir(page, "#inicio");
-  await page.getByRole("button", { name: "Notificaciones, 2 por confirmar" }).click();
+  await abrirCampana(page);
+  await tarjeta(page).getByRole("button", { name: "Ver todas" }).click();
   await expect(page).toHaveURL(/#avisos$/);
   await expect(page.getByRole("heading", { name: "Notificaciones" })).toBeVisible();
   // Agua sale aquí aunque dijo "todavía no".
@@ -271,6 +287,7 @@ test("el número del ícono de la app es lo que espera respuesta", async ({ page
   const insignias = () => page.evaluate(() => (window as unknown as { __insignias: (number | null)[] }).__insignias);
   await abrir(page, "#inicio");
   await expect.poll(insignias).toEqual([2]);
+  await abrirCampana(page);
   await tarjeta(page).getByRole("button", { name: "Renta se pagó" }).click();
   await tarjeta(page).getByRole("button", { name: "Disney+ se pagó" }).click();
   await expect.poll(async () => (await insignias()).at(-1)).toBe(null);
@@ -289,7 +306,7 @@ test.describe("capturas", () => {
     test(`cobros (${sufijo})`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: esquema });
       await abrir(page, "#inicio");
-      await expect(tarjeta(page)).toBeVisible();
+      await abrirCampana(page);
       await capturar(page, `inicio-${sufijo}`);
 
       await page.goto("/#inicio?confirmar=cob-disney");
@@ -326,7 +343,7 @@ test.describe("capturas", () => {
   test("cobros en 320 px", async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 640 });
     await abrir(page, "#inicio");
-    await expect(tarjeta(page)).toBeVisible();
+    await abrirCampana(page);
     await capturar(page, "inicio-320");
     // Nada se sale de la pantalla.
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);

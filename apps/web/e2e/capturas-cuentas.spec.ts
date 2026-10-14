@@ -28,7 +28,7 @@ for (const esquema of ["light", "dark"] as const) {
     test(`cuentas (${sufijo})`, async ({ page }) => {
       await prepararSesion(page, conCuentas(new ApiFalsa()));
       await page.goto("/#inicio");
-      await expect(page.getByRole("button", { name: /^Cuentas y tarjetas/ })).toBeVisible();
+      await expect(page.getByRole("region", { name: "Gastado" })).toBeVisible();
       await capturar(page, `inicio-${sufijo}`, true);
 
       await page.goto("/#cuentas");

@@ -103,6 +103,11 @@ export function nombreDia(iso: string, hoy = hoyIso()) {
   return capitalizar((mismoAnio ? fDiaLargo : fDiaLargoAnio).format(f).replace(",", ""));
 }
 
+/** "Martes 6 de octubre" (siempre con el día de la semana, aunque sea hoy). */
+export function fechaLarga(iso: string) {
+  return capitalizar(fDiaLargo.format(aFecha(iso)).replace(",", ""));
+}
+
 /** "5 oct" */
 export function diaCorto(iso: string) {
   return fDiaCorto.format(aFecha(iso)).replace(".", "");

@@ -18,6 +18,7 @@ export function Pantalla({
   barraFija = false,
   alRefrescar,
   atras,
+  izquierda,
 }: {
   titulo: ReactNode;
   /** Texto de la barra compacta; por omisión, el título. */
@@ -36,6 +37,8 @@ export function Pantalla({
   alRefrescar?: () => Promise<unknown>;
   /** Botón "‹ Atrás" a la izquierda de la barra (páginas que se abren encima de una pestaña). */
   atras?: { etiqueta: string; alTocar: () => void };
+  /** Algo a la izquierda de la barra superior, en lugar de "‹ Atrás" (el mes en Inicio). */
+  izquierda?: ReactNode;
 }) {
   const barra = useRef<HTMLDivElement>(null);
   const marca = useRef<HTMLDivElement>(null);
@@ -89,6 +92,8 @@ export function Pantalla({
               <ChevronLeft className="size-[26px] shrink-0" strokeWidth={2.4} aria-hidden />
               <span className="truncate">{atras.etiqueta}</span>
             </button>
+          ) : izquierda ? (
+            <div className="absolute left-[max(1rem,env(safe-area-inset-left))] z-10 flex h-11 max-w-[45%] items-center">{izquierda}</div>
           ) : null}
           <div
             aria-hidden={!compacta}

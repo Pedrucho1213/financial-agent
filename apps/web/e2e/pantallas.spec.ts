@@ -117,7 +117,7 @@ test.describe("Presupuestos y metas", () => {
   test("desde Inicio: anillos, disponible hoy, presupuestos, metas, préstamos y MSI", async ({ page }) => {
     await prepararSesion(page);
     await page.goto("/");
-    await page.getByRole("button", { name: /Presupuestos y metas/ }).click();
+    await page.getByRole("navigation", { name: "Accesos" }).getByRole("button", { name: "Presupuesto" }).click();
     await expect(page).toHaveURL(/#plan$/);
     await expect(page.getByRole("heading", { name: "Presupuestos y metas" })).toBeVisible();
 
@@ -310,22 +310,26 @@ test.describe("Dónde gastas", () => {
 });
 
 test.describe("Avisos del revisor", () => {
-  test("en Inicio: el más importante primero, tocar lleva a su pantalla y la X lo descarta", async ({ page }) => {
+  test("en Inicio, en «Para ti»: el más importante primero, «Ver» lleva a su pantalla y la X lo descarta", async ({ page }) => {
     const api = await prepararSesion(page);
     await page.goto("/");
-    const avisos = page.getByRole("region", { name: "Avisos" });
-    await expect(avisos.getByRole("button").first()).toContainText("Te pasaste en Entretenimiento");
+    const paraTi = page.getByRole("region", { name: "Para ti" });
+    await expect(paraTi.getByRole("article")).toContainText("Te pasaste en Entretenimiento");
 
-    await avisos.getByRole("button", { name: "Descartar: Gastos hormiga en Oxxo" }).click();
-    await expect(avisos.getByText("Gastos hormiga en Oxxo")).toHaveCount(0);
+    await paraTi.getByRole("button", { name: "Siguiente" }).click();
+    await paraTi.getByRole("button", { name: "Descartar: Gastos hormiga en Oxxo" }).click();
+    await expect(paraTi.getByText("Gastos hormiga en Oxxo")).toHaveCount(0);
     await expect.poll(() => api.de("POST", "/v1/avisos/av-1/descartar").length).toBe(1);
 
-    await avisos.getByRole("button", { name: /^Te pasaste en Entretenimiento/ }).click();
+    await paraTi.getByRole("button", { name: "Anterior" }).click();
+    await expect(paraTi.getByRole("article")).toContainText("Te pasaste en Entretenimiento");
+    await paraTi.getByRole("article").getByRole("button", { name: "Ver" }).click();
     await expect(page).toHaveURL(/#presupuestos$/);
     await expect(page.getByRole("heading", { name: "Presupuestos y metas" })).toBeVisible();
     expect(api.de("POST", "/v1/avisos/av-2/leido")).toHaveLength(1);
     await page.getByRole("button", { name: "Inicio" }).first().click();
-    await expect(page.getByRole("region", { name: "Avisos" })).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Para ti" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Para ti" }).getByText("Te pasaste en Entretenimiento")).toHaveCount(0);
   });
 
   test("un enlace con texto busca en Movimientos; #metas baja a las metas", async ({ page }) => {
@@ -353,14 +357,15 @@ test.describe("Deudas con un servidor o caché de antes", () => {
 });
 
 test.describe("Servidor sin presupuestos todavía (404)", () => {
-  test("Inicio deja solo el mapa, sin avisos, y Presupuestos lo explica sin errores", async ({ page }) => {
+  test("Inicio no muestra avisos ni errores, y Presupuestos lo explica", async ({ page }) => {
     const api = new ApiFalsa();
     api.sinPlan = true;
     await prepararSesion(page, api);
     await page.goto("/");
-    await expect(page.getByRole("button", { name: /Dónde gastas/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: /Presupuestos y metas/ })).toHaveCount(0);
-    await expect(page.getByRole("region", { name: "Avisos" })).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Gastado" })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Accesos" }).getByRole("button", { name: "Mapa" })).toBeVisible();
+    await expect(page.getByText("Gastos hormiga en Oxxo")).toHaveCount(0);
+    await expect(page.locator("[data-sonner-toast]")).toHaveCount(0);
     await page.goto("/#plan");
     await expect(page.getByText("Aún no está en tu servidor")).toBeVisible();
     await expect(page.locator("[data-sonner-toast]")).toHaveCount(0);

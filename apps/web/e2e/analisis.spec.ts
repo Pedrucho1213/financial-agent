@@ -12,7 +12,7 @@ test.describe("Análisis", () => {
   test("Inicio lo abre y «Inicio» regresa", async ({ page }) => {
     await prepararSesion(page);
     await page.goto("/#inicio");
-    await page.getByRole("button", { name: /^Análisis Tendencias/ }).click();
+    await page.getByRole("navigation", { name: "Accesos" }).getByRole("button", { name: "Análisis" }).click();
     await expect(page).toHaveURL(/#analisis$/);
     await expect(page.getByRole("heading", { name: "Análisis", level: 1 })).toBeVisible();
     await expect(titulo(page)).toHaveText("Octubre 2026");
@@ -22,14 +22,14 @@ test.describe("Análisis", () => {
     await expect(page).toHaveURL(/#inicio$/);
   });
 
-  test("«Análisis» en los últimos 6 meses y «Comparar» en categorías llevan a su periodo", async ({ page }) => {
+  test("«Ver 6 meses» en Análisis y «Análisis» en «En qué se va» llevan a su periodo", async ({ page }) => {
     await prepararSesion(page);
-    await page.goto("/#inicio");
-    await page.getByRole("button", { name: "Ver análisis" }).click();
+    await page.goto("/#analisis");
+    await page.getByRole("button", { name: "Ver 6 meses" }).click();
     await expect(page).toHaveURL(/#analisis\?periodo=6m&ref=2026-10-01$/);
     await expect(titulo(page)).toHaveText("may – oct 2026");
     await page.goto("/#inicio?mes=2026-09");
-    await page.getByRole("button", { name: "Comparar" }).click();
+    await page.getByRole("region", { name: "En qué se va" }).getByRole("button", { name: "Análisis" }).click();
     await expect(titulo(page)).toHaveText("Septiembre 2026");
     await expect(total(page)).toHaveText("$24,310.50");
   });
