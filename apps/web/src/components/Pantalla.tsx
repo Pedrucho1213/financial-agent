@@ -63,7 +63,7 @@ export function Pantalla({
         <header className="mx-auto max-w-3xl px-safe pb-2">
           {encima ? <div className="text-[15px] font-medium text-muted-foreground">{encima}</div> : null}
           <div className="flex min-h-[41px] items-end justify-between gap-3">
-            <h1 className="min-w-0 truncate text-[34px] leading-[41px] font-bold tracking-[-0.02em]">{titulo}</h1>
+            <h1 className="min-w-0 truncate text-[34px] leading-[41px] max-[359px]:text-[30px] max-[359px]:leading-9 font-bold tracking-[-0.02em]">{titulo}</h1>
             {junto}
           </div>
         </header>

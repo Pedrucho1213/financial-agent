@@ -66,13 +66,14 @@ test.describe("Cuentas y tarjetas", () => {
   test("las cuentas con saldo van primero; la que no se sabe dice que no se sabe, nunca $0", async ({ page }) => {
     await abrir(page, "#cuentas");
     const cuentas = page.getByRole("region", { name: "Lo que tienes" }).locator("..").locator("[data-cuenta]");
-    await expect(cuentas).toHaveText([/^BBVA/, /^Efectivo/, /^Revolut/, /^Banamex Oro/, /^Nu/]);
+    // (El logo del banco va antes del nombre: Banamex lleva una «B».)
+    await expect(cuentas).toHaveText([/^BBVA/, /^Efectivo/, /^Revolut/, /Banamex Oro/, /Nu/]);
     await expect(fila(page, "BBVA")).toContainText("Este mes +$18,750 −$3,400");
     await expect(fila(page, "BBVA")).toContainText("$18,450.00");
     await expect(fila(page, "Revolut")).toContainText("No sé cuánto hay");
     await expect(fila(page, "Revolut")).not.toContainText("$");
     await expect(fila(page, "Banamex Oro")).toContainText("$2,400 disponible");
-    await expect(fila(page, "Banamex Oro")).toContainText("$27,600.00debes");
+    await expect(fila(page, "Banamex Oro")).toContainText("Debes$27,600.00");
     await expect(fila(page, "Banamex Oro")).toContainText("Pagar en 2 días");
     await expect(fila(page, "Nu")).toContainText("Pagar en 14 días");
     // La archivada no aparece hasta pedirla.

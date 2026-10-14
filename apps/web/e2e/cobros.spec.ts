@@ -224,6 +224,8 @@ test("la campana abre el centro de notificaciones", async ({ page }) => {
     /¿Ya se pagó Disney\+\?\$159\.00 · hoy/,
   ]);
   await expect(page.locator("[data-aviso]")).toHaveCount(2);
+  // Lo que falta revisar, con su logo; tocarlo abre el movimiento.
+  await expect(page.locator("section").filter({ hasText: "Por revisar" }).locator("[data-revisar]")).toHaveCount(2);
   await expect(page.locator("section").filter({ hasText: "Anteriores" }).locator("[data-cobro]")).toHaveText([
     /Spotify20 sept? · por voz\$129\.00/,
     /Max.*No se pagó · 3 sept?/,

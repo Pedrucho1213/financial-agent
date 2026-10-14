@@ -1,7 +1,8 @@
-import { Archive, ArchiveRestore, List, Mic, Pause, Play, Plus, Repeat, Trash, XCircle } from "lucide-react";
+import { Archive, ArchiveRestore, List, Mic, Pause, Play, Plus, Trash, XCircle } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { CampoMonto } from "../components/CampoMonto";
+import { LogoPago } from "../components/Logo";
 import { Pantalla } from "../components/Pantalla";
 import { Spinner } from "../components/Spinner";
 import { Button } from "../components/ui/button";
@@ -203,19 +204,9 @@ function FilaRecurrente({ r, hoy, alTocar }: { r: Recurrente; hoy: string; alToc
   const ingreso = r.tipo === "ingreso";
   return (
     <FilaBoton
-      sangria="4rem"
+      sangria="4.25rem"
       data-recurrente={r.nombre}
-      icono={
-        <span
-          aria-hidden
-          className={cn(
-            "flex size-9 shrink-0 items-center justify-center rounded-full text-[15px] font-semibold",
-            activa ? (ingreso ? "bg-positive/15 text-positive" : "bg-tint/15 text-tint") : "bg-fill text-muted-foreground",
-          )}
-        >
-          {r.nombre.trim().charAt(0).toUpperCase() || <Repeat className="size-[18px]" />}
-        </span>
-      }
+      icono={<LogoPago nombre={r.nombre} tipo={r.tipo} categoria={r.categoria} className={cn(!activa && "opacity-45 grayscale")} />}
       titulo={<span className={cn(!activa && "text-muted-foreground")}>{r.nombre}</span>}
       subtitulo={[FRECUENCIAS[r.frecuencia] ?? r.frecuencia, cuandoSeCobra(r), r.cuenta].filter(Boolean).join(" · ")}
       valor={
