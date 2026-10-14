@@ -60,8 +60,13 @@ const datosMovimiento = z.object({
   monto: z.number().positive().describe("Monto en números, sin signo, nunca 0. 2 mil quinientos = 2500."),
   moneda: z.string().optional().describe("Solo si no es MXN, por ejemplo USD."),
   categoria: z.string().optional().describe("Nombre de una categoría existente, de preferencia la más específica."),
-  comercio: z.string().optional().describe("Tienda, app o persona: Oxxo, Uber, Liverpool."),
-  descripcion: z.string().optional().describe("Qué fue, en pocas palabras."),
+  comercio: z
+    .string()
+    .optional()
+    .describe(
+      'El título del registro: la tienda, app o persona, en 1 a 3 palabras (Oxxo, Uber, Liverpool, Juan). Si le pagó a alguien sin nombre (un trabajador, un señor), lo que pagó en corto: "Motor del portón". Sin paréntesis ni explicaciones: eso va en descripcion.',
+    ),
+  descripcion: z.string().optional().describe("Qué fue, en pocas palabras; aquí va el detalle."),
   cuenta: z.string().optional().describe("Solo si el usuario dijo con qué pagó: BBVA, Nu, efectivo."),
   fecha: fecha.optional(),
   etiquetas: z.array(z.string()).optional().describe('Las que dijo ("etiquétalo como viaje") y las que piden las reglas de etiquetas (por ejemplo, para quién fue: "para mi mamá" → Mamá).'),
@@ -117,6 +122,19 @@ const HACIA_ADELANTE = /\b(subio|sube|subira|bajo|baja|bajara|aumento|a partir|d
 
 // Algo que se repite: "cada día 15", "cada mes", "mensual", "cada quincena".
 const SE_REPITE = /\b(cada|al mes|por mes|a la semana|por semana|al ano|mensual|mensualmente|semanal|quincenal|anual|diario)\b/;
+
+// El comercio es el título del registro y con él se agrupa ("Ver todo en…"). El 14-oct quedó "Trabajador (instalación
+// de motor para portón)", que no cabía: lo que va entre paréntesis, tras una coma o tras " - " es el detalle.
+const DETALLE_DEL_TITULO = /^(.+?)\s*(?:\(\s*(.+?)\s*\)?|[,:;–—]\s*(.+)|\s-\s+(.+))$/;
+
+/** "Trabajador (motor del portón)" → comercio "Trabajador" y, si no traía, descripción "motor del portón". */
+export function tituloCorto<M extends { comercio?: string; descripcion?: string }>(m: M): M {
+  const partes = m.comercio?.trim().match(DETALLE_DEL_TITULO);
+  if (!partes) return m;
+  const [, base, ...detalles] = partes;
+  const detalle = detalles.find(Boolean);
+  return { ...m, comercio: base, descripcion: m.descripcion || (detalle && detalle.charAt(0).toUpperCase() + detalle.slice(1)) };
+}
 
 /** Las herramientas que la IA puede usar. Cada una solo toca datos del usuario del contexto. */
 /** Cuántos movimientos vigentes dejó ya esta entrada. */
@@ -341,7 +359,8 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
           }
         }
         return {
-          registrados: movimientos.map((m, i) => {
+          registrados: movimientos.map((dicho, i) => {
+            const m = tituloCorto(dicho);
             // Una transferencia o un pago de tarjeta va por mover_dinero: valida las cuentas y dice cómo quedaron.
             if (m.tipo === "transferencia" || m.tipo === "pago_tarjeta") {
               return moverDinero(ctx, { tipo: m.tipo, monto: montoDicho ?? m.monto, desde: m.cuenta, fecha: conFecha(m.fecha, i), descripcion: m.descripcion }).movimiento;
@@ -422,7 +441,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
           .describe("Solo los campos que cambian, con su valor nuevo. etiquetas agrega; quitar_etiquetas quita."),
       }),
       execute: ejecutar("editar_movimiento", ({ id, buscar, cambios }) => {
-        const { quitar_etiquetas, ...resto } = cambios;
+        const { quitar_etiquetas, ...resto } = cambios.comercio ? tituloCorto(cambios) : cambios;
         const ultimo = idDelMovimiento(ctx, id, comoLoDijo(buscar), pideVarios, cuantosDice);
         const elegido = id ? ultimo : noEsOtro(ultimo, buscar, [cambios.categoria, cambios.comercio, cambios.descripcion]);
         return {

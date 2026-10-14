@@ -112,6 +112,21 @@ const cobroDe = (r: Resultado, nombre: string) => {
 };
 
 export const CASOS: Caso[] = [
+  // Títulos cortos (14-oct): el comercio es el título del registro.
+  ...[
+    "Acabo de transferir 2 mil pesos desde mi cuenta de débito Revolut a un trabajador que vino a instalar un motor para automatizar la apertura automática de mi portón",
+    "le pagué 800 al plomero por arreglar la fuga del baño",
+    "gasté 85 en Starbucks",
+  ].map(
+    (frase): Caso => ({
+      grupo: "registro",
+      frase,
+      verificar: (r) => {
+        const titulo = unoSolo(r)?.comercio ?? "";
+        return motivo(!!titulo && !/[(),]/.test(titulo) && titulo.split(" ").length <= 3, { titulo, descripcion: unoSolo(r)?.descripcion });
+      },
+    }),
+  ),
   // Registro
   {
     grupo: "registro",
