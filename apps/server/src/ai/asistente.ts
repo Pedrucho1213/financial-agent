@@ -171,8 +171,11 @@ function resumenDeAnteriores(anteriores: Anterior[], zonaHoraria: string): strin
   return `Lo que te dijo en los últimos días y lo que contestaste (ya está hecho, salvo lo marcado PREGUNTASTE: no lo registres otra vez; úsalo solo si habla de eso):\n${lineas.join("\n")}`;
 }
 
-/** Contestó con una pregunta y no hizo nada: el dictado quedó esperando. */
-const preguntoSinHacer = (r: Respuesta) => r.respuesta.trim().endsWith("?") && !r.acciones?.some((a) => !SOLO_CONSULTA.has(a.herramienta));
+/**
+ * Contestó con una pregunta y no hizo nada: el dictado quedó esperando. La pregunta puede ir en medio: "¿Desde qué
+ * cuenta salió el dinero? Como es una transferencia, lo registro en Gimnasio…" (12-oct) también espera respuesta.
+ */
+const preguntoSinHacer = (r: Respuesta) => r.respuesta.includes("?") && !r.acciones?.some((a) => !SOLO_CONSULTA.has(a.herramienta));
 
 // "¿Tienes algún registro pendiente?", "¿quedó algo pendiente?", "creí que tenías una pregunta": preguntas sobre lo
 // que el asistente dejó a medias, no sobre su dinero. "¿Cuánto tengo pendiente en la tarjeta?", "¿qué suscripciones tengo
@@ -212,7 +215,7 @@ function pendienteSinModelo(ctx: Contexto, entrada: Entrada): string | undefined
     (p, i) => p.estado === "listo" && p.origen !== "apple_pay" && !!p.respuesta && preguntoSinHacer(p.respuesta as Respuesta) && !previas.slice(0, i).some((q) => q.conversacionId === p.conversacionId),
   );
   if (abierta) {
-    const pregunta = (abierta.respuesta as Respuesta).respuesta.trim().split(/(?<=[.!])\s+/).filter((f) => f.includes("?")).join(" ");
+    const pregunta = (abierta.respuesta as Respuesta).respuesta.trim().split(/(?<=[.!?])\s+/).filter((f) => f.includes("?")).join(" ");
     const dicho = abierta.texto.length > 120 ? `${abierta.texto.slice(0, 120).replace(/\s+\S*$/, "")}…` : abierta.texto;
     return `Sí. Cuando me dijiste «${dicho}», te pregunté: ${pregunta}`;
   }
