@@ -63,7 +63,7 @@ export function Accesos({ mes, moneda }: { mes: string; moneda: string }) {
       }
     />
   ) : null;
-  // Salud financiera: solo la ve quien tiene el módulo (a las demás cuentas el servidor contesta 404).
+  // Salud financiera: si el servidor la apaga (404), no sale.
   const salud = saludParaMostrar(useSalud(conCuentas));
   const tarjetaSalud = salud ? (
     <Tarjeta

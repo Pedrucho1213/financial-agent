@@ -1,4 +1,4 @@
-import { AlertTriangle, CreditCard, Info, Lightbulb, PiggyBank, Receipt, Scale, ShoppingBag } from "lucide-react";
+import { AlertTriangle, CalendarDays, Coins, CreditCard, Flame, Info, Lightbulb, PiggyBank, Receipt, Repeat, Scale, ShoppingBag, ShoppingCart, Sparkles, Store, UtensilsCrossed } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Medidor } from "../components/salud/Medidor";
 import { Pantalla } from "../components/Pantalla";
@@ -10,11 +10,12 @@ import { ErrorApi, mensajeDeError } from "../lib/api";
 import { dineroCorto } from "../lib/formato";
 import { haptico } from "../lib/haptico";
 import { volver } from "../lib/ruta";
-import { colorDeNivel, type ComparacionSalud, nivelDePuntos, type PilarSalud, type SaludFinanciera, saludParaMostrar, useSalud } from "../lib/salud";
+import { colorDeNivel, type ComparacionSalud, type CuriosidadSalud, nivelDePuntos, type PilarSalud, type SaludFinanciera, saludParaMostrar, useSalud } from "../lib/salud";
 import { cn } from "../lib/utils";
 
 // #salud: la salud financiera. Arriba el medidor con el nivel y por qué; luego lo que lo explica (los cinco
-// pilares), qué hacer (consejos con cuánto ahorra) y cómo se compara con México. Todo lo calcula el servidor.
+// pilares), qué hacer (consejos con cuánto ahorra), cómo se compara con México y datos curiosos. Todo lo calcula
+// el servidor.
 
 const ICONO_PILAR: Record<PilarSalud["clave"], typeof Scale> = {
   margen: Scale,
@@ -22,6 +23,17 @@ const ICONO_PILAR: Record<PilarSalud["clave"], typeof Scale> = {
   deuda: CreditCard,
   gustos: ShoppingBag,
   compromisos: Receipt,
+};
+
+const ICONO_CURIOSIDAD: Record<CuriosidadSalud["clave"], { icono: typeof Scale; color: string }> = {
+  favorito: { icono: Store, color: "var(--serie-1)" },
+  comer_fuera_dias: { icono: UtensilsCrossed, color: "var(--serie-2)" },
+  dia_fuerte: { icono: CalendarDays, color: "var(--serie-4)" },
+  salario_minimo: { icono: Coins, color: "var(--serie-5)" },
+  mas_grande: { icono: ShoppingCart, color: "var(--serie-7)" },
+  fijos_al_anio: { icono: Repeat, color: "var(--serie-6)" },
+  hormiga: { icono: Sparkles, color: "var(--serie-3)" },
+  racha: { icono: Flame, color: "var(--serie-2)" },
 };
 
 export function Salud() {
@@ -131,6 +143,34 @@ function Contenido({ s, moneda }: { s: SaludFinanciera; moneda: string }) {
             {s.mexico.map((c) => (
               <TarjetaMexico key={c.clave} c={c} />
             ))}
+          </div>
+        </section>
+      ) : null}
+
+      {s.curiosidades?.length ? (
+        <section aria-label="Datos curiosos">
+          <TituloSeccion>Datos curiosos</TituloSeccion>
+          <div className="overflow-hidden rounded-[20px] bg-card">
+            <ul>
+              {s.curiosidades.map((c) => {
+                const { icono: Icono, color } = ICONO_CURIOSIDAD[c.clave] ?? { icono: Sparkles, color: "var(--serie-1)" };
+                return (
+                  <li key={c.clave} data-curiosidad={c.clave} className={cn("relative flex gap-3 px-4 py-3", separador)}>
+                    <span
+                      aria-hidden
+                      className="flex size-[30px] shrink-0 items-center justify-center rounded-[8px]"
+                      style={{ color, backgroundColor: `color-mix(in srgb, ${color} 16%, transparent)` }}
+                    >
+                      <Icono className="size-[17px]" strokeWidth={2.3} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[17px] leading-tight font-semibold tabular">{c.dato}</p>
+                      <p className="mt-0.5 text-[15px] leading-snug text-pretty text-muted-foreground">{c.texto}</p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         </section>
       ) : null}
