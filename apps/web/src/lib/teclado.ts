@@ -19,33 +19,45 @@ const instalada = () =>
   (typeof window.matchMedia === "function" && window.matchMedia("(display-mode: standalone)").matches) ||
   (navigator as { standalone?: boolean }).standalone === true;
 
-// El alto de la vista sin teclado: el mayor que se ha visto con este ancho (al girar o cambiar el tema se vuelve a medir).
+// El alto de la ventana sin teclado: el mayor que se ha visto con este ancho (al girar se vuelve a medir).
 let altoNormal = 0;
 let anchoNormal = 0;
-if (typeof window !== "undefined") {
-  const olvidar = () => {
-    altoNormal = 0;
-  };
-  window.addEventListener("fa:tema", olvidar);
-  window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", olvidar);
-}
 
-/**
- * Cuánto se quedó corta la vista después de cerrar el teclado. En la app instalada de iOS 26+, a veces la vista no
- * regresa a su alto completo: la barra de abajo y la caja de escribir se quedan flotando a media pantalla, con un
- * hueco abajo, hasta reabrir la app. Con este número (variable CSS --hueco) se bajan a su lugar.
- */
-function medirHueco(vv: VisualViewport | null, conTeclado: boolean): number {
-  if (!vv || !instalada() || Math.abs(vv.scale - 1) > 0.01) return 0;
+function recordarAlto(conTeclado: boolean) {
   if (window.innerWidth !== anchoNormal) {
     anchoNormal = window.innerWidth;
     altoNormal = 0;
   }
-  if (conTeclado) return 0;
-  altoNormal = Math.max(altoNormal, vv.height);
-  const hueco = Math.round(altoNormal - vv.height);
-  // Más que eso ya no es el error de iOS (sería un teclado sin foco, por ejemplo): mejor no mover nada.
-  return hueco >= 4 && hueco <= 120 ? hueco : 0;
+  if (!conTeclado) altoNormal = Math.max(altoNormal, window.innerHeight);
+}
+
+/**
+ * En la app instalada de iOS, a veces la ventana no recupera su alto al cerrar el teclado: se queda ~60 pt más corta
+ * hasta cerrar la app, y lo que está pegado abajo (la barra de pestañas, la caja del chat) flota con una franja negra
+ * debajo. No se puede pintar en esa franja (queda fuera de la ventana), así que hay que hacer que WebKit la vuelva a
+ * medir: esconder la app y volverla a mostrar en el mismo instante (sin que alcance a pintarse) lo obliga, y si no
+ * basta, volver a poner la etiqueta viewport.
+ */
+function recuperarAlto(intento: number) {
+  if (!instalada() || abreTeclado(document.activeElement)) return;
+  if (!altoNormal || window.innerHeight >= altoNormal - 4) return;
+  const y = window.scrollY;
+  if (intento === 0) {
+    const raiz = document.getElementById("root");
+    if (!raiz) return;
+    raiz.style.display = "none";
+    void raiz.offsetHeight;
+    raiz.style.display = "";
+  } else {
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+    if (!meta) return;
+    const contenido = meta.content;
+    meta.content = `${contenido}, height=device-height`;
+    requestAnimationFrame(() => {
+      meta.content = contenido;
+    });
+  }
+  window.scrollTo(window.scrollX, y);
 }
 
 /**
@@ -64,15 +76,18 @@ export function useTeclado() {
       const alto = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
       const abierto = alto > 120 || (conDedo() && abreTeclado(document.activeElement));
       document.documentElement.style.setProperty("--teclado", `${alto}px`);
-      document.documentElement.style.setProperty("--hueco", `${medirHueco(vv, abierto)}px`);
+      recordarAlto(abierto);
       setAbierto(abierto);
     };
-    // Al pasar el foco de un campo a otro, focusout llega antes que focusin: se mide ya que se asentó. Y otra vez
-    // cuando el teclado ya terminó de irse, porque iOS no siempre avisa con un resize al final.
+    // Al pasar el foco de un campo a otro, focusout llega antes que focusin: se mide ya que se asentó. Ya que el
+    // teclado terminó de irse, si la ventana se quedó corta se le pide a WebKit que la vuelva a medir.
     const esperas: number[] = [];
     const alCambiarFoco = () => {
       for (const id of esperas.splice(0)) window.clearTimeout(id);
-      for (const ms of [0, 350, 900]) esperas.push(window.setTimeout(medir, ms));
+      esperas.push(window.setTimeout(medir, 0));
+      esperas.push(window.setTimeout(() => recuperarAlto(0), 400));
+      esperas.push(window.setTimeout(() => recuperarAlto(1), 900));
+      esperas.push(window.setTimeout(medir, 1000));
     };
     medir();
     vv?.addEventListener("resize", medir);
@@ -86,7 +101,6 @@ export function useTeclado() {
       document.removeEventListener("focusout", alCambiarFoco);
       for (const id of esperas) window.clearTimeout(id);
       document.documentElement.style.setProperty("--teclado", "0px");
-      document.documentElement.style.setProperty("--hueco", "0px");
     };
   }, []);
   return abierto;
