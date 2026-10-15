@@ -23,8 +23,8 @@ export function ContenidoConMonto({
     <>
       {icono}
       <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 py-2.5">
-        <div className="col-start-1 row-start-1 line-clamp-2 break-words">{titulo}</div>
-        {subtitulo ? <div className="col-span-2 col-start-1 row-start-2 truncate text-[15px] text-muted-foreground">{subtitulo}</div> : null}
+        <div className="col-start-1 row-start-1 break-words hyphens-auto">{titulo}</div>
+        {subtitulo ? <div className="col-span-2 col-start-1 row-start-2 break-words text-[15px] leading-snug text-muted-foreground text-pretty">{subtitulo}</div> : null}
         {valor !== undefined ? <div className="col-start-2 row-start-1 text-right">{valor}</div> : null}
       </div>
       {chevron ? <ChevronRight aria-hidden className="-mr-1 size-5 shrink-0 text-muted-foreground/60" /> : null}

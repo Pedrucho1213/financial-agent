@@ -214,11 +214,11 @@ export function Notificaciones() {
                     titulo={
                       <span className={cn("flex items-start gap-1.5 text-[16px] leading-[21px]", a.leidoEn ? "font-normal" : "font-semibold")}>
                         {!a.leidoEn ? <span aria-label="Nuevo" className="mt-[7px] size-2 shrink-0 rounded-full bg-tint" /> : null}
-                        <span className="line-clamp-2 whitespace-normal">{a.titulo}</span>
+                        <span className="min-w-0 break-words whitespace-normal">{a.titulo}</span>
                       </span>
                     }
                     subtitulo={
-                      <span className="line-clamp-2 text-[14px] leading-[19px] whitespace-normal">
+                      <span className="block text-[14px] leading-[19px] whitespace-normal text-pretty">
                         {/* En pantallas angostas la fecha va aquí, para que el título no se corte. */}
                         <span className="min-[361px]:hidden">{diaCorto(a.fecha)} · </span>
                         {a.texto}

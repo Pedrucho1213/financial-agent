@@ -145,8 +145,8 @@ export function Ajustes() {
           <div className="min-w-0 flex-1">
             {d ? (
               <>
-                <h2 className="truncate text-[22px] leading-7 font-semibold tracking-tight">{d.usuario.nombre}</h2>
-                <p className="truncate text-[15px] text-muted-foreground">Cuenta y código para entrar</p>
+                <h2 className="break-words text-[22px] leading-7 font-semibold tracking-tight text-balance">{d.usuario.nombre}</h2>
+                <p className="text-[15px] leading-snug text-muted-foreground text-pretty">Cuenta y código para entrar</p>
               </>
             ) : (
               <>

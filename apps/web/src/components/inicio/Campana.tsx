@@ -201,7 +201,7 @@ function Burbuja({
                     <span className="line-clamp-2 text-[16px] leading-5 font-semibold">
                       {porRevisar} {porRevisar === 1 ? "movimiento" : "movimientos"} por revisar
                     </span>
-                    <span className="mt-0.5 block truncate text-[14px] leading-5 text-muted-foreground">Les falta algo o no estoy seguro</span>
+                    <span className="mt-0.5 block text-[14px] leading-5 text-muted-foreground text-pretty">Les falta algo o no estoy seguro</span>
                   </span>
                   <ChevronRight aria-hidden className="size-5 shrink-0 text-muted-foreground/60" />
                 </button>
@@ -218,8 +218,8 @@ function Burbuja({
                       <Icono className="size-5" strokeWidth={2.2} />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="line-clamp-2 text-[16px] leading-5 font-semibold">{a.titulo}</span>
-                      <span className="mt-0.5 line-clamp-2 text-[14px] leading-5 text-muted-foreground">{a.texto}</span>
+                      <span className="block break-words text-[16px] leading-5 font-semibold">{a.titulo}</span>
+                      <span className="mt-0.5 block break-words text-[14px] leading-5 text-muted-foreground text-pretty">{a.texto}</span>
                     </span>
                   </button>
                 );

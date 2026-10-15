@@ -153,13 +153,15 @@ export function Pantalla({
               className="absolute left-[max(0.5rem,env(safe-area-inset-left))] z-10 flex h-11 max-w-[40%] items-center gap-0.5 pr-2 text-[17px] text-tint active:opacity-50"
             >
               <ChevronLeft className="size-[26px] shrink-0" strokeWidth={2.4} aria-hidden />
-              <span className="truncate">{atras.etiqueta}</span>
+              <span data-recorte className="truncate">{atras.etiqueta}</span>
             </button>
           ) : izquierda ? (
             <div className="absolute left-[max(1rem,env(safe-area-inset-left))] z-10 flex h-11 max-w-[45%] items-center">{izquierda}</div>
           ) : null}
+          {/* El título chico repite el grande: si no cabe, «…» como en iOS. */}
           <div
             aria-hidden={!compacta}
+            data-recorte
             className={cn(
               "pointer-events-none absolute inset-x-24 truncate text-center text-[17px] font-semibold transition-[opacity,transform] duration-200 ease-ios",
               compacta ? "translate-y-0 opacity-100" : "translate-y-1 opacity-0",

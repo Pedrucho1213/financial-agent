@@ -185,7 +185,7 @@ function Contenido({ s, moneda }: { s: SaludFinanciera; moneda: string }) {
             {rubros.map((r) => (
               <li key={r.clave} data-rubro={r.clave}>
                 <div className="flex items-baseline justify-between gap-3 text-[15px]">
-                  <span className="truncate">{r.nombre}</span>
+                  <span className="min-w-0 break-words">{r.nombre}</span>
                   <span className="shrink-0 text-[13px] text-muted-foreground tabular">
                     Tú {Math.round(r.tuProporcion * 100)}% · México {Math.round(r.mexicoProporcion * 100)}%
                   </span>
