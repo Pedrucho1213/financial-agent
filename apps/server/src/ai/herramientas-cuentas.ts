@@ -24,7 +24,7 @@ import {
   resumenEtiquetas,
 } from "../finanzas/etiquetas";
 import { buscarMovimientos, ErrorFinanzas, idDelMovimiento, idsQueCoinciden } from "../finanzas/movimientos";
-import { clavePersona, listarPrestamos } from "../finanzas/planes";
+import { clavePersona, deudasPorPersona, listarPrestamos, nombrePersona, totalesPersonas } from "../finanzas/planes";
 import { debeAPersona } from "./herramientas-planes";
 import { cuentaMencionada, encontrarOCrearCuenta, inferirTipoCuenta } from "../finanzas/catalogos";
 import { montosDelTexto } from "../lib/numeros";
@@ -345,6 +345,14 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
         const partes: string[] = [];
         if (t.cuentasConSaldo) partes.push(`tienes ${$(t.dineroCentavos)} en tus cuentas`);
         if (t.tarjetasConDeuda) partes.push(t.deudaCentavos > 0 ? `debes ${$(t.deudaCentavos)} en tarjetas` : "no debes nada en tarjetas");
+        // Lo que debe a personas, si DEUDAS_PERSONAS lo abre: "¿cuánto debo?" lo cuenta. Lo que le deben no se dice
+        // aquí: no es dinero que tenga (se consulta con consultar_planes).
+        const personas = totalesPersonas(ctx, t.netoCentavos);
+        if (personas?.deboCentavos) {
+          // Con pocas personas se dicen sus nombres: "le debes $52,733 a tu mamá y a Milton Ventura".
+          const nombres = deudasPorPersona(ctx).filter((x) => x.direccion === "debo").map((x) => `a ${nombrePersona(x.persona)}`);
+          partes.push(`le debes ${$(personas.deboCentavos)} ${nombres.length && nombres.length <= 3 ? enLista(nombres) : "a personas"}`);
+        }
         const credito = todas.filter((e) => e.esCredito && e.disponibleCentavos !== null);
         // Por voz cuenta también la tarjeta de la que solo se sabe el disponible.
         if (credito.length) partes.push(`te quedan ${$(credito.reduce((s, e) => s + e.disponibleCentavos!, 0))} de crédito disponible`);
