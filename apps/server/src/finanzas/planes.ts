@@ -853,11 +853,14 @@ export function eliminarDeuda(ctx: Contexto, id: string) {
   return { persona: deuda.persona, direccion: deuda.direccion, pendienteCentavos: deuda.pendienteCentavos };
 }
 
-/** Lo que le deben y lo que debe a personas, para los totales de Cuentas (null si no está abierto para este usuario). */
+/**
+ * Lo que debe a personas, para los totales de Cuentas, como una tarjeta más: el neto lo resta. Lo que le deben va
+ * aparte y no suma (Pedro, 15-oct: no es dinero que tenga en el momento). null si no está abierto para este usuario.
+ */
 export function totalesPersonas(ctx: Contexto, netoCuentasCentavos: number) {
   if (!deudasEdicionHabilitada(ctx.db, ctx.usuarioId)) return null;
   const { meDebenCentavos, deboCentavos } = listarPrestamos(ctx);
-  return { meDebenCentavos, deboCentavos, netoCentavos: netoCuentasCentavos + meDebenCentavos - deboCentavos };
+  return { deboCentavos, meDebenCentavos, netoCentavos: netoCuentasCentavos - deboCentavos };
 }
 
 // ---------------------------------------------------------------- Meses sin intereses

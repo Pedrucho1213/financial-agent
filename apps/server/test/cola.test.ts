@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { MockLanguageModelV4 } from "ai/test";
 import { hablar as hablarDirecto, reanudarPendientes, type Respuesta } from "../src/ai/asistente";
 import { crearApp, type OpcionesApp } from "../src/app";
@@ -8,6 +8,17 @@ import { sembrarCategorias } from "../src/finanzas/catalogos";
 import { llamada, preparar, texto } from "./ayuda";
 
 // Pruebas de la cola: dictados repetidos, simultáneos, lentos, fallidos y reinicios de la Mac.
+
+// El orden de llegada al modelo depende del trabajo antes de él: que la cuenta dueña no tenga herramientas de más
+// (deuda, con DEUDAS_PERSONAS) que el amigo, o "pedro uno" llega después que "amigo 30".
+const deudasAntes = process.env.DEUDAS_PERSONAS;
+beforeAll(() => {
+  process.env.DEUDAS_PERSONAS = "0";
+});
+afterAll(() => {
+  if (deudasAntes === undefined) delete process.env.DEUDAS_PERSONAS;
+  else process.env.DEUDAS_PERSONAS = deudasAntes;
+});
 
 type Mensaje = { role: string; content: string | { type: string; text?: string }[] };
 const dormir = (ms: number) => new Promise((listo) => setTimeout(listo, ms));

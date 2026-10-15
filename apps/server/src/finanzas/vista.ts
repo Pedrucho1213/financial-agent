@@ -267,7 +267,7 @@ export function tablero(ctx: Contexto, mesPedido?: string) {
     })),
     porRevisar: filasDelPeriodo(ctx, undefined, undefined).filter((m) => m.revisar).length,
     // Lo que hay hoy en sus cuentas y tarjetas (no depende del mes); el detalle está en /v1/cuentas.
-    // `personas`: lo que debe a personas y le deben, y el neto contándolo (null si DEUDAS_PERSONAS no lo abre).
+    // `personas`: lo que debe a personas (el neto lo resta) y lo que le deben (aparte, no suma) (null si DEUDAS_PERSONAS no lo abre).
     cuentas: conPersonas(ctx, totalesDeCuentas(estadosDeCuentas(ctx))),
     // Etiquetas con movimientos en el mes, de la que más gastó a la que menos.
     porEtiqueta: resumenEtiquetas(ctx, { desde, hasta })
@@ -276,7 +276,7 @@ export function tablero(ctx: Contexto, mesPedido?: string) {
   };
 }
 
-/** Los totales de cuentas con lo que debe a personas y le deben: `personas.netoCentavos` es «Lo que tienes» contándolo. */
+/** Los totales de cuentas con lo que debe a personas: `personas.netoCentavos` es «Lo que tienes» restándolo. */
 export function conPersonas<T extends { netoCentavos: number }>(ctx: Contexto, totales: T) {
   return { ...totales, personas: totalesPersonas(ctx, totales.netoCentavos) };
 }

@@ -39,7 +39,7 @@ type Ejecutar = <A, R>(nombre: string, fn: (args: A) => R) => (args: A) => Promi
 // Herramientas que solo leen.
 export const CONSULTAS_PLANES = new Set(["consultar_planes"]);
 // Herramientas cuyo resultado trae `confirmacion`: lo que se le dice al usuario sin otra vuelta del modelo.
-export const ESCRITURAS_PLANES = new Set(["presupuesto", "meta", "prestamo", "compra_msi"]);
+export const ESCRITURAS_PLANES = new Set(["presupuesto", "meta", "prestamo", "deuda", "compra_msi"]);
 
 // "Ahora nada más le debo 15 mil", "en realidad son 18 mil", "ya solo me debe 500": corrige lo que ya debía.
 const CORRIGE_DEUDA = /\b(ahora|nada mas|ya (solo|nomas)|solo (le |me )?(debo|debe)|en realidad|me equivoque|no (eran|son|era|es) \S+ sino|corrige|cambia(le)?|quedan?|ya no son)\b/;
@@ -61,20 +61,6 @@ export function herramientasPlanes(ctx: Contexto, ejecutar: Ejecutar) {
       return undefined;
     }
   };
-  const base = z.object({
-    accion: z.enum(["le_preste", "me_prestaron", "me_pagaron", "le_pague"]),
-    persona: z.string().describe('A quién, como lo dijo: "Juan", "mi hermano", "mi mamá". Con eso basta: no preguntes su nombre.'),
-    monto: z.number().positive().optional(),
-    cuenta: z.string().optional().describe('De qué cuenta salió o a cuál llegó el dinero, solo si lo dijo: "de mi efectivo", "desde mi cuenta Revolut", "me los depositó a Bancomer". Si no la dijo, omítela sin preguntar.'),
-    descripcion: z.string().optional(),
-  });
-  const conEdicion = base.extend({
-    accion: z.enum(["le_preste", "me_prestaron", "me_pagaron", "le_pague", "cambiar", "borrar"]),
-    queda: z.number().min(0).optional().describe("Solo en cambiar: lo que queda por pagar, si lo dijo así."),
-    nuevo_nombre: z.string().optional().describe("Solo en cambiar: el nombre correcto."),
-  });
-  // Sin edición, el modelo ni ve cambiar, borrar, queda ni nuevo_nombre.
-  const esquemaPrestamo = (edicion ? conEdicion : base) as unknown as typeof conEdicion;
   /** "Borra la deuda con Milton", "cámbiale a 18 mil lo de Milton", "ahora nada más le debo 15 mil a mi mamá". */
   const editarPorVoz = (args: { accion: string; persona: string; monto?: number; queda?: number; nuevo_nombre?: string }) => {
     const d = deudaDePersona(ctx, args.persona);
@@ -159,15 +145,15 @@ export function herramientasPlanes(ctx: Contexto, ejecutar: Ejecutar) {
 
     prestamo: tool({
       description:
-        'Préstamos y deudas con personas: "le presté 500 a Juan" le_preste; "Ana me prestó mil" o "le debo 30 mil a mi mamá" me_prestaron; "Juan me pagó 200" me_pagaron; "le pagué a Ana" o "le transferí 2 mil a mi mamá desde Revolut" le_pague (un abono). Sin monto al pagar, salda todo ("ya le terminé de pagar a mi mamá").' +
-        (edicion
-          ? ' Solo para corregir un dato mal anotado es cambiar: "en realidad fueron 18 mil" (monto, el total), "de lo de Milton ya nada más quedan 12" (queda), "se llama Milton Ventura" (nuevo_nombre); un pago o abono nunca es cambiar. "Borra la deuda con Milton" es borrar.'
-          : ""),
-      inputSchema: esquemaPrestamo,
-      execute: ejecutar("prestamo", (args: z.infer<typeof esquemaPrestamo>) => {
-        const { persona, monto, cuenta, descripcion } = args;
-        if (args.accion === "borrar" || args.accion === "cambiar") return editarPorVoz(args);
-        const accion = args.accion;
+        'Préstamos y deudas con personas: "le presté 500 a Juan" le_preste; "Ana me prestó mil" o "le debo 30 mil a mi mamá" me_prestaron; "Juan me pagó 200" me_pagaron; "le pagué a Ana" o "le transferí 2 mil a mi mamá desde Revolut" le_pague (un abono). Sin monto al pagar, salda todo.',
+      inputSchema: z.object({
+        accion: z.enum(["le_preste", "me_prestaron", "me_pagaron", "le_pague"]),
+        persona: z.string().describe('A quién, como lo dijo: "Juan", "mi hermano", "mi mamá". Con eso basta: no preguntes su nombre.'),
+        monto: z.number().positive().optional(),
+        cuenta: z.string().optional().describe('De qué cuenta salió o a cuál llegó el dinero, solo si lo dijo: "de mi efectivo", "desde mi cuenta Revolut", "me los depositó a Bancomer". Si no la dijo, omítela sin preguntar.'),
+        descripcion: z.string().optional(),
+      }),
+      execute: ejecutar("prestamo", ({ accion, persona, monto, cuenta, descripcion }) => {
         // El dinero prestado sale de la cuenta que dijo o llega a ella (QA-088): un movimiento de un solo lado,
         // que no es gasto ni ingreso. Sin cuenta dicha no se adivina.
         const sale = accion === "le_preste" || accion === "le_pague";
@@ -190,7 +176,7 @@ export function herramientasPlanes(ctx: Contexto, ejecutar: Ejecutar) {
             if (d && !d.saldada) {
               avisado.add("corrige");
               return {
-                error: `Ya hay una deuda con ${d.persona} de ${$(d.pendienteCentavos)} pendientes. Si dice cuánto queda ahora, usa accion cambiar con queda; si el total era otro, cambiar con monto. Si de verdad es un préstamo nuevo aparte, vuelve a llamar igual.`,
+                error: `Ya hay una deuda con ${d.persona} de ${$(d.pendienteCentavos)} pendientes. Si dice cuánto queda ahora, usa deuda con accion cambiar y queda; si el total era otro, deuda con cambiar y monto. Si de verdad es un préstamo nuevo aparte, vuelve a llamar igual.`,
               };
             }
           }
@@ -217,6 +203,24 @@ export function herramientasPlanes(ctx: Contexto, ejecutar: Ejecutar) {
         return { ...a, confirmacion: `${confirmacion}${queda}` };
       }),
     }),
+
+    // Corregir o borrar una deuda con una persona: aparte de prestamo, para que su esquema siga igual que antes.
+    ...(edicion
+      ? {
+          deuda: tool({
+            description:
+              'Corrige o borra una deuda o préstamo con una persona que ya está anotado: "en realidad fueron 18 mil" (cambiar, monto = el total), "de lo de Milton ya nada más quedan 12" (cambiar, queda), "se llama Milton Ventura" (cambiar, nuevo_nombre), "borra la deuda con Milton" (borrar). Un pago o abono no es esto: es prestamo.',
+            inputSchema: z.object({
+              accion: z.enum(["cambiar", "borrar"]),
+              persona: z.string(),
+              monto: z.number().positive().optional(),
+              queda: z.number().min(0).optional(),
+              nuevo_nombre: z.string().optional(),
+            }),
+            execute: ejecutar("deuda", (args) => editarPorVoz(args)),
+          }),
+        }
+      : {}),
 
     compra_msi: tool({
       description:
