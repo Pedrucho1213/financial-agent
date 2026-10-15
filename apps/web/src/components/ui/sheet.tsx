@@ -1,5 +1,5 @@
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { type ComponentProps, type ReactNode, useEffect, useRef } from "react";
+import { type ComponentProps, type ReactNode, useEffect, useRef, useState } from "react";
 import { cn } from "../../lib/utils";
 
 export const Sheet = DialogPrimitive.Root;
@@ -25,12 +25,14 @@ export function SheetContent({
   izquierda?: ReactNode;
   derecha?: ReactNode;
 }) {
-  const hoja = useRef<HTMLDivElement>(null);
+  // Con estado y no con useRef: el Portal pinta la hoja un render después, y un efecto que solo corre al
+  // montar se quedaba sin ella (no se podía cerrar arrastrando ni se acomodaba al teclado).
+  const [hoja, setHoja] = useState<HTMLDivElement | null>(null);
   const cuerpo = useRef<HTMLDivElement>(null);
   const cerrar = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    const el = hoja.current;
+    const el = hoja;
     if (!el) return;
     let inicioY = 0;
     let inicioX = 0;
@@ -124,28 +126,58 @@ export function SheetContent({
       window.addEventListener("pointerup", pu);
     };
 
+    // Con el teclado abierto la hoja cabe en lo que queda visible y se apoya encima del teclado. iOS no
+    // encoge 100dvh con el teclado: sin esto la hoja medía toda la pantalla, el teclado la empujaba hacia
+    // arriba y se dejaban de ver «Cancelar» y «Guardar».
+    const vv = window.visualViewport;
+    const ajustarAlTeclado = () => {
+      if (!vv || vv.scale > 1.01) {
+        el.style.removeProperty("--hoja-alto");
+        el.style.removeProperty("--hoja-abajo");
+        return;
+      }
+      el.style.setProperty("--hoja-alto", `${vv.height}px`);
+      el.style.setProperty("--hoja-abajo", `${Math.max(0, window.innerHeight - vv.height - vv.offsetTop)}px`);
+    };
+    // El campo con el foco queda a la vista dentro de la hoja ya encogida.
+    let mostrarCampo = 0;
+    const alEnfocar = (e: FocusEvent) => {
+      const campo = e.target as HTMLElement | null;
+      if (!campo?.matches?.("input, textarea, [contenteditable]")) return;
+      window.clearTimeout(mostrarCampo);
+      mostrarCampo = window.setTimeout(() => campo.scrollIntoView({ block: "nearest", behavior: "smooth" }), 350);
+    };
+    ajustarAlTeclado();
+    vv?.addEventListener("resize", ajustarAlTeclado);
+    vv?.addEventListener("scroll", ajustarAlTeclado);
+    el.addEventListener("focusin", alEnfocar);
+
     el.addEventListener("touchstart", ts, { passive: true });
     el.addEventListener("touchmove", tm, { passive: false });
     el.addEventListener("touchend", te);
     el.addEventListener("touchcancel", te);
     el.addEventListener("pointerdown", pd);
     return () => {
+      vv?.removeEventListener("resize", ajustarAlTeclado);
+      vv?.removeEventListener("scroll", ajustarAlTeclado);
+      el.removeEventListener("focusin", alEnfocar);
+      window.clearTimeout(mostrarCampo);
       el.removeEventListener("touchstart", ts);
       el.removeEventListener("touchmove", tm);
       el.removeEventListener("touchend", te);
       el.removeEventListener("touchcancel", te);
       el.removeEventListener("pointerdown", pd);
     };
-  }, []);
+  }, [hoja]);
 
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/35 data-[state=closed]:animate-desvanecer data-[state=open]:animate-aparecer" />
       <DialogPrimitive.Content
-        ref={hoja}
+        ref={setHoja}
         data-slot="sheet"
         className={cn(
-          "fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[calc(100dvh-env(safe-area-inset-top)-12px)] w-full max-w-lg flex-col rounded-t-[26px] bg-background shadow-[0_-8px_40px_rgb(0_0_0/0.18)] outline-none will-change-transform",
+          "fixed inset-x-0 bottom-[var(--hoja-abajo,0px)] z-50 mx-auto flex max-h-[calc(min(100dvh,var(--hoja-alto,100dvh))-env(safe-area-inset-top)-12px)] w-full max-w-lg flex-col rounded-t-[26px] bg-background shadow-[0_-8px_40px_rgb(0_0_0/0.18)] outline-none will-change-transform",
           "data-[state=closed]:animate-bajar data-[state=open]:animate-subir",
           className,
         )}
