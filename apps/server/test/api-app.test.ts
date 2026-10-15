@@ -525,6 +525,6 @@ describe("estado del sistema", () => {
   test("la app puede pedir los mosaicos del mapa", async () => {
     const { pedir } = montar();
     const r = await pedir("/salud");
-    expect(r.r.headers.get("content-security-policy")).toContain("img-src 'self' data: blob: https://*.basemaps.cartocdn.com");
+    expect(r.r.headers.get("content-security-policy")).toContain("img-src 'self' data: blob: https://tile.openstreetmap.org");
   });
 });

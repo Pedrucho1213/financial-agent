@@ -1,6 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
 import { ApiFalsa, prepararSesion } from "./api-falsa";
 import { conCuentas, cuentasComoPedro } from "./api-falsa-cuentas";
+import { elegirFecha } from "./fecha";
 
 // Cuentas, tarjetas, mover dinero y etiquetas contra la API falsa (contrato del PR #38).
 // Hoy es 6 de octubre de 2026. BBVA $18,450, Efectivo $1,200, Revolut sin saldo; Nu debe $4,500 de $30,000
@@ -337,12 +338,12 @@ test.describe("Etiquetas", () => {
     const hoja = page.getByRole("dialog");
     await hoja.getByLabel("Nombre").fill("#Cumple mamá");
     await hoja.getByLabel("Ponerla sola en mis gastos").click();
-    await hoja.locator("#etiqueta-hasta").fill("2026-10-05");
+    await elegirFecha(hoja, "etiqueta-hasta", "2026-10-05");
     await expect(hoja.getByText("La fecha final es antes de la de inicio.")).toBeVisible();
     await expect(hoja.getByRole("button", { name: "Crear" })).toBeDisabled();
-    await hoja.locator("#etiqueta-hasta").fill("2027-02-01");
+    await elegirFecha(hoja, "etiqueta-hasta", "2027-02-01");
     await expect(hoja.getByText("Se activa por 92 días como máximo.")).toBeVisible();
-    await hoja.locator("#etiqueta-hasta").fill("2026-10-12");
+    await elegirFecha(hoja, "etiqueta-hasta", "2026-10-12");
     await hoja.getByRole("button", { name: "Crear" }).click();
     await expect(hoja).toBeHidden();
     expect(api.de("POST", "/v1/etiquetas")[0]?.cuerpo).toEqual({ nombre: "Cumple mamá", activa_desde: "2026-10-06", activa_hasta: "2026-10-12" });

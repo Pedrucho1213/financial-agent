@@ -5,6 +5,7 @@ import { ContenidoConMonto } from "../components/ContenidoConMonto";
 import { Pantalla } from "../components/Pantalla";
 import { Spinner } from "../components/Spinner";
 import { Button } from "../components/ui/button";
+import { CampoFecha } from "../components/ui/fecha";
 import { CampoFila } from "../components/ui/input";
 import { Fila, FilaBoton, Grupo, TituloSeccion } from "../components/ui/lista";
 import { Segmented } from "../components/ui/segmented";
@@ -320,8 +321,8 @@ function HojaEtiqueta({ valor, hoy, alCerrar }: { valor: Etiqueta | "nueva" | nu
               </Fila>
               {activa ? (
                 <>
-                  <CampoFecha id="etiqueta-desde" etiqueta="Desde" valor={desde} onCambio={setDesde} />
-                  <CampoFecha id="etiqueta-hasta" etiqueta="Hasta" valor={hasta} onCambio={setHasta} />
+                  <CampoFecha id="etiqueta-desde" etiqueta="Desde" valor={desde} alCambiar={setDesde} max="2099-12-31" />
+                  <CampoFecha id="etiqueta-hasta" etiqueta="Hasta" valor={hasta} alCambiar={setHasta} max="2099-12-31" />
                 </>
               ) : null}
             </Grupo>
@@ -351,26 +352,3 @@ function HojaEtiqueta({ valor, hoy, alCerrar }: { valor: Etiqueta | "nueva" | nu
   );
 }
 
-function CampoFecha({ id, etiqueta, valor, onCambio }: { id: string; etiqueta: string; valor: string; onCambio: (v: string) => void }) {
-  return (
-    <Fila>
-      <label htmlFor={id} className="shrink-0">
-        {etiqueta}
-      </label>
-      <div className="relative ml-auto">
-        <span className="pointer-events-none flex h-[34px] items-center rounded-lg bg-fill px-3 text-[17px] text-foreground tabular">
-          {aFecha(valor).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" }).replace(".", "")}
-        </span>
-        <input
-          id={id}
-          type="date"
-          required
-          value={valor}
-          max="2099-12-31"
-          onChange={(e) => e.target.value && onCambio(e.target.value)}
-          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-        />
-      </div>
-    </Fila>
-  );
-}

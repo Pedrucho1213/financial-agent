@@ -6,6 +6,7 @@ import { CampoMonto } from "../components/CampoMonto";
 import { LogoPago } from "../components/Logo";
 import { Pantalla } from "../components/Pantalla";
 import { Button } from "../components/ui/button";
+import { CampoFecha } from "../components/ui/fecha";
 import { Fila, FilaBoton, Grupo, TituloSeccion } from "../components/ui/lista";
 import { SelectNativo } from "../components/ui/select";
 import { Sheet, SheetContent } from "../components/ui/sheet";
@@ -836,7 +837,7 @@ function HojaMeta({ valor, moneda, hoy, alCerrar }: { valor: Meta | "nueva" | nu
                   </label>
                 <input
                   id="nombre-meta"
-                  placeholder="Viaje, fondo de emergencia…"
+                  placeholder="Viaje, emergencias…"
                   value={nombre}
                   maxLength={60}
                   onChange={(e) => setNombre(e.target.value)}
@@ -856,19 +857,7 @@ function HojaMeta({ valor, moneda, hoy, alCerrar }: { valor: Meta | "nueva" | nu
                   className="h-11 w-full min-w-0 bg-transparent text-right text-[17px] outline-none placeholder:text-placeholder"
                 />
               </Fila>
-              <Fila>
-                  <label htmlFor="fecha-meta" className="shrink-0">
-                    Para cuándo
-                  </label>
-                <input
-                  type="date"
-                  id="fecha-meta"
-                  min={hoy}
-                  value={fecha}
-                  onChange={(e) => setFecha(e.target.value)}
-                  className="h-11 w-full min-w-0 bg-transparent text-right text-[17px] text-muted-foreground outline-none"
-                />
-              </Fila>
+              <CampoFecha id="fecha-meta" etiqueta="Para cuándo" valor={fecha} alCambiar={setFecha} min={hoy} max="2099-12-31" quitable />
             </Grupo>
 
             {meta ? (

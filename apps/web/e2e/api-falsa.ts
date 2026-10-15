@@ -240,7 +240,7 @@ export class ApiFalsa {
   async instalar(page: Page) {
     await page.route(/\/v1\//, (route) => this.atender(route));
     // Los mosaicos del mapa no salen a internet en las pruebas: un cuadro liso.
-    await page.route(/basemaps\.cartocdn\.com/, (route) =>
+    await page.route(/tile\.openstreetmap\.org/, (route) =>
       route.fulfill({ status: 200, contentType: "image/png", body: Buffer.from(MOSAICO, "base64") }),
     );
     // El archivo del Atajo llega como descarga, igual que en el servidor: la página no se va.

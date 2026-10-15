@@ -7,6 +7,7 @@ import { LogoCategoria, LogoMarca } from "../components/Logo";
 import { Spinner } from "../components/Spinner";
 import { Button } from "../components/ui/button";
 import { Chip, ChipVisual, Chips, TituloChips } from "../components/ui/chip";
+import { CampoFecha } from "../components/ui/fecha";
 import { CampoFila } from "../components/ui/input";
 import { Fila, FilaBoton, Grupo } from "../components/ui/lista";
 import { Segmented } from "../components/ui/segmented";
@@ -295,25 +296,14 @@ function Contenido({ movimiento }: { movimiento: MovimientoApp | null }) {
               enterKeyHint="next"
             />
           </Fila>
-          <Fila>
-            <label htmlFor="fecha" className="shrink-0">
-              Fecha
-            </label>
-            <div className="relative ml-auto">
-              <span className="pointer-events-none flex h-[32px] items-center rounded-full bg-fill px-3 text-[16px] text-foreground tabular">
-                {etiquetaFecha(f.fecha)}
-              </span>
-              <input
-                id="fecha"
-                type="date"
-                required
-                value={f.fecha}
-                max="2099-12-31"
-                onChange={(e) => e.target.value && poner("fecha", e.target.value)}
-                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-              />
-            </div>
-          </Fila>
+          <CampoFecha
+            id="fecha"
+            etiqueta="Fecha"
+            valor={f.fecha}
+            alCambiar={(v) => v && poner("fecha", v)}
+            max="2099-12-31"
+            texto={etiquetaFecha}
+          />
         </Grupo>
 
         <ElegirCuenta

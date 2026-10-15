@@ -18,14 +18,17 @@ export type Lugar = {
   numero?: number;
 };
 
-// Mosaicos de CARTO (claro y oscuro): limpios, sin anuncios y legibles como Mapas de Apple.
-// Pedirlos le dice a CARTO qué zona estás viendo (no tus gastos). Salen por omisión y el usuario los
-// puede apagar con "Mostrar calles"; sin ellos, el mapa es un fondo propio con los nombres.
-const MOSAICOS = {
-  claro: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-  oscuro: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+// Mosaicos de OpenStreetMap: gratis y sin llave (desde sep-2026 CARTO pide una y sin ella pinta
+// «API KEY REQUIRED» encima). Pedirlos le dice a OpenStreetMap qué zona estás viendo (no tus gastos).
+// Salen por omisión y el usuario los puede apagar con "Mostrar calles"; sin ellos, el mapa es un fondo
+// propio con los nombres.
+const MOSAICOS = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const CREDITOS = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+// Colores más tranquilos, como Mapas de Apple; en oscuro se invierten conservando el tono (agua azul).
+const FILTRO = {
+  claro: "saturate(0.7) brightness(1.03)",
+  oscuro: "invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.88) saturate(0.5)",
 };
-const CREDITOS = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>';
 
 /**
  * Mapa con un círculo por lugar, del tamaño de lo gastado ahí y del color de su marca, con su número de la
@@ -45,7 +48,7 @@ export function MapaLugares({
   seleccionado?: string | null;
   alElegir?: (clave: string | null) => void;
   interactivo?: boolean;
-  /** Fondo con calles de CARTO. Sin esto no se pide nada a internet. */
+  /** Fondo con calles de OpenStreetMap. Sin esto no se pide nada a internet. */
   conCalles?: boolean;
   etiqueta?: string;
   className?: string;
@@ -94,12 +97,16 @@ export function MapaLugares({
     capa.current?.remove();
     capa.current = null;
     if (!conCalles) return;
-    capa.current = L.tileLayer(oscuro ? MOSAICOS.oscuro : MOSAICOS.claro, {
+    capa.current = L.tileLayer(MOSAICOS, {
       attribution: CREDITOS,
-      subdomains: "abcd",
       maxZoom: 19,
+      // Sus reglas piden mosaicos normales (retina serían 4 veces más) y saber desde qué sitio se piden: la
+      // app no manda «Referer» a nadie, así que aquí va solo el dominio, nunca la dirección con el hash.
       detectRetina: false,
+      referrerPolicy: "origin",
     }).addTo(m);
+    const panel = m.getPane("tilePane");
+    if (panel) panel.style.filter = oscuro ? FILTRO.oscuro : FILTRO.claro;
   }, [oscuro, conCalles]);
 
   // Círculos y encuadre cuando cambian los lugares.

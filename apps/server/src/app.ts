@@ -251,9 +251,9 @@ const POLITICA_CONTENIDO = {
   defaultSrc: ["'self'"],
   scriptSrc: ["'self'"],
   styleSrc: ["'self'", "'unsafe-inline'"],
-  // Mosaicos del mapa de dónde gastas (CARTO): CARTO ve qué zonas del mapa se miran (no los gastos).
+  // Mosaicos del mapa de dónde gastas (OpenStreetMap): ve qué zonas del mapa se miran (no los gastos).
   // Salen por omisión; el usuario los apaga con "Mostrar calles".
-  imgSrc: ["'self'", "data:", "blob:", "https://*.basemaps.cartocdn.com"],
+  imgSrc: ["'self'", "data:", "blob:", "https://tile.openstreetmap.org"],
   fontSrc: ["'self'", "data:"],
   connectSrc: ["'self'"],
   manifestSrc: ["'self'"],

@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { ApiFalsa, prepararSesion } from "./api-falsa";
+import { elegirFecha } from "./fecha";
 
 test.describe("Detalle de un registro", () => {
   test("una notificación abre el detalle directo; «Atrás» lleva a Movimientos", async ({ page }) => {
@@ -217,7 +218,7 @@ test.describe("Presupuestos y metas", () => {
     const hoja = page.getByRole("dialog");
     await hoja.getByLabel("Nombre").fill("Laptop");
     await hoja.getByLabel("Objetivo").fill("25000");
-    await hoja.getByLabel("Para cuándo").fill("2027-03-01");
+    await elegirFecha(hoja, "fecha-meta", "2027-03-01");
     await hoja.getByRole("button", { name: "Crear" }).click();
     await expect(hoja).toBeHidden();
     expect(api.de("POST", "/v1/metas")[0]?.cuerpo).toEqual({ nombre: "Laptop", objetivo: 25000, fecha_limite: "2027-03-01" });
@@ -243,7 +244,7 @@ test.describe("Dónde gastas", () => {
     const api = await prepararSesion(page);
     const mosaicos: string[] = [];
     page.on("request", (r) => {
-      if (r.url().includes("cartocdn")) mosaicos.push(r.url());
+      if (r.url().includes("tile.openstreetmap.org")) mosaicos.push(r.url());
     });
     await page.goto("/#movimientos");
     await page.getByRole("button", { name: "Dónde gastas" }).click();
@@ -271,11 +272,11 @@ test.describe("Dónde gastas", () => {
     await expect.poll(() => api.de("GET", "/v1/movimientos").some((p) => p.consulta.get("desde") === "2026-08-01")).toBe(true);
   });
 
-  test("apagar «Mostrar calles» deja de pedir el fondo a CARTO, pone los nombres y se recuerda", async ({ page }) => {
+  test("apagar «Mostrar calles» deja de pedir el fondo a OpenStreetMap, pone los nombres y se recuerda", async ({ page }) => {
     await prepararSesion(page);
     const mosaicos: string[] = [];
     page.on("request", (r) => {
-      if (r.url().includes("cartocdn")) mosaicos.push(r.url());
+      if (r.url().includes("tile.openstreetmap.org")) mosaicos.push(r.url());
     });
     await page.goto("/#mapa");
     await expect(page.locator(".fa-lugar")).toHaveCount(5);
