@@ -104,8 +104,12 @@ async function solapes(page: Page) {
     for (let n = w2.nextNode(); n; n = w2.nextNode()) {
       const el = n.parentElement;
       if (!el || !visible(el) || el.closest(".sr-only, .leaflet-container")) continue;
+      // Con «hyphens: auto» el navegador puede partir una palabra con su guion («Ama-zon»), como Safari en el
+      // iPhone: eso sí se vale. Los números nunca se separan así.
+      const conGuion = getComputedStyle(el).hyphens === "auto";
       for (const p of (n.textContent ?? "").matchAll(/[\p{L}\p{N}]+/gu)) {
         if (p[0].length < 2 || p[0].length > 10) continue;
+        if (conGuion && /^\p{L}+$/u.test(p[0])) continue;
         const rango = document.createRange();
         rango.setStart(n, p.index);
         rango.setEnd(n, p.index + p[0].length);
