@@ -215,6 +215,17 @@ describe("la IA corrige y borra deudas", () => {
     expect(deudasPorPersona(ctx).map((d) => d.persona)).toEqual(["Mamá"]);
   });
 
+  test('"ahora nada más le debo 20 mil" con abonos es lo que queda aunque el modelo lo mande como monto', async () => {
+    const { ctx } = preparar();
+    registrarPrestamo(ctx, { persona: "mi mamá", direccion: "debo", monto: 30000 });
+    abonarPrestamo(ctx, { persona: "mamá", monto: 5000 });
+    const r = await llamar(dictado(ctx, "ahora nada más le debo 20 mil a mi mamá"), "corregir_prestamo", { accion: "cambiar", persona: "Mamá", monto: 20000 });
+    expect(r.deuda).toMatchObject({ pendienteCentavos: 2_000_000, pagadoCentavos: 500_000, prestadoCentavos: 2_500_000 });
+    // "En realidad fueron 28 mil" sí es el total.
+    const t = await llamar(dictado(ctx, "en realidad fueron 28 mil lo de mi mamá"), "corregir_prestamo", { accion: "cambiar", persona: "Mamá", monto: 28000 });
+    expect(t.deuda).toMatchObject({ prestadoCentavos: 2_800_000, pendienteCentavos: 2_300_000 });
+  });
+
   test('"ya le terminé de pagar a mi mamá" salda todo; "¿cuánto me deben?" responde', async () => {
     const ctx = conDeudas();
     registrarPrestamo(ctx, { persona: "Juan", direccion: "me_deben", monto: 2000 });
