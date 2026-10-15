@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { MockLanguageModelV4 } from "ai/test";
-import { precalentar } from "../src/ai/asistente";
+import { debeATarjeta, precalentar } from "../src/ai/asistente";
+import { estadosDeCuentas, fijarCuenta } from "../src/finanzas/cuentas";
 import { crearHerramientas } from "../src/ai/herramientas";
 import { crearApp } from "../src/app";
 import { crearContexto } from "../src/finanzas/contexto";
@@ -270,6 +271,28 @@ describe("API", () => {
     const r = (await (await hablar({ texto: "Borra todo lo de ayer", client_id: "dictado-0017" })).json()) as { respuesta: string };
     expect(r.respuesta).toBe("¿Seguro que quieres borrar todo lo de ayer?");
     expect(modelo.doGenerateCalls).toHaveLength(antes + 1);
+  });
+
+  test('"le debo 15 mil a la Nu" que el modelo pregunta sin guardar se reintenta y queda como deuda de la tarjeta', async () => {
+    const { hablar, db, modelo } = montar([
+      texto("¿Lo anoto como deuda con la Nu o es un préstamo de una persona?"),
+      llamada("cuentas", { cuentas: [{ cuenta: "Nu", deuda: 15000 }] }),
+      texto("Listo."),
+    ]);
+    const usuarioId = db.select().from(usuarios).get()!.id;
+    const ctx = crearContexto({ db, usuarioId, zonaHoraria: "America/Mexico_City", monedaBase: "MXN", ahora: new Date(Date.now() - 60_000) });
+    fijarCuenta(ctx, { cuenta: "Nu", tipo: "credito", limite: 33600, deuda: 3000 });
+    await hablar({ texto: "Le debo 15 mil a la Nu", client_id: "dictado-0018" });
+    expect(JSON.stringify(modelo.doGenerateCalls[1]?.prompt)).toContain("no a una persona");
+    expect(estadosDeCuentas(ctx).find((e) => e.nombre === "Nu")?.deudaCentavos).toBe(1_500_000);
+  });
+
+  test("debeATarjeta: solo «le debo X a <tarjeta>»", () => {
+    const tarjetas = ["Nu", "Revolut crédito", "Mercado Pago Credito"];
+    expect(debeATarjeta("Le debo 15 mil a la Nu", tarjetas)).toBe(true);
+    expect(debeATarjeta("le debo 2 mil a mi tarjeta Revolut", tarjetas)).toBe(true);
+    expect(debeATarjeta("Le debo 30 mil a mi mamá", tarjetas)).toBe(false);
+    expect(debeATarjeta("¿cuánto le debo a la Nu?", tarjetas)).toBe(false);
   });
 
   test("la charla sin montos no se reintenta", async () => {

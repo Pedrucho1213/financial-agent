@@ -146,9 +146,15 @@ Montos en centavos. Todo se puede hacer también por voz (`/v1/hablar`), y lo qu
 | `PATCH /v1/metas/:id` | `{ nombre?, objetivo?, fecha_limite? }` (`null` quita la fecha) | `Meta` |
 | `POST /v1/metas/:id/aportes` | `{ monto }` (negativo = retiro; no puede quedar debajo de cero) | `Meta` |
 | `DELETE /v1/metas/:id` | | `{ ok: true }` |
-| `GET /v1/prestamos?todos=1` | sin `todos`, solo los pendientes | `{ prestamos: Prestamo[], meDebenCentavos, deboCentavos, personas: DeudaPersona[] }`; `DeudaPersona` junta los préstamos de una persona en un sentido: `{ persona, direccion, prestadoCentavos, pagadoCentavos, pendienteCentavos, desde, movimientos: { tipo: "prestamo" \| "abono", fecha, montoCentavos, cuenta }[] }` (el más nuevo primero) |
+| `GET /v1/prestamos?todos=1` | sin `todos`, solo los pendientes | `{ prestamos: Prestamo[], meDebenCentavos, deboCentavos, personas: DeudaPersona[], edicion }`; `DeudaPersona` junta los préstamos de una persona en un sentido: `{ id, persona, direccion, prestadoCentavos, pagadoCentavos, pendienteCentavos, desde, saldada, descripcion, movimientos: { tipo: "prestamo" \| "abono", fecha, montoCentavos, cuenta }[] }` (el más nuevo primero) |
+| `POST /v1/prestamos` | `{ persona, direccion: "debo" \| "me_deben", monto, descripcion?, cuenta_id?, fecha? }` (`fecha` AAAA-MM-DD, no futura; con `cuenta_id` el dinero sale o llega a esa cuenta sin ser gasto ni ingreso) | 201 `DeudaPersona`; se suma a la deuda que ya haya con esa persona en ese sentido |
+| `POST /v1/prestamos/:id/abonos` | `{ monto?, cuenta_id? }` (sin `monto`, liquida todo) | `DeudaPersona` |
+| `PATCH /v1/prestamos/:id` | `{ persona?, monto?, pendiente?, descripcion?, direccion? }` (`monto` = total prestado; `pendiente` = lo que queda; no los dos) | `DeudaPersona`; es una corrección: no crea abonos ni mueve cuentas |
+| `DELETE /v1/prestamos/:id` | | `{ ok: true, persona, pendienteCentavos }`; borra la deuda entera; `POST /v1/deshacer` la regresa |
 | `GET /v1/msi?todas=1` | sin `todas`, solo las que tienen cargos por venir | `{ compras: CompraMsi[], mensualCentavos }` |
 | `GET /v1/disponible` | | ver abajo ("¿cuánto puedo gastar hoy?") |
+
+Alta, abono, edición y borrado de deudas (y `totales.personas` en `/v1/cuentas` y en `cuentas` del tablero: `{ deboCentavos, meDebenCentavos, netoCentavos }`; el neto resta lo que debe a personas, como una tarjeta, y lo que le deben no suma) son solo de la cuenta dueña mientras `DEUDAS_PERSONAS` no diga `todos`; para las demás, esas rutas dan 404, `edicion` es `false` y `totales.personas` es `null`. `DEUDAS_PERSONAS=0` lo apaga. `:id` puede ser el de la deuda o el de cualquiera de sus préstamos.
 
 Los presupuestos y "¿cuánto puedo gastar hoy?" cuentan solo lo que está en pesos (la moneda base); un gasto en dólares no suma.
 

@@ -25,7 +25,7 @@ import {
   resumenEtiquetas,
 } from "./finanzas/etiquetas";
 import { ErrorFinanzas } from "./finanzas/movimientos";
-import { listarMovimientosApp, movimientoApp } from "./finanzas/vista";
+import { conPersonas, listarMovimientosApp, movimientoApp } from "./finanzas/vista";
 import { obtenerPropio } from "./finanzas/movimientos";
 import { resolverPeriodo, sumarDias } from "./lib/fechas";
 import { normalizar } from "./lib/texto";
@@ -88,7 +88,7 @@ export function rutasCuentas(v1: Hono<{ Variables: VariablesAuth }>, contextoBas
     const usos = usosPorCuenta(ctx, sumarDias(ctx.hoy, -90));
     return c.json({
       cuentas: estados.map((e) => ({ ...e, mes: flujo.get(e.id) ?? { entradaCentavos: 0, salidaCentavos: 0 }, usos: usos.get(e.id) ?? 0 })),
-      totales: totalesDeCuentas(estados.filter((e) => !e.archivada)),
+      totales: conPersonas(ctx, totalesDeCuentas(estados.filter((e) => !e.archivada))),
       observacion: observacionDeCuentas(ctx, estados.filter((e) => !e.archivada)) ?? null,
     });
   });

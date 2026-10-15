@@ -15,12 +15,21 @@ import {
   fijarPresupuesto,
   listarMetas,
   listarMsi,
+  deudaPorId,
+  deudasEdicionHabilitada,
   deudasPorPersona,
+  editarDeuda,
+  eliminarDeuda,
   listarPrestamos,
+  abonarPrestamo,
+  moverPorDeuda,
+  registrarPrestamo,
   metaApp,
   quitarPresupuesto,
 } from "./finanzas/planes";
 import { revisar } from "./finanzas/revisor";
+import { estadoDeCuenta } from "./finanzas/cuentas";
+import { ErrorFinanzas } from "./finanzas/movimientos";
 
 const monto = z.coerce.number().positive().max(1e10);
 const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Usa AAAA-MM-DD.").refine(esFechaValida, "Esa fecha no existe.");
@@ -38,6 +47,27 @@ const esquemaEdicionMeta = z.object({
   fecha_limite: fecha.nullable().optional(),
 });
 const esquemaAporte = z.object({ monto: z.coerce.number().refine((n) => n !== 0 && Math.abs(n) <= 1e10, "El monto no puede ser cero.") });
+
+const direccion = z.enum(["debo", "me_deben"]);
+const esquemaPrestamo = z.object({
+  persona: z.string().trim().min(1).max(80),
+  direccion,
+  monto,
+  descripcion: z.string().trim().max(500).optional(),
+  cuenta_id: z.string().trim().min(1).optional(),
+  fecha: fecha.optional(),
+});
+const esquemaAbono = z.object({ monto: monto.optional(), cuenta_id: z.string().trim().min(1).optional() });
+const esquemaEdicionPrestamo = z
+  .object({
+    persona: z.string().trim().min(1).max(80).optional(),
+    monto: monto.optional(),
+    pendiente: z.coerce.number().min(0).max(1e10).optional(),
+    descripcion: z.string().trim().max(500).nullable().optional(),
+    direccion: direccion.optional(),
+  })
+  .refine((d) => Object.values(d).some((v) => v !== undefined), "Di qué cambiar.")
+  .refine((d) => d.monto === undefined || d.pendiente === undefined, "Manda el total o lo que queda, no los dos.");
 
 const esquemaAnalisis = z.object({
   enfoque: z.enum(["como_voy", "comparar", "ahorrar", "proyeccion"] satisfies Enfoque[]).default("como_voy"),
@@ -104,7 +134,77 @@ export function rutasPlanes(v1: Hono<{ Variables: VariablesAuth }>, contexto: (u
     const ctx = contexto(c.get("usuarioId"));
     const todos = c.req.query("todos") === "1";
     // `personas`: una deuda por persona y sentido, con sus abonos, para el apartado de Deudas de la app.
-    return c.json({ ...listarPrestamos(ctx, { todos }), personas: deudasPorPersona(ctx, { todos }) });
+    // `edicion`: si la app puede dar de alta, abonar, editar y borrar (interruptor DEUDAS_PERSONAS).
+    return c.json({
+      ...listarPrestamos(ctx, { todos }),
+      personas: deudasPorPersona(ctx, { todos }),
+      edicion: deudasEdicionHabilitada(ctx.db, ctx.usuarioId),
+    });
+  });
+
+  // Alta, abono, edición y borrado desde la app. Cada petición es una sola acción en la bitácora, así que
+  // "Deshacer" regresa el abono junto con el dinero que movió en la cuenta.
+  const conEdicion = (usuarioId: string): Contexto | undefined => {
+    const ctx = { ...contexto(usuarioId), entradaId: `app-${crypto.randomUUID()}` };
+    return deudasEdicionHabilitada(ctx.db, usuarioId) ? ctx : undefined;
+  };
+  const noEncontrado = { error: "No encontrado." };
+  // El nombre de la cuenta elegida en la app, si es suya.
+  const nombreCuenta = (ctx: Contexto, id: string | undefined) => (id ? estadoDeCuenta(ctx, id).nombre : undefined);
+  // Una deuda que no existe, o que es de otro usuario, es un 404 y no un 400.
+  const existe = (ctx: Contexto, id: string) => {
+    try {
+      return deudaPorId(ctx, id);
+    } catch (error) {
+      if (error instanceof ErrorFinanzas) return undefined;
+      throw error;
+    }
+  };
+
+  v1.post("/prestamos", async (c) => {
+    const ctx = conEdicion(c.get("usuarioId"));
+    if (!ctx) return c.json(noEncontrado, 404);
+    const cuerpo = esquemaPrestamo.safeParse(await c.req.json().catch(() => null));
+    if (!cuerpo.success) return c.json(invalido(cuerpo.error), 400);
+    const d = cuerpo.data;
+    if (d.fecha && d.fecha > ctx.hoy) return c.json({ error: "Datos inválidos.", detalles: { fecha: ["La fecha no puede ser futura."] } }, 400);
+    const cuenta = nombreCuenta(ctx, d.cuenta_id);
+    const p = registrarPrestamo(ctx, { persona: d.persona, direccion: d.direccion, monto: d.monto, descripcion: d.descripcion, fecha: d.fecha });
+    if (cuenta) moverPorDeuda(ctx, { persona: p.persona, direccion: p.direccion, que: "prestamo", centavos: p.montoCentavos, cuenta, fecha: d.fecha });
+    return c.json(deudaPorId(ctx, p.id), 201);
+  });
+
+  v1.post("/prestamos/:id/abonos", async (c) => {
+    const ctx = conEdicion(c.get("usuarioId"));
+    if (!ctx) return c.json(noEncontrado, 404);
+    const deuda = existe(ctx, c.req.param("id"));
+    if (!deuda) return c.json(noEncontrado, 404);
+    const cuerpo = esquemaAbono.safeParse(await c.req.json().catch(() => ({})));
+    if (!cuerpo.success) return c.json(invalido(cuerpo.error), 400);
+    if (deuda.saldada) return c.json({ error: "Esa deuda ya está saldada." }, 400);
+    const cuenta = nombreCuenta(ctx, cuerpo.data.cuenta_id);
+    const a = abonarPrestamo(ctx, { persona: deuda.persona, direccion: deuda.direccion, monto: cuerpo.data.monto });
+    if (cuenta) moverPorDeuda(ctx, { persona: deuda.persona, direccion: deuda.direccion, que: "abono", centavos: a.abonadoCentavos, cuenta });
+    return c.json(deudaPorId(ctx, deuda.id));
+  });
+
+  v1.patch("/prestamos/:id", async (c) => {
+    const ctx = conEdicion(c.get("usuarioId"));
+    if (!ctx) return c.json(noEncontrado, 404);
+    const deuda = existe(ctx, c.req.param("id"));
+    if (!deuda) return c.json(noEncontrado, 404);
+    const cuerpo = esquemaEdicionPrestamo.safeParse(await c.req.json().catch(() => null));
+    if (!cuerpo.success) return c.json(invalido(cuerpo.error), 400);
+    return c.json(editarDeuda(ctx, deuda.id, cuerpo.data));
+  });
+
+  v1.delete("/prestamos/:id", (c) => {
+    const ctx = conEdicion(c.get("usuarioId"));
+    if (!ctx) return c.json(noEncontrado, 404);
+    const deuda = existe(ctx, c.req.param("id"));
+    if (!deuda) return c.json(noEncontrado, 404);
+    const e = eliminarDeuda(ctx, deuda.id);
+    return c.json({ ok: true, persona: e.persona, pendienteCentavos: e.pendienteCentavos });
   });
 
   v1.get("/msi", (c) => c.json(listarMsi(contexto(c.get("usuarioId")), { todas: c.req.query("todas") === "1" })));

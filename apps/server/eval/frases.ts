@@ -100,6 +100,14 @@ const deboAMama = (ctx: Contexto) => {
   registrarPrestamo(previa(ctx), { persona: "Mamá", direccion: "debo", monto: 30000 });
 };
 
+// Las deudas reales de Pedro: Mamá 32,733 y Milton Ventura 20,000.
+const deudasDePedro = (ctx: Contexto) => {
+  registrarPrestamo(previa(ctx), { persona: "Mamá", direccion: "debo", monto: 32733 });
+  registrarPrestamo(previa(ctx), { persona: "Milton Ventura", direccion: "debo", monto: 20000 });
+};
+const pendiente = (r: { ctx: Contexto }, persona: string) =>
+  listarPrestamos(r.ctx).prestamos.filter((p) => p.persona === persona).reduce((s, p) => s + p.pendienteCentavos, 0);
+
 // Confirmación de cobros (CONFIRMAR_COBROS; en la base de prueba el único usuario es el dueño). Netflix se cobra hoy.
 const netflixHoy = (ctx: Contexto) => {
   const dia = Math.min(Number(ctx.hoy.slice(8, 10)), 28);
@@ -1473,6 +1481,48 @@ export const CASOS: Caso[] = [
     frase: "¿Cuándo pago la Nu?",
     preparar: conCuentas(nuDePedro),
     verificar: (r) => motivo(/\b23\b/.test(r.respuesta) && r.movimientos.length === 0, r.respuesta),
+  },
+
+  // Deudas como submódulo (DEUDAS_PERSONAS; en la base de prueba el único usuario es el dueño): corregir, borrar,
+  // liquidar y consultar, sin tocar movimientos.
+  {
+    grupo: "deudas",
+    frase: "Borra la deuda con Milton",
+    preparar: deudasDePedro,
+    verificar: (r) => motivo(pendiente(r, "Milton Ventura") === 0 && pendiente(r, "Mamá") === 3_273_300 && r.movimientos.length === 0, { l: listarPrestamos(r.ctx), resp: r.respuesta }),
+  },
+  {
+    grupo: "deudas",
+    frase: "Cámbiale a 18 mil lo de Milton",
+    preparar: deudasDePedro,
+    verificar: (r) => motivo(pendiente(r, "Milton Ventura") === 1_800_000 && listarPrestamos(r.ctx).prestamos.length === 2 && r.movimientos.length === 0, { l: listarPrestamos(r.ctx), resp: r.respuesta }),
+  },
+  {
+    grupo: "deudas",
+    frase: "Ahora nada más le debo 25 mil a mi mamá",
+    preparar: deudasDePedro,
+    verificar: (r) => motivo(pendiente(r, "Mamá") === 2_500_000 && listarPrestamos(r.ctx).deboCentavos === 4_500_000, { l: listarPrestamos(r.ctx), resp: r.respuesta }),
+  },
+  {
+    grupo: "deudas",
+    frase: "Ya le terminé de pagar a mi mamá",
+    preparar: deudasDePedro,
+    verificar: (r) => motivo(pendiente(r, "Mamá") === 0 && pendiente(r, "Milton Ventura") === 2_000_000 && sinGastos(r), { l: listarPrestamos(r.ctx), resp: r.respuesta }),
+  },
+  {
+    grupo: "deudas",
+    frase: "Le presté 2 mil a Juan y ya me pagó 500",
+    preparar: deudasDePedro,
+    verificar: (r) => motivo(pendiente(r, "Juan") === 150_000 && sinGastos(r), { l: listarPrestamos(r.ctx), resp: r.respuesta }),
+  },
+  {
+    grupo: "deudas",
+    frase: "¿Cuánto debo en total contando a personas?",
+    preparar: (ctx) => {
+      conCuentas(revolut, nuDePedro)(ctx);
+      deudasDePedro(ctx);
+    },
+    verificar: (r) => motivo(dice(r, "52,733") && r.movimientos.length === 0, r.respuesta),
   },
 
   // Cobros de suscripciones: "ya pagué", "fue otro monto", "no se pagó" y que lo demás no cambie.
