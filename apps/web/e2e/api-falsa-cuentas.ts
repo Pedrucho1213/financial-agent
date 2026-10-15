@@ -29,6 +29,8 @@ export type CuentaFalsa = {
   diaCorte: number | null;
   diaPago: number | null;
   saldoEn: string | null;
+  /** Débito y efectivo: el saldo que dijo en saldoEn (sin él, el mismo saldo: no anotó nada después). */
+  dicho?: number | null;
   mes: { entradaCentavos: number; salidaCentavos: number };
 };
 
@@ -52,7 +54,7 @@ const cuenta = (c: Partial<CuentaFalsa> & Pick<CuentaFalsa, "id" | "nombre" | "t
 export function cuentasIniciales(): DatosCuentas {
   return {
     cuentas: [
-      cuenta({ id: "cta-bbva", nombre: "BBVA", tipo: "debito", saldo: 18_450_00, mes: { entradaCentavos: 18_750_00, salidaCentavos: 3_400_00 } }),
+      cuenta({ id: "cta-bbva", nombre: "BBVA", tipo: "debito", saldo: 18_450_00, dicho: 15_000_00, mes: { entradaCentavos: 18_750_00, salidaCentavos: 3_400_00 } }),
       cuenta({ id: "cta-efectivo", nombre: "Efectivo", tipo: "efectivo", saldo: 1_200_00 }),
       cuenta({ id: "cta-revolut", nombre: "Revolut", tipo: "debito" }),
       cuenta({ id: "cta-nu", nombre: "Nu", tipo: "credito", deuda: 4_500_00, limite: 30_000_00, diaCorte: 1, diaPago: 20 }),
@@ -124,6 +126,7 @@ export function estadoDe(c: CuentaFalsa) {
     disponibleCentavos: soloDisponible ? c.disponible! : esCredito ? (c.limite !== null && c.deuda !== null ? c.limite - c.deuda : null) : c.saldo,
     limiteCentavos: c.limite,
     saldoEn: c.saldoEn,
+    saldoDichoCentavos: esCredito || c.saldo === null ? null : c.dicho !== undefined ? c.dicho : c.saldo,
     diaCorte: c.diaCorte,
     diaPago: c.diaPago,
   };
@@ -203,7 +206,10 @@ function aplicar(c: CuentaFalsa, b: Record<string, unknown>) {
   const ahora = "2026-10-06T18:30:00.000Z";
   if (b.saldo !== undefined) {
     if (c.tipo === "credito") c.deuda = centavos(b.saldo);
-    else c.saldo = centavos(b.saldo);
+    else {
+      c.saldo = centavos(b.saldo);
+      c.dicho = c.saldo;
+    }
     c.saldoEn = ahora;
   }
   if (b.deuda !== undefined) {

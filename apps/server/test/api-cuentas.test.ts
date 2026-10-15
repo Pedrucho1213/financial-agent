@@ -49,6 +49,9 @@ describe("API de cuentas", () => {
     const lista = await pedir("/v1/cuentas");
     const porNombre = Object.fromEntries(lista.cuerpo.cuentas.map((c: Json) => [c.nombre, c]));
     expect(porNombre.BBVA.saldoCentavos).toBe(370000);
+    // Lo que dijo (para que la app explique de dónde sale el saldo); en crédito no aplica.
+    expect(porNombre.BBVA.saldoDichoCentavos).toBe(500000);
+    expect(porNombre.Nu.saldoDichoCentavos).toBeNull();
     expect(porNombre.BBVA.mes).toEqual({ entradaCentavos: 0, salidaCentavos: 130000 });
     expect(porNombre.Nu.deudaCentavos).toBe(100000);
     // Cuántas veces se usó cada una (lo borrado no cuenta): la app pone primero las más usadas.

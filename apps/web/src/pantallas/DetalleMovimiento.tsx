@@ -165,7 +165,7 @@ function Detalle({ m, enLinea }: { m: MovimientoApp; enLinea: boolean }) {
         <h1 className="mt-3 max-w-full px-4 text-[22px] leading-7 font-semibold text-balance break-words">{titulo}</h1>
         <Ajustado
           className={cn(
-            "mt-1 max-w-full px-4 text-[44px] leading-[1.15] font-bold tracking-[-0.025em] tabular",
+            "mt-1 w-full px-4 text-[44px] leading-[1.15] font-bold tracking-[-0.025em] tabular",
             m.tipo === "ingreso" && "text-positive",
           )}
         >
@@ -310,7 +310,7 @@ function ConIcono({ icono, children }: { icono: ReactNode; children: ReactNode }
   return (
     <span className="flex min-w-0 items-center justify-end gap-1.5">
       {icono}
-      <span className="truncate">{children}</span>
+      <span className="min-w-0 break-words">{children}</span>
     </span>
   );
 }
