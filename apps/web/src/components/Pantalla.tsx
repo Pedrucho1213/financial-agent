@@ -79,11 +79,17 @@ export function Pantalla({
     <div className={cn("min-h-[calc(100dvh-var(--barra-inferior)-28px)]", className)}>
       <div
         ref={barra}
-        className={cn(
-          "sticky top-0 z-30 pt-safe transition-[background-color,box-shadow,backdrop-filter] duration-200",
-          compacta ? "material hairline-b" : "bg-background",
-        )}
+        className={cn("sticky top-0 z-30 pt-safe transition-colors duration-200", compacta ? "bg-transparent" : "bg-background")}
       >
+        {/* El vidrio va en su propia capa detrás: en Safari, los hijos de un elemento con backdrop-filter
+            salen borrosos y apagados (la campana, «Octubre», el título). */}
+        <div
+          aria-hidden
+          className={cn(
+            "material hairline-b pointer-events-none absolute inset-0 -z-10 transition-opacity duration-200",
+            compacta ? "opacity-100" : "opacity-0",
+          )}
+        />
         <div className="relative mx-auto flex h-11 max-w-3xl items-center justify-end px-safe">
           {atras ? (
             <button

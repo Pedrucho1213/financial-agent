@@ -322,6 +322,7 @@ export function BarraUso({ uso, className }: { uso: number; className?: string }
   );
 }
 
+// De $100,000 para arriba el saldo va compacto («$1.2 M»): completo, a 320 px deja la línea del mes en una columna.
 function FilaCuenta({ c, moneda, hoy }: { c: CuentaConMes; moneda: string; hoy: string }) {
   const uso = c.esCredito ? usoCredito(c) : null;
   const pago = c.esCredito && c.diaPago && c.deudaCentavos !== null && c.deudaCentavos > 0 ? proximaFecha(c.diaPago, hoy) : null;
@@ -329,12 +330,12 @@ function FilaCuenta({ c, moneda, hoy }: { c: CuentaConMes; moneda: string; hoy: 
   if (c.esCredito && c.deudaCentavos !== null) {
     valor = (
       <span className="block text-right">
-        <span className="block font-medium text-foreground tabular">{dinero(Math.max(0, c.deudaCentavos), moneda)}</span>
+        <span className="block font-medium text-foreground tabular">{dinero(Math.max(0, c.deudaCentavos), moneda, { compacto: c.deudaCentavos >= 100_000_00 })}</span>
         <span className="block text-[13px]">{c.deudaCentavos > 0 ? "debes" : "sin deuda"}</span>
       </span>
     );
   } else if (!c.esCredito && c.saldoCentavos !== null) {
-    valor = <span className={cn("font-medium tabular", c.saldoCentavos < 0 ? "text-negative" : "text-foreground")}>{dinero(c.saldoCentavos, moneda)}</span>;
+    valor = <span className={cn("font-medium tabular", c.saldoCentavos < 0 ? "text-negative" : "text-foreground")}>{dinero(c.saldoCentavos, moneda, { compacto: Math.abs(c.saldoCentavos) >= 100_000_00 })}</span>;
   }
   return (
     <FilaBoton
@@ -346,7 +347,7 @@ function FilaCuenta({ c, moneda, hoy }: { c: CuentaConMes; moneda: string; hoy: 
       <IconoCuenta tipo={c.tipo} nombre={c.nombre} institucion={c.institucion} />
       <div className="min-w-0 flex-1 py-2.5">
         <div className="truncate">{c.nombre}</div>
-        <div className={cn("text-[15px] leading-snug [overflow-wrap:anywhere]", c.conocido ? "text-muted-foreground" : "text-placeholder")}>{lineaCuenta(c, moneda)}</div>
+        <div className={cn("text-[15px] leading-snug break-words", c.conocido ? "text-muted-foreground" : "text-placeholder")}>{lineaCuenta(c, moneda)}</div>
         {uso !== null ? <BarraUso uso={uso} className="mt-1.5 max-w-[14rem]" /> : null}
         {pago ? (
           <div className={cn("mt-1 text-[13px]", diasEntreFechas(hoy, pago) > 3 ? "text-muted-foreground" : "font-medium text-orange")}>
