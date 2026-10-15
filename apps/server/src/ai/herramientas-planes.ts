@@ -4,6 +4,11 @@ import type { Contexto } from "../finanzas/contexto";
 import {
   abonarPrestamo,
   aportarMeta,
+  deudaDePersona,
+  deudasEdicionHabilitada,
+  editarDeuda,
+  eliminarDeuda,
+  type Direccion,
   crearMeta,
   disponible,
   editarMeta,
@@ -36,11 +41,63 @@ export const CONSULTAS_PLANES = new Set(["consultar_planes"]);
 // Herramientas cuyo resultado trae `confirmacion`: lo que se le dice al usuario sin otra vuelta del modelo.
 export const ESCRITURAS_PLANES = new Set(["presupuesto", "meta", "prestamo", "compra_msi"]);
 
+// "Ahora nada más le debo 15 mil", "en realidad son 18 mil", "ya solo me debe 500": corrige lo que ya debía.
+const CORRIGE_DEUDA = /\b(ahora|nada mas|ya (solo|nomas)|solo (le |me )?(debo|debe)|en realidad|me equivoque|no (eran|son|era|es) \S+ sino|corrige|cambia(le)?|quedan?|ya no son)\b/;
+// "Me prestó otros 2 mil", "le presté más": sí es otro préstamo.
+const NUEVO_PRESTAMO = /\b(otr[oa]s?|(?<!nada )mas|ademas|tambien|de nuevo|otra vez)\b|\bprest(e|o|aron|aste)\b/;
+
 const nombreCorto = (categoria: string) => categoria.split(" > ").at(-1)!;
 
 /** Presupuestos, metas, préstamos y meses sin intereses, por voz. */
 export function herramientasPlanes(ctx: Contexto, ejecutar: Ejecutar) {
   const $ = (centavos: number) => formatearMonto(centavos, ctx.monedaBase);
+  // Corregir y borrar deudas por voz, solo donde DEUDAS_PERSONAS lo abre.
+  const edicion = deudasEdicionHabilitada(ctx.db, ctx.usuarioId);
+  const avisado = new Set<string>();
+  const deudaSiHay = (persona: string, direccion: Direccion) => {
+    try {
+      return deudaDePersona(ctx, persona, direccion);
+    } catch {
+      return undefined;
+    }
+  };
+  const base = z.object({
+    accion: z.enum(["le_preste", "me_prestaron", "me_pagaron", "le_pague"]),
+    persona: z.string().describe('A quién, como lo dijo: "Juan", "mi hermano", "mi mamá". Con eso basta: no preguntes su nombre.'),
+    monto: z.number().positive().optional(),
+    cuenta: z.string().optional().describe('De qué cuenta salió o a cuál llegó el dinero, solo si lo dijo: "de mi efectivo", "desde mi cuenta Revolut", "me los depositó a Bancomer". Si no la dijo, omítela sin preguntar.'),
+    descripcion: z.string().optional(),
+  });
+  const conEdicion = base.extend({
+    accion: z.enum(["le_preste", "me_prestaron", "me_pagaron", "le_pague", "cambiar", "borrar"]),
+    queda: z.number().min(0).optional().describe("Solo en cambiar: lo que queda por pagar, si lo dijo así."),
+    nuevo_nombre: z.string().optional().describe("Solo en cambiar: el nombre correcto."),
+  });
+  // Sin edición, el modelo ni ve cambiar, borrar, queda ni nuevo_nombre.
+  const esquemaPrestamo = (edicion ? conEdicion : base) as unknown as typeof conEdicion;
+  /** "Borra la deuda con Milton", "cámbiale a 18 mil lo de Milton", "ahora nada más le debo 15 mil a mi mamá". */
+  const editarPorVoz = (args: { accion: string; persona: string; monto?: number; queda?: number; nuevo_nombre?: string }) => {
+    const d = deudaDePersona(ctx, args.persona);
+    const quien = nombrePersona(d.persona);
+    if (args.accion === "borrar") {
+      const e = eliminarDeuda(ctx, d.id);
+      const cuanto = e.pendienteCentavos > 0 ? ` de ${$(e.pendienteCentavos)}` : "";
+      return { borrada: e, confirmacion: `Listo, borré la deuda${cuanto} ${e.direccion === "debo" ? `que tenías con ${quien}` : `que ${quien} tenía contigo`}.` };
+    }
+    if (args.monto === undefined && args.queda === undefined && !args.nuevo_nombre) return { error: "No dijo qué cambiar de la deuda. Pregúntalo." };
+    // Con las dos cifras, manda lo que queda: es lo que se oye en "ahora le debo".
+    const nueva = editarDeuda(ctx, d.id, { persona: args.nuevo_nombre, ...(args.queda !== undefined ? { pendiente: args.queda } : { monto: args.monto }) });
+    const aQuien = nombrePersona(nueva.persona);
+    const queda = nueva.saldada
+      ? nueva.direccion === "debo"
+        ? `ya no le debes nada a ${aQuien}`
+        : `${aQuien} ya no te debe nada`
+      : nueva.direccion === "debo"
+        ? `le debes ${$(nueva.pendienteCentavos)} a ${aQuien}`
+        : `${aQuien} te debe ${$(nueva.pendienteCentavos)}`;
+    const abonado = nueva.pagadoCentavos > 0 && !nueva.saldada ? `, de ${$(nueva.prestadoCentavos)} con ${$(nueva.pagadoCentavos)} abonados` : "";
+    return { deuda: nueva, confirmacion: `Listo, corregido: ${queda}${abonado}.` };
+  };
   const de = (categoriaId: string | null, categoria: string) => (categoriaId ? `de ${nombreCorto(categoria)}` : "del mes");
 
   return {
@@ -102,15 +159,15 @@ export function herramientasPlanes(ctx: Contexto, ejecutar: Ejecutar) {
 
     prestamo: tool({
       description:
-        'Préstamos y deudas con personas: "le presté 500 a Juan" le_preste; "Ana me prestó mil" o "le debo 30 mil a mi mamá" me_prestaron; "Juan me pagó 200" me_pagaron; "le pagué a Ana" o "le transferí 2 mil a mi mamá desde Revolut" le_pague (un abono). Sin monto al pagar, salda todo.',
-      inputSchema: z.object({
-        accion: z.enum(["le_preste", "me_prestaron", "me_pagaron", "le_pague"]),
-        persona: z.string().describe('A quién, como lo dijo: "Juan", "mi hermano", "mi mamá". Con eso basta: no preguntes su nombre.'),
-        monto: z.number().positive().optional(),
-        cuenta: z.string().optional().describe('De qué cuenta salió o a cuál llegó el dinero, solo si lo dijo: "de mi efectivo", "desde mi cuenta Revolut", "me los depositó a Bancomer". Si no la dijo, omítela sin preguntar.'),
-        descripcion: z.string().optional(),
-      }),
-      execute: ejecutar("prestamo", ({ accion, persona, monto, cuenta, descripcion }) => {
+        'Préstamos y deudas con personas: "le presté 500 a Juan" le_preste; "Ana me prestó mil" o "le debo 30 mil a mi mamá" me_prestaron; "Juan me pagó 200" me_pagaron; "le pagué a Ana" o "le transferí 2 mil a mi mamá desde Revolut" le_pague (un abono). Sin monto al pagar, salda todo ("ya le terminé de pagar a mi mamá").' +
+        (edicion
+          ? ' Corregir una deuda que ya existe es cambiar: "en realidad fueron 18 mil" (monto, el total), "ahora nada más le debo 15 mil" (queda) o "se llama Milton Ventura" (nuevo_nombre). "Borra la deuda con Milton" es borrar.'
+          : ""),
+      inputSchema: esquemaPrestamo,
+      execute: ejecutar("prestamo", (args: z.infer<typeof esquemaPrestamo>) => {
+        const { persona, monto, cuenta, descripcion } = args;
+        if (args.accion === "borrar" || args.accion === "cambiar") return editarPorVoz(args);
+        const accion = args.accion;
         // El dinero prestado sale de la cuenta que dijo o llega a ella (QA-088): un movimiento de un solo lado,
         // que no es gasto ni ingreso. Sin cuenta dicha no se adivina.
         const sale = accion === "le_preste" || accion === "le_pague";
@@ -125,6 +182,18 @@ export function herramientasPlanes(ctx: Contexto, ejecutar: Ejecutar) {
         if (accion === "le_preste" || accion === "me_prestaron") {
           if (monto === undefined) return { error: "Falta el monto del préstamo. Pregúntalo." };
           const meDeben = accion === "le_preste";
+          // "Ahora nada más le debo 15 mil a mi mamá" corrige la deuda que ya tiene, no es otra: una sola vez se le
+          // pide que use cambiar; si insiste en que es un préstamo nuevo, se anota.
+          const yaDebe = edicion && ctx.textoOriginal && CORRIGE_DEUDA.test(normalizar(ctx.textoOriginal)) && !NUEVO_PRESTAMO.test(normalizar(ctx.textoOriginal));
+          if (yaDebe && !avisado.has("corrige")) {
+            const d = deudaSiHay(persona, meDeben ? "me_deben" : "debo");
+            if (d && !d.saldada) {
+              avisado.add("corrige");
+              return {
+                error: `Ya hay una deuda con ${d.persona} de ${$(d.pendienteCentavos)} pendientes. Si dice cuánto queda ahora, usa accion cambiar con queda; si el total era otro, cambiar con monto. Si de verdad es un préstamo nuevo aparte, vuelve a llamar igual.`,
+              };
+            }
+          }
           const p = registrarPrestamo(ctx, { persona, direccion: meDeben ? "me_deben" : "debo", monto, descripcion });
           const quien = meDeben ? `${nombrePersona(p.persona)} te debe` : `le debes a ${nombrePersona(p.persona)}`;
           const total = p.totalPendienteCentavos > p.montoCentavos ? ` En total ${quien} ${$(p.totalPendienteCentavos)}.` : "";
@@ -324,9 +393,22 @@ export function debeAPersona(texto: string, tarjetas: string[] = []): string | u
   return persona;
 }
 
+/**
+ * "Borra la deuda con Milton", "cámbiale a 18 mil lo de Milton": habla de la deuda con una persona que la tiene, no
+ * de un movimiento. Con `loDe`, "lo de Milton" también cuenta (al corregir; al borrar podría ser un movimiento).
+ */
+export function hablaDeDeudaCon(texto: string, personas: string[], loDe = false) {
+  const nombres = primeras(personas);
+  if (!nombres.length) return false;
+  const plano = normalizar(texto);
+  const deuda = `(deuda|deudas|prestamo|prestamos|lo que (le )?debo|lo que me debe${loDe ? "|lo de|lo del|lo que" : ""})`;
+  return new RegExp(`\\b${deuda}\\b( \\S+){0,4}? (mi |la |el |al |a |con |de )*(${nombres.join("|")})\\b`).test(plano);
+}
+
 /** Si la frase presta, paga o dice una deuda con una persona: así se oye cuánto queda en vez de un "Anotado". */
 export function hablaDePrestamo(ctx: Contexto, texto: string): boolean {
-  return prestaDinero(texto) || pagaPrestamo(texto, nombresDePlanes(ctx).personas) || !!debeAPersona(texto, nombresDeTarjetas(ctx));
+  const personas = nombresDePlanes(ctx).personas;
+  return prestaDinero(texto) || pagaPrestamo(texto, personas) || !!debeAPersona(texto, nombresDeTarjetas(ctx)) || hablaDeDeudaCon(texto, personas, true);
 }
 
 /**

@@ -302,8 +302,11 @@ const AVISO_SIN_HERRAMIENTAS =
 const BORRA_POCOS =
   /^(?:(?:oye|a ver|bueno|porfa|por favor|y) )*(borra|borrame|elimina|eliminame|quita|quitame)\b(?!.*\b(todo|todos|todas)\b)(?!.*\b(los|las) (tres|cuatro|cinco|seis|siete|ocho|nueve|diez|[3-9]|\d{2,})\b)/;
 
+// "Borra la deuda con Milton" no son movimientos: el aviso de abajo lo mandaría a eliminar_movimiento.
+const DE_DEUDA = /\b(deuda|deudas|prestamo|prestamos)\b/;
+
 function preguntoSinBorrar(pedido: string, respuesta: string, llamadas: number): boolean {
-  return llamadas === 0 && respuesta.includes("?") && BORRA_POCOS.test(normalizar(pedido));
+  return llamadas === 0 && respuesta.includes("?") && BORRA_POCOS.test(normalizar(pedido)) && !DE_DEUDA.test(normalizar(pedido));
 }
 
 const AVISO_BORRAR =

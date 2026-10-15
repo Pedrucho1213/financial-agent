@@ -37,7 +37,8 @@ import { herramientasAnalisis } from "./herramientas-analisis";
 import { respuestaDeConsulta, respuestaDelMasGrande } from "./consultas";
 import { herramientasCuentas } from "./herramientas-cuentas";
 import { esPagoDeTarjeta, esSaldoDicho, moverDinero, nombresDeTarjetas } from "../finanzas/cuentas";
-import { apartaParaMeta, debeAPersona, herramientasPlanes, mensualidadDe, nombresDePlanes, pagaPrestamo, prestaDinero } from "./herramientas-planes";
+import { apartaParaMeta, debeAPersona, hablaDeDeudaCon, herramientasPlanes, mensualidadDe, nombresDePlanes, pagaPrestamo, prestaDinero } from "./herramientas-planes";
+import { deudasEdicionHabilitada } from "../finanzas/planes";
 import { esOrdenSobreLoAnotado, monedaDelTexto, normalizar, tipoDelTexto } from "../lib/texto";
 
 /** Lo que hizo una herramienta: con qué la llamó el modelo y qué resultó. */
@@ -205,6 +206,14 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
     if (desviadas.has(clave)) return;
     desviadas.add(clave);
     throw new ErrorFinanzas(`${mensaje} Si de verdad es un gasto o ingreso normal, vuelve a llamar registrar_movimientos igual.`);
+  };
+  // "Borra la deuda con Milton" o "cámbiale a 18 mil lo de Milton" no es un movimiento: se manda una vez a prestamo.
+  const deDeuda = (loDe: boolean) => {
+    const texto = ctx.textoOriginal;
+    if (!texto || desviadas.has("deuda") || !deudasEdicionHabilitada(ctx.db, ctx.usuarioId)) return;
+    if (!hablaDeDeudaCon(texto, nombresDePlanes(ctx).personas, loDe)) return;
+    desviadas.add("deuda");
+    throw new ErrorFinanzas("Habla de su deuda o préstamo con una persona, no de un movimiento: usa prestamo con accion cambiar o borrar. Si de verdad es un movimiento, vuelve a llamar igual.");
   };
   // Los errores de validación regresan a la IA como texto para que corrija o pregunte.
   const ejecutar =
@@ -477,6 +486,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
           .describe("Solo los campos que cambian, con su valor nuevo. etiquetas agrega; quitar_etiquetas quita."),
       }),
       execute: ejecutar("editar_movimiento", ({ id, buscar, cambios }) => {
+        deDeuda(true);
         const { quitar_etiquetas, ...resto } = cambios.comercio ? tituloCorto(cambios) : cambios;
         const ultimo = idDelMovimiento(ctx, id, comoLoDijo(buscar), pideVarios, cuantosDice);
         const elegido = id ? ultimo : noEsOtro(ultimo, buscar, [cambios.categoria, cambios.comercio, cambios.descripcion]);
@@ -497,6 +507,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
         buscar: busqueda.optional(),
       }),
       execute: ejecutar("eliminar_movimiento", ({ id, buscar }) => {
+        deDeuda(false);
         const ultimo = idDelMovimiento(ctx, id, comoLoDijo(buscar), pideVarios, cuantosDice);
         const elegido = id ? ultimo : noEsOtro(ultimo, buscar);
         return { eliminado: eliminarMovimiento(ctx, elegido) };

@@ -1,7 +1,8 @@
-import { and, asc, eq, gte, inArray, isNotNull, isNull, lte } from "drizzle-orm";
-import { bitacora, cobros, comercios, comprasMsi, cuentas, metas, movimientos, prestamosPersonales, presupuestos, recurrentes } from "../db/schema";
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import type { Db } from "../db/client";
+import { bitacora, cobros, comercios, comprasMsi, cuentas, metas, movimientos, prestamosPersonales, presupuestos, recurrentes, usuarios } from "../db/schema";
 import { aCentavos, formatearMonto } from "../lib/dinero";
-import { armarFecha, partes, resolverFecha, resolverPeriodo, sumarDias, sumarMeses, ultimoDiaDelMes } from "../lib/fechas";
+import { armarFecha, mediodiaUtc, partes, resolverFecha, resolverPeriodo, sumarDias, sumarMeses, ultimoDiaDelMes } from "../lib/fechas";
 import { normalizar } from "../lib/texto";
 import { encontrarCategoria, encontrarOCrearCuenta, idsConHijas, listarCategorias, nombreCompleto, type Categoria } from "./catalogos";
 import type { Contexto } from "./contexto";
@@ -532,9 +533,15 @@ export type MovimientoDeDeuda = { tipo: "prestamo" | "abono"; fecha: string; mon
  * Las deudas con cada persona, una por persona y sentido ("le debes a Mamá"), con lo prestado, lo abonado y cada
  * movimiento: los préstamos y los abonos, de qué cuenta salió o a cuál llegó, si lo dijo. Los abonos salen de la
  * bitácora, así que un abono deshecho ("deshaz eso") ya no aparece. Sin `todos`, solo las que tienen algo pendiente.
+ * El `id` de cada deuda es el de su préstamo más antiguo: con él la app abona, edita o borra la deuda entera.
  */
 export function deudasPorPersona(ctx: Contexto, opciones: { todos?: boolean } = {}) {
-  const filas = listarPrestamos(ctx, { todos: true }).prestamos;
+  return armarDeudas(ctx, listarPrestamos(ctx, { todos: true }).prestamos).filter((g) => opciones.todos || g.pendienteCentavos > 0);
+}
+
+export type DeudaPersona = ReturnType<typeof armarDeudas>[number];
+
+function armarDeudas(ctx: Contexto, filas: ReturnType<typeof prestamoApp>[]) {
   const ids = filas.map((p) => p.id);
   const cambios = ids.length
     ? ctx.db
@@ -566,14 +573,37 @@ export function deudasPorPersona(ctx: Contexto, opciones: { todos?: boolean } = 
       if (m.entradaId && cuentaId && /^(Préstamo|Pago a)|me pagó$/.test(m.descripcion ?? "")) deEntrada.set(m.entradaId, nombres.get(cuentaId) ?? "");
     }
   }
-  const grupos = new Map<string, { persona: string; direccion: Direccion; prestadoCentavos: number; pagadoCentavos: number; pendienteCentavos: number; desde: string; movimientos: (MovimientoDeDeuda & { entradaId: string | null })[] }>();
+  type Grupo = {
+    id: string;
+    persona: string;
+    direccion: Direccion;
+    prestadoCentavos: number;
+    pagadoCentavos: number;
+    pendienteCentavos: number;
+    desde: string;
+    descripcion: string | null;
+    movimientos: (MovimientoDeDeuda & { entradaId: string | null })[];
+  };
+  const grupos = new Map<string, Grupo>();
   for (const p of filas) {
     const clave = `${clavePersona(p.persona)}|${p.direccion}`;
-    const g = grupos.get(clave) ?? { persona: p.persona, direccion: p.direccion, prestadoCentavos: 0, pagadoCentavos: 0, pendienteCentavos: 0, desde: p.creadoEn, movimientos: [] };
+    const g: Grupo = grupos.get(clave) ?? {
+      id: p.id,
+      persona: p.persona,
+      direccion: p.direccion,
+      prestadoCentavos: 0,
+      pagadoCentavos: 0,
+      pendienteCentavos: 0,
+      desde: p.creadoEn,
+      descripcion: null,
+      movimientos: [],
+    };
     g.prestadoCentavos += p.montoCentavos;
     g.pagadoCentavos += p.pagadoCentavos;
     g.pendienteCentavos += p.pendienteCentavos;
     if (p.creadoEn < g.desde) g.desde = p.creadoEn;
+    // Las filas vienen de la más antigua a la más nueva: queda la nota más reciente.
+    if (p.descripcion) g.descripcion = p.descripcion;
     const creado = cambios.find((x) => x.registroId === p.id && x.accion === "crear")?.entradaId;
     g.movimientos.push({ tipo: "prestamo", fecha: p.creadoEn, montoCentavos: p.montoCentavos, cuenta: (creado && deEntrada.get(creado)) || null, entradaId: null });
     for (const c of cambios.filter((x) => x.registroId === p.id && x.accion === "editar")) {
@@ -586,19 +616,21 @@ export function deudasPorPersona(ctx: Contexto, opciones: { todos?: boolean } = 
     }
     grupos.set(clave, g);
   }
-  return [...grupos.values()]
-    .filter((g) => opciones.todos || g.pendienteCentavos > 0)
-    .map(({ movimientos: lista, ...g }) => ({
-      ...g,
-      movimientos: lista.sort((a, b) => b.fecha.localeCompare(a.fecha)).map(({ entradaId: _, ...m }) => m),
-    }));
+  return [...grupos.values()].map(({ movimientos: lista, ...g }) => ({
+    ...g,
+    saldada: g.pendienteCentavos <= 0,
+    movimientos: lista.sort((a, b) => b.fecha.localeCompare(a.fecha)).map(({ entradaId: _, ...m }) => m),
+  }));
 }
 
 /** "Le presté 500 a Juan" (me_deben) o "Juan me prestó 1000" (debo). */
-export function registrarPrestamo(ctx: Contexto, datos: { persona: string; direccion: Direccion; monto: number; descripcion?: string }) {
+export function registrarPrestamo(ctx: Contexto, datos: { persona: string; direccion: Direccion; monto: number; descripcion?: string; fecha?: string }) {
   const persona = limpiarPersona(datos.persona);
   if (!persona) throw new ErrorFinanzas("Falta a quién.");
   validarMonto(datos.monto);
+  // La app puede decir desde cuándo (un préstamo de hace meses); a mediodía de ese día, como los movimientos.
+  if (datos.fecha && datos.fecha > ctx.hoy) throw new ErrorFinanzas("La fecha no puede ser futura.");
+  const creadoEn = datos.fecha && datos.fecha < ctx.hoy ? mediodiaUtc(datos.fecha, ctx.zonaHoraria) : undefined;
   // Mismo nombre que un préstamo anterior: se escribe igual para que se sumen. "Juan" es "Juan Pérez" si
   // es el único Juan; "Juan López" no es el "Juan" que ya estaba.
   const abiertos = prestamosAbiertos(ctx);
@@ -615,6 +647,7 @@ export function registrarPrestamo(ctx: Contexto, datos: { persona: string; direc
       direccion: datos.direccion,
       montoCentavos: aCentavos(datos.monto),
       descripcion: datos.descripcion?.trim() || null,
+      ...(creadoEn ? { creadoEn } : {}),
     })
     .returning()
     .get();
@@ -660,6 +693,171 @@ export function abonarPrestamo(ctx: Contexto, datos: { persona: string; direccio
   }
   const queda = pendiente - (datos.monto !== undefined ? aCentavos(datos.monto) : pendiente);
   return { persona: filas[0]!.persona, direccion, abonadoCentavos: pendiente - queda, pendienteCentavos: queda, saldado: queda === 0 };
+}
+
+/**
+ * Si la app y la IA pueden dar de alta, abonar, editar y borrar deudas con personas, y si los totales de Cuentas las
+ * cuentan. Por omisión solo la cuenta dueña (la que se creó primero); DEUDAS_PERSONAS=todos lo abre a todas y
+ * DEUDAS_PERSONAS=0 lo apaga. Anotar y abonar por voz, y la lista, siguen para todos.
+ */
+export function deudasEdicionHabilitada(db: Db, usuarioId: string, entorno: string | undefined = process.env.DEUDAS_PERSONAS): boolean {
+  const modo = (entorno ?? "").trim().toLowerCase();
+  if (modo === "0" || modo === "no" || modo === "apagado") return false;
+  if (modo === "todos" || modo === "1" || modo === "si") return true;
+  const dueno = db.select({ id: usuarios.id }).from(usuarios).orderBy(usuarios.creadoEn, sql`rowid`).limit(1).get();
+  return dueno?.id === usuarioId;
+}
+
+/** Las filas vivas (saldadas incluidas) de la deuda a la que pertenece ese préstamo: misma persona y sentido. */
+function filasDeLaDeuda(ctx: Contexto, id: string): Prestamo[] {
+  const vivas = ctx.db
+    .select()
+    .from(prestamosPersonales)
+    .where(and(eq(prestamosPersonales.usuarioId, ctx.usuarioId), isNull(prestamosPersonales.eliminadoEn)))
+    .orderBy(asc(prestamosPersonales.creadoEn))
+    .all();
+  const fila = vivas.find((p) => p.id === id);
+  if (!fila) throw new ErrorFinanzas("No existe esa deuda.");
+  return vivas.filter((p) => p.direccion === fila.direccion && clavePersona(p.persona) === clavePersona(fila.persona));
+}
+
+/** Una deuda completa (como en `deudasPorPersona`) a partir del id de cualquiera de sus préstamos. */
+export function deudaPorId(ctx: Contexto, id: string): DeudaPersona {
+  return armarDeudas(ctx, filasDeLaDeuda(ctx, id).map(prestamoApp))[0]!;
+}
+
+/** La deuda de esa persona en ese sentido, si hay. Sin sentido y con deudas en los dos, pide que pregunte. */
+export function deudaDePersona(ctx: Contexto, persona: string, direccion?: Direccion): DeudaPersona {
+  const deudas = armarDeudas(ctx, listarPrestamos(ctx, { todos: true }).prestamos);
+  const exactas = deudas.filter((d) => clavePersona(d.persona) === clavePersona(persona));
+  const parecidas = exactas.length ? exactas : deudas.filter((d) => mismaPersona(d.persona, persona));
+  const nombres = [...new Set(parecidas.map((d) => d.persona))];
+  if (nombres.length > 1) throw new ErrorFinanzas(`Coinciden ${nombres.join(" y ")}. Pregunta cuál.`);
+  const deEsas = parecidas.filter((d) => !direccion || d.direccion === direccion);
+  // Con las dos, la que tiene algo pendiente; si las dos tienen, que pregunte.
+  const vivas = deEsas.filter((d) => !d.saldada);
+  const elegidas = vivas.length ? vivas : deEsas;
+  if (!elegidas.length) {
+    const hay = [...new Set(deudas.filter((d) => !d.saldada).map((d) => d.persona))].join(", ") || "nadie";
+    throw new ErrorFinanzas(`No hay deudas con "${persona}". Hay con: ${hay}.`);
+  }
+  if (elegidas.length > 1) throw new ErrorFinanzas(`Con ${elegidas[0]!.persona} hay deudas en los dos sentidos. Pregunta si es lo que el usuario le debe o lo que le deben.`);
+  return elegidas[0]!;
+}
+
+/**
+ * El dinero que salió de una cuenta o llegó a ella con un préstamo o un abono: una transferencia de un solo lado,
+ * que no es gasto ni ingreso. La descripción es la que reconoce el historial de la deuda.
+ */
+export function moverPorDeuda(
+  ctx: Contexto,
+  datos: { persona: string; direccion: Direccion; que: "prestamo" | "abono"; centavos: number; cuenta: string; fecha?: string },
+) {
+  // Le presté o le pagué: sale de la cuenta. Me prestó o me pagó: llega a ella.
+  const sale = (datos.que === "prestamo") === (datos.direccion === "me_deben");
+  const descripcion =
+    datos.que === "prestamo"
+      ? datos.direccion === "me_deben"
+        ? `Préstamo a ${datos.persona}`
+        : `Préstamo de ${datos.persona}`
+      : datos.direccion === "me_deben"
+        ? `${datos.persona} me pagó`
+        : `Pago a ${datos.persona}`;
+  return crearMovimiento(ctx, {
+    tipo: "transferencia",
+    monto: datos.centavos / 100,
+    [sale ? "cuenta" : "cuentaDestino"]: datos.cuenta,
+    descripcion,
+    ...(datos.fecha ? { fecha: datos.fecha } : {}),
+  });
+}
+
+/**
+ * Corrige una deuda entera: a quién, cuánto fue en total (`monto`) o cuánto queda (`pendiente`), su nota o su sentido.
+ * No es un abono ni mueve cuentas. Un total nuevo se ajusta en el préstamo más reciente (si baja, también en los de
+ * antes), sin quedar debajo de lo ya abonado. Todo va a la bitácora: "deshaz eso" lo regresa.
+ */
+export function editarDeuda(
+  ctx: Contexto,
+  id: string,
+  cambios: { persona?: string; monto?: number; pendiente?: number; descripcion?: string | null; direccion?: Direccion },
+): DeudaPersona {
+  const filas = filasDeLaDeuda(ctx, id);
+  if (cambios.monto !== undefined && cambios.pendiente !== undefined) throw new ErrorFinanzas("Manda el total o lo que queda, no los dos.");
+  const pagado = filas.reduce((s, p) => s + p.pagadoCentavos, 0);
+  const total = filas.reduce((s, p) => s + p.montoCentavos, 0);
+  let objetivo: number | undefined;
+  if (cambios.monto !== undefined) {
+    validarMonto(cambios.monto);
+    objetivo = aCentavos(cambios.monto);
+  } else if (cambios.pendiente !== undefined) {
+    if (!Number.isFinite(cambios.pendiente) || cambios.pendiente < 0) throw new ErrorFinanzas("Lo que queda no puede ser negativo.");
+    objetivo = pagado + aCentavos(cambios.pendiente);
+    if (objetivo < 1) throw new ErrorFinanzas("Sin abonos y sin nada pendiente no queda deuda: para quitarla, bórrala.");
+  }
+  if (objetivo !== undefined && objetivo < pagado) {
+    throw new ErrorFinanzas(`Ya lleva abonados ${formatearMonto(pagado, ctx.monedaBase)}; el total no puede ser menor.`);
+  }
+  // A quién: se escribe como la deuda que ya exista con ese nombre (si hay), para que se junten.
+  let persona: string | undefined;
+  if (cambios.persona !== undefined) {
+    const limpia = limpiarPersona(cambios.persona);
+    if (!limpia) throw new ErrorFinanzas("Falta a quién.");
+    const otra = ctx.db
+      .select({ persona: prestamosPersonales.persona })
+      .from(prestamosPersonales)
+      .where(and(eq(prestamosPersonales.usuarioId, ctx.usuarioId), isNull(prestamosPersonales.eliminadoEn)))
+      .all()
+      .find((p) => clavePersona(p.persona) === clavePersona(limpia))?.persona;
+    persona = otra ?? COMO_SE_ESCRIBE[clavePersona(limpia)] ?? limpia.charAt(0).toUpperCase() + limpia.slice(1);
+  }
+  // Cuánto le toca a cada préstamo: del más reciente al más antiguo.
+  const montos = new Map(filas.map((p) => [p.id, p.montoCentavos]));
+  if (objetivo !== undefined && objetivo !== total) {
+    let delta = objetivo - total;
+    for (const p of [...filas].reverse()) {
+      if (delta === 0) break;
+      const nuevo = Math.max(p.pagadoCentavos, p.montoCentavos + delta);
+      delta -= nuevo - p.montoCentavos;
+      montos.set(p.id, nuevo);
+    }
+  }
+  const ahora = new Date().toISOString();
+  for (const antes of filas) {
+    const monto = montos.get(antes.id)!;
+    const valores: Partial<Prestamo> = {};
+    if (monto !== antes.montoCentavos) valores.montoCentavos = monto;
+    if (persona && persona !== antes.persona) valores.persona = persona;
+    if (cambios.direccion && cambios.direccion !== antes.direccion) valores.direccion = cambios.direccion;
+    if (cambios.descripcion !== undefined && (cambios.descripcion?.trim() || null) !== antes.descripcion) valores.descripcion = cambios.descripcion?.trim() || null;
+    const saldado = antes.pagadoCentavos >= monto;
+    if (saldado !== !!antes.saldadoEn) valores.saldadoEn = saldado ? ahora : null;
+    // Un préstamo sin abonos que quedó en cero se quita, en vez de dejar una fila de $0.
+    if (monto === 0) valores.eliminadoEn = ahora;
+    if (!Object.keys(valores).length) continue;
+    const fila = ctx.db.update(prestamosPersonales).set(valores).where(eq(prestamosPersonales.id, antes.id)).returning().get()!;
+    registrarEnBitacora(ctx, "prestamos_personales", fila.id, monto === 0 ? "eliminar" : "editar", antes, fila);
+  }
+  const quedo = filas.find((p) => montos.get(p.id)! > 0)!;
+  return deudaPorId(ctx, quedo.id);
+}
+
+/** Borra la deuda entera con esa persona en ese sentido. Lo que ya se movió en cuentas se queda. "Deshaz eso" la regresa. */
+export function eliminarDeuda(ctx: Contexto, id: string) {
+  const deuda = deudaPorId(ctx, id);
+  const ahora = new Date().toISOString();
+  for (const antes of filasDeLaDeuda(ctx, id)) {
+    const fila = ctx.db.update(prestamosPersonales).set({ eliminadoEn: ahora }).where(eq(prestamosPersonales.id, antes.id)).returning().get()!;
+    registrarEnBitacora(ctx, "prestamos_personales", antes.id, "eliminar", antes, fila);
+  }
+  return { persona: deuda.persona, direccion: deuda.direccion, pendienteCentavos: deuda.pendienteCentavos };
+}
+
+/** Lo que le deben y lo que debe a personas, para los totales de Cuentas (null si no está abierto para este usuario). */
+export function totalesPersonas(ctx: Contexto, netoCuentasCentavos: number) {
+  if (!deudasEdicionHabilitada(ctx.db, ctx.usuarioId)) return null;
+  const { meDebenCentavos, deboCentavos } = listarPrestamos(ctx);
+  return { meDebenCentavos, deboCentavos, netoCentavos: netoCuentasCentavos + meDebenCentavos - deboCentavos };
 }
 
 // ---------------------------------------------------------------- Meses sin intereses

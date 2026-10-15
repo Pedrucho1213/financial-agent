@@ -24,7 +24,7 @@ import {
   resumenEtiquetas,
 } from "../finanzas/etiquetas";
 import { buscarMovimientos, ErrorFinanzas, idDelMovimiento, idsQueCoinciden } from "../finanzas/movimientos";
-import { clavePersona, listarPrestamos } from "../finanzas/planes";
+import { clavePersona, deudasPorPersona, listarPrestamos, nombrePersona, totalesPersonas } from "../finanzas/planes";
 import { debeAPersona } from "./herramientas-planes";
 import { cuentaMencionada, encontrarOCrearCuenta, inferirTipoCuenta } from "../finanzas/catalogos";
 import { montosDelTexto } from "../lib/numeros";
@@ -345,6 +345,20 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
         const partes: string[] = [];
         if (t.cuentasConSaldo) partes.push(`tienes ${$(t.dineroCentavos)} en tus cuentas`);
         if (t.tarjetasConDeuda) partes.push(t.deudaCentavos > 0 ? `debes ${$(t.deudaCentavos)} en tarjetas` : "no debes nada en tarjetas");
+        // Deudas con personas y préstamos por cobrar, si DEUDAS_PERSONAS lo abre: "¿cuánto debo?" las cuenta.
+        const personas = totalesPersonas(ctx, t.netoCentavos);
+        if (personas) {
+          // Con pocas personas se dicen sus nombres: "le debes $52,733 a tu mamá y a Milton Ventura".
+          const deudas = deudasPorPersona(ctx);
+          const quienes = (d: "debo" | "me_deben") => {
+            const nombres = deudas.filter((x) => x.direccion === d).map((x) => nombrePersona(x.persona));
+            return nombres.length && nombres.length <= 3 ? nombres : undefined;
+          };
+          const debo = quienes("debo");
+          const meDeben = quienes("me_deben");
+          if (personas.deboCentavos) partes.push(`le debes ${$(personas.deboCentavos)} ${debo ? enLista(debo.map((n) => `a ${n}`)) : "a personas"}`);
+          if (personas.meDebenCentavos) partes.push(`${meDeben ? enLista(meDeben) : "otras personas"} te ${meDeben?.length === 1 ? "debe" : "deben"} ${$(personas.meDebenCentavos)}`);
+        }
         const credito = todas.filter((e) => e.esCredito && e.disponibleCentavos !== null);
         // Por voz cuenta también la tarjeta de la que solo se sabe el disponible.
         if (credito.length) partes.push(`te quedan ${$(credito.reduce((s, e) => s + e.disponibleCentavos!, 0))} de crédito disponible`);

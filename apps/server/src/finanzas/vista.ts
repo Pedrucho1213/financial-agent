@@ -10,6 +10,7 @@ import type { Contexto } from "./contexto";
 import { estadosDeCuentas, totalesDeCuentas } from "./cuentas";
 import { listarVigentes, resumenEtiquetas } from "./etiquetas";
 import { ErrorFinanzas, type Movimiento, type TipoMovimiento } from "./movimientos";
+import { totalesPersonas } from "./planes";
 import { proximoCobro } from "./recurrentes";
 
 type Nombres = { comercios: Map<string, string>; cuentas: Map<string, string>; etiquetas: Map<string, string> };
@@ -266,10 +267,16 @@ export function tablero(ctx: Contexto, mesPedido?: string) {
     })),
     porRevisar: filasDelPeriodo(ctx, undefined, undefined).filter((m) => m.revisar).length,
     // Lo que hay hoy en sus cuentas y tarjetas (no depende del mes); el detalle está en /v1/cuentas.
-    cuentas: totalesDeCuentas(estadosDeCuentas(ctx)),
+    // `personas`: lo que debe a personas y le deben, y el neto contándolo (null si DEUDAS_PERSONAS no lo abre).
+    cuentas: conPersonas(ctx, totalesDeCuentas(estadosDeCuentas(ctx))),
     // Etiquetas con movimientos en el mes, de la que más gastó a la que menos.
     porEtiqueta: resumenEtiquetas(ctx, { desde, hasta })
       .filter((e) => e.cantidad > 0)
       .map(({ id, nombre, gastadoCentavos, ingresadoCentavos, cantidad, activa }) => ({ id, nombre, gastadoCentavos, ingresadoCentavos, cantidad, activa })),
   };
+}
+
+/** Los totales de cuentas con lo que debe a personas y le deben: `personas.netoCentavos` es «Lo que tienes» contándolo. */
+export function conPersonas<T extends { netoCentavos: number }>(ctx: Contexto, totales: T) {
+  return { ...totales, personas: totalesPersonas(ctx, totales.netoCentavos) };
 }
