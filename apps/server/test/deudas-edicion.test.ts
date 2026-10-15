@@ -178,11 +178,11 @@ describe("la IA corrige y borra deudas", () => {
     return ctx;
   };
 
-  test("solo la cuenta con el interruptor ve la herramienta deuda; prestamo queda igual que antes", () => {
+  test("solo la cuenta con el interruptor ve la herramienta corregir_prestamo; prestamo queda igual que antes", () => {
     const { ctx, db } = preparar();
     const ana = { ...ctx, usuarioId: crearUsuario(db, "Ana").id };
-    expect(Object.keys(crearHerramientas(ctx, []))).toContain("deuda");
-    expect(Object.keys(crearHerramientas(ana, []))).not.toContain("deuda");
+    expect(Object.keys(crearHerramientas(ctx, []))).toContain("corregir_prestamo");
+    expect(Object.keys(crearHerramientas(ana, []))).not.toContain("corregir_prestamo");
   });
 
   test("reconoce cuándo habla de la deuda y no de un movimiento", () => {
@@ -198,7 +198,7 @@ describe("la IA corrige y borra deudas", () => {
 
   test('"cámbiale a 18 mil lo de Milton", "ahora nada más le debo 30 mil a mi mamá" y "borra la deuda con Milton"', async () => {
     const ctx = conDeudas();
-    const total = await llamar(dictado(ctx, "cámbiale a 18 mil lo de Milton"), "deuda", { accion: "cambiar", persona: "Milton", monto: 18000 });
+    const total = await llamar(dictado(ctx, "cámbiale a 18 mil lo de Milton"), "corregir_prestamo", { accion: "cambiar", persona: "Milton", monto: 18000 });
     expect(total.confirmacion).toBe("Listo, corregido: le debes $18,000 a Milton Ventura.");
 
     // El modelo lo manda como préstamo nuevo: una vez se le pide cambiar; la segunda vez se respeta.
@@ -206,11 +206,11 @@ describe("la IA corrige y borra deudas", () => {
     const ctxFrase = dictado(ctx, frase);
     const herramientas = crearHerramientas(ctxFrase, []) as Record<string, { execute?: unknown }>;
     const prestamo = (args: unknown) => (herramientas.prestamo!.execute as (a: unknown, o: unknown) => Promise<any>)(args, {});
-    expect((await prestamo({ accion: "me_prestaron", persona: "mi mamá", monto: 30000 })).error).toContain("deuda con accion cambiar y queda");
-    const corregida = await (herramientas.deuda!.execute as (a: unknown, o: unknown) => Promise<any>)({ accion: "cambiar", persona: "mi mamá", queda: 30000 }, {});
+    expect((await prestamo({ accion: "me_prestaron", persona: "mi mamá", monto: 30000 })).error).toContain("corregir_prestamo con accion cambiar y queda");
+    const corregida = await (herramientas.corregir_prestamo!.execute as (a: unknown, o: unknown) => Promise<any>)({ accion: "cambiar", persona: "mi mamá", queda: 30000 }, {});
     expect(corregida.confirmacion).toBe("Listo, corregido: le debes $30,000 a tu mamá.");
 
-    const borrada = await llamar(dictado(ctx, "borra la deuda con Milton"), "deuda", { accion: "borrar", persona: "Milton" });
+    const borrada = await llamar(dictado(ctx, "borra la deuda con Milton"), "corregir_prestamo", { accion: "borrar", persona: "Milton" });
     expect(borrada.confirmacion).toBe("Listo, borré la deuda de $18,000 que tenías con Milton Ventura.");
     expect(deudasPorPersona(ctx).map((d) => d.persona)).toEqual(["Mamá"]);
   });
@@ -230,7 +230,7 @@ describe("la IA corrige y borra deudas", () => {
     const c = dictado(ctx, "borra la deuda con Milton");
     const h = crearHerramientas(c, []) as Record<string, { execute?: unknown }>;
     const eliminar = (args: unknown) => (h.eliminar_movimiento!.execute as (a: unknown, o: unknown) => Promise<any>)(args, {});
-    expect((await eliminar({ buscar: { texto: "Milton" } })).error).toContain("usa deuda");
+    expect((await eliminar({ buscar: { texto: "Milton" } })).error).toContain("usa corregir_prestamo");
     expect(hablaDePrestamo(c, "cámbiale a 18 mil lo de Milton")).toBe(true);
   });
 

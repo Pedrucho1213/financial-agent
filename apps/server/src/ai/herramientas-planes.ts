@@ -39,7 +39,7 @@ type Ejecutar = <A, R>(nombre: string, fn: (args: A) => R) => (args: A) => Promi
 // Herramientas que solo leen.
 export const CONSULTAS_PLANES = new Set(["consultar_planes"]);
 // Herramientas cuyo resultado trae `confirmacion`: lo que se le dice al usuario sin otra vuelta del modelo.
-export const ESCRITURAS_PLANES = new Set(["presupuesto", "meta", "prestamo", "deuda", "compra_msi"]);
+export const ESCRITURAS_PLANES = new Set(["presupuesto", "meta", "prestamo", "corregir_prestamo", "compra_msi"]);
 
 // "Ahora nada más le debo 15 mil", "en realidad son 18 mil", "ya solo me debe 500": corrige lo que ya debía.
 const CORRIGE_DEUDA = /\b(ahora|nada mas|ya (solo|nomas)|solo (le |me )?(debo|debe)|en realidad|me equivoque|no (eran|son|era|es) \S+ sino|corrige|cambia(le)?|quedan?|ya no son)\b/;
@@ -176,7 +176,7 @@ export function herramientasPlanes(ctx: Contexto, ejecutar: Ejecutar) {
             if (d && !d.saldada) {
               avisado.add("corrige");
               return {
-                error: `Ya hay una deuda con ${d.persona} de ${$(d.pendienteCentavos)} pendientes. Si dice cuánto queda ahora, usa deuda con accion cambiar y queda; si el total era otro, deuda con cambiar y monto. Si de verdad es un préstamo nuevo aparte, vuelve a llamar igual.`,
+                error: `Ya hay una deuda con ${d.persona} de ${$(d.pendienteCentavos)} pendientes. Si dice cuánto queda ahora, usa corregir_prestamo con accion cambiar y queda; si el total era otro, corregir_prestamo con cambiar y monto. Si de verdad es un préstamo nuevo aparte, vuelve a llamar igual.`,
               };
             }
           }
@@ -204,12 +204,12 @@ export function herramientasPlanes(ctx: Contexto, ejecutar: Ejecutar) {
       }),
     }),
 
-    // Corregir o borrar una deuda con una persona: aparte de prestamo, para que su esquema siga igual que antes.
+    // Corregir o borrar un préstamo con una persona: aparte de prestamo, para que su esquema siga igual que antes.
     ...(edicion
       ? {
-          deuda: tool({
+          corregir_prestamo: tool({
             description:
-              'Corrige o borra una deuda o préstamo con una persona que ya está anotado: "en realidad fueron 18 mil" (cambiar, monto = el total), "de lo de Milton ya nada más quedan 12" (cambiar, queda), "se llama Milton Ventura" (cambiar, nuevo_nombre), "borra la deuda con Milton" (borrar). Un pago o abono no es esto: es prestamo.',
+              'Corrige o borra un préstamo con una persona que ya está anotado: "en realidad fueron 18 mil" (cambiar, monto = el total), "de lo de Milton ya nada más quedan 12" (cambiar, queda), "se llama Milton Ventura" (cambiar, nuevo_nombre), "borra lo que le debo a Milton" (borrar). Solo personas: lo de tarjetas o cuentas ("le debo 15 mil a la Nu") es cuentas. Un pago o abono es prestamo.',
             inputSchema: z.object({
               accion: z.enum(["cambiar", "borrar"]),
               persona: z.string(),
@@ -217,7 +217,7 @@ export function herramientasPlanes(ctx: Contexto, ejecutar: Ejecutar) {
               queda: z.number().min(0).optional(),
               nuevo_nombre: z.string().optional(),
             }),
-            execute: ejecutar("deuda", (args) => editarPorVoz(args)),
+            execute: ejecutar("corregir_prestamo", (args) => editarPorVoz(args)),
           }),
         }
       : {}),

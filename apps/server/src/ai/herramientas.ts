@@ -213,7 +213,7 @@ export function crearHerramientas(ctx: Contexto, acciones: Accion[]) {
     if (!texto || desviadas.has("deuda") || !deudasEdicionHabilitada(ctx.db, ctx.usuarioId)) return;
     if (!hablaDeDeudaCon(texto, nombresDePlanes(ctx).personas, loDe)) return;
     desviadas.add("deuda");
-    throw new ErrorFinanzas("Habla de su deuda o préstamo con una persona, no de un movimiento: usa deuda con accion cambiar o borrar. Si de verdad es un movimiento, vuelve a llamar igual.");
+    throw new ErrorFinanzas("Habla de su deuda o préstamo con una persona, no de un movimiento: usa corregir_prestamo con accion cambiar o borrar. Si de verdad es un movimiento, vuelve a llamar igual.");
   };
   // Los errores de validación regresan a la IA como texto para que corrija o pregunte.
   const ejecutar =

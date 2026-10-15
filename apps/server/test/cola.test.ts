@@ -10,7 +10,7 @@ import { llamada, preparar, texto } from "./ayuda";
 // Pruebas de la cola: dictados repetidos, simultáneos, lentos, fallidos y reinicios de la Mac.
 
 // El orden de llegada al modelo depende del trabajo antes de él: que la cuenta dueña no tenga herramientas de más
-// (deuda, con DEUDAS_PERSONAS) que el amigo, o "pedro uno" llega después que "amigo 30".
+// (corregir_prestamo, con DEUDAS_PERSONAS) que el amigo, o "pedro uno" llega después que "amigo 30".
 const deudasAntes = process.env.DEUDAS_PERSONAS;
 beforeAll(() => {
   process.env.DEUDAS_PERSONAS = "0";
