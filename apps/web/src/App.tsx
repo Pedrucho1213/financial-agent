@@ -25,6 +25,7 @@ const cargas = {
   plan: () => import("./pantallas/Plan"),
   analisis: () => import("./pantallas/Analisis"),
   cuentas: () => import("./pantallas/Cuentas"),
+  deuda: () => import("./pantallas/Deuda"),
   etiquetas: () => import("./pantallas/Etiquetas"),
   suscripciones: () => import("./pantallas/Suscripciones"),
   salud: () => import("./pantallas/Salud"),
@@ -47,6 +48,7 @@ const Plan = lazy(() => cargas.plan().then((m) => ({ default: m.Plan })));
 const Analisis = lazy(() => cargas.analisis().then((m) => ({ default: m.Analisis })));
 const Cuentas = lazy(() => cargas.cuentas().then((m) => ({ default: m.Cuentas })));
 const Cuenta = lazy(() => cargas.cuentas().then((m) => ({ default: m.Cuenta })));
+const Deuda = lazy(() => cargas.deuda().then((m) => ({ default: m.Deuda })));
 const Etiquetas = lazy(() => cargas.etiquetas().then((m) => ({ default: m.Etiquetas })));
 const Suscripciones = lazy(() => cargas.suscripciones().then((m) => ({ default: m.Suscripciones })));
 const Salud = lazy(() => cargas.salud().then((m) => ({ default: m.Salud })));
@@ -196,6 +198,7 @@ function Aplicacion() {
             {pagina === "analisis" ? <Analisis params={params} /> : null}
             {pagina === "cuentas" ? <Cuentas params={params} /> : null}
             {pagina === "cuenta" ? <Cuenta params={params} /> : null}
+            {pagina === "deuda" ? <Deuda params={params} /> : null}
             {pagina === "etiquetas" ? <Etiquetas params={params} /> : null}
             {pagina === "suscripciones" ? <Suscripciones params={params} /> : null}
             {pagina === "salud" ? <Salud /> : null}

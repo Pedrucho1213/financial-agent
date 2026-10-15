@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { type Anillo, Anillos } from "../components/Anillos";
 import { CampoMonto } from "../components/CampoMonto";
 import { LogoPago } from "../components/Logo";
+import { Inicial } from "../components/deudas/Piezas";
 import { Pantalla } from "../components/Pantalla";
 import { Button } from "../components/ui/button";
 import { CampoFecha } from "../components/ui/fecha";
@@ -16,6 +17,7 @@ import { OpcionesCategorias } from "../lib/categorias";
 import { useEnLinea } from "../lib/conexion";
 import { useCategorias, useYo } from "../lib/consultas";
 import { aFecha, diasHasta, dinero, dineroCorto, hoyIso, leerMonto, nombreMes, pct, rangoDelMes } from "../lib/formato";
+import { hashDeuda, personasDe } from "../lib/deudas";
 import { haptico } from "../lib/haptico";
 import {
   useAportarMeta,
@@ -29,8 +31,8 @@ import {
   usePrestamos,
   usePresupuestos,
 } from "../lib/plan";
-import { volver } from "../lib/ruta";
-import type { ComprasMsi, DeudaPersona, Disponible, Meta, Prestamos as PrestamosApi, Presupuesto, Presupuestos } from "../lib/tipos";
+import { navegar, volver } from "../lib/ruta";
+import type { ComprasMsi, Disponible, Meta, Prestamos as PrestamosApi, Presupuesto, Presupuestos } from "../lib/tipos";
 import { cn } from "../lib/utils";
 
 const fDia = new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short" });
@@ -276,19 +278,16 @@ function TarjetaDisponible({ d, moneda }: { d: Disponible; moneda: string }) {
   );
 }
 
-/** Deudas con personas: una fila por persona y sentido, y al tocarla, sus préstamos y abonos. */
+/** Deudas con personas: una fila por persona y sentido; al tocarla, su detalle (abonar, editar, borrar). */
 function Prestamos({ datos, moneda }: { datos: PrestamosApi | undefined; moneda: string }) {
-  const [abierta, setAbierta] = useState<DeudaPersona | null>(null);
-  const pendientes = datos?.prestamos.filter((p) => !p.saldadoEn) ?? [];
-  if (!datos || !pendientes.length) return null;
+  const personas = personasDe(datos).filter((d) => d.pendienteCentavos > 0);
+  if (!datos || !personas.length) return null;
   const pie = [
     datos.meDebenCentavos > 0 ? `Te deben ${dinero(datos.meDebenCentavos, moneda)}` : null,
     datos.deboCentavos > 0 ? `debes ${dinero(datos.deboCentavos, moneda)}` : null,
   ]
     .filter(Boolean)
     .join(" y ");
-  // Un servidor viejo (o el caché de antes) no manda `personas`: se arman aquí, sin abonos, para que la fila abra igual.
-  const personas = datos.personas ?? agruparPorPersona(pendientes);
   return (
     <section>
       <TituloSeccion>Deudas y préstamos</TituloSeccion>
@@ -304,7 +303,7 @@ function Prestamos({ datos, moneda }: { datos: PrestamosApi | undefined; moneda:
             key={`${d.persona}-${d.direccion}`}
             // En pantallas angostas la inicial se quita para que los montos del subtítulo no se corten.
             className="[--sangria:4.25rem] max-[359px]:[--sangria:1rem]"
-            icono={<Inicial nombre={d.persona} />}
+            icono={<Inicial nombre={d.persona} className="max-[359px]:hidden" />}
             titulo={d.persona}
             subtitulo={enVariasLineas(
               d.pagadoCentavos > 0 ? (
@@ -325,165 +324,11 @@ function Prestamos({ datos, moneda }: { datos: PrestamosApi | undefined; moneda:
               </span>
             }
             chevron
-            onClick={() => setAbierta(d)}
+            onClick={() => navegar(hashDeuda(d))}
           />
         ))}
       </Grupo>
-      <HojaDeuda deuda={abierta} moneda={moneda} alCerrar={() => setAbierta(null)} />
     </section>
-  );
-}
-
-// Colores de iOS para las iniciales; cada persona siempre sale del mismo.
-const COLORES_INICIAL = ["#5ac8fa", "#ff9f0a", "#af52de", "#34c759", "#ff2d55", "#5856d6", "#ff9500", "#30b0c7"];
-
-/** La inicial de la persona en un círculo de color, como en Contactos. */
-function Inicial({ nombre }: { nombre: string }) {
-  const n = [...nombre].reduce((a, c) => a + c.charCodeAt(0), 0);
-  return (
-    <span
-      aria-hidden
-      className="flex size-10 shrink-0 items-center justify-center rounded-full text-[17px] font-semibold text-white max-[359px]:hidden"
-      style={{ background: COLORES_INICIAL[n % COLORES_INICIAL.length] }}
-    >
-      {nombre.trim().charAt(0).toUpperCase()}
-    </span>
-  );
-}
-
-function agruparPorPersona(prestamos: PrestamosApi["prestamos"]): DeudaPersona[] {
-  const grupos = new Map<string, DeudaPersona>();
-  for (const p of prestamos) {
-    const clave = `${p.persona.toLowerCase()}|${p.direccion}`;
-    const g = grupos.get(clave) ?? { persona: p.persona, direccion: p.direccion, prestadoCentavos: 0, pagadoCentavos: 0, pendienteCentavos: 0, desde: p.creadoEn, movimientos: [] };
-    g.prestadoCentavos += p.montoCentavos;
-    g.pagadoCentavos += p.pagadoCentavos;
-    g.pendienteCentavos += p.pendienteCentavos;
-    if (p.creadoEn < g.desde) g.desde = p.creadoEn;
-    g.movimientos.push({ tipo: "prestamo", fecha: p.creadoEn, montoCentavos: p.montoCentavos, cuenta: null });
-    grupos.set(clave, g);
-  }
-  return [...grupos.values()];
-}
-
-const fLargo = new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "long", year: "numeric" });
-
-const ALTO_SALDO = 72;
-
-/**
- * Lo que falta de una deuda con el tiempo: sube con cada préstamo y baja con cada abono, en escalones, hasta hoy.
- * Sin ejes: la fecha de la primera y "Hoy" abajo, como las gráficas chicas de Wallet.
- */
-function SaldoDeuda({ movimientos, color }: { movimientos: DeudaPersona["movimientos"]; color: string }) {
-  const orden = [...movimientos].sort((a, b) => a.fecha.localeCompare(b.fecha));
-  const inicio = Date.parse(orden[0]?.fecha ?? "") || Date.now();
-  const fin = Math.max(Date.now(), inicio + 86_400_000);
-  let saldo = 0;
-  const puntos = orden.map((m) => {
-    saldo += m.tipo === "prestamo" ? m.montoCentavos : -m.montoCentavos;
-    return { t: Date.parse(m.fecha), saldo: Math.max(0, saldo) };
-  });
-  const maximo = Math.max(1, ...puntos.map((p) => p.saldo));
-  const x = (t: number) => ((t - inicio) / (fin - inicio)) * 100;
-  const y = (v: number) => 4 + (1 - v / maximo) * (ALTO_SALDO - 8);
-  let d = "";
-  puntos.forEach((p, i) => {
-    d += i === 0 ? `M${x(p.t).toFixed(2)},${y(p.saldo).toFixed(1)}` : ` H${x(p.t).toFixed(2)} V${y(p.saldo).toFixed(1)}`;
-  });
-  d += ` H100`;
-  const area = `${d} V${ALTO_SALDO} H${x(puntos[0]?.t ?? inicio).toFixed(2)} Z`;
-  return (
-    <div>
-      <svg viewBox={`0 0 100 ${ALTO_SALDO}`} preserveAspectRatio="none" role="img" aria-label="Lo que falta de la deuda con el tiempo" className="block w-full" style={{ height: ALTO_SALDO }}>
-        <path d={area} fill={color} opacity={0.15} />
-        <path d={d} fill="none" stroke={color} strokeWidth={2.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
-      </svg>
-      <div className="mt-1 flex justify-between text-[12px] text-muted-foreground">
-        <span>{fDia.format(new Date(inicio)).replace(".", "")}</span>
-        <span>Hoy</span>
-      </div>
-    </div>
-  );
-}
-
-// "Mamá" se dice «a mi mamá»; un nombre, tal cual.
-const PARENTESCOS = new Set(["Mamá", "Papá", "Abuela", "Abuelo", "Esposa", "Esposo", "Hermano", "Hermana", "Tío", "Tía", "Primo", "Prima", "Suegro", "Suegra"]);
-const comoSeDice = (persona: string) => (PARENTESCOS.has(persona) ? `mi ${persona.toLowerCase()}` : persona);
-
-function HojaDeuda({ deuda, moneda, alCerrar }: { deuda: DeudaPersona | null; moneda: string; alCerrar: () => void }) {
-  const meDebe = deuda?.direccion === "me_deben";
-  return (
-    <Sheet open={!!deuda} onOpenChange={(v) => !v && alCerrar()}>
-      {deuda ? (
-        <SheetContent
-          titulo={deuda.persona}
-          descripcion={meDebe ? "Te debe" : "Le debes"}
-          derecha={
-            <Button variant="plain" size="text" className="font-semibold" onClick={alCerrar}>
-              Listo
-            </Button>
-          }
-        >
-          <div className="space-y-6 pb-2">
-            <div className="flex flex-col items-center pt-2">
-              <Anillos
-                tamano={120}
-                grosor={16}
-                anillos={[
-                  {
-                    progreso: deuda.prestadoCentavos ? deuda.pagadoCentavos / deuda.prestadoCentavos : 0,
-                    color: meDebe ? "var(--positive)" : "var(--anillo-meta)",
-                    etiqueta: meDebe ? "Te ha pagado" : "Abonado",
-                  },
-                ]}
-              />
-              <p className="mt-3 text-[13px] font-semibold text-muted-foreground">{deuda.pendienteCentavos > 0 ? "Falta" : "Saldada"}</p>
-              <p className="text-[28px] leading-8 font-bold tracking-[-0.02em] tabular">{dinero(deuda.pendienteCentavos, moneda)}</p>
-              <p className="text-[13px] text-muted-foreground">
-                <DeTotal antes={meDebe ? "Te ha pagado" : "Abonaste"} parte={pesos(deuda.pagadoCentavos, moneda)} total={pesos(deuda.prestadoCentavos, moneda)} />
-              </p>
-              <p className="text-[13px] text-muted-foreground">Desde el {fLargo.format(new Date(deuda.desde))}</p>
-            </div>
-            {deuda.movimientos.some((m) => m.tipo === "abono") ? (
-              <Grupo titulo="Cómo ha bajado">
-                <div className="px-4 pt-3 pb-2">
-                  <SaldoDeuda movimientos={deuda.movimientos} color={meDebe ? "var(--positive)" : "var(--anillo-meta)"} />
-                </div>
-              </Grupo>
-            ) : (
-              <p className="px-4 text-center text-[13px] text-muted-foreground">Cuando {meDebe ? "te pague" : "abones"}, aquí verás cómo baja.</p>
-            )}
-            <Grupo titulo="Movimientos">
-              {deuda.movimientos.map((m, i) => {
-                const fecha = fDia.format(new Date(m.fecha)).replace(".", "");
-                // El dinero de un abono sale de la cuenta (o llega, si te pagan); el de un préstamo, al revés.
-                const sale = (m.tipo === "abono") !== meDebe;
-                const cuenta = m.cuenta ? ` · ${sale ? "desde" : "a"} ${m.cuenta}` : "";
-                return (
-                  <Fila
-                    key={`${m.fecha}-${i}`}
-                    titulo={m.tipo === "abono" ? (meDebe ? "Te pagó" : "Abono") : meDebe ? "Le prestaste" : "Te prestó"}
-                    subtitulo={`${fecha}${cuenta}`}
-                    valor={
-                      <span className={cn("font-medium tabular", m.tipo === "abono" ? "text-positive" : "text-foreground")}>
-                        {m.tipo === "abono" ? "−" : ""}
-                        {dinero(m.montoCentavos, moneda)}
-                      </span>
-                    }
-                  />
-                );
-              })}
-            </Grupo>
-            <p className="flex items-start gap-1.5 px-4 text-[13px] leading-snug text-muted-foreground">
-              <Mic className="mt-0.5 size-3.5 shrink-0" />
-              {meDebe
-                ? `Cuando te pague, díselo al Atajo: «${deuda.persona} me depositó 500».`
-                : `Para abonar, díselo al Atajo: «Le transferí 2 mil a ${comoSeDice(deuda.persona)} desde Revolut». Si te equivocas, di «deshaz eso».`}
-            </p>
-          </div>
-        </SheetContent>
-      ) : null}
-    </Sheet>
   );
 }
 

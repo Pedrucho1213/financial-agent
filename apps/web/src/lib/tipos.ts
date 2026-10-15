@@ -190,6 +190,9 @@ export type TotalesCuentas = {
   tarjetasConDeuda: number;
   /** Nombres de las cuentas de las que no se sabe el saldo. */
   sinSaldo: string[];
+  /** Lo que debe a personas y lo que le deben (faltan en un servidor viejo). */
+  deboPersonasCentavos?: number;
+  meDebenCentavos?: number;
 };
 
 /** GET /v1/cuentas */
@@ -301,7 +304,15 @@ export type Prestamo = {
   saldadoEn: string | null;
 };
 /** Un préstamo o un abono de una deuda, con la cuenta de la que salió o a la que llegó, si la dijo. */
-export type MovimientoDeuda = { tipo: "prestamo" | "abono"; fecha: string; montoCentavos: number; cuenta: string | null };
+export type MovimientoDeuda = {
+  tipo: "prestamo" | "abono";
+  /** El préstamo o el abono, para editarlo o borrarlo (falta en un servidor viejo). */
+  id?: string;
+  fecha: string;
+  montoCentavos: number;
+  cuenta: string | null;
+  nota?: string | null;
+};
 /** Una deuda por persona y sentido ("le debes a Mamá"), con todos sus préstamos y abonos juntos. */
 export type DeudaPersona = {
   persona: string;

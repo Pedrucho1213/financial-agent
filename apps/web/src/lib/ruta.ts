@@ -17,6 +17,7 @@ export const PAGINAS = {
   analisis: "inicio",
   cuentas: "inicio",
   cuenta: "inicio",
+  deuda: "inicio",
   etiquetas: "inicio",
   suscripciones: "inicio",
   salud: "inicio",

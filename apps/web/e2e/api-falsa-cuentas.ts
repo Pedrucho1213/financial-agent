@@ -1,3 +1,4 @@
+import { totalesDeudas } from "./api-falsa-deudas";
 import { type ApiFalsa, HOY, type MovimientoApp, mov } from "./api-falsa";
 
 // Cuentas, tarjetas, transferencias y etiquetas, con el contrato del hilo "Cuentas, tarjetas y tags" (PR #38).
@@ -151,6 +152,13 @@ function totales(cuentas: CuentaFalsa[]) {
   };
 }
 
+/** Con deudas a personas, el neto las cuenta: lo que debes resta y lo que te deben suma. */
+function conPersonas(t: ReturnType<typeof totales>, api: ApiFalsa) {
+  if (!api.deudas) return t;
+  const p = totalesDeudas(api.deudas);
+  return { ...t, ...p, netoCentavos: t.netoCentavos - p.deboPersonasCentavos + p.meDebenCentavos };
+}
+
 /** Como el servidor: la primera letra en mayúscula ("viaje" → "Viaje"). */
 const mayuscula = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 const centavos = (pesos: unknown) => Math.round(Number(pesos) * 100);
@@ -259,7 +267,7 @@ export async function atenderCuentas(api: ApiFalsa, { metodo, ruta, cuerpo, cons
         mes: c.mes,
         usos: api.movimientos.filter((m) => m.cuenta === c.nombre || m.cuentaDestino === c.nombre).length,
       })),
-      totales: totales(datos.cuentas),
+      totales: conPersonas(totales(datos.cuentas), api),
       observacion: datos.observacion,
     });
   }
