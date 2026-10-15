@@ -184,3 +184,51 @@ for (const largos of [false, true]) {
     expect(informe).toEqual([]);
   });
 }
+
+// Inicio en el iPhone de Pedro (oscuro): cada tarjeta de «Para ti» se ve completa, sin scroll adentro y con aire entre
+// una y otra; y el título grande nunca se queda a medias bajo la barra («Hola, Pedro» cortado).
+for (const ancho of [320, 390]) {
+  test(`Inicio a ${ancho} px: «Para ti» completo y el título no se queda cortado`, async ({ page }) => {
+    await page.setViewportSize({ width: ancho, height: 844 });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await prepararSesion(page, api(false));
+    await page.goto("/#inicio");
+    const pt = page.getByRole("region", { name: "Para ti" });
+    await expect(pt.locator("article").first()).toBeVisible();
+    await page.waitForTimeout(600);
+
+    const carril = pt.locator(".carrusel");
+    const [a, b] = await carril.evaluate((el) => [...el.children].slice(0, 2).map((h) => h.getBoundingClientRect().toJSON()));
+    expect(b!.left - a!.right, "aire entre tarjetas").toBeGreaterThanOrEqual(12);
+
+    const total = await pt.locator("article").count();
+    const informe: string[] = [];
+    for (let i = 0; i < total; i++) {
+      if (i) {
+        await pt.getByRole("button", { name: "Siguiente" }).click();
+        await page.waitForTimeout(700);
+      }
+      const r = await carril.evaluate((el, n) => {
+        const caja = el.getBoundingClientRect();
+        const t = el.children[n]!.getBoundingClientRect();
+        const oy = getComputedStyle(el).overflowY;
+        // Sin scroll vertical adentro: ni se puede desplazar con el dedo ni se quedó desplazado.
+        const scroll = (oy === "auto" || oy === "scroll") && el.scrollHeight > el.clientHeight + 1 ? el.scrollHeight - el.clientHeight : el.scrollTop;
+        return { scroll, arriba: caja.top - t.top, abajo: t.bottom - caja.bottom };
+      }, i);
+      if (r.scroll > 1) informe.push(`tarjeta ${i + 1}: se desplaza adentro ${r.scroll}px`);
+      if (r.arriba > 1 || r.abajo > 1) informe.push(`tarjeta ${i + 1}: recortada (${r.arriba}px arriba, ${r.abajo}px abajo)`);
+      informe.push(...(await solapes(page)).map((m) => `tarjeta ${i + 1}: ${m}`));
+    }
+    expect(informe).toEqual([]);
+
+    // Al soltar a medias, el título se abre completo o se va entero bajo la barra.
+    const alto = await page.locator("header").first().evaluate((h) => h.getBoundingClientRect().height);
+    await page.evaluate(() => window.scrollTo(0, 22));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveCSS("opacity", "1");
+    await page.evaluate((y) => window.scrollTo(0, y), Math.round(alto * 0.7));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThanOrEqual(Math.floor(alto));
+    await expect.poll(() => page.getByRole("heading", { level: 1 }).evaluate((h) => Number(getComputedStyle(h.parentElement!).opacity))).toBeLessThan(0.05);
+  });
+}

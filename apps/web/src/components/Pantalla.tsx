@@ -42,6 +42,7 @@ export function Pantalla({
 }) {
   const barra = useRef<HTMLDivElement>(null);
   const marca = useRef<HTMLDivElement>(null);
+  const cabecera = useRef<HTMLElement>(null);
   const [compacta, setCompacta] = useState(barraFija);
 
   useEffect(() => {
@@ -57,12 +58,72 @@ export function Pantalla({
     return () => io.disconnect();
   }, [barraFija]);
 
+  // El título grande se desvanece al pasar bajo la barra, en vez de verse cortado a la mitad. Cada renglón (la fecha y el
+  // título) según lo que le queda a la vista.
+  useEffect(() => {
+    if (barraFija) return;
+    const h = cabecera.current;
+    const b = barra.current;
+    if (!h || !b) return;
+    const io = new IntersectionObserver(
+      (es) => {
+        for (const e of es) {
+          const visto = e.boundingClientRect.top < b.offsetHeight + 1 ? e.intersectionRatio : 1;
+          (e.target as HTMLElement).style.opacity = String(Math.max(0, Math.min(1, (visto - 0.5) / 0.5)));
+        }
+      },
+      { rootMargin: `-${b.offsetHeight}px 0px 0px 0px`, threshold: Array.from({ length: 21 }, (_, i) => i / 20) },
+    );
+    for (const hijo of h.children) io.observe(hijo);
+    return () => io.disconnect();
+  }, [barraFija]);
+
+  // Como en iOS, el título grande no se queda a medias: al soltar, se abre completo o se va bajo la barra.
+  useEffect(() => {
+    if (barraFija) return;
+    let tocando = false;
+    let espera = 0;
+    const ajustar = () => {
+      const h = cabecera.current;
+      const b = barra.current;
+      if (tocando || !h || !b) return;
+      const alto = h.offsetHeight;
+      // En una pantalla que apenas se desplaza, regresar arriba escondería lo último: ahí no se ajusta.
+      if (document.documentElement.scrollHeight - window.innerHeight < alto + 1) return;
+      const tapado = b.getBoundingClientRect().bottom - h.getBoundingClientRect().top;
+      if (alto && tapado > 0.5 && tapado < alto) window.scrollBy({ top: tapado < alto / 2 ? -tapado : alto + 1 - tapado, behavior: "smooth" });
+    };
+    const programar = () => {
+      window.clearTimeout(espera);
+      espera = window.setTimeout(ajustar, 140);
+    };
+    const tocar = () => {
+      tocando = true;
+      window.clearTimeout(espera);
+    };
+    const soltar = () => {
+      tocando = false;
+      programar();
+    };
+    window.addEventListener("scroll", programar, { passive: true });
+    window.addEventListener("touchstart", tocar, { passive: true });
+    window.addEventListener("touchend", soltar, { passive: true });
+    window.addEventListener("touchcancel", soltar, { passive: true });
+    return () => {
+      window.clearTimeout(espera);
+      window.removeEventListener("scroll", programar);
+      window.removeEventListener("touchstart", tocar);
+      window.removeEventListener("touchend", soltar);
+      window.removeEventListener("touchcancel", soltar);
+    };
+  }, [barraFija]);
+
   const cuerpo = (
     <>
       {barraFija ? null : (
-        <header className="mx-auto max-w-3xl px-safe pb-2">
-          {encima ? <div className="text-[15px] font-medium text-muted-foreground">{encima}</div> : null}
-          <div className="flex min-h-[41px] items-end justify-between gap-3">
+        <header ref={cabecera} className="mx-auto max-w-3xl px-safe pb-2">
+          {encima ? <div className="text-[15px] font-medium text-muted-foreground transition-opacity duration-100">{encima}</div> : null}
+          <div className="flex min-h-[41px] items-end justify-between gap-3 transition-opacity duration-100">
             <h1 className="min-w-0 text-balance break-words text-[34px] leading-[41px] max-[359px]:text-[30px] max-[359px]:leading-9 font-bold tracking-[-0.02em]">{titulo}</h1>
             {junto}
           </div>
