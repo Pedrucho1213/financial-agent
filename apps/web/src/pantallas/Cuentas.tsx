@@ -15,7 +15,7 @@ import { ErrorApi, mensajeDeError } from "../lib/api";
 import { useEnLinea } from "../lib/conexion";
 import { abrirDetalle, useYo } from "../lib/consultas";
 import { useCuenta, useCuentas, useGuardarCuenta } from "../lib/cuentas";
-import { diaCorto, dinero, haceCuanto, hoyIso, pct } from "../lib/formato";
+import { diaCorto, dinero, hoyIso, pct } from "../lib/formato";
 import { haptico } from "../lib/haptico";
 import { MARCAS, marcaDe } from "../lib/marcas";
 import { hashDe, navegar, volver } from "../lib/ruta";
@@ -245,11 +245,12 @@ function Resumen({ datos, moneda, alDecirLimite }: { datos: CuentasApi; moneda: 
               />
             ))}
           </div>
-          <ul className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5">
+          <ul data-leyenda className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5">
             {porciones.map((p) => (
-              <li key={p.id} className="flex min-w-0 items-center gap-1.5 text-[13px]">
-                <span aria-hidden className="size-2.5 shrink-0 rounded-full" style={{ background: colores.get(p.id) ?? "var(--serie-otros)" }} />
-                <span className="min-w-0 truncate">{p.nombre}</span>
+              <li key={p.id} className="flex min-w-0 items-start gap-1.5 text-[13px] leading-snug">
+                <span aria-hidden className="mt-1 size-2.5 shrink-0 rounded-full" style={{ background: colores.get(p.id) ?? "var(--serie-otros)" }} />
+                {/* Completo, en dos renglones si hace falta: «Mercado Pago D…» no dice cuál es. */}
+                <span className="min-w-0 break-words">{p.nombre}</span>
                 <span className="ml-auto shrink-0 text-muted-foreground tabular">{pct(p.parte)}</span>
               </li>
             ))}
@@ -346,7 +347,7 @@ function FilaCuenta({ c, moneda, hoy }: { c: CuentaConMes; moneda: string; hoy: 
     >
       <IconoCuenta tipo={c.tipo} nombre={c.nombre} institucion={c.institucion} />
       <div className="min-w-0 flex-1 py-2.5">
-        <div className="truncate">{c.nombre}</div>
+        <div className="break-words">{c.nombre}</div>
         <div className={cn("text-[15px] leading-snug break-words", c.conocido ? "text-muted-foreground" : "text-placeholder")}>{lineaCuenta(c, moneda)}</div>
         {uso !== null ? <BarraUso uso={uso} className="mt-1.5 max-w-[14rem]" /> : null}
         {pago ? (
@@ -386,11 +387,12 @@ function TarjetaCompacta({ c, moneda, hoy }: { c: CuentaConMes; moneda: string; 
       className="presionable relative flex min-h-[116px] min-w-0 flex-col overflow-hidden rounded-[18px] p-3 text-left text-white shadow-[0_1px_2px_rgb(0_0_0/0.12)]"
       style={{ background: `linear-gradient(150deg, color-mix(in srgb, ${fondo} 78%, white), ${fondo} 62%)` }}
     >
-      <span className="flex items-center gap-1.5">
+      <span className="flex items-center justify-between gap-1.5">
         {marca ? <LogoMarca clave={marca} tamano={22} className="shadow-[0_0_0_1px_rgb(255_255_255/0.35)]" /> : <CreditCard aria-hidden className="size-[18px] shrink-0 opacity-90" />}
-        <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">{c.nombre}</span>
         {uso !== null ? <span className="shrink-0 text-[13px] font-semibold tabular opacity-90">{pct(uso)}</span> : null}
       </span>
+      {/* El nombre completo en su renglón (dos si hace falta): a 320 px junto al logo y el % no cabía. */}
+      <span className="mt-1.5 text-[15px] leading-5 font-semibold break-words">{c.nombre}</span>
       <span className="mt-auto pt-2 text-[11px] leading-4 font-bold tracking-[0.04em] uppercase opacity-80">
         {c.deudaCentavos === null ? "¿Cuánto debes?" : c.deudaCentavos > 0 ? "Debes" : "Sin deuda"}
       </span>
@@ -408,7 +410,7 @@ function TarjetaCompacta({ c, moneda, hoy }: { c: CuentaConMes; moneda: string; 
       ) : null}
       <span className="mt-1.5 line-clamp-2 block text-[12px] leading-4 font-medium break-words opacity-90">{lineaCuenta(c, moneda)}</span>
       {pago ? (
-        <span className={cn("mt-0.5 block truncate text-[12px] leading-4 font-semibold", urgente ? "text-[#ffd60a]" : "opacity-90")}>
+        <span className={cn("mt-0.5 block text-[12px] leading-4 font-semibold", urgente ? "text-[#ffd60a]" : "opacity-90")}>
           Pagar {enCuantosDias(pago, hoy)}
         </span>
       ) : null}
@@ -577,10 +579,10 @@ function HeroCuenta({
           >
             {dinero(c.saldoCentavos, moneda)}
           </Ajustado>
-          <p className="mt-1 text-[13px] leading-snug text-muted-foreground">
-            {c.saldoEn ? `Me lo dijiste ${haceCuanto(c.saldoEn)}; desde ahí sumo y resto lo que anotas con ${c.nombre}.` : null}
-            {c.saldoCentavos < 0 ? " Quedó en negativo: seguro cambió, dime cuánto hay." : null}
-          </p>
+          <DeDondeSale c={c} moneda={moneda} />
+          {c.saldoCentavos < 0 ? (
+            <p className="mt-1 text-[13px] leading-snug text-muted-foreground">Quedó en negativo: seguro cambió, dime cuánto hay.</p>
+          ) : null}
         </>
       ) : (
         <>
@@ -597,6 +599,44 @@ function HeroCuenta({
         </div>
       ) : null}
     </section>
+  );
+}
+
+/** De dónde sale el saldo: lo último que dijo y lo que anotó con esa cuenta después. */
+function DeDondeSale({ c, moneda }: { c: EstadoCuenta; moneda: string }) {
+  if (!c.saldoEn || c.saldoCentavos === null) return null;
+  const cuando = diaCorto(hoyIso(new Date(c.saldoEn)));
+  const dicho = c.saldoDichoCentavos;
+  // Un servidor viejo no manda lo que dijo: solo la explicación.
+  if (dicho === undefined || dicho === null) {
+    return (
+      <p className="mt-1 text-[13px] leading-snug text-muted-foreground">
+        Es lo que me dijiste el {cuando} más lo que anotaste con {c.nombre} desde entonces.
+      </p>
+    );
+  }
+  const anotado = c.saldoCentavos - dicho;
+  if (!anotado) {
+    return (
+      <p className="mt-1 text-[13px] leading-snug text-muted-foreground">
+        Es lo que me dijiste el {cuando}; no has anotado nada con {c.nombre} desde entonces.
+      </p>
+    );
+  }
+  return (
+    <dl data-testid="de-donde" className="mt-2 space-y-1 text-[13px] leading-snug text-muted-foreground">
+      <div className="flex items-baseline justify-between gap-3">
+        <dt className="min-w-0">Me dijiste el {cuando}</dt>
+        <dd className="shrink-0 tabular">{dinero(dicho, moneda)}</dd>
+      </div>
+      <div className="flex items-baseline justify-between gap-3">
+        <dt className="min-w-0">Lo que anotaste después</dt>
+        <dd className={cn("shrink-0 tabular", anotado > 0 && "text-positive")}>
+          {anotado > 0 ? "+" : "−"}
+          {dinero(Math.abs(anotado), moneda)}
+        </dd>
+      </div>
+    </dl>
   );
 }
 

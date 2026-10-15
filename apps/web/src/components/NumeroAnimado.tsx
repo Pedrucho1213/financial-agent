@@ -52,7 +52,7 @@ export function NumeroAnimado({
   }, [valor, duracion]);
 
   return (
-    <span ref={ref} className={className} aria-label={formato(valor)}>
+    <span ref={ref} className={className} aria-label={formato(valor)} data-ajustado={ajustar ? "" : undefined}>
       {formato(0)}
     </span>
   );

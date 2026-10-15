@@ -107,6 +107,9 @@ test.describe("Cuentas y tarjetas", () => {
     const saldo = page.getByRole("region", { name: "Saldo" });
     await expect(saldo).toContainText("Entró este mes+$18,750.00");
     await expect(saldo).toContainText("Salió este mes−$3,400.00");
+    // De dónde sale: el saldo que dictó y lo que anotó después (antes: «Me lo dijiste hace 3 días…» y nada más).
+    await expect(page.getByTestId("de-donde")).toContainText("Me dijiste el 4 oct$15,000.00");
+    await expect(page.getByTestId("de-donde")).toContainText("Lo que anotaste después+$3,450.00");
     const recientes = page.getByRole("region", { name: "Recientes" });
     // El traspaso de Nu llega a BBVA: suma. Pemex sale de BBVA: resta.
     await expect(recientes.getByRole("button", { name: /Traspaso a ahorro/ })).toContainText("+$2,000.00");
@@ -121,6 +124,13 @@ test.describe("Cuentas y tarjetas", () => {
     expect(api.de("GET", "/v1/movimientos").at(-1)?.consulta.get("cuenta_id")).toBe("cta-bbva");
     await page.getByRole("button", { name: "Quitar filtro de cuenta BBVA" }).click();
     await expect(page).not.toHaveURL(/cuenta=/);
+  });
+
+  test("una cuenta sin nada anotado después de su saldo lo dice en una línea", async ({ page }) => {
+    await abrir(page, "#cuenta?id=cta-efectivo");
+    await expect(page.getByTestId("saldo")).toHaveText("$1,200.00");
+    await expect(page.getByRole("region", { name: "Saldo" })).toContainText("Es lo que me dijiste el 4 oct; no has anotado nada con Efectivo desde entonces.");
+    await expect(page.getByTestId("de-donde")).toHaveCount(0);
   });
 
   test("un enlace a una cuenta que no existe lo dice", async ({ page }) => {

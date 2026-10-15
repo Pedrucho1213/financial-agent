@@ -168,6 +168,8 @@ export type EstadoCuenta = {
   limiteCentavos: number | null;
   /** Cuándo dijo el saldo (ISO). */
   saldoEn: string | null;
+  /** Débito y efectivo: el saldo que dijo en `saldoEn` (falta en un servidor viejo). */
+  saldoDichoCentavos?: number | null;
   diaCorte: number | null;
   diaPago: number | null;
 };

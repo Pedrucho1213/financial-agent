@@ -2,22 +2,29 @@
 
 const formatosDinero = new Map<string, Intl.NumberFormat>();
 
-function formatoDinero(moneda: string, compacto: boolean) {
-  const clave = `${moneda}:${compacto}`;
-  let f = formatosDinero.get(clave);
+function formatoDinero(moneda: string) {
+  let f = formatosDinero.get(moneda);
   if (!f) {
-    f = new Intl.NumberFormat("es-MX", {
-      style: "currency",
-      currency: moneda,
-      ...(compacto ? { notation: "compact", maximumFractionDigits: 1 } : {}),
-    });
-    formatosDinero.set(clave, f);
+    f = new Intl.NumberFormat("es-MX", { style: "currency", currency: moneda });
+    formatosDinero.set(moneda, f);
   }
   return f;
 }
 
+const numeroCompacto = new Intl.NumberFormat("es-MX", { notation: "compact", maximumFractionDigits: 1 });
+
+/**
+ * «$123.5 k», «$1.2 M». No con `style: "currency"` + `notation: "compact"`: según la versión de ICU sale
+ * «123 k$» (Chrome, Safari) o «$123.5 k» (Bun).
+ */
+function compacto(valor: number, moneda: string) {
+  const simbolo = formatoDinero(moneda).formatToParts(0).find((p) => p.type === "currency")?.value ?? moneda;
+  return `${simbolo}${simbolo.length > 1 ? "\u00a0" : ""}${numeroCompacto.format(valor)}`;
+}
+
 export function dinero(centavos: number, moneda = "MXN", opciones: { signo?: boolean; compacto?: boolean } = {}) {
-  const texto = formatoDinero(moneda, !!opciones.compacto).format(Math.abs(centavos) / 100);
+  const valor = Math.abs(centavos) / 100;
+  const texto = opciones.compacto ? compacto(valor, moneda) : formatoDinero(moneda).format(valor);
   if (opciones.signo && centavos !== 0) return `${centavos < 0 ? "−" : "+"}${texto}`;
   return centavos < 0 ? `−${texto}` : texto;
 }

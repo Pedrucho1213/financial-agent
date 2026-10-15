@@ -91,13 +91,19 @@ async function solapes(page: Page) {
       if (el.scrollWidth > el.clientWidth + 1 && el.clientWidth > 0)
         malos.push(`cortado: «${el.textContent.trim().slice(0, 40)}» ${el.scrollWidth}>${el.clientWidth} <${el.tagName.toLowerCase()} class="${String(el.className).slice(0, 60)}">`);
     }
-    // Nombres de movimientos y títulos cortados con «…»: a 320 px uno cortado no dice qué fue.
-    for (const el of raiz.querySelectorAll("[data-movimiento] *, h1")) {
+    // Nombres de movimientos, de cuentas y títulos cortados con «…»: a 320 px uno cortado no dice qué fue.
+    for (const el of raiz.querySelectorAll("[data-movimiento] *, [data-cuenta] *, [data-leyenda] *, h1")) {
       if (!visible(el) || !el.textContent?.trim()) continue;
       const s = getComputedStyle(el);
       const conPuntos = s.textOverflow === "ellipsis" && el.scrollWidth > el.clientWidth + 1;
       const recortado = s.webkitLineClamp !== "none" && el.scrollHeight > el.clientHeight + 1;
       if (conPuntos || recortado) malos.push(`con «…»: «${el.textContent.trim().slice(0, 40)}»`);
+    }
+    // Montos que se achicaron de más (Pedro, 15-oct: «Gastaste» y el saldo se encogían hasta desaparecer).
+    for (const el of raiz.querySelectorAll("[data-ajustado]")) {
+      if (!visible(el)) continue;
+      const tam = Number.parseFloat(getComputedStyle(el).fontSize);
+      if (tam < 13) malos.push(`monto diminuto: «${el.textContent?.trim().slice(0, 40)}» a ${tam}px`);
     }
     // Palabras cortas partidas en renglones («N / ota»): una columna aplastada por su vecina.
     const w2 = document.createTreeWalker(raiz, NodeFilter.SHOW_TEXT);
@@ -136,6 +142,7 @@ function api(largos: boolean) {
     a.movimientos[2]!.comercio = "Trabajador (instalación de motor para el portón de la casa)";
     for (const c of a.cuentas!.cuentas) if (c.nombre === "Banamex Oro") c.nombre = "Mercado Pago Crédito Platinum";
     for (const c of a.cuentas!.cuentas) if (c.nombre === "BBVA") c.saldo = 1_234_567_89;
+    for (const c of a.cuentas!.cuentas) if (c.nombre === "Revolut") Object.assign(c, { nombre: "Mercado Pago Débito", saldo: 5_000_00, saldoEn: "2026-10-04T18:00:00.000Z" });
     const p = a.plan.personas?.[0] as { persona: string } | undefined;
     if (p) p.persona = "María Fernanda de la Garza Villarreal";
     const r = recurrentesDe(a);
@@ -153,6 +160,7 @@ const PANTALLAS: [string, string, ((p: Page) => Promise<void>)?][] = [
   ["avisos", "/#avisos"],
   ["cuentas", "/#cuentas"],
   ["tarjeta", "/#cuenta?id=cta-banamex"],
+  ["cuenta", "/#cuenta?id=cta-bbva"],
   ["suscripciones", "/#suscripciones"],
   ["movimientos", "/#movimientos"],
   ["detalle", "/#movimientos?detalle=mov-001"],
