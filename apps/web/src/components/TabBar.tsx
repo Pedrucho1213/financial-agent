@@ -33,7 +33,7 @@ export function TabBar({
     <nav
       aria-label="Secciones"
       className={cn(
-        "pointer-events-none fixed inset-x-0 bottom-0 z-30 px-safe pb-[max(calc(env(safe-area-inset-bottom)-12px),12px)] transition-[translate,opacity] duration-300 ease-ios",
+        "pointer-events-none fixed inset-x-0 bottom-[calc(0px-var(--hueco,0px))] z-30 px-safe pb-[max(calc(env(safe-area-inset-bottom)-12px),12px)] transition-[translate,opacity] duration-300 ease-ios",
         oculta && "translate-y-[140%] opacity-0",
       )}
     >
