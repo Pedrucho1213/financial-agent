@@ -430,7 +430,10 @@ describe("API para la app", () => {
     expect((await pedir("/v1/msi")).cuerpo).toMatchObject({ mensualCentavos: 100000 });
     expect((await pedir("/v1/disponible")).cuerpo).toHaveProperty("porDiaCentavos");
 
-    guardarAviso(ctx, { tipo: "hormiga", clave: "a", titulo: "Hormiga", texto: "Mucho café." });
+    // La app lee los avisos con la fecha de hoy de verdad (solo los de los últimos 7 días): el aviso se guarda con esa
+    // misma fecha, no con la fija de las pruebas, para que la prueba no caduque.
+    const hoyReal = crearContexto({ db, usuarioId: usuario.id, zonaHoraria: "America/Mexico_City", monedaBase: "MXN" });
+    guardarAviso(hoyReal, { tipo: "hormiga", clave: "a", titulo: "Hormiga", texto: "Mucho café." });
     r = await pedir("/v1/avisos");
     expect(r.cuerpo.avisos.map((a: any) => a.texto)).toEqual(["Mucho café."]);
     await pedir(`/v1/avisos/${r.cuerpo.avisos[0].id}/leido`, "POST");

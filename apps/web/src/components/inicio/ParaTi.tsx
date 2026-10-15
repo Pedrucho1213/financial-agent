@@ -31,7 +31,6 @@ export function ParaTi({ destacados, conAvisos, enLinea }: { destacados: Destaca
   const qc = useQueryClient();
   const carril = useRef<HTMLDivElement>(null);
   const [pagina, setPagina] = useState(0);
-  const [alto, setAlto] = useState<number>();
 
   const nuevos = conAvisos ? (avisos.data ?? []).filter((a) => !a.leidoEn).sort((a, b) => a.prioridad - b.prioridad) : [];
   const items: Item[] = [
@@ -90,25 +89,37 @@ export function ParaTi({ destacados, conAvisos, enLinea }: { destacados: Destaca
     if (pagina > 0 && pagina >= items.length) setPagina(Math.max(0, items.length - 1));
   }, [items.length, pagina]);
 
-  // La caja mide lo de la tarjeta que se ve, no lo de la más alta: sin espacio vacío abajo.
+  // La caja mide lo de la tarjeta que se ve (sin espacio vacío abajo) y, al deslizar, va pasando de un alto al otro con el
+  // dedo: lo de abajo se mueve parejo y nada se queda recortado ni con scroll adentro.
+  const ajustarAlto = () => {
+    const el = carril.current;
+    const hijos = el ? ([...el.children] as HTMLElement[]) : [];
+    if (!el || !hijos[0]) return;
+    const pos = Math.max(0, Math.min(hijos.length - 1, el.scrollLeft / (hijos[0].offsetWidth + 16)));
+    const i = Math.floor(pos);
+    const f = pos - i;
+    const a = hijos[i]!.offsetHeight;
+    const b = hijos[Math.min(hijos.length - 1, i + 1)]!.offsetHeight;
+    el.style.height = `${a + (b - a) * f}px`;
+  };
   useLayoutEffect(() => {
-    const el = carril.current?.children[pagina] as HTMLElement | undefined;
+    const el = carril.current;
     if (!el) return;
-    const medir = () => setAlto(el.offsetHeight);
-    medir();
-    const ro = new ResizeObserver(medir);
-    ro.observe(el);
+    ajustarAlto();
+    const ro = new ResizeObserver(ajustarAlto);
+    for (const h of el.children) ro.observe(h);
     return () => ro.disconnect();
-  }, [pagina, items.length]);
+  }, [items.length]);
 
   if (!items.length) return null;
 
   const irA = (i: number) => {
     const n = Math.min(items.length - 1, Math.max(0, i));
     const el = carril.current;
-    if (!el) return;
+    const primero = el?.children[0] as HTMLElement | undefined;
+    if (!el || !primero) return;
     haptico();
-    el.scrollTo({ left: n * el.clientWidth, behavior: "smooth" });
+    el.scrollTo({ left: n * (primero.offsetWidth + 16), behavior: "smooth" });
   };
 
   return (
@@ -146,11 +157,15 @@ export function ParaTi({ destacados, conAvisos, enLinea }: { destacados: Destaca
       <div
         ref={carril}
         data-sin-jalar
-        className="carrusel items-start rounded-[20px] bg-card transition-[height] duration-300 ease-ios"
-        style={{ height: alto }}
+        // Cada consejo es su propia tarjeta, con aire entre una y otra al deslizar (el mismo que el margen de la pantalla, para
+        // que en reposo no asome una orilla de la siguiente).
+        className="carrusel -mx-4 scroll-px-4 items-start gap-4 overflow-y-hidden px-4"
         onScroll={(e) => {
           const el = e.currentTarget;
-          const n = Math.round(el.scrollLeft / Math.max(1, el.clientWidth));
+          ajustarAlto();
+          const primero = el.children[0] as HTMLElement | undefined;
+          if (!primero) return;
+          const n = Math.min(items.length - 1, Math.max(0, Math.round(el.scrollLeft / (primero.offsetWidth + 16))));
           if (n !== pagina) setPagina(n);
         }}
       >
@@ -159,7 +174,7 @@ export function ParaTi({ destacados, conAvisos, enLinea }: { destacados: Destaca
             key={it.id}
             aria-label={`${i + 1} de ${items.length}`}
             aria-hidden={i !== pagina}
-            className="relative flex w-full shrink-0 items-start gap-3 py-3.5 pr-3 pl-4"
+            className="relative flex w-full shrink-0 items-start gap-3 rounded-[20px] bg-card py-3.5 pr-3 pl-4"
           >
             <span aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-[11px] text-white" style={{ backgroundColor: it.color }}>
               {it.icono}

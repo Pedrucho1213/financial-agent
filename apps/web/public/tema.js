@@ -1,11 +1,10 @@
 // El tema elegido en Ajustes › Apariencia, antes de pintar la página (después lo lleva src/lib/tema.ts).
-// En oscuro, la barra de estado del iPhone es transparente (black-translucent): la barra de vidrio de arriba
-// pasa por debajo de la hora, como en el diseño. En claro se queda la normal: con black-translucent la hora
-// sale en blanco y no se leería sobre el fondo claro.
+// La barra de estado del iPhone se queda la normal en claro y en oscuro. Con black-translucent (antes, en oscuro) la
+// app pasa debajo de la hora y desde iOS 26 el sistema le pone encima su propio difuminado: «Octubre», la campana y
+// el título se veían apagados. Con la normal, iOS pinta la zona de la hora del color de la barra sólida de arriba.
 try {
   var tema = localStorage.getItem("fa_tema");
   if (tema === "claro" || tema === "oscuro") document.documentElement.dataset.tema = tema;
-  var oscuro = tema === "oscuro" || (tema !== "claro" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   var barra = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
-  if (barra) barra.setAttribute("content", oscuro ? "black-translucent" : "default");
+  if (barra) barra.setAttribute("content", "default");
 } catch (e) {}
