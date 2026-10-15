@@ -68,7 +68,8 @@ export function HojaAbono({ deuda, moneda, alCerrar }: { deuda: DeudaPersona | n
     <Sheet open={!!deuda} onOpenChange={(v) => !v && alCerrar()}>
       {deuda ? (
         <SheetContent
-          titulo={meDebe ? "Registrar pago" : "Registrar abono"}
+          // Corto: a 320 px, entre «Cancelar» y «Anotar», un título largo se corta.
+          titulo={meDebe ? "Pago" : "Abono"}
           descripcion={meDebe ? `Lo que te pagó ${deuda.persona}` : `A ${comoSeDice(deuda.persona)}`}
           izquierda={
             <Button variant="plain" size="text" onClick={alCerrar}>

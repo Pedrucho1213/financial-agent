@@ -83,7 +83,7 @@ export function HojaEditarDeuda({ deuda, moneda, alCerrar }: { deuda: DeudaPerso
     <Sheet open={!!deuda} onOpenChange={(v) => !v && alCerrar()}>
       {deuda ? (
         <SheetContent
-          titulo="Editar deuda"
+          titulo="Editar"
           descripcion={deuda.persona}
           izquierda={
             <Button variant="plain" size="text" onClick={alCerrar}>

@@ -97,7 +97,8 @@ export function HojaPrestamo({
     <Sheet open={!!valor} onOpenChange={(v) => !v && alCerrar()}>
       {valor ? (
         <SheetContent
-          titulo={conPersona ? (direccion === "debo" ? "Me prestó más" : "Le presté más") : "Nueva deuda"}
+          // Corto: a 320 px, entre «Cancelar» y «Anotar», un título largo se corta.
+          titulo={conPersona ? (direccion === "debo" ? "Me prestó" : "Le presté") : direccion === "debo" ? "Le debo" : "Me debe"}
           descripcion={conPersona ? persona : direccion === "debo" ? "A una persona, banco o tienda" : "Lo que te deben"}
           izquierda={
             <Button variant="plain" size="text" onClick={alCerrar}>

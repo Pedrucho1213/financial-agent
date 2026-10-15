@@ -172,6 +172,8 @@ const PANTALLAS: [string, string, ((p: Page) => Promise<void>)?][] = [
   ["nueva deuda", "/#cuentas", async (p) => p.getByRole("button", { name: "Agregar deuda o préstamo" }).click()],
   ["abono", "/#deuda?persona=Mam%C3%A1&dir=debo", async (p) => p.getByRole("button", { name: "Registrar abono" }).click()],
   ["editar deuda", "/#deuda?persona=Mam%C3%A1&dir=debo", async (p) => p.getByRole("button", { name: "Editar deuda" }).click()],
+  ["me prestó más", "/#deuda?persona=Mam%C3%A1&dir=debo", async (p) => p.getByRole("button", { name: "Me prestó más" }).click()],
+  ["pago de quien te debe", "/#deuda?persona=Juan&dir=me_deben", async (p) => p.getByRole("button", { name: "Registrar pago" }).click()],
   ["suscripciones", "/#suscripciones"],
   ["movimientos", "/#movimientos"],
   ["detalle", "/#movimientos?detalle=mov-001"],
