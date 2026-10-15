@@ -4,8 +4,8 @@ import { toast } from "sonner";
 import { mensajeDeError } from "../../lib/api";
 import { useEnLinea } from "../../lib/conexion";
 import { useCuentas } from "../../lib/cuentas";
-import { useAbonar } from "../../lib/deudas";
-import { dinero, hoyIso, leerMonto } from "../../lib/formato";
+import { type DatosAbono, useAbonar } from "../../lib/deudas";
+import { dinero, leerMonto } from "../../lib/formato";
 import { haptico } from "../../lib/haptico";
 import type { DeudaPersona } from "../../lib/tipos";
 import { useUnaVez } from "../../lib/una-vez";
@@ -14,9 +14,6 @@ import { CampoMonto } from "../CampoMonto";
 import { Spinner } from "../Spinner";
 import { Button } from "../ui/button";
 import { Chip, Chips } from "../ui/chip";
-import { CampoFecha } from "../ui/fecha";
-import { CampoFila } from "../ui/input";
-import { Fila, Grupo } from "../ui/lista";
 import { Sheet, SheetContent } from "../ui/sheet";
 import { comoSeDice } from "./Piezas";
 
@@ -30,15 +27,11 @@ export function HojaAbono({ deuda, moneda, alCerrar }: { deuda: DeudaPersona | n
   const enLinea = useEnLinea();
   const [monto, setMonto] = useState("");
   const [cuenta, setCuenta] = useState("");
-  const [fecha, setFecha] = useState(hoyIso());
-  const [nota, setNota] = useState("");
 
   useEffect(() => {
     if (!deuda) return;
     setMonto("");
     setCuenta("");
-    setFecha(hoyIso());
-    setNota("");
   }, [deuda]);
 
   const meDebe = deuda?.direccion === "me_deben";
@@ -52,16 +45,12 @@ export function HojaAbono({ deuda, moneda, alCerrar }: { deuda: DeudaPersona | n
   const unaVez = useUnaVez();
   const enviar = () =>
     unaVez(async () => {
-      if (!deuda || !listo || n === null) return;
+      if (!deuda?.id || !listo || n === null) return;
+      const datos: DatosAbono = { monto: n };
+      const elegida = (cuentas.data?.cuentas ?? []).find((c) => c.nombre === cuenta);
+      if (elegida) datos.cuenta_id = elegida.id;
       try {
-        await abonar.mutateAsync({
-          persona: deuda.persona,
-          direccion: deuda.direccion,
-          monto: n,
-          fecha,
-          cuenta: cuenta || null,
-          descripcion: nota.trim() || null,
-        });
+        await abonar.mutateAsync({ id: deuda.id, datos });
         haptico();
         toast.success(
           queda !== null && queda <= 0 ? (meDebe ? `${deuda.persona} ya te pagó todo` : `Saldaste lo de ${comoSeDice(deuda.persona)}`) : meDebe ? "Pago anotado" : "Abono anotado",
@@ -140,16 +129,6 @@ export function HojaAbono({ deuda, moneda, alCerrar }: { deuda: DeudaPersona | n
               cuentas={cuentas.data?.cuentas ?? []}
               placeholder="Ninguna"
             />
-
-            <Grupo>
-              <CampoFecha id="fecha-abono" etiqueta="Fecha" valor={fecha} alCambiar={(v) => v && setFecha(v)} max={hoyIso()} />
-              <Fila>
-                <label htmlFor="nota-abono" className="shrink-0">
-                  Nota
-                </label>
-                <CampoFila id="nota-abono" value={nota} maxLength={200} onChange={(e) => setNota(e.target.value)} placeholder="Opcional" />
-              </Fila>
-            </Grupo>
 
             <p className="flex items-start gap-1.5 px-4 text-[13px] leading-snug text-muted-foreground">
               <Mic className="mt-0.5 size-3.5 shrink-0" />

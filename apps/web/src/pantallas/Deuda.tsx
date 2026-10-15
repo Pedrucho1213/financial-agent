@@ -1,44 +1,27 @@
 import { HandCoins, Mic, Pencil, Plus, Trash2 } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ComponentProps, type ReactNode, useState } from "react";
 import { toast } from "sonner";
-import { Anillos } from "../components/Anillos";
 import { Ajustado } from "../components/Ajustado";
+import { Anillos } from "../components/Anillos";
 import { HojaAbono } from "../components/deudas/HojaAbono";
+import { HojaEditarDeuda } from "../components/deudas/HojaEditarDeuda";
 import { HojaPrestamo, type ValorHojaPrestamo } from "../components/deudas/HojaPrestamo";
-import { colorDeuda, comoSeDice, Inicial, pagadoDe, SaldoDeuda, sentidoDe } from "../components/deudas/Piezas";
-import { FilaDeslizable } from "../components/FilaDeslizable";
+import { colorDeuda, comoSeDice, pagadoDe, SaldoDeuda, sentidoDe } from "../components/deudas/Piezas";
 import { Pantalla } from "../components/Pantalla";
 import { Button } from "../components/ui/button";
 import { Confirmar } from "../components/ui/dialog";
-import { CampoFila } from "../components/ui/input";
 import { Fila, FilaBoton, Grupo } from "../components/ui/lista";
-import { Segmented } from "../components/ui/segmented";
-import { Sheet, SheetContent } from "../components/ui/sheet";
 import { Skeleton } from "../components/ui/skeleton";
+import { ofrecerDeshacer } from "../lib/acciones";
 import { mensajeDeError } from "../lib/api";
 import { useEnLinea } from "../lib/conexion";
 import { useYo } from "../lib/consultas";
-import {
-  buscarDeuda,
-  type Direccion,
-  hashDeuda,
-  personasDe,
-  prestamosDe,
-  useBorrarAbono,
-  useBorrarPrestamos,
-  useRenombrarDeuda,
-  useRestaurarPrestamos,
-} from "../lib/deudas";
+import { buscarDeuda, type Direccion, estaSaldada, personasDe, useBorrarDeuda, usePrestamos } from "../lib/deudas";
 import { dinero, dineroCorto, pct } from "../lib/formato";
 import { haptico } from "../lib/haptico";
-import { usePrestamos } from "../lib/plan";
 import { hashDe, navegar } from "../lib/ruta";
 import type { DeudaPersona, MovimientoDeuda } from "../lib/tipos";
 import { cn } from "../lib/utils";
-
-// La línea entre filas que se deslizan, debajo del texto como en las demás listas.
-const SEPARADOR =
-  "relative [&:not(:first-child)]:before:absolute [&:not(:first-child)]:before:top-0 [&:not(:first-child)]:before:right-0 [&:not(:first-child)]:before:left-[4rem] [&:not(:first-child)]:before:z-[1] [&:not(:first-child)]:before:h-[0.5px] [&:not(:first-child)]:before:bg-separator [&:not(:first-child)]:before:content-['']";
 
 const fDia = new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short" });
 const fLargo = new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "long", year: "numeric" });
@@ -55,51 +38,17 @@ export function Deuda({ params }: { params: URLSearchParams }) {
   const direccion: Direccion = params.get("dir") === "me_deben" ? "me_deben" : "debo";
   const yo = useYo();
   const moneda = yo.data?.moneda ?? "MXN";
-  const consulta = usePrestamos();
+  const consulta = usePrestamos({ todos: true });
   const enLinea = useEnLinea();
-  const borrarAbono = useBorrarAbono();
-  const borrarPrestamos = useBorrarPrestamos();
-  const restaurar = useRestaurarPrestamos();
   const [abonar, setAbonar] = useState<DeudaPersona | null>(null);
-  const [hojaPrestamo, setHojaPrestamo] = useState<ValorHojaPrestamo | null>(null);
-  const [editarPersona, setEditarPersona] = useState(false);
-  const [abonoABorrar, setAbonoABorrar] = useState<MovimientoDeuda | null>(null);
+  const [masPrestamo, setMasPrestamo] = useState<ValorHojaPrestamo | null>(null);
+  const [editar, setEditar] = useState<DeudaPersona | null>(null);
 
   const personas = personasDe(consulta.data);
   const d = buscarDeuda(personas, persona, direccion);
-  const prestamos = prestamosDe(consulta.data, { persona, direccion });
+  // Con la edición apagada (o un servidor viejo) solo se ve: abonar, editar y borrar quedan para la voz.
+  const edicion = consulta.data?.edicion === true && !!d?.id;
   const meDebe = direccion === "me_deben";
-
-  const editarPrestamo = (m: MovimientoDeuda) => {
-    const p = prestamos.find((x) => x.id === m.id);
-    if (!p) return;
-    setHojaPrestamo({
-      prestamo: { id: p.id, persona: p.persona, direccion: p.direccion, montoCentavos: p.montoCentavos, fecha: m.fecha, descripcion: p.descripcion },
-    });
-  };
-
-  const quitarPrestamo = async (m: MovimientoDeuda) => {
-    if (!m.id) return;
-    const id = m.id;
-    try {
-      await borrarPrestamos.mutateAsync([id]);
-      haptico();
-      toast(`Borré el préstamo de ${dinero(m.montoCentavos, moneda)}`, { action: { label: "Deshacer", onClick: () => restaurar.mutate([id]) } });
-    } catch (error) {
-      toast.error(mensajeDeError(error));
-    }
-  };
-
-  const quitarAbono = async (m: MovimientoDeuda) => {
-    if (!m.id) return;
-    try {
-      await borrarAbono.mutateAsync(m.id);
-      haptico();
-      toast(`Borré el abono de ${dinero(m.montoCentavos, moneda)}`);
-    } catch (error) {
-      toast.error(mensajeDeError(error));
-    }
-  };
 
   return (
     <Pantalla
@@ -107,8 +56,8 @@ export function Deuda({ params }: { params: URLSearchParams }) {
       encima={d ? sentidoDe(d) : undefined}
       atras={{ etiqueta: "Atrás", alTocar: regresar }}
       derecha={
-        d ? (
-          <Button variant="gray" size="icon-sm" aria-label="Editar deuda" disabled={!enLinea} onClick={() => setEditarPersona(true)}>
+        d && edicion ? (
+          <Button variant="gray" size="icon-sm" aria-label="Editar deuda" disabled={!enLinea} onClick={() => setEditar(d)}>
             <Pencil strokeWidth={2.25} />
           </Button>
         ) : null
@@ -134,23 +83,25 @@ export function Deuda({ params }: { params: URLSearchParams }) {
         <div className="space-y-8 pt-2 pb-4">
           <Hero d={d} moneda={moneda} />
 
-          <div className="grid grid-cols-2 gap-2.5">
-            <Accion
-              icono={<HandCoins className="size-5" strokeWidth={2.2} />}
-              principal
-              disabled={!enLinea || d.pendienteCentavos <= 0}
-              onClick={() => setAbonar(d)}
-            >
-              {meDebe ? "Registrar pago" : "Registrar abono"}
-            </Accion>
-            <Accion
-              icono={<Plus className="size-5" strokeWidth={2.4} />}
-              disabled={!enLinea}
-              onClick={() => setHojaPrestamo({ nuevo: true, persona: d.persona, direccion: d.direccion })}
-            >
-              {meDebe ? "Le presté más" : "Me prestó más"}
-            </Accion>
-          </div>
+          {edicion ? (
+            <div className="grid grid-cols-2 gap-2.5">
+              <Accion
+                icono={<HandCoins className="size-5" strokeWidth={2.2} />}
+                principal
+                disabled={!enLinea || estaSaldada(d)}
+                onClick={() => setAbonar(d)}
+              >
+                {meDebe ? "Registrar pago" : "Registrar abono"}
+              </Accion>
+              <Accion
+                icono={<Plus className="size-5" strokeWidth={2.4} />}
+                disabled={!enLinea}
+                onClick={() => setMasPrestamo({ persona: d.persona, direccion: d.direccion })}
+              >
+                {meDebe ? "Le presté más" : "Me prestó más"}
+              </Accion>
+            </div>
+          ) : null}
 
           {d.movimientos.some((m) => m.tipo === "abono") ? (
             <Grupo titulo="Cómo ha bajado">
@@ -160,27 +111,10 @@ export function Deuda({ params }: { params: URLSearchParams }) {
             </Grupo>
           ) : null}
 
-          <Grupo
-            titulo="Préstamos y abonos"
-            pie={d.movimientos.some((m) => m.id) ? "Toca un préstamo para cambiarlo. Desliza a la izquierda para borrar." : undefined}
-          >
-            {d.movimientos.map((m, i) => {
-              const fila = <FilaMovimientoDeuda m={m} meDebe={meDebe} moneda={moneda} />;
-              if (!m.id) return <div key={`${m.fecha}-${i}`} className={SEPARADOR}>{fila}</div>;
-              return (
-                <FilaDeslizable
-                  key={m.id}
-                  etiqueta={`${m.tipo === "abono" ? "Abono" : "Préstamo"} de ${dinero(m.montoCentavos, moneda)}`}
-                  deshabilitada={!enLinea}
-                  className={SEPARADOR}
-                  alTocar={() => (m.tipo === "prestamo" ? editarPrestamo(m) : setAbonoABorrar(m))}
-                  alEditar={m.tipo === "prestamo" ? () => editarPrestamo(m) : undefined}
-                  alEliminar={() => (m.tipo === "prestamo" ? void quitarPrestamo(m) : setAbonoABorrar(m))}
-                >
-                  {fila}
-                </FilaDeslizable>
-              );
-            })}
+          <Grupo titulo="Préstamos y abonos" pie={d.descripcion ? `Nota: ${d.descripcion}` : undefined}>
+            {d.movimientos.map((m, i) => (
+              <FilaMovimientoDeuda key={`${m.fecha}-${i}`} m={m} meDebe={meDebe} moneda={moneda} />
+            ))}
           </Grupo>
 
           <p className="flex items-start gap-1.5 px-4 text-[13px] leading-snug text-muted-foreground">
@@ -190,25 +124,13 @@ export function Deuda({ params }: { params: URLSearchParams }) {
               : `También por voz: «le transferí 2 mil a ${comoSeDice(d.persona)} desde Revolut». Si te equivocas, di «deshaz eso».`}
           </p>
 
-          <BorrarDeuda d={d} ids={prestamos.map((p) => p.id)} moneda={moneda} deshabilitado={!enLinea} />
+          {edicion && d.id ? <BorrarDeuda d={d} id={d.id} moneda={moneda} deshabilitado={!enLinea} /> : null}
         </div>
       )}
 
       <HojaAbono deuda={abonar} moneda={moneda} alCerrar={() => setAbonar(null)} />
-      <HojaPrestamo valor={hojaPrestamo} personas={personas.map((p) => p.persona)} moneda={moneda} alCerrar={() => setHojaPrestamo(null)} />
-      <HojaPersona abierta={editarPersona && !!d} d={d} ids={prestamos.map((p) => p.id)} alCerrar={() => setEditarPersona(false)} />
-      <Confirmar
-        abierto={!!abonoABorrar}
-        onAbiertoChange={(v) => !v && setAbonoABorrar(null)}
-        titulo="¿Borrar este abono?"
-        descripcion={
-          abonoABorrar
-            ? `${dinero(abonoABorrar.montoCentavos, moneda)} del ${fDia.format(new Date(abonoABorrar.fecha)).replace(".", "")}. La deuda vuelve a subir y, si salió de una cuenta, el dinero regresa.`
-            : ""
-        }
-        confirmar="Borrar"
-        onConfirmar={() => abonoABorrar && void quitarAbono(abonoABorrar)}
-      />
+      <HojaPrestamo valor={masPrestamo} personas={[]} moneda={moneda} alCerrar={() => setMasPrestamo(null)} />
+      <HojaEditarDeuda deuda={editar} moneda={moneda} alCerrar={() => setEditar(null)} />
     </Pantalla>
   );
 }
@@ -217,7 +139,7 @@ export function Deuda({ params }: { params: URLSearchParams }) {
 function Hero({ d, moneda }: { d: DeudaPersona; moneda: string }) {
   const pagado = pagadoDe(d);
   const meDebe = d.direccion === "me_deben";
-  const saldada = d.pendienteCentavos <= 0;
+  const saldada = estaSaldada(d);
   return (
     <section aria-label="Lo que falta" className="rounded-[20px] bg-card p-4">
       <div className="flex items-center gap-4">
@@ -252,8 +174,11 @@ function Hero({ d, moneda }: { d: DeudaPersona; moneda: string }) {
           <div>
             <dt className="text-[13px] font-medium text-muted-foreground">{meDebe ? "Te ha pagado" : "Abonaste"}</dt>
             <dd className="text-[17px] font-semibold tabular">
-              {dineroCorto(d.pagadoCentavos, moneda)}
-              <span className="font-normal text-muted-foreground"> de {dineroCorto(d.prestadoCentavos, moneda)}</span>
+              <span className="whitespace-nowrap">{dineroCorto(d.pagadoCentavos, moneda)}</span>
+              <span className="font-normal text-muted-foreground">
+                {" "}
+                de <span className="whitespace-nowrap">{dineroCorto(d.prestadoCentavos, moneda)}</span>
+              </span>
             </dd>
           </div>
         </dl>
@@ -269,8 +194,9 @@ function Accion({
   icono,
   principal,
   children,
-  ...props
-}: { icono: ReactNode; principal?: boolean; children: ReactNode } & Omit<React.ComponentProps<"button">, "children">) {
+  onClick,
+  disabled,
+}: { icono: ReactNode; principal?: boolean; children: ReactNode } & Pick<ComponentProps<"button">, "onClick" | "disabled">) {
   return (
     <button
       type="button"
@@ -280,9 +206,9 @@ function Accion({
       )}
       onClick={(e) => {
         haptico();
-        props.onClick?.(e);
+        onClick?.(e);
       }}
-      disabled={props.disabled}
+      disabled={disabled}
     >
       {icono}
       <span className="break-words">{children}</span>
@@ -294,16 +220,12 @@ function FilaMovimientoDeuda({ m, meDebe, moneda }: { m: MovimientoDeuda; meDebe
   const fecha = fDia.format(new Date(m.fecha)).replace(".", "");
   // El dinero de un abono sale de la cuenta (o llega, si te pagan); el de un préstamo, al revés.
   const sale = (m.tipo === "abono") !== meDebe;
-  const cuenta = m.cuenta ? ` · ${sale ? "desde" : "a"} ${m.cuenta}` : "";
   const abono = m.tipo === "abono";
   return (
-    <div className="flex min-h-11 w-full min-w-0 items-center gap-3 px-4 text-left text-[17px]">
+    <Fila sangria="4rem">
       <span
         aria-hidden
-        className={cn(
-          "flex size-9 shrink-0 items-center justify-center rounded-full",
-          abono ? "bg-positive/15 text-positive" : "bg-fill text-muted-foreground",
-        )}
+        className={cn("flex size-9 shrink-0 items-center justify-center rounded-full", abono ? "bg-positive/15 text-positive" : "bg-fill text-muted-foreground")}
       >
         {abono ? <HandCoins className="size-[18px]" strokeWidth={2.2} /> : <Plus className="size-[18px]" strokeWidth={2.4} />}
       </span>
@@ -311,30 +233,25 @@ function FilaMovimientoDeuda({ m, meDebe, moneda }: { m: MovimientoDeuda; meDebe
         <div className="break-words">{abono ? (meDebe ? "Te pagó" : "Abono") : meDebe ? "Le prestaste" : "Te prestó"}</div>
         <div className="text-[15px] leading-snug break-words text-muted-foreground">
           {fecha}
-          {cuenta}
-          {m.nota ? ` · ${m.nota}` : ""}
+          {m.cuenta ? ` · ${sale ? "desde" : "a"} ${m.cuenta}` : ""}
         </div>
       </div>
       <span className={cn("shrink-0 font-medium tabular", abono ? "text-positive" : "text-foreground")}>
         {abono ? "−" : "+"}
         {dinero(m.montoCentavos, moneda)}
       </span>
-    </div>
+    </Fila>
   );
 }
 
-function BorrarDeuda({ d, ids, moneda, deshabilitado }: { d: DeudaPersona; ids: string[]; moneda: string; deshabilitado: boolean }) {
-  const borrar = useBorrarPrestamos();
-  const restaurar = useRestaurarPrestamos();
+function BorrarDeuda({ d, id, moneda, deshabilitado }: { d: DeudaPersona; id: string; moneda: string; deshabilitado: boolean }) {
+  const borrar = useBorrarDeuda();
   const [confirmar, setConfirmar] = useState(false);
-  if (!ids.length) return null;
   const borrarla = async () => {
     try {
-      await borrar.mutateAsync(ids);
+      await borrar.mutateAsync(id);
       haptico();
-      toast(`Borré la deuda con ${d.persona}`, {
-        action: { label: "Deshacer", onClick: () => restaurar.mutate(ids, { onSuccess: () => navegar(hashDeuda(d)) }) },
-      });
+      ofrecerDeshacer(`Borré la deuda con ${d.persona}`);
       regresar();
     } catch (error) {
       toast.error(mensajeDeError(error));
@@ -360,81 +277,5 @@ function BorrarDeuda({ d, ids, moneda, deshabilitado }: { d: DeudaPersona; ids: 
         onConfirmar={() => void borrarla()}
       />
     </>
-  );
-}
-
-const SENTIDOS: { valor: Direccion; etiqueta: string }[] = [
-  { valor: "debo", etiqueta: "Yo le debo" },
-  { valor: "me_deben", etiqueta: "Me debe" },
-];
-
-/** Cambiar el nombre o el sentido de toda la deuda con una persona. */
-function HojaPersona({ abierta, d, ids, alCerrar }: { abierta: boolean; d: DeudaPersona | null; ids: string[]; alCerrar: () => void }) {
-  const renombrar = useRenombrarDeuda();
-  const [nombre, setNombre] = useState("");
-  const [direccion, setDireccion] = useState<Direccion>("debo");
-  useEffect(() => {
-    if (!abierta || !d) return;
-    setNombre(d.persona);
-    setDireccion(d.direccion);
-  }, [abierta, d]);
-  if (!d) return null;
-  const listo = !!nombre.trim() && (nombre.trim() !== d.persona || direccion !== d.direccion) && !renombrar.isPending;
-  const enviar = async () => {
-    if (!listo) return;
-    try {
-      await renombrar.mutateAsync({ ids, datos: { persona: nombre.trim(), direccion } });
-      haptico();
-      toast.success("Deuda actualizada");
-      alCerrar();
-      navegar(hashDeuda({ persona: nombre.trim(), direccion }), { reemplazar: true });
-    } catch (error) {
-      toast.error(mensajeDeError(error));
-    }
-  };
-  return (
-    <Sheet open={abierta} onOpenChange={(v) => !v && alCerrar()}>
-      {abierta ? (
-        <SheetContent
-          titulo="Editar deuda"
-          descripcion={d.persona}
-          izquierda={
-            <Button variant="plain" size="text" onClick={alCerrar}>
-              Cancelar
-            </Button>
-          }
-          derecha={
-            <Button variant="plain" size="text" className="font-semibold" disabled={!listo} onClick={() => void enviar()}>
-              Guardar
-            </Button>
-          }
-        >
-          <form
-            className="space-y-6 pb-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void enviar();
-            }}
-          >
-            <div className="flex justify-center pt-2">
-              <Inicial nombre={nombre || d.persona} tamano={72} />
-            </div>
-            <Grupo>
-              <Fila>
-                <label htmlFor="nombre-persona" className="shrink-0">
-                  Nombre
-                </label>
-                <CampoFila id="nombre-persona" value={nombre} maxLength={60} onChange={(e) => setNombre(e.target.value)} autoCapitalize="words" enterKeyHint="done" />
-              </Fila>
-            </Grupo>
-            <Segmented<Direccion> etiqueta="Quién debe" valor={direccion} onChange={setDireccion} opciones={SENTIDOS} />
-            <p className="px-4 text-[13px] leading-snug text-pretty text-muted-foreground">
-              Para cambiar un monto, toca ese préstamo en la lista. Para bajar la deuda, registra un abono.
-            </p>
-            <button type="submit" hidden aria-hidden tabIndex={-1} />
-          </form>
-        </SheetContent>
-      ) : null}
-    </Sheet>
   );
 }

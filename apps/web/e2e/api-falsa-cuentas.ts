@@ -152,11 +152,12 @@ function totales(cuentas: CuentaFalsa[]) {
   };
 }
 
-/** Con deudas a personas, el neto las cuenta: lo que debes resta y lo que te deben suma. */
+/** Como el servidor con deudas a personas: `netoCentavos` no cambia y `personas.netoCentavos` las cuenta. */
 function conPersonas(t: ReturnType<typeof totales>, api: ApiFalsa) {
   if (!api.deudas) return t;
+  if (!api.deudas.edicion) return { ...t, personas: null };
   const p = totalesDeudas(api.deudas);
-  return { ...t, ...p, netoCentavos: t.netoCentavos - p.deboPersonasCentavos + p.meDebenCentavos };
+  return { ...t, personas: { ...p, netoCentavos: t.netoCentavos - p.deboCentavos + p.meDebenCentavos } };
 }
 
 /** Como el servidor: la primera letra en mayúscula ("viaje" → "Viaje"). */

@@ -368,7 +368,7 @@ export class ApiFalsa {
     }
     await atenderCobros(this, { metodo, ruta, cuerpo, json: responder });
     if (respondido) return;
-    await atenderDeudas(this, { metodo, ruta, cuerpo, json: responder });
+    await atenderDeudas(this, { metodo, ruta, cuerpo, consulta: url.searchParams, json: responder });
     if (respondido) return;
     await atenderPlan(this, { metodo, ruta, cuerpo, consulta: url.searchParams, json: responder });
     if (respondido) return;

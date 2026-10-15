@@ -17,8 +17,7 @@ import { ErrorApi, mensajeDeError } from "../lib/api";
 import { useEnLinea } from "../lib/conexion";
 import { abrirDetalle, useYo } from "../lib/consultas";
 import { useCuenta, useCuentas, useGuardarCuenta } from "../lib/cuentas";
-import { personasDe } from "../lib/deudas";
-import { usePrestamos } from "../lib/plan";
+import { estaSaldada, personasDe, usePrestamos } from "../lib/deudas";
 import { diaCorto, dinero, hoyIso, pct } from "../lib/formato";
 import { haptico } from "../lib/haptico";
 import { MARCAS, marcaDe } from "../lib/marcas";
@@ -59,13 +58,15 @@ export function Cuentas({ params }: { params: URLSearchParams }) {
   const [hojaCuenta, setHojaCuenta] = useState<EstadoCuenta | { nueva: TipoCuenta } | null>(null);
   const [hojaMover, setHojaMover] = useState<InicioMover | null>(null);
   const [hojaPrestamo, setHojaPrestamo] = useState<ValorHojaPrestamo | null>(null);
-  const prestamos = usePrestamos();
+  const prestamos = usePrestamos({ todos: true });
+  const edicionDeudas = prestamos.data?.edicion === true;
 
   const datos = cuentas.data;
   const { dinero: deDinero, tarjetas, archivadas } = separarCuentas(datos?.cuentas ?? []);
   const personas = personasDe(prestamos.data);
-  const deudas = personas.filter((d) => d.pendienteCentavos > 0);
-  const saldadas = personas.filter((d) => d.pendienteCentavos <= 0);
+  // Como las tarjetas: aquí solo lo que debes, a quién o a qué. Lo que te deben no es dinero que tengas (Plan lo lista).
+  const deudas = personas.filter((d) => d.direccion === "debo" && !estaSaldada(d));
+  const saldadas = personas.filter((d) => d.direccion === "debo" && estaSaldada(d));
   const vacio = !!datos && deDinero.length + tarjetas.length === 0;
 
   return (
@@ -145,7 +146,7 @@ export function Cuentas({ params }: { params: URLSearchParams }) {
                   ))}
                 </div>
               </div>
-              <ResumenDeudas deudas={deudas} moneda={moneda} />
+              <ResumenDeudas deudas={deudas} moneda={moneda} edicion={edicionDeudas} />
             </section>
           ) : null}
 
@@ -163,13 +164,15 @@ export function Cuentas({ params }: { params: URLSearchParams }) {
               disabled={!enLinea}
               onClick={() => setHojaCuenta({ nueva: "debito" })}
             />
-            <FilaBoton
-              sangria="4rem"
-              icono={<IconoAccion><HandCoins className="size-[18px]" strokeWidth={2.4} /></IconoAccion>}
-              titulo={<span className="text-tint">Agregar deuda o préstamo</span>}
-              disabled={!enLinea}
-              onClick={() => setHojaPrestamo({ nuevo: true })}
-            />
+            {edicionDeudas ? (
+              <FilaBoton
+                sangria="4rem"
+                icono={<IconoAccion><HandCoins className="size-[18px]" strokeWidth={2.4} /></IconoAccion>}
+                titulo={<span className="text-tint">Agregar deuda o préstamo</span>}
+                disabled={!enLinea}
+                onClick={() => setHojaPrestamo({ direccion: "debo" })}
+              />
+            ) : null}
             <FilaBoton
               sangria="4rem"
               icono={<IconoAccion><ArrowLeftRight className="size-[18px]" strokeWidth={2.4} /></IconoAccion>}
@@ -227,25 +230,18 @@ export function Cuentas({ params }: { params: URLSearchParams }) {
 
       <HojaCuenta valor={hojaCuenta} moneda={moneda} alCerrar={() => setHojaCuenta(null)} />
       <HojaMover valor={hojaMover} moneda={moneda} alCerrar={() => setHojaMover(null)} />
-      <HojaPrestamo valor={hojaPrestamo} personas={personas.map((d) => d.persona)} moneda={moneda} alCerrar={() => setHojaPrestamo(null)} />
+      <HojaPrestamo valor={hojaPrestamo} personas={personas.filter((d) => d.direccion === "debo").map((d) => d.persona)} moneda={moneda} alCerrar={() => setHojaPrestamo(null)} />
     </Pantalla>
   );
 }
 
-/** Debajo de las tarjetas de deudas: cuánto debes y cuánto te deben en total. */
-function ResumenDeudas({ deudas, moneda }: { deudas: DeudaPersona[]; moneda: string }) {
-  const debo = deudas.filter((d) => d.direccion === "debo").reduce((s, d) => s + d.pendienteCentavos, 0);
-  const meDeben = deudas.filter((d) => d.direccion === "me_deben").reduce((s, d) => s + d.pendienteCentavos, 0);
+/** Debajo de las tarjetas de deudas: cuánto debes en total. */
+function ResumenDeudas({ deudas, moneda, edicion }: { deudas: DeudaPersona[]; moneda: string; edicion: boolean }) {
+  const debo = deudas.reduce((s, d) => s + d.pendienteCentavos, 0);
   return (
     <p className="px-4 pt-2 text-[13px] leading-snug text-muted-foreground" data-testid="total-deudas">
-      {debo > 0 ? (
-        <>
-          Debes <span className="whitespace-nowrap tabular font-medium text-foreground">{dinero(debo, moneda)}</span>
-        </>
-      ) : null}
-      {debo > 0 && meDeben > 0 ? " y te deben " : meDeben > 0 ? "Te deben " : null}
-      {meDeben > 0 ? <span className="whitespace-nowrap tabular font-medium text-positive">{dinero(meDeben, moneda)}</span> : null}
-      . Toca una para abonar, editarla o borrarla.
+      Debes <span className="whitespace-nowrap tabular font-medium text-foreground">{dinero(debo, moneda)}</span> en total.
+      {edicion ? " Toca una para abonar, editarla o borrarla." : null}
     </p>
   );
 }
@@ -264,12 +260,10 @@ function Resumen({ datos, moneda, alDecirLimite }: { datos: CuentasApi; moneda: 
   const colores = new Map(datos.cuentas.filter((c) => !c.esCredito).map((c, i) => [c.id, COLORES[i % COLORES.length]!]));
   const porciones = repartoDinero(datos.cuentas);
   const credito = creditoTotal(datos.cuentas);
-  // Un servidor viejo no manda las deudas con personas: el resumen queda como antes.
-  const personas =
-    t.deboPersonasCentavos !== undefined && (t.deboPersonasCentavos > 0 || (t.meDebenCentavos ?? 0) > 0)
-      ? { debo: t.deboPersonasCentavos, meDeben: t.meDebenCentavos ?? 0 }
-      : null;
-
+  // Lo que debes a personas resta como una tarjeta más, sin renglones aparte: el detalle vive en su sección. Lo que te
+  // deben no suma (aún no lo tienes). Un servidor viejo, o con la edición de deudas apagada, no lo manda.
+  const aPersonas = t.personas?.deboCentavos ?? 0;
+  const neto = t.netoCentavos - aPersonas;
   return (
     <section aria-label="Lo que tienes" className="rounded-[20px] bg-card p-4">
       <h2 className="text-[15px] font-medium text-muted-foreground">Lo que tienes</h2>
@@ -278,11 +272,11 @@ function Resumen({ datos, moneda, alDecirLimite }: { datos: CuentasApi; moneda: 
           data-testid="neto"
           className={cn(
             "mt-0.5 truncate text-[40px] leading-[1.15] font-bold tracking-[-0.025em] tabular max-[379px]:text-[32px]",
-            achicarSiNoCabe(dinero(t.netoCentavos, moneda)),
-            t.netoCentavos < 0 && "text-negative",
+            achicarSiNoCabe(dinero(neto, moneda)),
+            neto < 0 && "text-negative",
           )}
         >
-          {dinero(t.netoCentavos, moneda)}
+          {dinero(neto, moneda)}
         </Ajustado>
       ) : (
         <p className="mt-1 text-[22px] leading-7 font-bold tracking-tight">Todavía no sé cuánto tienes</p>
@@ -291,23 +285,9 @@ function Resumen({ datos, moneda, alDecirLimite }: { datos: CuentasApi; moneda: 
         {conocido ? (
           <>
             <span className="whitespace-nowrap">{dinero(t.dineroCentavos, moneda)} en cuentas</span>
-            {personas ? (
-              // Lo que debes junta tarjetas y personas; abajo va cada parte por su lado.
+            {t.deudaCentavos + aPersonas > 0 ? (
               <>
-                {t.deudaCentavos + personas.debo > 0 ? (
-                  <>
-                    {" "}menos <span className="whitespace-nowrap">{dinero(t.deudaCentavos + personas.debo, moneda)} que debes</span>
-                  </>
-                ) : null}
-                {personas.meDeben > 0 ? (
-                  <>
-                    , más <span className="whitespace-nowrap">{dinero(personas.meDeben, moneda)} que te deben</span>
-                  </>
-                ) : null}
-              </>
-            ) : t.deudaCentavos > 0 ? (
-              <>
-                {" "}menos <span className="whitespace-nowrap">{dinero(t.deudaCentavos, moneda)} que debes</span>
+                {" "}menos <span className="whitespace-nowrap">{dinero(t.deudaCentavos + aPersonas, moneda)} que debes</span>
               </>
             ) : null}
           </>
@@ -370,19 +350,6 @@ function Resumen({ datos, moneda, alDecirLimite }: { datos: CuentasApi; moneda: 
             Te quedan <span className="whitespace-nowrap tabular font-medium text-foreground">{dinero(disponible.total, moneda)}</span> de crédito
             {disponible.sinLimite.length ? ` en ${enLista(disponible.sinLimite)}` : ""}.
           </p>
-        </div>
-      ) : null}
-
-      {personas ? (
-        <div className="mt-4 grid grid-cols-2 gap-3 pt-3 hairline-t" data-testid="con-personas">
-          <div className="min-w-0">
-            <p className="text-[13px] font-medium text-muted-foreground">Debes a personas</p>
-            <p className="text-[17px] font-semibold tabular">{dinero(personas.debo, moneda)}</p>
-          </div>
-          <div className="min-w-0">
-            <p className="text-[13px] font-medium text-muted-foreground">Te deben</p>
-            <p className={cn("text-[17px] font-semibold tabular", personas.meDeben > 0 && "text-positive")}>{dinero(personas.meDeben, moneda)}</p>
-          </div>
         </div>
       ) : null}
 

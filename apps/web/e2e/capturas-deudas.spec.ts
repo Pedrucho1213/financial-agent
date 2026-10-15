@@ -25,7 +25,7 @@ for (const [esquema, sufijo] of [
     test(`cuentas y detalle (${sufijo})`, async ({ page }) => {
       await prepararSesion(page, api());
       await page.goto("/#cuentas");
-      await expect(page.getByTestId("con-personas")).toBeVisible();
+      await expect(page.getByTestId("total-deudas")).toBeVisible();
       await capturar(page, `cuentas-${sufijo}`, true);
 
       await page.getByRole("button", { name: /^Mamá/ }).click();
@@ -37,16 +37,18 @@ for (const [esquema, sufijo] of [
       await capturar(page, `abono-${sufijo}`);
       await page.getByRole("button", { name: "Cancelar" }).click();
 
-      await page.getByRole("button", { name: /^Préstamo de/ }).first().click();
-      await capturar(page, `editar-prestamo-${sufijo}`);
-      await page.getByRole("button", { name: "Cancelar" }).click();
-
       await page.getByRole("button", { name: "Editar deuda" }).click();
+      await page.waitForTimeout(500);
       await capturar(page, `editar-deuda-${sufijo}`);
       await page.getByRole("button", { name: "Cancelar" }).click();
 
       await page.getByRole("button", { name: "Borrar deuda" }).click();
       await capturar(page, `borrar-${sufijo}`);
+      await page.getByRole("alertdialog").getByRole("button", { name: "Cancelar" }).click();
+
+      await page.getByRole("button", { name: "Me prestó más" }).click();
+      await page.locator("#monto-prestamo").fill("1500");
+      await capturar(page, `mas-${sufijo}`);
     });
 
     test(`agregar y te deben (${sufijo})`, async ({ page }) => {
@@ -57,7 +59,7 @@ for (const [esquema, sufijo] of [
       await capturar(page, `nuevo-${sufijo}`);
       await page.getByRole("button", { name: "Cancelar" }).click();
 
-      await page.getByRole("button", { name: /^Juan/ }).click();
+      await page.goto("/#deuda?persona=Juan&dir=me_deben");
       await expect(page.getByTestId("falta")).toBeVisible();
       await capturar(page, `juan-${sufijo}`, true);
 
@@ -74,7 +76,7 @@ test.describe("capturas de deudas a 320", () => {
   test("en un iPhone SE", async ({ page }) => {
     await prepararSesion(page, api());
     await page.goto("/#cuentas");
-    await expect(page.getByTestId("con-personas")).toBeVisible();
+    await expect(page.getByTestId("total-deudas")).toBeVisible();
     await capturar(page, "cuentas-320", true);
     await page.getByRole("button", { name: /^Milton/ }).click();
     await expect(page.getByTestId("falta")).toBeVisible();

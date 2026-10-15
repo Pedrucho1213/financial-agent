@@ -1,6 +1,6 @@
 import { dinero, dineroCorto, pct } from "../../lib/formato";
 import { haptico } from "../../lib/haptico";
-import { hashDeuda } from "../../lib/deudas";
+import { estaSaldada, hashDeuda } from "../../lib/deudas";
 import { navegar } from "../../lib/ruta";
 import type { DeudaPersona } from "../../lib/tipos";
 import { cn } from "../../lib/utils";
@@ -37,7 +37,7 @@ const PARENTESCOS = new Set(["Mamá", "Papá", "Abuela", "Abuelo", "Esposa", "Es
 export const comoSeDice = (persona: string) => (PARENTESCOS.has(persona) ? `mi ${persona.toLowerCase()}` : persona);
 
 /** «Le debes» / «Te debe» / «Saldada». */
-export const sentidoDe = (d: DeudaPersona) => (d.pendienteCentavos <= 0 ? "Saldada" : d.direccion === "me_deben" ? "Te debe" : "Le debes");
+export const sentidoDe = (d: DeudaPersona) => (estaSaldada(d) ? "Saldada" : d.direccion === "me_deben" ? "Te debe" : "Le debes");
 
 const fCorto = new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short" });
 
@@ -48,7 +48,7 @@ const fCorto = new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short"
 export function TarjetaDeuda({ d, moneda }: { d: DeudaPersona; moneda: string }) {
   const color = colorPersona(d.persona);
   const pagado = pagadoDe(d);
-  const saldada = d.pendienteCentavos <= 0;
+  const saldada = estaSaldada(d);
   return (
     <button
       type="button"

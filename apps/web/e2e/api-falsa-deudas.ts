@@ -1,4 +1,4 @@
-import type { ApiFalsa } from "./api-falsa";
+import { type ApiFalsa, HOY } from "./api-falsa";
 
 // Deudas y préstamos con personas: alta a mano, abonos, editar, borrar y deshacer. Las deudas por persona se arman
 // en cada GET a partir de los préstamos y sus abonos, como el servidor.
@@ -24,14 +24,16 @@ export type PrestamoFalso = {
   eliminado?: boolean;
 };
 
-export type DatosDeudas = { prestamos: PrestamoFalso[]; siguiente: number };
+export type DatosDeudas = { prestamos: PrestamoFalso[]; siguiente: number; edicion: boolean; borradas: string[][] };
 
 const iso = (dia: string) => `${dia}T18:00:00.000Z`;
 
-/** Como las de Pedro (15-oct): Mamá con abonos, Milton sin abonar, Juan que le debe y una ya saldada. */
+/** Como las de Pedro (15-oct): Mamá con abonos, Milton sin abonar, Juan que le debe a él y una ya saldada. */
 export function deudasComoPedro(): DatosDeudas {
   return {
     siguiente: 1,
+    edicion: true,
+    borradas: [],
     prestamos: [
       {
         id: "pres-mama",
@@ -61,7 +63,7 @@ export function deudasComoPedro(): DatosDeudas {
       {
         id: "pres-caro",
         persona: "Caro",
-        direccion: "me_deben",
+        direccion: "debo",
         montoCentavos: 800_00,
         fecha: iso("2026-08-01"),
         cuenta: null,
@@ -98,51 +100,77 @@ function prestamoApp(p: PrestamoFalso) {
   };
 }
 
-function personas(d: DatosDeudas) {
-  const grupos = new Map<string, PrestamoFalso[]>();
-  for (const p of vivos(d)) {
-    const clave = `${normal(p.persona)}|${p.direccion}`;
-    grupos.set(clave, [...(grupos.get(clave) ?? []), p]);
-  }
-  return [...grupos.values()].map((ps) => {
-    const prestado = ps.reduce((s, p) => s + p.montoCentavos, 0);
-    const pagadoTotal = ps.reduce((s, p) => s + pagado(p), 0);
-    const movimientos = ps
-      .flatMap((p) => [
-        { tipo: "prestamo" as const, id: p.id, fecha: p.fecha, montoCentavos: p.montoCentavos, cuenta: p.cuenta, nota: p.descripcion },
-        ...p.abonos.map((a) => ({ tipo: "abono" as const, id: a.id, fecha: a.fecha, montoCentavos: a.montoCentavos, cuenta: a.cuenta, nota: a.nota })),
-      ])
-      .sort((a, b) => b.fecha.localeCompare(a.fecha));
-    return {
-      persona: ps[0]!.persona,
-      direccion: ps[0]!.direccion,
-      prestadoCentavos: prestado,
-      pagadoCentavos: pagadoTotal,
-      pendienteCentavos: Math.max(0, prestado - pagadoTotal),
-      desde: ps.map((p) => p.fecha).sort()[0]!,
-      movimientos,
-    };
-  });
+const clave = (p: Pick<PrestamoFalso, "persona" | "direccion">) => `${normal(p.persona)}|${p.direccion}`;
+
+/** Las filas de cada deuda (persona y sentido), la más vieja primero. */
+function grupos(d: DatosDeudas) {
+  const g = new Map<string, PrestamoFalso[]>();
+  for (const p of [...vivos(d)].sort((a, b) => a.fecha.localeCompare(b.fecha))) g.set(clave(p), [...(g.get(clave(p)) ?? []), p]);
+  return [...g.values()];
 }
 
-/** Lo que debe a personas y lo que le deben, para los totales de /v1/cuentas. */
+function deudaApp(ps: PrestamoFalso[]) {
+  const prestado = ps.reduce((s, p) => s + p.montoCentavos, 0);
+  const pagadoTotal = ps.reduce((s, p) => s + pagado(p), 0);
+  const pendiente = Math.max(0, prestado - pagadoTotal);
+  const movimientos = ps
+    .flatMap((p) => [
+      { tipo: "prestamo" as const, fecha: p.fecha, montoCentavos: p.montoCentavos, cuenta: p.cuenta },
+      ...p.abonos.map((a) => ({ tipo: "abono" as const, fecha: a.fecha, montoCentavos: a.montoCentavos, cuenta: a.cuenta })),
+    ])
+    .sort((a, b) => b.fecha.localeCompare(a.fecha));
+  return {
+    id: ps[0]!.id,
+    persona: ps[0]!.persona,
+    direccion: ps[0]!.direccion,
+    prestadoCentavos: prestado,
+    pagadoCentavos: pagadoTotal,
+    pendienteCentavos: pendiente,
+    desde: ps[0]!.fecha,
+    saldada: pendiente === 0,
+    descripcion: [...ps].reverse().find((p) => p.descripcion)?.descripcion ?? null,
+    movimientos,
+  };
+}
+
+/** Lo que debe a personas y lo que le deben, para `totales.personas` de /v1/cuentas. */
 export function totalesDeudas(d: DatosDeudas) {
-  const suma = (dir: Direccion) => personas(d).filter((p) => p.direccion === dir).reduce((s, p) => s + p.pendienteCentavos, 0);
-  return { deboPersonasCentavos: suma("debo"), meDebenCentavos: suma("me_deben") };
+  const deudas = grupos(d).map(deudaApp);
+  const suma = (dir: Direccion) => deudas.filter((p) => p.direccion === dir).reduce((s, p) => s + p.pendienteCentavos, 0);
+  return { deboCentavos: suma("debo"), meDebenCentavos: suma("me_deben") };
 }
 
 /** Devuelve undefined si la ruta no es de aquí. */
-export async function atenderDeudas(api: ApiFalsa, { metodo, ruta, cuerpo, json }: Peticion): Promise<void | undefined> {
+export async function atenderDeudas(api: ApiFalsa, { metodo, ruta, cuerpo, consulta, json }: Peticion & { consulta: URLSearchParams }): Promise<void | undefined> {
   const d = api.deudas;
-  if (!d || !ruta.startsWith("/v1/prestamos")) return undefined;
+  if (!d) return undefined;
+  if (metodo === "POST" && ruta === "/v1/deshacer") {
+    const ids = d.borradas.pop();
+    if (!ids) return undefined;
+    for (const p of d.prestamos) if (ids.includes(p.id)) p.eliminado = false;
+    return json(200, { deshecho: true, mensaje: "Listo, regresé la deuda." });
+  }
+  if (!ruta.startsWith("/v1/prestamos")) return undefined;
   const b = (cuerpo ?? {}) as Record<string, unknown>;
   const centavos = (v: unknown) => Math.round(Number(v) * 100);
-  const fechaDe = (v: unknown) => (typeof v === "string" && v ? iso(v.slice(0, 10)) : new Date().toISOString());
+  const fechaDe = (v: unknown) => (typeof v === "string" && v ? iso(v.slice(0, 10)) : iso(HOY));
+  const cuentaDe = (id: unknown) => (typeof id === "string" ? (api.cuentas?.cuentas.find((c) => c.id === id)?.nombre ?? null) : null);
 
   if (metodo === "GET" && ruta === "/v1/prestamos") {
+    const todos = consulta.get("todos") === "1";
     const t = totalesDeudas(d);
-    return json(200, { prestamos: vivos(d).map(prestamoApp), meDebenCentavos: t.meDebenCentavos, deboCentavos: t.deboPersonasCentavos, personas: personas(d) });
+    const personas = grupos(d)
+      .map(deudaApp)
+      .filter((x) => todos || !x.saldada);
+    return json(200, {
+      prestamos: vivos(d).map(prestamoApp).filter((p) => todos || !p.saldadoEn),
+      meDebenCentavos: t.meDebenCentavos,
+      deboCentavos: t.deboCentavos,
+      edicion: d.edicion,
+      personas,
+    });
   }
+  if (!d.edicion) return json(404, { error: "No encontrado." });
   if (metodo === "POST" && ruta === "/v1/prestamos") {
     const persona = typeof b.persona === "string" ? b.persona.trim() : "";
     const monto = centavos(b.monto);
@@ -153,58 +181,55 @@ export async function atenderDeudas(api: ApiFalsa, { metodo, ruta, cuerpo, json 
       direccion: b.direccion === "me_deben" ? "me_deben" : "debo",
       montoCentavos: monto,
       fecha: fechaDe(b.fecha),
-      cuenta: typeof b.cuenta === "string" && b.cuenta ? b.cuenta : null,
+      cuenta: cuentaDe(b.cuenta_id),
       descripcion: typeof b.descripcion === "string" ? b.descripcion : null,
       abonos: [],
     };
+    // Con la misma persona y sentido se suma a su deuda (mismo nombre que la que ya estaba).
+    const misma = vivos(d).find((x) => clave(x) === clave(p));
+    if (misma) p.persona = misma.persona;
     d.prestamos.push(p);
-    return json(201, prestamoApp(p));
+    return json(201, deudaApp(grupos(d).find((g) => g.includes(p))!));
   }
-  if (metodo === "POST" && ruta === "/v1/prestamos/abonos") {
-    const monto = centavos(b.monto);
-    const suyos = vivos(d)
-      .filter((p) => p.direccion === b.direccion && normal(p.persona) === normal(String(b.persona ?? "")))
-      .sort((x, y) => x.fecha.localeCompare(y.fecha));
-    const falta = suyos.reduce((s, p) => s + p.montoCentavos - pagado(p), 0);
-    if (!suyos.length) return json(404, { error: "No encontré esa deuda." });
-    if (!(monto > 0) || monto > falta) return json(400, { error: "El abono es más de lo que falta." });
-    // Al préstamo más viejo que aún deba.
+  const m = ruta.match(/^\/v1\/prestamos\/([^/]+)(\/abonos)?$/);
+  const filas = m ? grupos(d).find((g) => g.some((p) => p.id === m[1])) : undefined;
+  if (!m || !filas) return json(404, { error: "No encontrado." });
+  const deuda = deudaApp(filas);
+
+  if (metodo === "POST" && m[2]) {
+    const monto = b.monto === undefined ? deuda.pendienteCentavos : centavos(b.monto);
+    if (deuda.saldada) return json(400, { error: "Esa deuda ya está saldada." });
+    if (!(monto > 0)) return json(400, { error: "El monto tiene que ser mayor a cero." });
+    if (monto > deuda.pendienteCentavos) return json(400, { error: `Solo quedan $${deuda.pendienteCentavos / 100} pendientes.` });
     let resto = monto;
-    for (const p of suyos) {
+    for (const p of filas) {
       const aqui = Math.min(resto, p.montoCentavos - pagado(p));
       if (aqui <= 0) continue;
-      p.abonos.push({ id: `abo-n${d.siguiente++}`, fecha: fechaDe(b.fecha), montoCentavos: aqui, cuenta: typeof b.cuenta === "string" && b.cuenta ? b.cuenta : null, nota: typeof b.descripcion === "string" ? b.descripcion : null });
+      p.abonos.push({ id: `abo-n${d.siguiente++}`, fecha: iso(HOY), montoCentavos: aqui, cuenta: cuentaDe(b.cuenta_id), nota: null });
       resto -= aqui;
       if (!resto) break;
     }
-    return json(201, { ok: true });
+    return json(200, deudaApp(filas));
   }
-  let m = ruta.match(/^\/v1\/prestamos\/abonos\/(.+)$/);
-  if (metodo === "DELETE" && m) {
-    for (const p of d.prestamos) p.abonos = p.abonos.filter((a) => a.id !== m?.[1]);
-    return json(200, { ok: true });
+  if (metodo === "PATCH" && !m[2]) {
+    if (b.monto !== undefined && b.pendiente !== undefined) return json(400, { error: "Manda el total o lo pendiente, no los dos." });
+    const total =
+      b.monto !== undefined ? centavos(b.monto) : b.pendiente !== undefined ? deuda.pagadoCentavos + centavos(b.pendiente) : deuda.prestadoCentavos;
+    if (total < deuda.pagadoCentavos) return json(400, { error: "No puede quedar debajo de lo ya abonado." });
+    // La diferencia va al préstamo más nuevo.
+    const ultimo = filas.at(-1)!;
+    ultimo.montoCentavos += total - deuda.prestadoCentavos;
+    for (const p of filas) {
+      if (typeof b.persona === "string" && b.persona.trim()) p.persona = b.persona.trim();
+      if (b.direccion === "debo" || b.direccion === "me_deben") p.direccion = b.direccion;
+    }
+    if (b.descripcion !== undefined) ultimo.descripcion = (b.descripcion as string | null) || null;
+    return json(200, deudaApp(filas));
   }
-  m = ruta.match(/^\/v1\/prestamos\/([^/]+)\/restaurar$/);
-  if (metodo === "POST" && m) {
-    const p = d.prestamos.find((x) => x.id === m?.[1]);
-    if (!p) return json(404, { error: "No encontrado." });
-    p.eliminado = false;
-    return json(200, prestamoApp(p));
-  }
-  m = ruta.match(/^\/v1\/prestamos\/([^/]+)$/);
-  const p = m ? d.prestamos.find((x) => x.id === m?.[1] && !x.eliminado) : undefined;
-  if (m && !p) return json(404, { error: "No encontrado." });
-  if (metodo === "PATCH" && p) {
-    if (typeof b.persona === "string" && b.persona.trim()) p.persona = b.persona.trim();
-    if (b.direccion === "debo" || b.direccion === "me_deben") p.direccion = b.direccion;
-    if (b.monto !== undefined) p.montoCentavos = centavos(b.monto);
-    if (b.fecha !== undefined) p.fecha = fechaDe(b.fecha);
-    if (b.descripcion !== undefined) p.descripcion = (b.descripcion as string | null) || null;
-    return json(200, prestamoApp(p));
-  }
-  if (metodo === "DELETE" && p) {
-    p.eliminado = true;
-    return json(200, { ok: true });
+  if (metodo === "DELETE" && !m[2]) {
+    for (const p of filas) p.eliminado = true;
+    d.borradas.push(filas.map((p) => p.id));
+    return json(200, { ok: true, persona: deuda.persona, pendienteCentavos: deuda.pendienteCentavos });
   }
   return undefined;
 }
