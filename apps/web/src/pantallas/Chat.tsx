@@ -259,7 +259,7 @@ export function Chat() {
         }}
         className={cn(
           "pointer-events-none fixed inset-x-0 z-30 transition-[bottom] duration-300 ease-ios",
-          teclado ? "bottom-[calc(var(--teclado,0px)+8px)]" : "bottom-[calc(var(--barra-inferior)+10px-var(--hueco,0px))]",
+          teclado ? "bottom-[calc(var(--teclado,0px)+8px)]" : "bottom-[calc(var(--barra-inferior)+10px)]",
         )}
       >
         <Contador largo={largo} maximo={maximo} porConsulta={uso?.caracteresPorConsulta ?? 500} />
