@@ -161,7 +161,7 @@ export function herramientasPlanes(ctx: Contexto, ejecutar: Ejecutar) {
       description:
         'Préstamos y deudas con personas: "le presté 500 a Juan" le_preste; "Ana me prestó mil" o "le debo 30 mil a mi mamá" me_prestaron; "Juan me pagó 200" me_pagaron; "le pagué a Ana" o "le transferí 2 mil a mi mamá desde Revolut" le_pague (un abono). Sin monto al pagar, salda todo ("ya le terminé de pagar a mi mamá").' +
         (edicion
-          ? ' Corregir una deuda que ya existe es cambiar: "en realidad fueron 18 mil" (monto, el total), "ahora nada más le debo 15 mil" (queda) o "se llama Milton Ventura" (nuevo_nombre). "Borra la deuda con Milton" es borrar.'
+          ? ' Solo para corregir un dato mal anotado es cambiar: "en realidad fueron 18 mil" (monto, el total), "de lo de Milton ya nada más quedan 12" (queda), "se llama Milton Ventura" (nuevo_nombre); un pago o abono nunca es cambiar. "Borra la deuda con Milton" es borrar.'
           : ""),
       inputSchema: esquemaPrestamo,
       execute: ejecutar("prestamo", (args: z.infer<typeof esquemaPrestamo>) => {
