@@ -86,6 +86,7 @@ export function useTeclado() {
       document.removeEventListener("focusout", alCambiarFoco);
       for (const id of esperas) window.clearTimeout(id);
       document.documentElement.style.setProperty("--teclado", "0px");
+      document.documentElement.style.setProperty("--hueco", "0px");
     };
   }, []);
   return abierto;
