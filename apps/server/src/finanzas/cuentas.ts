@@ -33,6 +33,8 @@ export type EstadoCuenta = {
   limiteCentavos: number | null;
   /** Cuándo dijo el saldo por última vez. */
   saldoEn: string | null;
+  /** Débito y efectivo: el saldo tal como lo dijo en `saldoEn`; el de hoy le suma lo anotado después. */
+  saldoDichoCentavos: number | null;
   diaCorte: number | null;
   diaPago: number | null;
 };
@@ -136,6 +138,7 @@ function estadoDe(c: Cuenta, movido: number): EstadoCuenta {
     disponibleCentavos: disponible,
     limiteCentavos: c.limiteCentavos,
     saldoEn: c.saldoEn,
+    saldoDichoCentavos: conocido && !esCredito ? c.saldoCentavos : null,
     diaCorte: c.diaCorte,
     diaPago: c.diaPago,
   };
