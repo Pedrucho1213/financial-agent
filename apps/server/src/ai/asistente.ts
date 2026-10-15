@@ -309,6 +309,24 @@ function preguntoSinBorrar(pedido: string, respuesta: string, llamadas: number):
   return llamadas === 0 && respuesta.includes("?") && BORRA_POCOS.test(normalizar(pedido)) && !DE_DEUDA.test(normalizar(pedido));
 }
 
+/**
+ * "Le debo 15 mil a la Nu": lo que debe en una de sus tarjetas. Si el modelo pregunta sin guardar nada (si es la tarjeta
+ * o una persona), se reintenta una vez con el aviso de abajo. Sin monto sí puede preguntar.
+ */
+export function debeATarjeta(pedido: string, tarjetas: string[]): boolean {
+  const plano = normalizar(pedido);
+  if (!/\b(debo|adeudo)\b/.test(plano) || !/\d|\bmil\b/.test(plano)) return false;
+  const palabras = [...new Set(tarjetas.flatMap((t) => normalizar(t).replace(/\b(de )?(credito|debito)$/, "").trim().split(" ")))].filter((w) => w.length > 1);
+  return palabras.some((w) => new RegExp(`\\b(debo|adeudo)\\b.*\\ba (la |mi |el )?(tarjeta )?${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(plano));
+}
+
+function preguntoSinGuardarTarjeta(pedido: string, respuesta: string, llamadas: number, tarjetas: string[]): boolean {
+  return llamadas === 0 && respuesta.includes("?") && debeATarjeta(pedido, tarjetas);
+}
+
+const AVISO_TARJETA =
+  "\n\nAviso: dice cuánto debe en una de sus tarjetas de crédito, no a una persona. Guárdalo con cuentas (deuda de esa tarjeta), sin preguntar.";
+
 const AVISO_BORRAR =
   "\n\nAviso: pidió borrar uno o dos movimientos y en tu intento anterior preguntaste sin buscarlos. " +
   "No pidas confirmación: bórralos con eliminar_movimiento, uno por uno. Solo pregunta si no los encuentras o si no sabes cuál es.";
@@ -1095,6 +1113,9 @@ async function procesar(deps: Dependencias, entrada: Entrada): Promise<Respuesta
         texto = confirmacion ?? sinRazonamiento(resultado.text);
       } else if (preguntoSinBorrar(entrada.texto, texto, resultado.steps.flatMap((p) => p.toolCalls).length) && tieneMovimientos(ctx)) {
         resultado = await generar(AVISO_BORRAR);
+        texto = confirmacion ?? sinRazonamiento(resultado.text);
+      } else if (preguntoSinGuardarTarjeta(entrada.texto, texto, resultado.steps.flatMap((p) => p.toolCalls).length, nombresDeTarjetas(ctx))) {
+        resultado = await generar(AVISO_TARJETA);
         texto = confirmacion ?? sinRazonamiento(resultado.text);
       }
       mensajesRespuesta = mensajesSinRazonamiento(resultado.response.messages);
