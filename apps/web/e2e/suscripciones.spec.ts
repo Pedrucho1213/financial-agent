@@ -73,7 +73,7 @@ test("editar manda solo lo que cambió", async ({ page }) => {
   await hoja(page).getByRole("button", { name: "Guardar" }).click();
   await expect(page.getByText("Cambios guardados")).toBeVisible();
   expect(api.de("PATCH", "/v1/recurrentes/rec-spotify").at(-1)?.cuerpo).toEqual({ monto: 149, cuenta_id: "cta-nu" });
-  await expect(fila(page, "Spotify")).toContainText("$149.00");
+  await expect(fila(page, "Spotify")).toContainText("$149");
   await expect(fila(page, "Spotify")).toContainText("Nu");
   await expect(page).toHaveURL(/#suscripciones$/);
 });

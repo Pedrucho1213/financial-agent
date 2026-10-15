@@ -20,6 +20,7 @@ import { useEnLinea } from "../lib/conexion";
 import { abrirDetalle, claves, type FiltrosMovimientos, useCategorias, useMovimientos } from "../lib/consultas";
 import { useCuentas, useEtiquetas } from "../lib/cuentas";
 import { abrirEditor } from "../lib/editor";
+import { Ajustado } from "../components/Ajustado";
 import { diaCorto, dinero, mesActual, nombreDia, nombreMes, sumarMeses, TIPOS } from "../lib/formato";
 import { rangoTexto } from "../lib/periodos";
 import { useMedia } from "../lib/medios";
@@ -405,9 +406,10 @@ function TarjetaMonto({ titulo, montos, positivo }: { titulo: string; montos: Mo
   return (
     <section aria-label={titulo} className="@container min-w-0 rounded-[18px] bg-card px-4 py-3">
       <p className="text-[13px] text-muted-foreground">{titulo}</p>
-      <p className={cn("mt-0.5 text-[length:clamp(15px,14cqi,21px)] leading-tight font-semibold tracking-tight tabular [overflow-wrap:anywhere]", positivo && centavos > 0 && "text-positive")}>
+      {/* En un renglón: si no cabe, la letra se achica en vez de partir el monto. */}
+      <Ajustado className={cn("mt-0.5 text-[length:clamp(15px,14cqi,21px)] leading-tight font-semibold tracking-tight tabular", positivo && centavos > 0 && "text-positive")}>
         {dinero(centavos, moneda)}
-      </p>
+      </Ajustado>
       {otras.length ? (
         <p className="mt-0.5 text-[13px] text-muted-foreground tabular [overflow-wrap:anywhere]">y {otras.map(([m, c]) => dinero(c, m)).join(" · ")}</p>
       ) : null}

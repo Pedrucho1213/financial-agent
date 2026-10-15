@@ -16,7 +16,7 @@ import { useEnLinea } from "../lib/conexion";
 import { useYo } from "../lib/consultas";
 import { cobrosParaMostrar, useCobros } from "../lib/cobros";
 import { useCuentas } from "../lib/cuentas";
-import { diasHasta, dinero, FRECUENCIAS, hoyIso, leerMonto } from "../lib/formato";
+import { diasHasta, dinero, dineroCorto, FRECUENCIAS, hoyIso, leerMonto } from "../lib/formato";
 import { haptico } from "../lib/haptico";
 import { useBorrarRecurrente, useGuardarRecurrente, useRecurrentes } from "../lib/recurrentes";
 import { hashDe, navegar, volver } from "../lib/ruta";
@@ -226,7 +226,8 @@ function FilaRecurrente({ r, hoy, alTocar }: { r: Recurrente; hoy: string; alToc
         <span className="block text-right tabular">
           <span className={cn("block font-medium", activa ? (ingreso ? "text-positive" : "text-foreground") : "text-muted-foreground line-through decoration-1")}>
             {ingreso ? "+" : ""}
-            {dinero(r.montoCentavos, r.moneda)}
+            {/* Sin ",00": a 320 px cada letra del monto se la quita al nombre. */}
+            {dineroCorto(r.montoCentavos, r.moneda)}
           </span>
           {cuando ? <span className="block text-[13px]">{cuando}</span> : null}
         </span>
