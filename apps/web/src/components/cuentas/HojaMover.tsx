@@ -5,7 +5,7 @@ import { mensajeDeError } from "../../lib/api";
 import { useEnLinea } from "../../lib/conexion";
 import { useUnaVez } from "../../lib/una-vez";
 import { useCuentas, useMoverDinero } from "../../lib/cuentas";
-import { aFecha, dinero, hoyIso, leerMonto } from "../../lib/formato";
+import { dinero, hoyIso, leerMonto } from "../../lib/formato";
 import { haptico } from "../../lib/haptico";
 import { describirCuentas } from "../../lib/saldos";
 import type { DatosMover, EstadoCuenta } from "../../lib/tipos";
@@ -13,6 +13,7 @@ import { cn } from "../../lib/utils";
 import { CampoMonto } from "../CampoMonto";
 import { Spinner } from "../Spinner";
 import { Button } from "../ui/button";
+import { CampoFecha } from "../ui/fecha";
 import { CampoFila } from "../ui/input";
 import { Fila, Grupo } from "../ui/lista";
 import { Segmented } from "../ui/segmented";
@@ -166,25 +167,7 @@ export function HojaMover({ valor, moneda, alCerrar }: { valor: InicioMover | nu
             )}
 
             <Grupo>
-              <Fila>
-                <label htmlFor="mover-fecha" className="shrink-0">
-                  Fecha
-                </label>
-                <div className="relative ml-auto">
-                  <span className="pointer-events-none flex h-[34px] items-center rounded-lg bg-fill px-3 text-[17px] text-foreground tabular">
-                    {aFecha(fecha).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" }).replace(".", "")}
-                  </span>
-                  <input
-                    id="mover-fecha"
-                    type="date"
-                    required
-                    value={fecha}
-                    max="2099-12-31"
-                    onChange={(e) => e.target.value && setFecha(e.target.value)}
-                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                  />
-                </div>
-              </Fila>
+              <CampoFecha id="mover-fecha" etiqueta="Fecha" valor={fecha} alCambiar={(v) => v && setFecha(v)} max="2099-12-31" />
               <Fila>
                 <label htmlFor="mover-nota" className="shrink-0">
                   Nota

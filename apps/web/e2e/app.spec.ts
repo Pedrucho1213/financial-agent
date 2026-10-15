@@ -241,6 +241,44 @@ test.describe("Movimientos", () => {
     expect(api.de("DELETE", "/v1/movimientos/mov-001")).toHaveLength(1);
   });
 
+  test("la fecha se elige en un calendario dentro de la hoja, sin el globo de iOS", async ({ page }) => {
+    const api = await prepararSesion(page);
+    await page.goto("/#movimientos");
+    await page.getByRole("button", { name: "Agregar movimiento" }).click();
+    const hoja = page.getByRole("dialog");
+    const fecha = hoja.locator("#fecha");
+    await expect(fecha).toHaveText("Hoy, 6 oct");
+    await expect(hoja.locator('input[type="date"]')).toHaveCount(0);
+
+    // Se despliega debajo, en el mes de la fecha, con hoy marcado.
+    await fecha.click();
+    const calendario = hoja.getByRole("group", { name: "Calendario de fecha" });
+    await expect(calendario).toBeInViewport();
+    await expect(calendario).toContainText("Octubre 2026");
+    await expect(calendario.locator('[aria-current="date"]')).toHaveText("6");
+    await expect(calendario.locator('[aria-pressed="true"]')).toHaveText("6");
+
+    // Ayer, y se cierra solo.
+    await calendario.locator('[data-dia="2026-10-05"]').click();
+    await expect(fecha).toHaveText("Ayer, 5 oct");
+    await expect(calendario).toBeHidden();
+
+    // Otro mes con las flechas; «Hoy» regresa al mes actual.
+    await fecha.click();
+    await calendario.getByRole("button", { name: "Mes anterior" }).click();
+    await expect(calendario).toContainText("Septiembre 2026");
+    await calendario.getByRole("button", { name: "Hoy" }).click();
+    await expect(calendario).toContainText("Octubre 2026");
+    await calendario.getByRole("button", { name: "Mes anterior" }).click();
+    await calendario.getByRole("button", { name: "lunes, 28 de septiembre de 2026" }).click();
+    await expect(fecha).toHaveText("28 sep");
+
+    await hoja.locator("#monto").fill("120");
+    await hoja.getByRole("button", { name: "Agregar" }).click();
+    await expect(hoja).toBeHidden();
+    expect(api.de("POST", "/v1/movimientos")[0]?.cuerpo).toMatchObject({ monto: 120, fecha: "2026-09-28" });
+  });
+
   test("solo queda un «Deshacer»: el de lo último que se borró", async ({ page }) => {
     const api = await prepararSesion(page);
     await page.goto("/#movimientos");

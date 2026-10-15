@@ -410,8 +410,12 @@
   background-color: var(--fill);
   font: inherit;
 }
-.fa-mapa .leaflet-control-attribution {
-  border-radius: 8px 0 0 0;
+/* Con .leaflet-container para ganarle a leaflet.css, que se carga después (si no, en oscuro queda blanco).
+   Separado del borde para que la esquina redonda no corte el texto. */
+.fa-mapa.leaflet-container .leaflet-control-attribution {
+  margin: 0 8px 6px 0;
+  padding: 0 6px;
+  border-radius: 8px;
   background-color: color-mix(in srgb, var(--card) 75%, transparent);
   color: var(--muted-foreground);
   font-size: 10px;
