@@ -249,12 +249,12 @@ function HojaGastado({ t, esMesActual, ritmo }: { t: Tablero; esMesActual: boole
       )}
 
       <div className={clasePie}>
-        <span className="min-w-0 truncate opacity-[0.92]">
+        <span className="min-w-0 break-words opacity-[0.92]">
           {esMesActual ? "Hoy" : "Por día"}{" "}
-          <b className="tabular">{fmt(esMesActual ? totales.gastadoHoyCentavos : Math.round(totales.gastadoCentavos / diasDelMes(t.mes)))}</b>
+          <b className="whitespace-nowrap tabular">{fmt(esMesActual ? totales.gastadoHoyCentavos : Math.round(totales.gastadoCentavos / diasDelMes(t.mes)))}</b>
         </span>
-        <span className="min-w-0 truncate opacity-[0.92]">
-          Entró <b className="tabular">{dinero(totales.ingresadoCentavos, moneda)}</b>
+        <span className="min-w-0 break-words text-right opacity-[0.92]">
+          Entró <b className="whitespace-nowrap tabular">{dinero(totales.ingresadoCentavos, moneda)}</b>
         </span>
       </div>
     </Hoja>
@@ -302,9 +302,9 @@ function HojaTienes({
         </div>
       ) : null}
       <div className={clasePie}>
-        <span className="min-w-0 truncate opacity-[0.92]">{uso !== null ? <>Crédito usado <b className="tabular">{pct(uso)}</b></> : "Cuentas y tarjetas"}</span>
-        <span className="flex min-w-0 items-center truncate opacity-[0.92]">
-          {noSuman.length ? <span data-testid="faltan" className="truncate">{faltan(noSuman).replace(/^f/, "F")}</span> : "Ver"}
+        <span className="min-w-0 break-words opacity-[0.92]">{uso !== null ? <>Crédito usado <b className="whitespace-nowrap tabular">{pct(uso)}</b></> : "Cuentas y tarjetas"}</span>
+        <span className="flex min-w-0 items-end text-right opacity-[0.92]">
+          {noSuman.length ? <span data-testid="faltan" className="min-w-0 break-words">{faltan(noSuman).replace(/^f/, "F")}</span> : "Ver"}
           <ChevronRight aria-hidden className="size-4 shrink-0" strokeWidth={2.6} />
         </span>
       </div>
@@ -326,7 +326,7 @@ function HojaTienesVacia({ balance, moneda, mes }: { balance: number; moneda: st
       <Ajustado como="span" className={claseGrande}>{dinero(balance, moneda, { signo: true })}</Ajustado>
       <p className="text-[14px] leading-5 font-medium opacity-90">Lo que entró menos lo que gastaste</p>
       <div className={clasePie}>
-        <span className="min-w-0 truncate opacity-[0.92]">{mes ? "Ver el mes completo" : "¿Cuánto tienes?"}</span>
+        <span className="min-w-0 break-words opacity-[0.92]">{mes ? "Ver el mes completo" : "¿Cuánto tienes?"}</span>
         <span className="flex items-center opacity-[0.92]">
           {mes ? "Análisis" : "Dímelo"} <ChevronRight aria-hidden className="size-4" strokeWidth={2.6} />
         </span>
@@ -347,7 +347,6 @@ const FONDO_SALUD: Record<NivelSalud, string> = {
 function HojaSalud({ s }: { s: SaludFinanciera }) {
   const nivel = s.nivelSinAlertas ?? s.nivel;
   const titulo = NIVELES.find((n) => n.clave === nivel)?.titulo ?? s.titulo;
-  const consejo = s.consejos[0]?.texto;
   return (
     <Hoja
       nombre="Salud financiera"
@@ -358,16 +357,19 @@ function HojaSalud({ s }: { s: SaludFinanciera }) {
       <div className="flex justify-between gap-2">
         <div className="min-w-0">
           <h2 className={claseEtiqueta}>Salud financiera</h2>
-          <p className="mt-0.5 truncate text-[30px] leading-9 font-bold tracking-[-0.02em]">{nivel ? titulo : "Sin calificar"}</p>
+          <p className="mt-0.5 break-words hyphens-auto text-[30px] leading-9 font-bold tracking-[-0.02em] [@container(max-width:300px)]:text-[24px] [@container(max-width:300px)]:leading-8">{nivel ? titulo : "Sin calificar"}</p>
           <p className="text-[14px] font-medium opacity-90 tabular">
             {s.puntaje !== null ? `${s.puntaje} de 100` : s.ingresos.mensualCentavos === null ? "Dime tu ingreso" : "Me faltan datos"}
           </p>
         </div>
         <MedidorBlanco puntaje={s.puntaje} />
       </div>
-      {s.alertas[0] ? <p className="mt-2 line-clamp-2 text-[14px] leading-5 font-medium opacity-90">{s.alertas[0]}</p> : null}
+      {s.alertas[0] ? <p className="mt-2 text-[14px] leading-5 font-medium opacity-90 text-pretty">{s.alertas[0]}</p> : null}
       <div className={clasePie}>
-        <span className="line-clamp-1 min-w-0 opacity-[0.92]">{consejo ?? s.resumen}</span>
+        {/* El consejo completo no cabe sin «…» (y estirarlo alargaba todas las tarjetas): aquí solo cuántos hay. */}
+        <span className="min-w-0 break-words opacity-[0.92]">
+          {s.consejos.length ? `${s.consejos.length} ${s.consejos.length === 1 ? "consejo" : "consejos"} para mejorar` : "Cómo vas este mes"}
+        </span>
         <span className="flex shrink-0 items-center opacity-[0.92]">
           Ver <ChevronRight aria-hidden className="size-4" strokeWidth={2.6} />
         </span>
@@ -389,7 +391,7 @@ function MedidorBlanco({ puntaje }: { puntaje: number | null }) {
   };
   const a = Math.PI * (1 - (puntaje ?? 0) / 100);
   return (
-    <svg viewBox="0 0 120 66" width={92} height={51} aria-hidden className="mt-1.5 shrink-0">
+    <svg viewBox="0 0 120 66" aria-hidden className="mt-1.5 h-[51px] w-[92px] shrink-0 [@container(max-width:300px)]:h-10 [@container(max-width:300px)]:w-[72px]">
       {[0, 1, 2, 3, 4].map((i) => (
         <path
           key={i}

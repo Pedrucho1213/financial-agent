@@ -343,16 +343,16 @@ function Principal({ a, nombreCategoria }: { a: DatosAnalisis; nombreCategoria: 
       />
       <div className="mt-3 grid grid-cols-3 gap-3 pt-3 hairline-t">
         {/* Tres columnas: los promedios van en pesos enteros y en un iPhone SE (320) se achican en vez de cortarse. */}
-        <Dato etiqueta="Por día" valor={pesos(a.totales.porDia)} className="max-[379px]:text-[15px]" />
-        <Dato etiqueta="Gastos" valor={String(a.totales.cantidad)} className="max-[379px]:text-[15px]" />
-        <Dato etiqueta="Promedio" valor={pesos(a.totales.ticket)} className="max-[379px]:text-[15px]" />
+        <Dato etiqueta="Por día" valor={pesos(a.totales.porDia)} className="max-[379px]:text-[15px] max-[359px]:text-[14px]" />
+        <Dato etiqueta="Gastos" valor={String(a.totales.cantidad)} className="max-[379px]:text-[15px] max-[359px]:text-[14px]" />
+        <Dato etiqueta="Promedio" valor={pesos(a.totales.ticket)} className="max-[379px]:text-[15px] max-[359px]:text-[14px]" />
       </div>
       {a.totales.ingreso > 0 ? (
         <div className="mt-3 grid grid-cols-2 gap-3 pt-3 hairline-t">
-          <Dato etiqueta="Entró" valor={fmt(a.totales.ingreso)} className="max-[379px]:text-[15px]" />
+          <Dato etiqueta="Entró" valor={dinero(a.totales.ingreso, a.moneda, { compacto: a.totales.ingreso >= 100_000_00 })} className="max-[379px]:text-[15px]" />
           <Dato
             etiqueta="Te quedó"
-            valor={dinero(a.totales.neto, a.moneda, { signo: true })}
+            valor={dinero(a.totales.neto, a.moneda, { signo: true, compacto: Math.abs(a.totales.neto) >= 100_000_00 })}
             className={cn(
               "max-[379px]:text-[15px]",
               a.totales.neto > 0 ? "text-positive" : a.totales.neto < 0 ? "text-negative" : undefined,
@@ -403,7 +403,7 @@ function Dato({ etiqueta, valor, className }: { etiqueta: string; valor: string;
   return (
     <div className="min-w-0">
       <div className="text-[13px] text-muted-foreground">{etiqueta}</div>
-      <div className={cn("truncate text-[17px] font-semibold tabular", className)}>{valor}</div>
+      <div className={cn("text-[17px] font-semibold break-words tabular", className)}>{valor}</div>
     </div>
   );
 }
@@ -528,7 +528,7 @@ function Categorias({
             >
               <div className="flex items-baseline gap-2">
                 <span aria-hidden className="size-2.5 shrink-0 translate-y-[-1px] rounded-full" style={{ backgroundColor: color }} />
-                <span className="min-w-0 flex-1 truncate text-[17px]">{c.nombre}</span>
+                <span className="min-w-0 flex-1 break-words text-[17px]">{c.nombre}</span>
                 {/* En 320 px el cambio baja al renglón de abajo para que el nombre se lea completo. */}
                 {a.comparable ? (
                   <span className="shrink-0 max-[359px]:hidden">
@@ -619,7 +619,7 @@ function Calendario({
                       onClick={() => navegar(hashDetalle(f.id))}
                       className="flex h-9 w-full items-center justify-between gap-3 text-left text-[15px] active:opacity-50"
                     >
-                      <span className="min-w-0 truncate">{f.e}</span>
+                      <span className="min-w-0 break-words">{f.e}</span>
                       <span className="flex shrink-0 items-center gap-1 text-muted-foreground tabular">
                         {dinero(f.c, a.moneda)}
                         <ChevronRight className="size-4 opacity-60" aria-hidden />
@@ -701,11 +701,11 @@ function Cuando({ a }: { a: DatosAnalisis }) {
                 ) : null,
               )}
             </div>
-            <ul className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5">
+            <ul className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 min-[360px]:grid-cols-2">
               {momentos.map((m, i) => (
                 <li key={m.id} className="flex items-center gap-2 text-[15px]">
                   <span aria-hidden className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: `var(--serie-${i + 1})` }} />
-                  <span className="min-w-0 flex-1 truncate">{m.nombre}</span>
+                  <span className="min-w-0 flex-1 break-words">{m.nombre}</span>
                   <span className="text-muted-foreground tabular">{pct(m.cantidad / Math.max(1, a.conHora))}</span>
                 </li>
               ))}
@@ -755,7 +755,7 @@ function Naturaleza({ a }: { a: DatosAnalisis }) {
           {partes.map((p) => (
             <li key={p.id} className="flex items-center gap-2 text-[15px]">
               <span aria-hidden className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: p.color }} />
-              <span className="min-w-0 flex-1 truncate">{p.nombre}</span>
+              <span className="min-w-0 flex-1 break-words">{p.nombre}</span>
               <span className="font-semibold tabular">{pct(p.valor / base)}</span>
               {ingreso > 0 && p.meta !== null ? <span className="w-[64px] text-right text-[13px] text-muted-foreground tabular">meta {pct(p.meta)}</span> : null}
             </li>
@@ -884,7 +884,7 @@ function PorEtiqueta({ a, categoria }: { a: DatosAnalisis; categoria: string | n
           >
             <div className="flex items-baseline gap-2">
               <Tag aria-hidden className="size-4 shrink-0 translate-y-[2px] text-tint" />
-              <span className="min-w-0 flex-1 truncate text-[17px]">{e.nombre}</span>
+              <span className="min-w-0 flex-1 break-words text-[17px]">{e.nombre}</span>
               <span className="flex shrink-0 flex-col items-end">
                 <span className="text-[17px] tabular">{dinero(e.centavos, a.moneda)}</span>
                 {a.comparable ? <Delta actual={e.centavos} anterior={e.anterior} /> : null}
@@ -920,9 +920,9 @@ function Pagos({ a }: { a: DatosAnalisis }) {
           >
             <div className="flex items-baseline gap-2">
               <CreditCard aria-hidden className={cn("size-4 shrink-0 translate-y-[2px]", c.id ? "text-tint" : "text-muted-foreground")} />
-              <span className={cn("min-w-0 flex-1 truncate text-[17px]", !c.id && "text-muted-foreground")}>{c.nombre}</span>
+              <span className={cn("min-w-0 flex-1 break-words text-[17px]", !c.id && "text-muted-foreground")}>{c.nombre}</span>
               <span className="text-[13px] text-muted-foreground tabular">{pct(c.centavos / total)}</span>
-              <span className="shrink-0 text-[17px] tabular">{dinero(c.centavos, a.moneda)}</span>
+              <span className="shrink-0 text-[17px] tabular">{dinero(c.centavos, a.moneda, { compacto: c.centavos >= 100_000_00 })}</span>
             </div>
             <div className="mt-2 ml-6 h-[6px] rounded-full bg-fill">
               <span

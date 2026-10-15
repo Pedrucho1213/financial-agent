@@ -79,8 +79,8 @@ export function FilaDispositivo({ d, alTocar }: { d: Dispositivo; alTocar: () =>
       sangria="3.75rem"
       icono={<IconoDispositivo nombre={d.nombre} />}
       titulo={
-        <span className="flex items-center gap-2">
-          <span className="truncate">{d.nombre}</span>
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          <span className="min-w-0 break-words">{d.nombre}</span>
           {d.actual ? <Badge variant="default">Este</Badge> : null}
         </span>
       }

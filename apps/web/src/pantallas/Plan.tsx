@@ -502,11 +502,16 @@ function Msi({ datos, moneda }: { datos: ComprasMsi | undefined; moneda: string 
             titulo={c.descripcion}
             subtitulo={
               <>
-                {c.proximoCargo
-                  ? `Pago ${Math.min(c.pagadas + 1, c.meses)} de ${c.meses} el ${fCorto(c.proximoCargo)}`
-                  : `${c.pagadas} de ${c.meses} pagos`}
-                {/* «faltan» va abajo y no junto al monto: a la derecha le quitaba todo el ancho al nombre. */}
-                <span className="whitespace-nowrap tabular"> · faltan {dinero(c.restanteCentavos, moneda)}</span>
+                {/* Cuándo es el pago en un renglón y cuánto falta en otro: juntos se partían a media frase. */}
+                {c.proximoCargo ? (
+                  <>
+                    <span className="whitespace-nowrap">Pago {Math.min(c.pagadas + 1, c.meses)} de {c.meses}</span>{" "}
+                    <span className="whitespace-nowrap">el {fCorto(c.proximoCargo)}</span>
+                  </>
+                ) : (
+                  <span className="whitespace-nowrap">{`${c.pagadas} de ${c.meses} pagos`}</span>
+                )}
+                <span className="block whitespace-nowrap tabular">Faltan {dinero(c.restanteCentavos, moneda)}</span>
               </>
             }
             valor={<span className="font-medium text-foreground tabular">{dinero(c.proximoMontoCentavos ?? c.mensualidadCentavos, moneda)}</span>}

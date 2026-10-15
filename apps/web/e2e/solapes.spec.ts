@@ -91,9 +91,10 @@ async function solapes(page: Page) {
       if (el.scrollWidth > el.clientWidth + 1 && el.clientWidth > 0)
         malos.push(`cortado: «${el.textContent.trim().slice(0, 40)}» ${el.scrollWidth}>${el.clientWidth} <${el.tagName.toLowerCase()} class="${String(el.className).slice(0, 60)}">`);
     }
-    // Nombres de movimientos, de cuentas y títulos cortados con «…»: a 320 px uno cortado no dice qué fue.
-    for (const el of raiz.querySelectorAll("[data-movimiento] *, [data-cuenta] *, [data-leyenda] *, h1")) {
-      if (!visible(el) || !el.textContent?.trim()) continue;
+    // Textos cortados con «…»: a 320 px uno cortado no dice qué fue. Solo se vale donde se marcó a propósito
+    // con data-recorte (p. ej. el título chico de la barra, que repite el título grande).
+    for (const el of raiz.querySelectorAll("*")) {
+      if (!visible(el) || !el.textContent?.trim() || el.closest("[data-recorte], .sr-only, .leaflet-container")) continue;
       const s = getComputedStyle(el);
       const conPuntos = s.textOverflow === "ellipsis" && el.scrollWidth > el.clientWidth + 1;
       const recortado = s.webkitLineClamp !== "none" && el.scrollHeight > el.clientHeight + 1;
@@ -168,6 +169,11 @@ const PANTALLAS: [string, string, ((p: Page) => Promise<void>)?][] = [
   ["analisis", "/#analisis"],
   ["salud", "/#salud"],
   ["ajustes", "/#ajustes"],
+  ["perfil", "/#perfil"],
+  ["dispositivos", "/#dispositivos"],
+  ["notificaciones", "/#notificaciones"],
+  ["etiquetas", "/#etiquetas"],
+  ["chat", "/#chat"],
   ["editor", "/#movimientos", async (p) => p.getByRole("button", { name: "Agregar movimiento" }).click()],
   ["cobros", "/#inicio?confirmar=cob-renta"],
 ];
