@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, TriangleAlert, X } from "lucide-react";
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { preguntarAlChat } from "../../lib/chat";
 import { haptico } from "../../lib/haptico";
@@ -89,28 +89,6 @@ export function ParaTi({ destacados, conAvisos, enLinea }: { destacados: Destaca
     if (pagina > 0 && pagina >= items.length) setPagina(Math.max(0, items.length - 1));
   }, [items.length, pagina]);
 
-  // La caja mide lo de la tarjeta que se ve (sin espacio vacío abajo) y, al deslizar, va pasando de un alto al otro con el
-  // dedo: lo de abajo se mueve parejo y nada se queda recortado ni con scroll adentro.
-  const ajustarAlto = () => {
-    const el = carril.current;
-    const hijos = el ? ([...el.children] as HTMLElement[]) : [];
-    if (!el || !hijos[0]) return;
-    const pos = Math.max(0, Math.min(hijos.length - 1, el.scrollLeft / (hijos[0].offsetWidth + 16)));
-    const i = Math.floor(pos);
-    const f = pos - i;
-    const a = hijos[i]!.offsetHeight;
-    const b = hijos[Math.min(hijos.length - 1, i + 1)]!.offsetHeight;
-    el.style.height = `${a + (b - a) * f}px`;
-  };
-  useLayoutEffect(() => {
-    const el = carril.current;
-    if (!el) return;
-    ajustarAlto();
-    const ro = new ResizeObserver(ajustarAlto);
-    for (const h of el.children) ro.observe(h);
-    return () => ro.disconnect();
-  }, [items.length]);
-
   if (!items.length) return null;
 
   const irA = (i: number) => {
@@ -158,11 +136,11 @@ export function ParaTi({ destacados, conAvisos, enLinea }: { destacados: Destaca
         ref={carril}
         data-sin-jalar
         // Cada consejo es su propia tarjeta, con aire entre una y otra al deslizar (el mismo que el margen de la pantalla, para
-        // que en reposo no asome una orilla de la siguiente).
-        className="carrusel -mx-4 scroll-px-4 items-start gap-4 overflow-y-hidden px-4"
+        // que en reposo no asome una orilla de la siguiente). Todas miden lo de la más alta: al deslizar no cambia el alto
+        // ni brinca lo de abajo, y la acción queda siempre abajo.
+        className="carrusel -mx-4 scroll-px-4 gap-4 overflow-y-hidden px-4"
         onScroll={(e) => {
           const el = e.currentTarget;
-          ajustarAlto();
           const primero = el.children[0] as HTMLElement | undefined;
           if (!primero) return;
           const n = Math.min(items.length - 1, Math.max(0, Math.round(el.scrollLeft / (primero.offsetWidth + 16))));
@@ -179,9 +157,9 @@ export function ParaTi({ destacados, conAvisos, enLinea }: { destacados: Destaca
             <span aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-[11px] text-white" style={{ backgroundColor: it.color }}>
               {it.icono}
             </span>
-            <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-1 flex-col self-stretch">
               <h3 className={cn("text-[16px] leading-[21px] font-semibold", it.alDescartar && "pr-7")}>{it.titulo}</h3>
-              <p className="mt-0.5 text-[14px] leading-[19px] text-pretty text-muted-foreground">{it.texto}</p>
+              <p className="mt-0.5 mb-1 text-[14px] leading-[19px] text-pretty text-muted-foreground">{it.texto}</p>
               {it.accion ? (
                 <button
                   type="button"
@@ -191,7 +169,7 @@ export function ParaTi({ destacados, conAvisos, enLinea }: { destacados: Destaca
                     haptico();
                     it.accion!.alTocar();
                   }}
-                  className="-ml-0.5 mt-1 flex h-8 items-center gap-0.5 text-[15px] font-medium text-tint active:opacity-50 disabled:opacity-40"
+                  className="-ml-0.5 mt-auto flex h-8 items-center gap-0.5 self-start text-[15px] font-medium text-tint active:opacity-50 disabled:opacity-40"
                 >
                   {it.accion.texto}
                   <ChevronRight className="size-4" strokeWidth={2.6} />

@@ -200,7 +200,7 @@ for (const largos of [false, true]) {
 }
 
 // Inicio en el iPhone de Pedro (oscuro): cada tarjeta de «Para ti» se ve completa, sin scroll adentro y con aire entre
-// una y otra; y el título grande nunca se queda a medias bajo la barra («Hola, Pedro» cortado).
+// una y otra, todas del mismo alto; y el título grande nunca se queda a medias bajo la barra («Hola, Pedro» cortado).
 for (const ancho of [320, 390]) {
   test(`Inicio a ${ancho} px: «Para ti» completo y el título no se queda cortado`, async ({ page }) => {
     await page.setViewportSize({ width: ancho, height: 844 });
@@ -214,6 +214,9 @@ for (const ancho of [320, 390]) {
     const carril = pt.locator(".carrusel");
     const [a, b] = await carril.evaluate((el) => [...el.children].slice(0, 2).map((h) => h.getBoundingClientRect().toJSON()));
     expect(b!.left - a!.right, "aire entre tarjetas").toBeGreaterThanOrEqual(12);
+    // Todas del mismo alto, para que al deslizar no cambie la altura.
+    const altos = await carril.evaluate((el) => [...el.children].map((h) => Math.round(h.getBoundingClientRect().height)));
+    expect(new Set(altos).size, `altos: ${altos.join(", ")}`).toBe(1);
 
     const total = await pt.locator("article").count();
     const informe: string[] = [];
