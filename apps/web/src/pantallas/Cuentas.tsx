@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore, ArrowLeftRight, CreditCard, Lightbulb, List, Mic, Pencil, Plus, Tag } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowLeftRight, CreditCard, HandCoins, Lightbulb, List, Mic, Pencil, Plus, Tag } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import { Ajustado } from "../components/Ajustado";
@@ -6,6 +6,8 @@ import { Anillos } from "../components/Anillos";
 import { HojaCuenta } from "../components/cuentas/HojaCuenta";
 import { HojaMover, type InicioMover } from "../components/cuentas/HojaMover";
 import { IconoCuenta } from "../components/cuentas/IconoCuenta";
+import { HojaPrestamo, type ValorHojaPrestamo } from "../components/deudas/HojaPrestamo";
+import { TarjetaDeuda } from "../components/deudas/Piezas";
 import { LogoMarca, LogoMovimiento } from "../components/Logo";
 import { Pantalla } from "../components/Pantalla";
 import { Button } from "../components/ui/button";
@@ -15,6 +17,7 @@ import { ErrorApi, mensajeDeError } from "../lib/api";
 import { useEnLinea } from "../lib/conexion";
 import { abrirDetalle, useYo } from "../lib/consultas";
 import { useCuenta, useCuentas, useGuardarCuenta } from "../lib/cuentas";
+import { estaSaldada, personasDe, usePrestamos } from "../lib/deudas";
 import { diaCorto, dinero, hoyIso, pct } from "../lib/formato";
 import { haptico } from "../lib/haptico";
 import { MARCAS, marcaDe } from "../lib/marcas";
@@ -35,7 +38,7 @@ import {
   separarCuentas,
   usoCredito,
 } from "../lib/saldos";
-import type { CuentaConMes, Cuentas as CuentasApi, EstadoCuenta, MovimientoApp, TipoCuenta } from "../lib/tipos";
+import type { CuentaConMes, Cuentas as CuentasApi, DeudaPersona, EstadoCuenta, MovimientoApp, TipoCuenta } from "../lib/tipos";
 import { cn } from "../lib/utils";
 import { tituloDe } from "../components/FilaMovimiento";
 
@@ -54,9 +57,16 @@ export function Cuentas({ params }: { params: URLSearchParams }) {
   const enLinea = useEnLinea();
   const [hojaCuenta, setHojaCuenta] = useState<EstadoCuenta | { nueva: TipoCuenta } | null>(null);
   const [hojaMover, setHojaMover] = useState<InicioMover | null>(null);
+  const [hojaPrestamo, setHojaPrestamo] = useState<ValorHojaPrestamo | null>(null);
+  const prestamos = usePrestamos({ todos: true });
+  const edicionDeudas = prestamos.data?.edicion === true;
 
   const datos = cuentas.data;
   const { dinero: deDinero, tarjetas, archivadas } = separarCuentas(datos?.cuentas ?? []);
+  const personas = personasDe(prestamos.data);
+  // Como las tarjetas: aquí solo lo que debes, a quién o a qué. Lo que te deben no es dinero que tengas (Plan lo lista).
+  const deudas = personas.filter((d) => d.direccion === "debo" && !estaSaldada(d));
+  const saldadas = personas.filter((d) => d.direccion === "debo" && estaSaldada(d));
   const vacio = !!datos && deDinero.length + tarjetas.length === 0;
 
   return (
@@ -71,7 +81,7 @@ export function Cuentas({ params }: { params: URLSearchParams }) {
           </Button>
         ) : null
       }
-      alRefrescar={() => cuentas.refetch()}
+      alRefrescar={() => Promise.all([cuentas.refetch(), prestamos.refetch()])}
     >
       {sinServidor(cuentas.error) ? (
         <Aviso titulo="Aún no está en tu servidor" texto="Las cuentas y tarjetas llegan con la próxima actualización de la Mac." />
@@ -126,10 +136,24 @@ export function Cuentas({ params }: { params: URLSearchParams }) {
             </section>
           ) : null}
 
+          {deudas.length ? (
+            <section aria-label="Deudas y préstamos">
+              <TituloSeccion>Deudas y préstamos</TituloSeccion>
+              <div className="@container">
+                <div className="grid grid-cols-2 gap-2.5 @max-[250px]:grid-cols-1">
+                  {deudas.map((d) => (
+                    <TarjetaDeuda key={`${d.persona}-${d.direccion}`} d={d} moneda={moneda} />
+                  ))}
+                </div>
+              </div>
+              <ResumenDeudas deudas={deudas} moneda={moneda} edicion={edicionDeudas} />
+            </section>
+          ) : null}
+
           <Grupo
             pie={
               <span className="flex items-start gap-1.5">
-                <Mic className="mt-0.5 size-3.5 shrink-0" /> También por voz: «pasé 2 mil de BBVA a Nu», «pagué la Nu», «saqué 500 del cajero».
+                <Mic className="mt-0.5 size-3.5 shrink-0" /> También por voz: «pasé 2 mil de BBVA a Nu», «pagué la Nu», «le debo 5 mil a mi mamá».
               </span>
             }
           >
@@ -140,6 +164,15 @@ export function Cuentas({ params }: { params: URLSearchParams }) {
               disabled={!enLinea}
               onClick={() => setHojaCuenta({ nueva: "debito" })}
             />
+            {edicionDeudas ? (
+              <FilaBoton
+                sangria="4rem"
+                icono={<IconoAccion><HandCoins className="size-[18px]" strokeWidth={2.4} /></IconoAccion>}
+                titulo={<span className="text-tint">Agregar deuda o préstamo</span>}
+                disabled={!enLinea}
+                onClick={() => setHojaPrestamo({ direccion: "debo" })}
+              />
+            ) : null}
             <FilaBoton
               sangria="4rem"
               icono={<IconoAccion><ArrowLeftRight className="size-[18px]" strokeWidth={2.4} /></IconoAccion>}
@@ -157,17 +190,33 @@ export function Cuentas({ params }: { params: URLSearchParams }) {
           </Grupo>
 
           {conArchivadas ? (
-            archivadas.length ? (
-              <section>
-                <TituloSeccion>Archivadas</TituloSeccion>
-                <Grupo pie="No se suman ni aparecen al elegir una cuenta. Sus movimientos se quedan.">
-                  {archivadas.map((c) => (
-                    <FilaCuenta key={c.id} c={c} moneda={moneda} hoy={hoy} />
-                  ))}
-                </Grupo>
-              </section>
+            archivadas.length || saldadas.length ? (
+              <>
+                {archivadas.length ? (
+                  <section>
+                    <TituloSeccion>Archivadas</TituloSeccion>
+                    <Grupo pie="No se suman ni aparecen al elegir una cuenta. Sus movimientos se quedan.">
+                      {archivadas.map((c) => (
+                        <FilaCuenta key={c.id} c={c} moneda={moneda} hoy={hoy} />
+                      ))}
+                    </Grupo>
+                  </section>
+                ) : null}
+                {saldadas.length ? (
+                  <section aria-label="Deudas saldadas">
+                    <TituloSeccion>Deudas saldadas</TituloSeccion>
+                    <div className="@container">
+                      <div className="grid grid-cols-2 gap-2.5 @max-[250px]:grid-cols-1">
+                        {saldadas.map((d) => (
+                          <TarjetaDeuda key={`${d.persona}-${d.direccion}`} d={d} moneda={moneda} />
+                        ))}
+                      </div>
+                    </div>
+                  </section>
+                ) : null}
+              </>
             ) : (
-              <p className="px-4 text-center text-[15px] text-muted-foreground">No tienes cuentas archivadas.</p>
+              <p className="px-4 text-center text-[15px] text-muted-foreground">No tienes cuentas archivadas ni deudas saldadas.</p>
             )
           ) : (
             <div className="flex justify-center">
@@ -181,7 +230,19 @@ export function Cuentas({ params }: { params: URLSearchParams }) {
 
       <HojaCuenta valor={hojaCuenta} moneda={moneda} alCerrar={() => setHojaCuenta(null)} />
       <HojaMover valor={hojaMover} moneda={moneda} alCerrar={() => setHojaMover(null)} />
+      <HojaPrestamo valor={hojaPrestamo} personas={personas.filter((d) => d.direccion === "debo").map((d) => d.persona)} moneda={moneda} alCerrar={() => setHojaPrestamo(null)} />
     </Pantalla>
+  );
+}
+
+/** Debajo de las tarjetas de deudas: cuánto debes en total. */
+function ResumenDeudas({ deudas, moneda, edicion }: { deudas: DeudaPersona[]; moneda: string; edicion: boolean }) {
+  const debo = deudas.reduce((s, d) => s + d.pendienteCentavos, 0);
+  return (
+    <p className="px-4 pt-2 text-[13px] leading-snug text-muted-foreground" data-testid="total-deudas">
+      Debes <span className="whitespace-nowrap tabular font-medium text-foreground">{dinero(debo, moneda)}</span> en total.
+      {edicion ? " Toca una para abonar, editarla o borrarla." : null}
+    </p>
   );
 }
 
@@ -199,7 +260,10 @@ function Resumen({ datos, moneda, alDecirLimite }: { datos: CuentasApi; moneda: 
   const colores = new Map(datos.cuentas.filter((c) => !c.esCredito).map((c, i) => [c.id, COLORES[i % COLORES.length]!]));
   const porciones = repartoDinero(datos.cuentas);
   const credito = creditoTotal(datos.cuentas);
-
+  // Lo que debes a personas resta como una tarjeta más, sin renglones aparte: el detalle vive en su sección. Lo que te
+  // deben no suma (aún no lo tienes). Un servidor viejo, o con la edición de deudas apagada, no lo manda.
+  const aPersonas = t.personas?.deboCentavos ?? 0;
+  const neto = t.netoCentavos - aPersonas;
   return (
     <section aria-label="Lo que tienes" className="rounded-[20px] bg-card p-4">
       <h2 className="text-[15px] font-medium text-muted-foreground">Lo que tienes</h2>
@@ -208,11 +272,11 @@ function Resumen({ datos, moneda, alDecirLimite }: { datos: CuentasApi; moneda: 
           data-testid="neto"
           className={cn(
             "mt-0.5 truncate text-[40px] leading-[1.15] font-bold tracking-[-0.025em] tabular max-[379px]:text-[32px]",
-            achicarSiNoCabe(dinero(t.netoCentavos, moneda)),
-            t.netoCentavos < 0 && "text-negative",
+            achicarSiNoCabe(dinero(neto, moneda)),
+            neto < 0 && "text-negative",
           )}
         >
-          {dinero(t.netoCentavos, moneda)}
+          {dinero(neto, moneda)}
         </Ajustado>
       ) : (
         <p className="mt-1 text-[22px] leading-7 font-bold tracking-tight">Todavía no sé cuánto tienes</p>
@@ -221,9 +285,9 @@ function Resumen({ datos, moneda, alDecirLimite }: { datos: CuentasApi; moneda: 
         {conocido ? (
           <>
             <span className="whitespace-nowrap">{dinero(t.dineroCentavos, moneda)} en cuentas</span>
-            {t.deudaCentavos > 0 ? (
+            {t.deudaCentavos + aPersonas > 0 ? (
               <>
-                {" "}menos <span className="whitespace-nowrap">{dinero(t.deudaCentavos, moneda)} que debes</span>
+                {" "}menos <span className="whitespace-nowrap">{dinero(t.deudaCentavos + aPersonas, moneda)} que debes</span>
               </>
             ) : null}
           </>

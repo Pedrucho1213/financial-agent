@@ -190,6 +190,11 @@ export type TotalesCuentas = {
   tarjetasConDeuda: number;
   /** Nombres de las cuentas de las que no se sabe el saldo. */
   sinSaldo: string[];
+  /**
+   * Deudas con personas y «Lo que tienes» contándolas (`netoCentavos` de arriba no las cuenta). Falta en un servidor
+   * viejo y llega null con la edición de deudas apagada.
+   */
+  personas?: { meDebenCentavos: number; deboCentavos: number; netoCentavos: number } | null;
 };
 
 /** GET /v1/cuentas */
@@ -304,16 +309,22 @@ export type Prestamo = {
 export type MovimientoDeuda = { tipo: "prestamo" | "abono"; fecha: string; montoCentavos: number; cuenta: string | null };
 /** Una deuda por persona y sentido ("le debes a Mamá"), con todos sus préstamos y abonos juntos. */
 export type DeudaPersona = {
+  /** Para agregar abonos, editarla o borrarla (falta en un servidor viejo). */
+  id?: string;
   persona: string;
   direccion: "me_deben" | "debo";
   prestadoCentavos: number;
   pagadoCentavos: number;
   pendienteCentavos: number;
   desde: string;
+  saldada?: boolean;
+  /** La nota más reciente. */
+  descripcion?: string | null;
   movimientos: MovimientoDeuda[];
 };
-// `personas` llega con la versión del servidor que trae el apartado de deudas.
-export type Prestamos = { prestamos: Prestamo[]; meDebenCentavos: number; deboCentavos: number; personas?: DeudaPersona[] };
+// `personas` llega con la versión del servidor que trae el apartado de deudas; `edicion`, con la que deja agregar,
+// abonar, editar y borrar desde la app.
+export type Prestamos = { prestamos: Prestamo[]; meDebenCentavos: number; deboCentavos: number; personas?: DeudaPersona[]; edicion?: boolean };
 
 /** GET /v1/msi: compras a meses sin intereses. */
 export type CompraMsi = {

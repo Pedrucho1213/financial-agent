@@ -34,6 +34,29 @@ async function deshacer() {
   }
 }
 
+/** Avisa que algo se borró (o cambió) y ofrece "Deshacer" con POST /v1/deshacer, como al eliminar un movimiento. */
+export function ofrecerDeshacer(titulo: string, descripcion?: string, alDeshacer?: () => void) {
+  olvidarDeshacer();
+  const id = toast(titulo, {
+    description: descripcion,
+    duration: 6000,
+    action: {
+      label: "Deshacer",
+      onClick: () => {
+        void deshacer();
+        alDeshacer?.();
+      },
+    },
+    onDismiss: () => {
+      if (avisoDeshacer === id) avisoDeshacer = undefined;
+    },
+    onAutoClose: () => {
+      if (avisoDeshacer === id) avisoDeshacer = undefined;
+    },
+  });
+  avisoDeshacer = id;
+}
+
 /** Elimina (desaparece de la lista al instante) y ofrece "Deshacer", que llama a POST /v1/deshacer. */
 export async function eliminarConDeshacer(m: MovimientoApp, alTerminar?: () => void) {
   const clave = { queryKey: ["movimientos"] };

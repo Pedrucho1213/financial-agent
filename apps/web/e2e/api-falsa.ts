@@ -3,6 +3,7 @@ import { atenderCobros } from "./api-falsa-cobros";
 import { atenderCuenta } from "./api-falsa-cuenta";
 import { atenderCuentas, type DatosCuentas, extraMovimiento, extraTablero } from "./api-falsa-cuentas";
 import { atenderIa } from "./api-falsa-ia";
+import { atenderDeudas, type DatosDeudas } from "./api-falsa-deudas";
 import { atenderPlan, planInicial } from "./api-falsa-plan";
 import type { Dispositivo } from "../src/lib/tipos";
 import { atenderRecurrentes } from "./api-falsa-recurrentes";
@@ -226,6 +227,8 @@ export class ApiFalsa {
   pushActivo = false;
   /** Presupuestos, metas, préstamos y MSI (ver api-falsa-plan.ts). */
   plan = planInicial();
+  /** Deudas con personas que se pueden agregar, abonar, editar y borrar (ver api-falsa-deudas.ts). */
+  deudas: DatosDeudas | null = null;
   /** Como un servidor sin presupuestos ni avisos todavía: esas rutas responden 404. */
   sinPlan = false;
   /** Datos de la cuenta que se pueden cambiar en Ajustes (ver api-falsa-cuenta.ts). */
@@ -364,6 +367,8 @@ export class ApiFalsa {
       return json(200, { ok: true });
     }
     await atenderCobros(this, { metodo, ruta, cuerpo, json: responder });
+    if (respondido) return;
+    await atenderDeudas(this, { metodo, ruta, cuerpo, consulta: url.searchParams, json: responder });
     if (respondido) return;
     await atenderPlan(this, { metodo, ruta, cuerpo, consulta: url.searchParams, json: responder });
     if (respondido) return;

@@ -3,6 +3,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { ApiFalsa, prepararSesion } from "./api-falsa";
 import { conCobros } from "./api-falsa-cobros";
 import { conCuentas } from "./api-falsa-cuentas";
+import { conDeudas } from "./api-falsa-deudas";
 import { conRecurrentes, recurrentesDe } from "./api-falsa-recurrentes";
 
 // En un iPhone de 320 px (o con la letra grande) ningún texto se encima con otro ni se corta sin "…",
@@ -130,7 +131,7 @@ async function solapes(page: Page) {
 }
 
 function api(largos: boolean) {
-  const a = conRecurrentes(conCobros(conCuentas(new ApiFalsa())));
+  const a = conDeudas(conRecurrentes(conCobros(conCuentas(new ApiFalsa()))));
   a.salud = SALUD;
   if (largos) {
     const m = a.movimientos[0]!;
@@ -146,6 +147,9 @@ function api(largos: boolean) {
     for (const c of a.cuentas!.cuentas) if (c.nombre === "Revolut") Object.assign(c, { nombre: "Mercado Pago Débito", saldo: 5_000_00, saldoEn: "2026-10-04T18:00:00.000Z" });
     const p = a.plan.personas?.[0] as { persona: string } | undefined;
     if (p) p.persona = "María Fernanda de la Garza Villarreal";
+    // Deudas: un nombre largo y montos de millones en la tarjeta y el detalle.
+    for (const d of a.deudas!.prestamos) if (d.persona === "Milton Ventura") d.persona = "María Fernanda de la Garza Villarreal";
+    for (const d of a.deudas!.prestamos) if (d.persona === "Mamá") d.montoCentavos = 1_234_567_89;
     const r = recurrentesDe(a);
     if (r?.[0]) {
       r[0].nombre = "Amazon Prime Video con Canales";
@@ -162,6 +166,14 @@ const PANTALLAS: [string, string, ((p: Page) => Promise<void>)?][] = [
   ["cuentas", "/#cuentas"],
   ["tarjeta", "/#cuenta?id=cta-banamex"],
   ["cuenta", "/#cuenta?id=cta-bbva"],
+  ["deudas", "/#cuentas?archivadas=1"],
+  ["deuda", "/#deuda?persona=Mam%C3%A1&dir=debo"],
+  ["deuda que te deben", "/#deuda?persona=Juan&dir=me_deben"],
+  ["nueva deuda", "/#cuentas", async (p) => p.getByRole("button", { name: "Agregar deuda o préstamo" }).click()],
+  ["abono", "/#deuda?persona=Mam%C3%A1&dir=debo", async (p) => p.getByRole("button", { name: "Registrar abono" }).click()],
+  ["editar deuda", "/#deuda?persona=Mam%C3%A1&dir=debo", async (p) => p.getByRole("button", { name: "Editar deuda" }).click()],
+  ["me prestó más", "/#deuda?persona=Mam%C3%A1&dir=debo", async (p) => p.getByRole("button", { name: "Me prestó más" }).click()],
+  ["pago de quien te debe", "/#deuda?persona=Juan&dir=me_deben", async (p) => p.getByRole("button", { name: "Registrar pago" }).click()],
   ["suscripciones", "/#suscripciones"],
   ["movimientos", "/#movimientos"],
   ["detalle", "/#movimientos?detalle=mov-001"],

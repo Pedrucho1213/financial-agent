@@ -140,17 +140,17 @@ test.describe("Presupuestos y metas", () => {
     const mama = page.getByRole("button", { name: /^Mamá/ });
     await expect(mama).toContainText("Le debes · abonaste $4,000 de $30,000");
     await expect(mama).toContainText("$26,000.00");
+    // El detalle es la misma pantalla que abre Cuentas.
     await mama.click();
-    const hoja = page.getByRole("dialog", { name: "Mamá" });
-    await expect(hoja.getByText("Falta")).toBeVisible();
-    await expect(hoja).toContainText("$26,000.00");
-    await expect(hoja.getByText(/5 oct · desde Revolut/)).toBeVisible();
-    await expect(hoja.getByText("Te prestó")).toBeVisible();
-    await expect(hoja.getByText("Desde el 10 de agosto de 2026")).toBeVisible();
-    await expect(hoja.getByRole("img", { name: "Lo que falta de la deuda con el tiempo" })).toBeVisible();
-    await expect(hoja).toContainText("«Le transferí 2 mil a mi mamá desde Revolut»");
-    await hoja.getByRole("button", { name: "Listo" }).click();
-    await expect(hoja).toBeHidden();
+    await expect(page).toHaveURL(/#deuda\?persona=Mam%C3%A1&dir=debo/);
+    await expect(page.getByTestId("falta")).toHaveText("$26,000.00");
+    await expect(page.getByText(/5 oct · desde Revolut/)).toBeVisible();
+    await expect(page.getByText("Te prestó", { exact: true })).toBeVisible();
+    await expect(page.getByText("Te prestó desde el 10 de agosto de 2026")).toBeVisible();
+    await expect(page.getByRole("img", { name: "Lo que falta de la deuda con el tiempo" })).toBeVisible();
+    await expect(page.locator("main")).toContainText("«le transferí 2 mil a mi mamá desde Revolut»");
+    await page.getByRole("button", { name: "Atrás" }).click();
+    await expect(page).toHaveURL(/#plan/);
 
     await page.getByRole("button", { name: "Inicio" }).first().click();
     await expect(page).toHaveURL(/\/(#inicio)?$/);
@@ -357,10 +357,9 @@ test.describe("Deudas con un servidor o caché de antes", () => {
     await prepararSesion(page, api);
     await page.goto("/#plan");
     await page.getByRole("button", { name: /^Mamá/ }).click();
-    const hoja = page.getByRole("dialog", { name: "Mamá" });
-    await expect(hoja).toContainText("$26,000.00");
-    await expect(hoja.getByText("Desde el 10 de agosto de 2026")).toBeVisible();
-    await expect(hoja.getByText("Te prestó")).toBeVisible();
+    await expect(page.getByTestId("falta")).toHaveText("$26,000.00");
+    await expect(page.getByText("Te prestó desde el 10 de agosto de 2026")).toBeVisible();
+    await expect(page.getByText("Te prestó", { exact: true })).toBeVisible();
   });
 });
 
