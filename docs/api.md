@@ -154,7 +154,7 @@ Montos en centavos. Todo se puede hacer también por voz (`/v1/hablar`), y lo qu
 | `GET /v1/msi?todas=1` | sin `todas`, solo las que tienen cargos por venir | `{ compras: CompraMsi[], mensualCentavos }` |
 | `GET /v1/disponible` | | ver abajo ("¿cuánto puedo gastar hoy?") |
 
-Alta, abono, edición y borrado de deudas (y `totales.personas` en `/v1/cuentas` y en `cuentas` del tablero: `{ deboCentavos, meDebenCentavos, netoCentavos }`; el neto resta lo que debe a personas, como una tarjeta, y lo que le deben no suma) son solo de la cuenta dueña mientras `DEUDAS_PERSONAS` no diga `todos`; para las demás, esas rutas dan 404, `edicion` es `false` y `totales.personas` es `null`. `DEUDAS_PERSONAS=0` lo apaga. `:id` puede ser el de la deuda o el de cualquiera de sus préstamos.
+Alta, abono, edición y borrado de deudas (y `totales.personas` en `/v1/cuentas` y en `cuentas` del tablero: `{ deboCentavos, meDebenCentavos, netoCentavos }`; el neto resta lo que debe a personas, como una tarjeta, y lo que le deben no suma) están abiertos a todas las cuentas. `DEUDAS_PERSONAS=dueno` los deja solo a la cuenta dueña y `DEUDAS_PERSONAS=0` los apaga; donde no aplican, esas rutas dan 404, `edicion` es `false` y `totales.personas` es `null`. `:id` puede ser el de la deuda o el de cualquiera de sus préstamos.
 
 Los presupuestos y "¿cuánto puedo gastar hoy?" cuentan solo lo que está en pesos (la moneda base); un gasto en dólares no suma.
 
