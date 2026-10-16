@@ -697,13 +697,13 @@ export function abonarPrestamo(ctx: Contexto, datos: { persona: string; direccio
 
 /**
  * Si la app y la IA pueden dar de alta, abonar, editar y borrar deudas con personas, y si los totales de Cuentas las
- * cuentan. Por omisión solo la cuenta dueña (la que se creó primero); DEUDAS_PERSONAS=todos lo abre a todas y
- * DEUDAS_PERSONAS=0 lo apaga. Anotar y abonar por voz, y la lista, siguen para todos.
+ * cuentan. Por omisión todas las cuentas; DEUDAS_PERSONAS=dueno lo deja solo a la cuenta dueña (la que se creó
+ * primero) y DEUDAS_PERSONAS=0 lo apaga. Anotar y abonar por voz, y la lista, siguen para todos.
  */
 export function deudasEdicionHabilitada(db: Db, usuarioId: string, entorno: string | undefined = process.env.DEUDAS_PERSONAS): boolean {
   const modo = (entorno ?? "").trim().toLowerCase();
   if (modo === "0" || modo === "no" || modo === "apagado") return false;
-  if (modo === "todos" || modo === "1" || modo === "si") return true;
+  if (modo !== "dueno" && modo !== "dueño") return true;
   const dueno = db.select({ id: usuarios.id }).from(usuarios).orderBy(usuarios.creadoEn, sql`rowid`).limit(1).get();
   return dueno?.id === usuarioId;
 }
