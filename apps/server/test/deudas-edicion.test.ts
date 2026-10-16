@@ -36,13 +36,15 @@ const llamar = (ctx: Contexto, nombre: string, args: unknown) =>
 const dictado = (ctx: Contexto, frase: string): Contexto => ({ ...ctx, textoOriginal: frase, entradaId: crypto.randomUUID() });
 
 describe("interruptor DEUDAS_PERSONAS", () => {
-  test("por omisión solo la cuenta dueña; todos lo abre y 0 lo apaga", () => {
+  test("por omisión todas las cuentas; dueno lo deja a la dueña y 0 lo apaga", () => {
     const { db, usuario } = preparar();
     const julissa = crearUsuario(db, "Julissa");
     expect(deudasEdicionHabilitada(db, usuario.id, undefined)).toBe(true);
-    expect(deudasEdicionHabilitada(db, julissa.id, undefined)).toBe(false);
-    expect(deudasEdicionHabilitada(db, julissa.id, "dueno")).toBe(false);
+    expect(deudasEdicionHabilitada(db, julissa.id, undefined)).toBe(true);
     expect(deudasEdicionHabilitada(db, julissa.id, "todos")).toBe(true);
+    expect(deudasEdicionHabilitada(db, usuario.id, "dueno")).toBe(true);
+    expect(deudasEdicionHabilitada(db, julissa.id, "dueno")).toBe(false);
+    expect(deudasEdicionHabilitada(db, julissa.id, "dueño")).toBe(false);
     expect(deudasEdicionHabilitada(db, usuario.id, "0")).toBe(false);
   });
 });
@@ -145,27 +147,30 @@ describe("API de deudas para la app", () => {
     expect((await pedir("/v1/tablero")).cuerpo.cuentas.personas.deboCentavos).toBe(3_273_300);
   });
 
-  test("otra cuenta sin el interruptor: sin edición ni totales de personas", async () => {
+  test("otra cuenta: abierto por omisión; con DEUDAS_PERSONAS=dueno, sin edición ni totales de personas", async () => {
     const { db, pedirCon } = montar();
     const julissa = crearUsuario(db, "Julissa");
     const pedir = pedirCon(crearDispositivo(db, julissa.id, "iPhone"));
-    expect((await pedir("/v1/prestamos")).cuerpo.edicion).toBe(false);
-    expect((await pedir("/v1/prestamos", "POST", { persona: "Ana", direccion: "debo", monto: 100 })).estado).toBe(404);
-    expect((await pedir("/v1/cuentas")).cuerpo.totales.personas).toBeNull();
+    expect((await pedir("/v1/prestamos")).cuerpo.edicion).toBe(true);
+    expect((await pedir("/v1/prestamos", "POST", { persona: "Ana", direccion: "debo", monto: 100 })).estado).toBe(201);
+    expect((await pedir("/v1/cuentas")).cuerpo.totales.personas.deboCentavos).toBe(10_000);
+    process.env.DEUDAS_PERSONAS = "dueno";
+    try {
+      expect((await pedir("/v1/prestamos")).cuerpo.edicion).toBe(false);
+      expect((await pedir("/v1/prestamos", "POST", { persona: "Ana", direccion: "debo", monto: 100 })).estado).toBe(404);
+      expect((await pedir("/v1/cuentas")).cuerpo.totales.personas).toBeNull();
+    } finally {
+      delete process.env.DEUDAS_PERSONAS;
+    }
   });
 
   test("no se puede tocar la deuda de otra cuenta", async () => {
     const { db, pedir, pedirCon } = montar();
     const milton = (await pedir("/v1/prestamos", "POST", { persona: "Milton", direccion: "debo", monto: 20000 })).cuerpo;
     const otro = crearUsuario(db, "Otro");
-    process.env.DEUDAS_PERSONAS = "todos";
-    try {
-      const ajeno = pedirCon(crearDispositivo(db, otro.id, "iPhone"));
-      expect((await ajeno(`/v1/prestamos/${milton.id}`, "DELETE")).estado).toBe(404);
-      expect((await ajeno(`/v1/prestamos/${milton.id}/abonos`, "POST", { monto: 1 })).estado).toBe(404);
-    } finally {
-      delete process.env.DEUDAS_PERSONAS;
-    }
+    const ajeno = pedirCon(crearDispositivo(db, otro.id, "iPhone"));
+    expect((await ajeno(`/v1/prestamos/${milton.id}`, "DELETE")).estado).toBe(404);
+    expect((await ajeno(`/v1/prestamos/${milton.id}/abonos`, "POST", { monto: 1 })).estado).toBe(404);
     expect((await pedir("/v1/prestamos")).cuerpo.deboCentavos).toBe(2_000_000);
   });
 });
@@ -178,11 +183,18 @@ describe("la IA corrige y borra deudas", () => {
     return ctx;
   };
 
-  test("solo la cuenta con el interruptor ve la herramienta corregir_prestamo; prestamo queda igual que antes", () => {
+  test("todas las cuentas ven corregir_prestamo; con DEUDAS_PERSONAS=dueno solo la dueña; prestamo queda igual que antes", () => {
     const { ctx, db } = preparar();
     const ana = { ...ctx, usuarioId: crearUsuario(db, "Ana").id };
     expect(Object.keys(crearHerramientas(ctx, []))).toContain("corregir_prestamo");
-    expect(Object.keys(crearHerramientas(ana, []))).not.toContain("corregir_prestamo");
+    expect(Object.keys(crearHerramientas(ana, []))).toContain("corregir_prestamo");
+    process.env.DEUDAS_PERSONAS = "dueno";
+    try {
+      expect(Object.keys(crearHerramientas(ctx, []))).toContain("corregir_prestamo");
+      expect(Object.keys(crearHerramientas(ana, []))).not.toContain("corregir_prestamo");
+    } finally {
+      delete process.env.DEUDAS_PERSONAS;
+    }
   });
 
   test("reconoce cuándo habla de la deuda y no de un movimiento", () => {

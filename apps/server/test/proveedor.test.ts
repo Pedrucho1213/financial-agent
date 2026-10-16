@@ -51,7 +51,7 @@ test("funciona con una API compatible con OpenAI", async () => {
   // Solo registró: la confirmación se arma con lo guardado, sin otra vuelta del modelo.
   expect(r.respuesta).toBe("Listo, café de $85.");
   expect(peticiones).toHaveLength(1);
-  // 21 de siempre más corregir_prestamo, que la cuenta dueña ve con DEUDAS_PERSONAS.
+  // 21 de siempre más corregir_prestamo (DEUDAS_PERSONAS abierto por omisión).
   expect(peticiones[0]?.tools).toHaveLength(22);
   expect(peticiones[0]?.reasoning_effort).toBe(config.ia.razonamiento);
   // No es Ollama: no se le manda keep_alive.
