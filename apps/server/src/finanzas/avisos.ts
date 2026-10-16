@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, or } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, ne, or } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { avisos, recurrentes, TIPOS_AVISO } from "../db/schema";
 import { fechaLocal, partes, sumarDias } from "../lib/fechas";
@@ -71,20 +71,19 @@ export type AvisoApp = ReturnType<typeof avisoApp>;
 
 const vigente = (hoy: string) => or(isNull(avisos.vence), gte(avisos.vence, hoy));
 
-/** Avisos de los últimos 7 días que siguen vigentes y no se descartaron; sin `todos`, solo los no leídos. */
+/**
+ * Avisos de los últimos 7 días que siguen vigentes y no se descartaron; sin `todos`, solo los no leídos.
+ * Lo pendiente va primero y sigue ahí aunque ya lo haya visto o sea de hace días, hasta que lo atienda.
+ */
 export function listarAvisos(ctx: Contexto, opciones: { todos?: boolean } = {}) {
-  const condiciones = [
-    eq(avisos.usuarioId, ctx.usuarioId),
-    isNull(avisos.descartadoEn),
-    gte(avisos.fecha, sumarDias(ctx.hoy, -7)),
-    vigente(ctx.hoy),
-  ];
-  if (!opciones.todos) condiciones.push(isNull(avisos.leidoEn));
+  const recientes = [gte(avisos.fecha, sumarDias(ctx.hoy, -7)), vigente(ctx.hoy)];
+  if (!opciones.todos) recientes.push(isNull(avisos.leidoEn));
+  const pendiente = eq(avisos.tipo, "pendiente");
   const filas = ctx.db
     .select()
     .from(avisos)
-    .where(and(...condiciones))
-    .orderBy(desc(avisos.fecha), avisos.prioridad, desc(avisos.creadoEn))
+    .where(and(eq(avisos.usuarioId, ctx.usuarioId), isNull(avisos.descartadoEn), or(pendiente, and(...recientes))))
+    .orderBy(desc(pendiente), desc(avisos.fecha), avisos.prioridad, desc(avisos.creadoEn))
     .all();
   return { avisos: filas.map((a) => avisoApp(a, ctx.hoy)) };
 }
@@ -160,6 +159,8 @@ export function avisoDelDia(ctx: Contexto): { aviso: AvisoApp; marcar: () => voi
     .where(
       and(
         eq(avisos.usuarioId, ctx.usuarioId),
+        // Lo pendiente se atiende en el chat, no se dice de pasada.
+        ne(avisos.tipo, "pendiente"),
         isNull(avisos.dichoEn),
         isNull(avisos.leidoEn),
         isNull(avisos.descartadoEn),

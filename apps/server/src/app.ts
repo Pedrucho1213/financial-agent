@@ -33,8 +33,9 @@ import {
   type VariablesAuth,
   verificarCodigo,
 } from "./auth";
-import { entradas, invitaciones, usuarios } from "./db/schema";
-import { esDevolucion, fraseDePago, pagoDeTransaccion } from "./finanzas/applepay";
+import { dispositivos, entradas, invitaciones, mensajes, usuarios } from "./db/schema";
+import { comercioDePago, esDevolucion, fraseDePago, pagoDeTransaccion } from "./finanzas/applepay";
+import { guardarPendiente } from "./finanzas/pendientes";
 import { avisoDelDia } from "./finanzas/avisos";
 import { listarCategorias, nombreCompleto } from "./finanzas/catalogos";
 import { crearContexto } from "./finanzas/contexto";
@@ -55,7 +56,7 @@ import { hostsDeLaPeticion, ipDelCliente, LimiteIntentos } from "./lib/limites";
 import { montosDelTexto } from "./lib/numeros";
 import { esOrdenSobreLoAnotado, esPregunta } from "./lib/texto";
 import { and, count, eq, gte, sql } from "drizzle-orm";
-import { avisoDeDictado, conversacionPorContestar } from "./push/dictados";
+import { avisoDeDictado, conversacionPorContestar, urlDelChat } from "./push/dictados";
 import { desuscribir, type EnviarPush, ErrorSuscripcion, estadoPush, notificar, suscribir, tienePush } from "./push/notificaciones";
 import { notaDelGasto } from "./finanzas/comentario";
 import { preguntariaConQuePago } from "./ai/con-que-pago";
@@ -169,6 +170,8 @@ const PRUEBA_PUSH_CADA_MS = 15_000;
 // La automatización de la Cartera a veces corre dos veces por el mismo pago, segundos aparte y cada vez
 // con otro folio.
 const PAGO_REPETIDO_MS = 90_000;
+// Correr el Atajo de Apple Pay a mano al instalarlo es la prueba; después, una corrida sin datos es un pago.
+const PRUEBA_APPLE_PAY_MS = 30 * 60_000;
 
 /**
  * Lo que el Atajo dice cuando registró y el resultado llega por notificación. Va cambiando para que no
@@ -319,7 +322,7 @@ export function crearApp(opciones: OpcionesApp) {
   // Lo que el iPhone ya no esperó llega por notificación a quien las tenga activas.
   const deps = {
     ...opciones,
-    alTerminarSinEspera: opciones.alTerminarSinEspera ?? avisoDeDictado(db, opciones.enviarPush),
+    alTerminarSinEspera: opciones.alTerminarSinEspera ?? avisoDeDictado(db, opciones.enviarPush, opciones.zonaHoraria),
     notificaSinEspera: opciones.notificaSinEspera ?? ((usuarioId: string) => tienePush(db, usuarioId)),
   };
   /**
@@ -646,6 +649,62 @@ export function crearApp(opciones: OpcionesApp) {
   const registrar = (linea: string) => {
     if (process.env.NODE_ENV !== "test") console.log(linea);
   };
+  // Lo que dura la prueba del Atajo de Apple Pay: se corre a mano justo después de bajarlo.
+  const recienInstalado = (dispositivoId: string) => {
+    const creado = db.select({ creadoEn: dispositivos.creadoEn }).from(dispositivos).where(eq(dispositivos.id, dispositivoId)).get()?.creadoEn;
+    return !!creado && Date.now() - Date.parse(creado) < PRUEBA_APPLE_PAY_MS;
+  };
+  /**
+   * Un pago que llegó sin monto: queda una conversación que le pregunta cuánto fue, pendiente en Avisos e
+   * Inicio, y la notificación abre el chat ahí. Lo que conteste se anota como cualquier dictado.
+   */
+  const pagoPorAclarar = (usuarioId: string, p: z.infer<typeof esquemaApplePay>): string => {
+    const comercio = comercioDePago(p);
+    const pregunta = comercio
+      ? `Pagaste con Apple Pay en "${comercio}", pero no me llegó el monto. ¿Cuánto fue?`
+      : "Pagaste con Apple Pay, pero no me llegaron los datos del pago. ¿Cuánto fue y en dónde?";
+    // Reenviado por la cola del Atajo: ya se preguntó.
+    const previa = db
+      .select({ id: entradas.id })
+      .from(entradas)
+      .where(and(eq(entradas.usuarioId, usuarioId), eq(entradas.clientId, p.client_id)))
+      .get();
+    if (previa) return pregunta;
+    const conversacionId = crypto.randomUUID();
+    const texto = comercio ? `Pagué con Apple Pay en "${comercio}" (no llegó el monto)` : "Pagué con Apple Pay (no llegaron los datos del pago)";
+    db.transaction((tx) => {
+      tx.insert(entradas)
+        .values({
+          usuarioId,
+          clientId: p.client_id,
+          conversacionId,
+          texto,
+          lat: p.lat ?? null,
+          lon: p.lon ?? null,
+          capturadoEn: p.capturado_en ?? new Date().toISOString(),
+          origen: "apple_pay",
+          estado: "listo",
+          respuesta: { respuesta: pregunta, conversacion_id: conversacionId, acciones: [] },
+        })
+        .run();
+      // La IA ve su pregunta al seguir la conversación desde el chat.
+      tx.insert(mensajes)
+        .values([
+          { usuarioId, conversacionId, contenido: { role: "user", content: texto } },
+          { usuarioId, conversacionId, contenido: { role: "assistant", content: pregunta } },
+        ])
+        .run();
+    });
+    const titulo = "¿Cuánto pagaste con Apple Pay?";
+    guardarPendiente(db, usuarioId, { conversacionId, titulo, texto: `${pregunta} Si no pagaste nada, descártalo.`, zonaHoraria: opciones.zonaHoraria });
+    notificar(
+      db,
+      usuarioId,
+      { titulo, cuerpo: `${pregunta} Toca para contestarme.`, url: urlDelChat(conversacionId), etiqueta: `applepay-${p.client_id}`, urgencia: "high" },
+      opciones.enviarPush,
+    ).catch((error) => console.error("No se pudo avisar del pago sin monto:", error));
+    return pregunta;
+  };
   const pagoApplePay = async (c: Context<{ Variables: VariablesAuth }>, crudo: object) => {
     const cuerpo = esquemaApplePay.safeParse(sinVacios(crudo));
     if (!cuerpo.success) {
@@ -668,21 +727,14 @@ export function crearApp(opciones: OpcionesApp) {
         }${p.tipo ? `; tipo ${JSON.stringify(p.tipo)}` : ""}${respaldo ? "; monto sacado del texto de la transacción" : ""}`,
       );
     if (!texto) {
-      const prueba = !p.monto && !p.comercio && !p.nombre && !p.tarjeta && !p.entrada;
+      const sinDatos = !p.monto && !p.comercio && !p.nombre && !p.tarjeta && !p.entrada;
       const montoCrudo = p.monto || respaldo?.monto;
-      const devolucion = !prueba && !!montoCrudo && esDevolucion(montoCrudo);
-      anotar(prueba ? "prueba a mano" : devolucion ? "devolución" : "sin monto");
-      if (!prueba && !devolucion) {
-        // Llegó un pago de verdad pero sin monto legible: se avisa para anotarlo a mano, y el log guarda
-        // cómo llegó la transacción para ajustar el Atajo.
-        registrar(`Apple Pay sin monto, texto de la transacción: ${JSON.stringify(p.entrada?.slice(0, 160) ?? "")}`);
-        notificar(
-          db,
-          usuarioId,
-          { titulo: "Pago con Apple Pay", cuerpo: "No pude leer el monto de tu pago. Dímelo con el Atajo para anotarlo.", url: "/#inicio" },
-          opciones.enviarPush,
-        ).catch((error) => console.error("No se pudo avisar del pago sin monto:", error));
-      }
+      const devolucion = !sinDatos && !!montoCrudo && esDevolucion(montoCrudo);
+      // Sin ningún dato puede ser el Atajo corrido a mano al instalarlo, o la automatización que no le pasó la
+      // transacción (2026-10-16: un pago de 49 pesos llegó solo con la ubicación y se tomó por prueba). Es
+      // prueba solo en los primeros minutos después de bajar el Atajo; si no, se le pregunta.
+      const prueba = sinDatos && recienInstalado(c.get("dispositivoId"));
+      anotar(prueba ? "prueba a mano" : devolucion ? "devolución" : sinDatos ? "sin datos" : "sin monto");
       if (prueba) {
         // Sin esperarla: corrido a mano, el Atajo contesta enseguida aunque Apple tarde.
         notificar(
@@ -691,16 +743,12 @@ export function crearApp(opciones: OpcionesApp) {
           { titulo: "Apple Pay listo", cuerpo: "Cuando pagues con Apple Pay, lo anoto solo y te aviso aquí.", url: "/#inicio" },
           opciones.enviarPush,
         ).catch((error) => console.error("No se pudo mandar la notificación de prueba:", error));
+        return c.json({ respuesta: "Listo. Cuando pagues con Apple Pay lo anoto solo.", prueba, acciones: [] });
       }
-      return c.json({
-        respuesta: prueba
-          ? "Listo. Cuando pagues con Apple Pay lo anoto solo."
-          : devolucion
-            ? "Es una devolución; no la anoté como gasto."
-            : "Ese pago no trae monto; no anoté nada.",
-        prueba,
-        acciones: [],
-      });
+      if (devolucion) return c.json({ respuesta: "Es una devolución; no la anoté como gasto.", prueba, acciones: [] });
+      // Llegó un pago pero sin monto legible: el log guarda cómo llegó la transacción para ajustar el Atajo.
+      if (!sinDatos) registrar(`Apple Pay sin monto, texto de la transacción: ${JSON.stringify(p.entrada?.slice(0, 160) ?? "")}`);
+      return c.json({ respuesta: pagoPorAclarar(usuarioId, p), prueba, pendiente_de_aclarar: true, acciones: [] });
     }
     // Se compara la hora del pago (capturado_en), no la de llegada: dos compras iguales en la mañana y en
     // la tarde que la cola reenvía juntas son dos pagos.

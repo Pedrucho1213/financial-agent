@@ -2,6 +2,7 @@
 // y terminó, o un pago con Apple Pay que se registró solo.
 import type { Db } from "../db/client";
 import type { Entrada, Respuesta } from "../ai/asistente";
+import { guardarPendiente } from "../finanzas/pendientes";
 import { PREGUNTA_TARJETA } from "../finanzas/tarjeta-wallet";
 import { type EnviarPush, type Notificacion, notificar, tieneSuscripciones } from "./notificaciones";
 
@@ -93,16 +94,41 @@ export function notificacionDeDictado(entrada: Entrada, respuesta: Respuesta | u
   };
 }
 
-/** El aviso para `alTerminarSinEspera`: si la cuenta recibe notificaciones, le manda el resultado. */
-export function avisoDeDictado(db: Db, enviar?: EnviarPush) {
+/**
+ * Si el dictado o el pago quedó esperando algo del usuario: no se pudo procesar, la IA le preguntó algo, o el
+ * pago de Apple Pay no quedó anotado. Un pago no pregunta por voz (su comercio puede traer "?": "WHY? CAFE").
+ */
+export function necesitaAtencion(entrada: Pick<Entrada, "origen">, respuesta: Respuesta | undefined): boolean {
+  if (!respuesta) return true;
+  if (entrada.origen === "apple_pay") return respuesta.respuesta.includes(PREGUNTA_TARJETA) || !movimientosDe(respuesta).some((m) => m.id);
+  return respuesta.respuesta.includes("?");
+}
+
+/** El texto del pendiente: lo mismo que la notificación, sin el "Toca para…" que en la app es un botón. */
+export const sinToca = (cuerpo: string) => cuerpo.replace(/\s*Toca para [^.]*\.$/, "");
+
+/**
+ * El aviso para `alTerminarSinEspera`: si la cuenta recibe notificaciones, le manda el resultado. Lo que
+ * necesita su atención queda además pendiente en Avisos e Inicio, con o sin notificaciones.
+ */
+export function avisoDeDictado(db: Db, enviar?: EnviarPush, zonaHoraria = "America/Mexico_City") {
   return (entrada: Entrada, respuesta: Respuesta | undefined) => {
+    const notificacion = notificacionDeDictado(entrada, respuesta);
+    if (necesitaAtencion(entrada, respuesta)) {
+      guardarPendiente(db, entrada.usuarioId, {
+        conversacionId: respuesta?.conversacion_id ?? entrada.conversacionId,
+        titulo: notificacion.titulo,
+        texto: sinToca(notificacion.cuerpo),
+        zonaHoraria,
+      });
+    }
     // Aunque la última no haya llegado: es lo único que le avisa de este dictado.
     if (!tieneSuscripciones(db, entrada.usuarioId)) return;
     if (entrada.origen !== "apple_pay" && respuesta?.respuesta.includes("?")) {
       preguntas.set(entrada.usuarioId, { conversacionId: respuesta.conversacion_id, hasta: Date.now() + VIGENCIA_PREGUNTA_MS });
     }
     // Sin esperar, pero sin dejar un rechazo suelto: tumbaría el servidor.
-    notificar(db, entrada.usuarioId, notificacionDeDictado(entrada, respuesta), enviar).catch((error) =>
+    notificar(db, entrada.usuarioId, notificacion, enviar).catch((error) =>
       console.error("No se pudo mandar la notificación del dictado:", error),
     );
   };

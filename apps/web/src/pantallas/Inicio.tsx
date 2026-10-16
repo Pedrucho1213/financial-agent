@@ -4,6 +4,7 @@ import { Accesos } from "../components/Accesos";
 import { construirDestacados } from "../components/Destacados";
 import { ContenidoMovimiento } from "../components/FilaMovimiento";
 import { agruparCategorias } from "../components/graficas/colores";
+import { Atencion } from "../components/inicio/Atencion";
 import { Campana } from "../components/inicio/Campana";
 import { ParaTi } from "../components/inicio/ParaTi";
 import { TarjetasInicio, useRitmo } from "../components/inicio/Tarjetas";
@@ -94,6 +95,7 @@ function Contenido({ t, esMesActual }: { t: Tablero; esMesActual: boolean }) {
 
   return (
     <div className="space-y-7 pt-1 pb-4">
+      <Atencion />
       <TarjetasInicio key={`t-${t.mes}`} t={t} esMesActual={esMesActual} ritmo={ritmo} />
       <ParaTi key={`p-${t.mes}`} destacados={destacados} conAvisos={esMesActual} enLinea={enLinea} />
       <Accesos />

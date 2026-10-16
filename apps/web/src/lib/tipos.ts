@@ -358,7 +358,9 @@ export type Aviso = {
     | "gasto_inusual"
     | "tarjeta_pago"
     | "tarjeta_limite"
-    | "viaje";
+    | "viaje"
+    // Un pago o un dictado que espera tu respuesta: sigue en la lista, aunque ya lo hayas visto, hasta contestarlo.
+    | "pendiente";
   titulo: string;
   texto: string;
   fecha: string;

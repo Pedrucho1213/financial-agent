@@ -6,8 +6,8 @@ import { type PreferenciasAvisos, type TIPOS_AVISO, usuarios } from "../db/schem
 export type GrupoAviso = keyof NonNullable<PreferenciasAvisos["tipos"]>;
 export const GRUPOS_AVISO: readonly GrupoAviso[] = ["cobros", "tarjetas", "presupuestos", "fugas", "deudas"];
 
-/** A qué grupo de Ajustes pertenece cada aviso del revisor. */
-export const GRUPO_DE_AVISO: Record<(typeof TIPOS_AVISO)[number], GrupoAviso> = {
+/** A qué grupo de Ajustes pertenece cada aviso del revisor. Lo pendiente no se apaga: sale al momento. */
+export const GRUPO_DE_AVISO: Record<Exclude<(typeof TIPOS_AVISO)[number], "pendiente">, GrupoAviso> = {
   cobro_proximo: "cobros",
   msi: "cobros",
   tarjeta_pago: "tarjetas",

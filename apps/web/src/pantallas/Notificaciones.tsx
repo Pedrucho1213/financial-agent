@@ -3,6 +3,7 @@ import { Bell, BellOff, Check, TriangleAlert, X } from "lucide-react";
 import type { CSSProperties } from "react";
 import { toast } from "sonner";
 import { ICONOS } from "../components/Avisos";
+import { esPendiente, FilaPendiente } from "../components/inicio/Atencion";
 import { ContenidoMovimiento } from "../components/FilaMovimiento";
 import { LogoMarca, LogoPago } from "../components/Logo";
 import { Pantalla } from "../components/Pantalla";
@@ -36,7 +37,7 @@ function useTodosLosAvisos() {
 }
 
 /**
- * #avisos: el centro de notificaciones. Lo que espera respuesta (pagos por confirmar), los avisos de la semana y
+ * #avisos: el centro de notificaciones. Lo que espera respuesta (lo pendiente de contestar, pagos por confirmar), los avisos de la semana y
  * lo que ya se contestó (para corregirlo). Solo con el módulo de cobros encendido; si no, lo dice y nada más.
  */
 export function Notificaciones() {
@@ -82,15 +83,28 @@ export function Notificaciones() {
 
   const porConfirmar = cobros?.porConfirmar ?? [];
   const recientes = cobros?.recientes ?? [];
-  const listaAvisos = avisos.data ?? [];
+  const pendientes = (avisos.data ?? []).filter(esPendiente);
+  const listaAvisos = (avisos.data ?? []).filter((a) => !esPendiente(a));
   const porRevisar = revisar.data?.pages.flatMap((p) => p.movimientos) ?? [];
   const totalRevisar = revisar.data?.pages[0]?.total ?? 0;
-  const nada = cobros && !porConfirmar.length && !recientes.length && !listaAvisos.length && !totalRevisar;
+  const nada = cobros && !pendientes.length && !porConfirmar.length && !recientes.length && !listaAvisos.length && !totalRevisar;
+
+  const grupoPendientes = pendientes.length ? (
+    <Grupo titulo="Requiere tu atención" pie="No pude anotarlo o necesito un dato. Se queda aquí hasta que me contestes en el chat.">
+      {pendientes.map((a) => (
+        <FilaPendiente key={a.id} a={a} />
+      ))}
+    </Grupo>
+  ) : null;
 
   return (
     <Pantalla titulo="Notificaciones" atras={{ etiqueta: "Inicio", alTocar: () => volver("inicio") }} alRefrescar={refrescar}>
       {apagado ? (
-        <Vacio titulo="Todavía no está abierto para tu cuenta" texto="Los avisos nuevos te siguen apareciendo en Inicio." />
+        // Sin pagos fijos (cobros) igual se ve lo que espera su respuesta.
+        <div className="space-y-8 pt-2 pb-4">
+          {grupoPendientes}
+          <Vacio titulo="Todavía no está abierto para tu cuenta" texto="Los avisos nuevos te siguen apareciendo en Inicio." />
+        </div>
       ) : !cobros ? (
         q.isError ? (
           <div className="mt-3 rounded-[20px] bg-card px-6 py-10 text-center">
@@ -109,6 +123,8 @@ export function Notificaciones() {
       ) : (
         <div className="space-y-8 pt-2 pb-4">
           {nada ? <Vacio titulo="Estás al día" texto="Cuando toque un pago fijo o encuentre algo en tus gastos, aparece aquí." /> : null}
+
+          {grupoPendientes}
 
           {porConfirmar.length ? (
             <Grupo

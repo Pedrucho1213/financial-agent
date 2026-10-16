@@ -38,6 +38,48 @@ test.describe("Tocar una notificación con la app abierta", () => {
   });
 });
 
+test.describe("Lo que requiere tu atención", () => {
+  test("un pago sin anotar sigue en Inicio y en Avisos aunque ya se haya visto, abre el chat y se puede descartar", async ({ page }) => {
+    const api = await prepararSesion(page);
+    const pregunta = "Pagaste con Apple Pay, pero no me llegaron los datos del pago. ¿Cuánto fue y en dónde?";
+    api.plan.avisos.unshift({
+      id: "pend-1",
+      tipo: "pendiente",
+      titulo: "¿Cuánto pagaste con Apple Pay?",
+      texto: `${pregunta} Si no pagaste nada, descártalo.`,
+      fecha: "2026-10-01",
+      vence: null,
+      prioridad: 1,
+      enlace: "#chat?conversacion=conv-applepay",
+      leidoEn: "2026-10-01T18:00:00.000Z",
+    } as unknown as (typeof api.plan.avisos)[number]);
+    api.conversaciones.set("conv-applepay", [
+      { rol: "yo", texto: "Pagué con Apple Pay (no llegaron los datos del pago)" },
+      { rol: "asistente", texto: pregunta },
+    ]);
+    await page.goto("/#inicio");
+    const atencion = page.getByTestId("atencion");
+    await expect(atencion.getByRole("heading", { name: "Requiere tu atención" })).toBeVisible();
+    await expect(atencion.getByText("¿Cuánto pagaste con Apple Pay?")).toBeVisible();
+    // La campana lo cuenta aunque ya lo haya visto; "Para ti" no lo repite.
+    await expect(page.getByRole("button", { name: /^Notificaciones, \d+ pendientes?$/ })).toBeVisible();
+    await expect(page.getByText("¿Cuánto pagaste con Apple Pay?")).toHaveCount(1);
+    await atencion.getByRole("button", { name: "Contestar" }).click();
+    await expect(page.getByText(pregunta, { exact: true })).toBeVisible();
+    await expect(page).toHaveURL(/#chat$/);
+
+    await page.goto("/#avisos");
+    const fila = page.locator('[data-pendiente="pend-1"]');
+    await expect(fila).toBeVisible();
+    await expect(page.locator('[data-aviso="pend-1"]')).toHaveCount(0);
+    await fila.getByRole("button", { name: "Descartar" }).click();
+    await expect(fila).toHaveCount(0);
+    expect(api.de("POST", "/v1/avisos/pend-1/descartar")).toHaveLength(1);
+    await page.goto("/#inicio");
+    await expect(page.getByTestId("atencion")).toHaveCount(0);
+  });
+});
+
 test.describe("Notificaciones en Ajustes", () => {
   test("en una pestaña de Safari pide abrir la app desde la pantalla de inicio", async ({ page }) => {
     await prepararSesion(page);

@@ -1,4 +1,6 @@
 import { generateText, isStepCount, type AssistantModelMessage, type LanguageModel, type ModelMessage } from "ai";
+import { resolverPendiente } from "../finanzas/pendientes";
+import { necesitaAtencion } from "../push/dictados";
 import { and, asc, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { cuentas, entradas, mensajes, movimientos } from "../db/schema";
@@ -567,6 +569,8 @@ function encolar(deps: Dependencias, entrada: Entrada, intento = 0, exitosAlFall
     (respuesta) => {
       enCurso.delete(entrada.id);
       retomadas.delete(entrada.id);
+      // Contestó lo que quedó pendiente en esta conversación (o el dictado que había fallado ya salió).
+      if (!necesitaAtencion(entrada, respuesta)) resolverPendiente(deps.db, entrada.usuarioId, respuesta.conversacion_id);
       if (enSegundoPlano.has(entrada.id)) terminoSinEspera(deps, entrada, respuesta);
       enSegundoPlano.delete(entrada.id);
       exitosPorBase.set(deps.db, exitos(deps.db) + 1);

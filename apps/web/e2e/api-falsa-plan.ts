@@ -231,7 +231,8 @@ export async function atenderPlan(api: ApiFalsa, { metodo, ruta, cuerpo, consult
   }
 
   if (metodo === "GET" && ruta === "/v1/avisos")
-    return json(200, { avisos: consulta.get("todos") === "1" ? plan.avisos : plan.avisos.filter((a) => !a.leidoEn) });
+    // Como el servidor: lo pendiente sigue aunque ya se haya visto.
+    return json(200, { avisos: consulta.get("todos") === "1" ? plan.avisos : plan.avisos.filter((a) => !a.leidoEn || (a.tipo as string) === "pendiente") });
   m = ruta.match(/^\/v1\/avisos\/([^/]+)\/(leido|descartar)$/);
   if (metodo === "POST" && m) {
     const aviso = plan.avisos.find((a) => a.id === m?.[1]);

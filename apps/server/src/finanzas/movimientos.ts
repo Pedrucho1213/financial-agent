@@ -35,6 +35,7 @@ import { pagoDeFrase } from "./applepay";
 import type { Contexto } from "./contexto";
 import { etiquetasActivas, idsDeEtiquetas, nombresDeEtiquetas, soloPropias } from "./etiquetas";
 import { ajustarInnecesario, etiquetaDeViaje, heredadasDelComercio } from "./etiquetas-auto";
+import { resolverPendienteDeEntrada } from "./pendientes";
 import { aprenderTarjeta } from "./tarjeta-wallet";
 
 export type TipoMovimiento = (typeof TIPOS_MOVIMIENTO)[number];
@@ -596,8 +597,10 @@ export function editarMovimiento(ctx: Contexto, id: string, cambios: Partial<Dat
     .get()!;
   registrarEnBitacora(ctx, "movimientos", id, "editar", antes, despues);
   // Aprende: a un pago de Apple Pay le puso la cuenta; la próxima vez esa tarjeta de la Cartera irá a esa cuenta.
+  // Y si se le había preguntado con cuál pagó, ya quedó contestado.
   if (antes.origen === "apple_pay" && nuevo.cuentaId && nuevo.cuentaId !== antes.cuentaId) {
     aprenderTarjeta(ctx.db, ctx.usuarioId, pagoDeFrase(antes.textoOriginal ?? undefined)?.tarjeta, nuevo.cuentaId);
+    resolverPendienteDeEntrada(ctx.db, ctx.usuarioId, antes.entradaId);
   }
   return describir(ctx, despues, cats);
 }

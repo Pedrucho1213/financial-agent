@@ -526,6 +526,8 @@ export const TIPOS_AVISO = [
   "tarjeta_pago",
   "tarjeta_limite",
   "viaje",
+  // Un pago o un dictado que espera algo del usuario (ver finanzas/pendientes.ts).
+  "pendiente",
 ] as const;
 
 // Lo que el revisor nocturno encontró (fugas, cobros que vienen, presupuestos en riesgo). El push y
