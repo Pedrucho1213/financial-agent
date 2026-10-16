@@ -293,6 +293,9 @@ describe("API", () => {
     expect(debeATarjeta("le debo 2 mil a mi tarjeta Revolut", tarjetas)).toBe(true);
     expect(debeATarjeta("Le debo 30 mil a mi mamá", tarjetas)).toBe(false);
     expect(debeATarjeta("¿cuánto le debo a la Nu?", tarjetas)).toBe(false);
+    // «Mi» y «La» del nombre de la tarjeta no cuentan.
+    expect(debeATarjeta("Le debo 500 a mi mamá", ["Mi Banorte", "La Comer"])).toBe(false);
+    expect(debeATarjeta("Le debo 500 a mi Banorte", ["Mi Banorte"])).toBe(true);
   });
 
   test("la charla sin montos no se reintenta", async () => {

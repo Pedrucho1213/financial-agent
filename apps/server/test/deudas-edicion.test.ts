@@ -224,6 +224,9 @@ describe("la IA corrige y borra deudas", () => {
     // "En realidad fueron 28 mil" sí es el total.
     const t = await llamar(dictado(ctx, "en realidad fueron 28 mil lo de mi mamá"), "corregir_prestamo", { accion: "cambiar", persona: "Mamá", monto: 28000 });
     expect(t.deuda).toMatchObject({ prestadoCentavos: 2_800_000, pendienteCentavos: 2_300_000 });
+    // "En realidad le debo 30 mil en total" dice "debo", pero es el total.
+    const e = await llamar(dictado(ctx, "en realidad le debo 30 mil en total a mi mamá"), "corregir_prestamo", { accion: "cambiar", persona: "Mamá", monto: 30000 });
+    expect(e.deuda).toMatchObject({ prestadoCentavos: 3_000_000, pendienteCentavos: 2_500_000 });
   });
 
   test('"ya le terminé de pagar a mi mamá" salda todo; "¿cuánto me deben?" responde', async () => {
@@ -255,5 +258,30 @@ describe("la IA corrige y borra deudas", () => {
     expect(r.respuesta).toContain("le debes $52,733 a tu mamá y a Milton Ventura");
     registrarPrestamo(ctx, { persona: "Juan", direccion: "me_deben", monto: 500 });
     expect((await llamar(dictado(ctx, "¿cuánto tengo?"), "consultar_cuentas", {})).respuesta).not.toContain("Juan");
+  });
+
+  test("¿cuánto debo? sin cuentas dice lo que debe a personas", async () => {
+    const r = await llamar(dictado(conDeudas(), "¿cuánto debo?"), "consultar_cuentas", {});
+    expect(r.respuesta).toContain("Le debes $52,733 a tu mamá y a Milton Ventura");
+  });
+});
+
+describe("desde la app", () => {
+  test("la cuenta elegida es la que se mueve, aunque haya dos de efectivo", async () => {
+    const { pedir } = montar();
+    const efectivo = (await pedir("/v1/cuentas", "POST", { nombre: "Efectivo", tipo: "efectivo", saldo: 1000 })).cuerpo;
+    const alcancia = (await pedir("/v1/cuentas", "POST", { nombre: "Alcancía", tipo: "efectivo", saldo: 5000 })).cuerpo;
+    const r = await pedir("/v1/prestamos", "POST", { persona: "Hugo", direccion: "me_deben", monto: 300, cuenta_id: efectivo.id });
+    expect(r.estado).toBe(201);
+    expect((await pedir(`/v1/cuentas/${efectivo.id}`)).cuerpo.cuenta.saldoCentavos).toBe(70_000);
+    expect((await pedir(`/v1/cuentas/${alcancia.id}`)).cuerpo.cuenta.saldoCentavos).toBe(500_000);
+  });
+
+  test("cambiar solo las mayúsculas del nombre no choca consigo misma", async () => {
+    const { pedir } = montar();
+    const m = (await pedir("/v1/prestamos", "POST", { persona: "Milton ventura", direccion: "debo", monto: 20000 })).cuerpo;
+    const r = await pedir(`/v1/prestamos/${m.id}`, "PATCH", { persona: "Milton Ventura" });
+    expect(r.estado).toBe(200);
+    expect(r.cuerpo).toMatchObject({ persona: "Milton Ventura", pendienteCentavos: 2_000_000 });
   });
 });

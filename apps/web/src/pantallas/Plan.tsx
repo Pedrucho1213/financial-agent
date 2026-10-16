@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { type Anillo, Anillos } from "../components/Anillos";
 import { CampoMonto } from "../components/CampoMonto";
+import { ContenidoConMonto } from "../components/ContenidoConMonto";
 import { LogoPago } from "../components/Logo";
 import { Inicial } from "../components/deudas/Piezas";
 import { Pantalla } from "../components/Pantalla";
@@ -294,38 +295,41 @@ function Prestamos({ datos, moneda }: { datos: PrestamosApi | undefined; moneda:
       <Grupo
         pie={
           <span className="flex items-start gap-1.5">
-            <Mic className="mt-0.5 size-3.5 shrink-0" /> {pie ? `${pie[0]?.toUpperCase()}${pie.slice(1)}. ` : ""}Para abonar, díselo al Atajo: «Le transferí 2 mil a mi mamá desde Revolut».
+            <Mic className="mt-0.5 size-3.5 shrink-0" /> {pie ? `${pie[0]?.toUpperCase()}${pie.slice(1)}. ` : ""}
+            {datos.edicion
+              ? "Toca una para abonar, editarla o borrarla, o díselo al Atajo: «le transferí 2 mil a mi mamá desde Revolut»."
+              : "Para abonar, díselo al Atajo: «Le transferí 2 mil a mi mamá desde Revolut»."}
           </span>
         }
       >
         {personas.map((d) => (
-          <FilaBoton
-            key={`${d.persona}-${d.direccion}`}
-            // En pantallas angostas la inicial se quita para que los montos del subtítulo no se corten.
-            className="[--sangria:4.25rem] max-[359px]:[--sangria:1rem]"
-            icono={<Inicial nombre={d.persona} className="max-[359px]:hidden" />}
-            titulo={d.persona}
-            subtitulo={enVariasLineas(
-              d.pagadoCentavos > 0 ? (
-                <DeTotal
-                  antes={d.direccion === "me_deben" ? "Te debe · te ha pagado" : "Le debes · abonaste"}
-                  parte={pesos(d.pagadoCentavos, moneda)}
-                  total={pesos(d.prestadoCentavos, moneda)}
-                />
-              ) : d.direccion === "me_deben" ? (
-                "Te debe"
-              ) : (
-                "Le debes"
-              ),
-            )}
-            valor={
-              <span className={cn("font-medium tabular", d.direccion === "me_deben" ? "text-positive" : "text-foreground")}>
-                {dinero(d.pendienteCentavos, moneda)}
-              </span>
-            }
-            chevron
-            onClick={() => navegar(hashDeuda(d))}
-          />
+          // El monto arriba a la derecha y el subtítulo a todo lo ancho: a 320 px «abonaste $6,000 de $38,733» ya no se
+          // parte en cuatro renglones.
+          <FilaBoton key={`${d.persona}-${d.direccion}`} sangria="4.25rem" onClick={() => navegar(hashDeuda(d))}>
+            <ContenidoConMonto
+              icono={<Inicial nombre={d.persona} />}
+              titulo={d.persona}
+              subtitulo={enVariasLineas(
+                d.pagadoCentavos > 0 ? (
+                  <DeTotal
+                    antes={d.direccion === "me_deben" ? "Te debe · te ha pagado" : "Le debes · abonaste"}
+                    parte={pesos(d.pagadoCentavos, moneda)}
+                    total={pesos(d.prestadoCentavos, moneda)}
+                  />
+                ) : d.direccion === "me_deben" ? (
+                  "Te debe"
+                ) : (
+                  "Le debes"
+                ),
+              )}
+              valor={
+                <span className={cn("font-medium whitespace-nowrap tabular", d.direccion === "me_deben" ? "text-positive" : "text-foreground")}>
+                  {dinero(d.pendienteCentavos, moneda)}
+                </span>
+              }
+              chevron
+            />
+          </FilaBoton>
         ))}
       </Grupo>
     </section>

@@ -152,12 +152,12 @@ function totales(cuentas: CuentaFalsa[]) {
   };
 }
 
-/** Como el servidor con deudas a personas: `netoCentavos` no cambia y `personas.netoCentavos` las cuenta. */
+/** Como el servidor con deudas a personas: `netoCentavos` no cambia y `personas.netoCentavos` resta lo que debe (lo que le deben no suma). */
 function conPersonas(t: ReturnType<typeof totales>, api: ApiFalsa) {
   if (!api.deudas) return t;
   if (!api.deudas.edicion) return { ...t, personas: null };
   const p = totalesDeudas(api.deudas);
-  return { ...t, personas: { ...p, netoCentavos: t.netoCentavos - p.deboCentavos + p.meDebenCentavos } };
+  return { ...t, personas: { ...p, netoCentavos: t.netoCentavos - p.deboCentavos } };
 }
 
 /** Como el servidor: la primera letra en mayúscula ("viaje" → "Viaje"). */
@@ -192,7 +192,7 @@ export function extraTablero(api: ApiFalsa, mes: string) {
   const datos = api.cuentas;
   if (!datos) return {};
   return {
-    cuentas: totales(datos.cuentas),
+    cuentas: conPersonas(totales(datos.cuentas), api),
     porEtiqueta: resumenEtiquetas(api, datos, `${mes}-01`, `${mes}-31`).map((e) => ({
       id: e.id,
       nombre: e.nombre,

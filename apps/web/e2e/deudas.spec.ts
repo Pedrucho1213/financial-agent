@@ -25,6 +25,15 @@ test("Cuentas muestra lo que debes, como una tarjeta más, y lo resta de lo que 
   await expect(page.getByRole("region", { name: "Deudas saldadas" }).locator('[data-deuda="Caro"]')).toBeVisible();
 });
 
+test("Inicio dice lo mismo que Cuentas en «Lo que tienes»", async ({ page }) => {
+  await prepararSesion(page, api());
+  await page.goto("/#inicio");
+  // Igual que Cuentas: Revolut 19,291 − Invex 19,818.88 − personas 52,733; lo que le debe Juan no suma.
+  const tienes = page.getByRole("region", { name: "Lo que tienes" });
+  await expect(tienes).toContainText("−$53,260.88");
+  await expect(tienes).toContainText("$19,291.00 en cuentas menos $72,551.88 que debes");
+});
+
 test("agregar una deuda a mano con la cuenta a la que llegó", async ({ page }) => {
   const a = api();
   await prepararSesion(page, a);

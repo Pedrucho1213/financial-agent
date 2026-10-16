@@ -334,7 +334,11 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
           };
         }
         if (!todas.length) {
-          return { respuesta: 'Todavía no me has dicho tus cuentas. Dime, por ejemplo, "tengo 20 mil en Revolut y 10 mil en Bancomer".' };
+          // Sin cuentas, lo que debe a personas se dice igual: "¿cuánto debo?" no puede contestar menos que la app.
+          const aPersonas = totalesPersonas(ctx, 0)?.deboCentavos ?? 0;
+          const nombres = aPersonas ? deudasPorPersona(ctx).filter((x) => x.direccion === "debo").map((x) => `a ${nombrePersona(x.persona)}`) : [];
+          const deudas = aPersonas ? `Le debes ${$(aPersonas)} ${nombres.length && nombres.length <= 3 ? enLista(nombres) : "a personas"}. ` : "";
+          return { respuesta: `${deudas}Todavía no me has dicho tus cuentas. Dime, por ejemplo, "tengo 20 mil en Revolut y 10 mil en Bancomer".` };
         }
         // "¿Cuándo pago mis tarjetas?": el corte y el pago de cada una.
         const tarjetas = todas.filter((e) => e.esCredito);
@@ -366,6 +370,8 @@ export function herramientasCuentas(ctx: Contexto, ejecutar: Ejecutar) {
           : `No sé cuánto tienes en ${enLista(t.sinSaldo)}. Dime "tengo tanto en ${t.sinSaldo[0]}" y desde ahí le sigo la cuenta.`;
         return {
           respuesta,
+          // «Lo que tienes» igual que en la app: cuentas − tarjetas − lo que debe a personas (lo que le deben no suma).
+          ...(t.cuentasConSaldo || t.tarjetasConDeuda ? { lo_que_tienes: $(personas?.netoCentavos ?? t.netoCentavos) } : {}),
           cuentas: todas.map((e) => ({
             nombre: e.nombre,
             tipo: NOMBRE_TIPO[e.tipo],

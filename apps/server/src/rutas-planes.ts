@@ -150,7 +150,8 @@ export function rutasPlanes(v1: Hono<{ Variables: VariablesAuth }>, contexto: (u
   };
   const noEncontrado = { error: "No encontrado." };
   // El nombre de la cuenta elegida en la app, si es suya.
-  const nombreCuenta = (ctx: Contexto, id: string | undefined) => (id ? estadoDeCuenta(ctx, id).nombre : undefined);
+  // Valida que la cuenta sea suya (si no, 400) y la pasa por id: dos cuentas parecidas («Efectivo» y «Cartera») no se confunden.
+  const cuentaElegida = (ctx: Contexto, id: string | undefined) => (id ? estadoDeCuenta(ctx, id).id : undefined);
   // Una deuda que no existe, o que es de otro usuario, es un 404 y no un 400.
   const existe = (ctx: Contexto, id: string) => {
     try {
@@ -168,9 +169,9 @@ export function rutasPlanes(v1: Hono<{ Variables: VariablesAuth }>, contexto: (u
     if (!cuerpo.success) return c.json(invalido(cuerpo.error), 400);
     const d = cuerpo.data;
     if (d.fecha && d.fecha > ctx.hoy) return c.json({ error: "Datos inválidos.", detalles: { fecha: ["La fecha no puede ser futura."] } }, 400);
-    const cuenta = nombreCuenta(ctx, d.cuenta_id);
+    const cuenta = cuentaElegida(ctx, d.cuenta_id);
     const p = registrarPrestamo(ctx, { persona: d.persona, direccion: d.direccion, monto: d.monto, descripcion: d.descripcion, fecha: d.fecha });
-    if (cuenta) moverPorDeuda(ctx, { persona: p.persona, direccion: p.direccion, que: "prestamo", centavos: p.montoCentavos, cuenta, fecha: d.fecha });
+    if (cuenta) moverPorDeuda(ctx, { persona: p.persona, direccion: p.direccion, que: "prestamo", centavos: p.montoCentavos, cuentaId: cuenta, fecha: d.fecha });
     return c.json(deudaPorId(ctx, p.id), 201);
   });
 
@@ -182,9 +183,9 @@ export function rutasPlanes(v1: Hono<{ Variables: VariablesAuth }>, contexto: (u
     const cuerpo = esquemaAbono.safeParse(await c.req.json().catch(() => ({})));
     if (!cuerpo.success) return c.json(invalido(cuerpo.error), 400);
     if (deuda.saldada) return c.json({ error: "Esa deuda ya está saldada." }, 400);
-    const cuenta = nombreCuenta(ctx, cuerpo.data.cuenta_id);
+    const cuenta = cuentaElegida(ctx, cuerpo.data.cuenta_id);
     const a = abonarPrestamo(ctx, { persona: deuda.persona, direccion: deuda.direccion, monto: cuerpo.data.monto });
-    if (cuenta) moverPorDeuda(ctx, { persona: deuda.persona, direccion: deuda.direccion, que: "abono", centavos: a.abonadoCentavos, cuenta });
+    if (cuenta) moverPorDeuda(ctx, { persona: deuda.persona, direccion: deuda.direccion, que: "abono", centavos: a.abonadoCentavos, cuentaId: cuenta });
     return c.json(deudaPorId(ctx, deuda.id));
   });
 
