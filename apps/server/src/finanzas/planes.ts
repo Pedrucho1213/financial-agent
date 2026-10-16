@@ -751,7 +751,7 @@ export function deudaDePersona(ctx: Contexto, persona: string, direccion?: Direc
  */
 export function moverPorDeuda(
   ctx: Contexto,
-  datos: { persona: string; direccion: Direccion; que: "prestamo" | "abono"; centavos: number; cuenta: string; fecha?: string },
+  datos: { persona: string; direccion: Direccion; que: "prestamo" | "abono"; centavos: number; cuenta?: string; cuentaId?: string; fecha?: string },
 ) {
   // Le presté o le pagué: sale de la cuenta. Me prestó o me pagó: llega a ella.
   const sale = (datos.que === "prestamo") === (datos.direccion === "me_deben");
@@ -766,7 +766,8 @@ export function moverPorDeuda(
   return crearMovimiento(ctx, {
     tipo: "transferencia",
     monto: datos.centavos / 100,
-    [sale ? "cuenta" : "cuentaDestino"]: datos.cuenta,
+    // La app manda el id de la cuenta; la IA, el nombre que dijo.
+    ...(datos.cuentaId ? { [sale ? "cuentaId" : "cuentaDestinoId"]: datos.cuentaId } : { [sale ? "cuenta" : "cuentaDestino"]: datos.cuenta }),
     descripcion,
     ...(datos.fecha ? { fecha: datos.fecha } : {}),
   });
@@ -803,12 +804,14 @@ export function editarDeuda(
   if (cambios.persona !== undefined) {
     const limpia = limpiarPersona(cambios.persona);
     if (!limpia) throw new ErrorFinanzas("Falta a quién.");
+    // Sin contar las filas de esta misma deuda: si no, «Milton ventura» → «Milton Ventura» o «Jose» → «José» se quedaba igual.
+    const propias = new Set(filas.map((p) => p.id));
     const otra = ctx.db
-      .select({ persona: prestamosPersonales.persona })
+      .select({ id: prestamosPersonales.id, persona: prestamosPersonales.persona })
       .from(prestamosPersonales)
       .where(and(eq(prestamosPersonales.usuarioId, ctx.usuarioId), isNull(prestamosPersonales.eliminadoEn)))
       .all()
-      .find((p) => clavePersona(p.persona) === clavePersona(limpia))?.persona;
+      .find((p) => !propias.has(p.id) && clavePersona(p.persona) === clavePersona(limpia))?.persona;
     persona = otra ?? COMO_SE_ESCRIBE[clavePersona(limpia)] ?? limpia.charAt(0).toUpperCase() + limpia.slice(1);
   }
   // Cuánto le toca a cada préstamo: del más reciente al más antiguo.

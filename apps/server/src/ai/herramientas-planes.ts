@@ -45,6 +45,8 @@ export const ESCRITURAS_PLANES = new Set(["presupuesto", "meta", "prestamo", "co
 const CORRIGE_DEUDA = /\b(ahora|nada mas|ya (solo|nomas)|solo (le |me )?(debo|debe)|en realidad|me equivoque|no (eran|son|era|es) \S+ sino|corrige|cambia(le)?|quedan?|ya no son)\b/;
 // "Le debo 20 mil", "me debe 500", "quedan 12", "nada más faltan 3 mil": habla de lo que queda, no del total.
 const DICE_LO_QUE_QUEDA = /\b(debo|debe|queda|quedan|falta|faltan|nada mas|ya solo|nomas)\b/;
+/** "En realidad le debo 18 mil en total", "fueron 18 mil": eso es el total, aunque diga "debo". */
+const DICE_EL_TOTAL = /\b(en total|fueron|eran)\b/;
 // "Me prestó otros 2 mil", "le presté más": sí es otro préstamo.
 const NUEVO_PRESTAMO = /\b(otr[oa]s?|(?<!nada )mas|ademas|tambien|de nuevo|otra vez)\b|\bprest(e|o|aron|aste)\b/;
 
@@ -75,7 +77,7 @@ export function herramientasPlanes(ctx: Contexto, ejecutar: Ejecutar) {
     if (args.monto === undefined && args.queda === undefined && !args.nuevo_nombre) return { error: "No dijo qué cambiar de la deuda. Pregúntalo." };
     // "Ahora nada más le debo 20 mil" es lo que queda, aunque el modelo lo mande como monto: con abonos, tomarlo
     // como el total dejaría de menos.
-    if (args.monto !== undefined && args.queda === undefined && ctx.textoOriginal && DICE_LO_QUE_QUEDA.test(normalizar(ctx.textoOriginal))) {
+    if (args.monto !== undefined && args.queda === undefined && ctx.textoOriginal && DICE_LO_QUE_QUEDA.test(normalizar(ctx.textoOriginal)) && !DICE_EL_TOTAL.test(normalizar(ctx.textoOriginal))) {
       args = { ...args, queda: args.monto, monto: undefined };
     }
     // Con las dos cifras, manda lo que queda: es lo que se oye en "ahora le debo".

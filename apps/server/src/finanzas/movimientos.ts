@@ -52,6 +52,9 @@ export type DatosMovimiento = {
   cuenta?: string;
   /** Transferencias y pagos de tarjeta: a dónde fue el dinero. */
   cuentaDestino?: string;
+  /** La app eligió la cuenta por id: se usa esa, sin buscar por nombre (dos «Efectivo» no se confunden) ni crear. */
+  cuentaId?: string;
+  cuentaDestinoId?: string;
   fecha?: string;
   /** Nombres de etiquetas que se agregan ("viaje"); se crean si no existen. */
   etiquetas?: string[];
@@ -219,6 +222,17 @@ function validarMonto(monto: number) {
   if (aCentavos(monto) < 1) throw new ErrorFinanzas("El monto debe ser de al menos un centavo.");
 }
 
+/** Una cuenta del usuario por su id, tal cual (archivada o no). */
+function cuentaPorId(ctx: Contexto, id: string) {
+  const c = ctx.db
+    .select()
+    .from(cuentas)
+    .where(and(eq(cuentas.id, id), eq(cuentas.usuarioId, ctx.usuarioId)))
+    .get();
+  if (!c) throw new ErrorFinanzas("Esa cuenta no existe.");
+  return c;
+}
+
 export function crearMovimiento(ctx: Contexto, datos: DatosMovimiento) {
   validarMonto(datos.monto);
   const fechaResuelta = resolverFecha(datos.fecha, ctx.hoy);
@@ -234,14 +248,20 @@ export function crearMovimiento(ctx: Contexto, datos: DatosMovimiento) {
       ]);
   // El comercio solo aprende de tus correcciones (editarMovimiento): Oxxo, Walmart o Amazon venden
   // de todo y la primera compra no dice a qué categoría van las demás.
-  let cuenta = encontrarOCrearCuenta(
-    ctx.db,
-    ctx.usuarioId,
-    datos.cuenta || (categoria.revisar ? undefined : datos.cuentaSegunCategoria?.(categoria.id)),
-    { alCambiar: cambioDeCuenta(ctx) },
-  );
+  let cuenta = datos.cuentaId
+    ? cuentaPorId(ctx, datos.cuentaId)
+    : encontrarOCrearCuenta(
+        ctx.db,
+        ctx.usuarioId,
+        datos.cuenta || (categoria.revisar ? undefined : datos.cuentaSegunCategoria?.(categoria.id)),
+        { alCambiar: cambioDeCuenta(ctx) },
+      );
   const mueveEntreCuentas = datos.tipo === "transferencia" || datos.tipo === "pago_tarjeta";
-  let destino = mueveEntreCuentas ? encontrarOCrearCuenta(ctx.db, ctx.usuarioId, datos.cuentaDestino, { alCambiar: cambioDeCuenta(ctx) }) : undefined;
+  let destino = !mueveEntreCuentas
+    ? undefined
+    : datos.cuentaDestinoId
+      ? cuentaPorId(ctx, datos.cuentaDestinoId)
+      : encontrarOCrearCuenta(ctx.db, ctx.usuarioId, datos.cuentaDestino, { alCambiar: cambioDeCuenta(ctx) });
   // Un pago de tarjeta con solo la tarjeta (la app manda una cuenta): el dinero llega a ella, no sale de ella.
   // Si la cuenta aún no tenía tipo, pagarle dice que es de crédito.
   if (datos.tipo === "pago_tarjeta" && !destino && cuenta && (cuenta.tipo === "credito" || cuenta.tipo === "otra")) {

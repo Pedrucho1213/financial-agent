@@ -2,6 +2,7 @@ import { HandCoins, Mic, Pencil, Plus, Trash2 } from "lucide-react";
 import { type ComponentProps, type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import { Ajustado } from "../components/Ajustado";
+import { ContenidoConMonto } from "../components/ContenidoConMonto";
 import { Anillos } from "../components/Anillos";
 import { HojaAbono } from "../components/deudas/HojaAbono";
 import { HojaEditarDeuda } from "../components/deudas/HojaEditarDeuda";
@@ -221,25 +222,27 @@ function FilaMovimientoDeuda({ m, meDebe, moneda }: { m: MovimientoDeuda; meDebe
   // El dinero de un abono sale de la cuenta (o llega, si te pagan); el de un préstamo, al revés.
   const sale = (m.tipo === "abono") !== meDebe;
   const abono = m.tipo === "abono";
+  // El monto arriba a la derecha y la fecha y la cuenta a todo lo ancho abajo: a 320 px no se apretujan en una columna.
   return (
     <Fila sangria="4rem">
-      <span
-        aria-hidden
-        className={cn("flex size-9 shrink-0 items-center justify-center rounded-full", abono ? "bg-positive/15 text-positive" : "bg-fill text-muted-foreground")}
-      >
-        {abono ? <HandCoins className="size-[18px]" strokeWidth={2.2} /> : <Plus className="size-[18px]" strokeWidth={2.4} />}
-      </span>
-      <div className="min-w-0 flex-1 py-2.5">
-        <div className="break-words">{abono ? (meDebe ? "Te pagó" : "Abono") : meDebe ? "Le prestaste" : "Te prestó"}</div>
-        <div className="text-[15px] leading-snug break-words text-muted-foreground">
-          {fecha}
-          {m.cuenta ? ` · ${sale ? "desde" : "a"} ${m.cuenta}` : ""}
-        </div>
-      </div>
-      <span className={cn("shrink-0 font-medium tabular", abono ? "text-positive" : "text-foreground")}>
-        {abono ? "−" : "+"}
-        {dinero(m.montoCentavos, moneda)}
-      </span>
+      <ContenidoConMonto
+        icono={
+          <span
+            aria-hidden
+            className={cn("flex size-9 shrink-0 items-center justify-center rounded-full", abono ? "bg-positive/15 text-positive" : "bg-fill text-muted-foreground")}
+          >
+            {abono ? <HandCoins className="size-[18px]" strokeWidth={2.2} /> : <Plus className="size-[18px]" strokeWidth={2.4} />}
+          </span>
+        }
+        titulo={abono ? (meDebe ? "Te pagó" : "Abono") : meDebe ? "Le prestaste" : "Te prestó"}
+        subtitulo={`${fecha}${m.cuenta ? ` · ${sale ? "desde" : "a"} ${m.cuenta}` : ""}`}
+        valor={
+          <span className={cn("font-medium whitespace-nowrap tabular", abono ? "text-positive" : "text-foreground")}>
+            {abono ? "−" : "+"}
+            {dinero(m.montoCentavos, moneda)}
+          </span>
+        }
+      />
     </Fila>
   );
 }

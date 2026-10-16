@@ -55,9 +55,10 @@ export function TarjetasInicio({ t, esMesActual, ritmo }: { t: Tablero; esMesAct
       nombre: "Lo que tienes",
       nodo: (
         <HojaTienes
-          neto={saldos.netoCentavos}
+          // Lo que debe a personas resta como una tarjeta más, igual que en Cuentas (lo que le deben no suma).
+          neto={saldos.netoCentavos - (saldos.personas?.deboCentavos ?? 0)}
           dinero_={saldos.dineroCentavos}
-          deuda={saldos.deudaCentavos}
+          deuda={saldos.deudaCentavos + (saldos.personas?.deboCentavos ?? 0)}
           moneda={t.moneda}
           uso={creditoTotal(lista)?.uso ?? null}
           noSuman={[...saldos.sinSaldo, ...sinDeudaConocida(lista).map((c) => c.nombre)]}

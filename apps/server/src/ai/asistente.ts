@@ -313,10 +313,15 @@ function preguntoSinBorrar(pedido: string, respuesta: string, llamadas: number):
  * "Le debo 15 mil a la Nu": lo que debe en una de sus tarjetas. Si el modelo pregunta sin guardar nada (si es la tarjeta
  * o una persona), se reintenta una vez con el aviso de abajo. Sin monto sí puede preguntar.
  */
+const VACIAS = new Set(["mi", "mis", "la", "las", "el", "los", "de", "del", "al", "lo", "tu", "su", "un", "una", "y", "en", "con", "por", "para"]);
+
 export function debeATarjeta(pedido: string, tarjetas: string[]): boolean {
   const plano = normalizar(pedido);
   if (!/\b(debo|adeudo)\b/.test(plano) || !/\d|\bmil\b/.test(plano)) return false;
-  const palabras = [...new Set(tarjetas.flatMap((t) => normalizar(t).replace(/\b(de )?(credito|debito)$/, "").trim().split(" ")))].filter((w) => w.length > 1);
+  // Sin palabras vacías: con la tarjeta «Mi Banorte» o «La Comer», «le debo 500 a mi mamá» no es deuda de tarjeta.
+  const palabras = [...new Set(tarjetas.flatMap((t) => normalizar(t).replace(/\b(de )?(credito|debito)$/, "").trim().split(" ")))].filter(
+    (w) => w.length > 1 && !VACIAS.has(w),
+  );
   return palabras.some((w) => new RegExp(`\\b(debo|adeudo)\\b.*\\ba (la |mi |el )?(tarjeta )?${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(plano));
 }
 
