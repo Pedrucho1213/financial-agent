@@ -76,6 +76,9 @@ const sinNumeros = (texto: string | undefined) =>
     .trim()
     .slice(0, 80) || undefined;
 
+/** El comercio del pago, limpio, para nombrarlo cuando no llegó el monto. */
+export const comercioDePago = (pago: PagoWallet) => sinNumeros(pago.comercio) ?? sinNumeros(pago.nombre);
+
 const NOMBRES_MONEDA: Record<string, string> = {
   MXN: "pesos",
   USD: "dólares",

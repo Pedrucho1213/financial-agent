@@ -388,6 +388,26 @@ describe("Atajo rápido", () => {
     const turnos = JSON.parse(vistos.at(-1)!) as { role: string; content: unknown }[];
     expect(turnos.some((t) => t.role === "assistant" && JSON.stringify(t.content).includes("¿Fueron 85 en Starbucks o en Oxxo?"))).toBe(true);
   });
+
+  test("lo que preguntó queda pendiente aunque lo vea, hasta que lo conteste o lo descarte", async () => {
+    const respuestas = [texto("¿Fueron 85 en Starbucks o en Oxxo?"), texto("¿Cuál café?"), texto("¿Y de cuánto?")];
+    const { pedir, activar, enviadas } = montar(async () => (await Bun.sleep(20), respuestas.shift()!), 5);
+    await activar();
+    const lista = async () => ((await (await pedir("/v1/avisos")).json()) as { avisos: { id: string; tipo: string; titulo: string; texto: string; enlace: string }[] }).avisos;
+    const { conversacion_id: id } = (await (await pedir("/v1/hablar", "POST", { texto: "gasté 85 en café", client_id: "pendiente-01" })).json()) as { conversacion_id: string };
+    await hasta(() => enviadas.length > 0);
+    const [pendiente] = await lista();
+    expect(pendiente).toEqual(expect.objectContaining({ tipo: "pendiente", titulo: "Tengo una pregunta", texto: "¿Fueron 85 en Starbucks o en Oxxo?", enlace: `#chat?conversacion=${id}` }));
+    // Leerlo no lo quita (los demás avisos sí se van al leerlos).
+    await pedir(`/v1/avisos/${pendiente!.id}/leido`, "POST");
+    expect((await lista()).map((a) => a.tipo)).toEqual(["pendiente"]);
+    // Contestar con otra pregunta de la IA tampoco.
+    await pedir("/v1/hablar", "POST", { texto: "no me acuerdo", client_id: "pendiente-02", conversacion_id: id, espera_ms: 5000 });
+    expect(await lista()).toHaveLength(1);
+    // Descartarlo sí.
+    expect((await pedir(`/v1/avisos/${pendiente!.id}/descartar`, "POST")).status).toBe(200);
+    expect(await lista()).toHaveLength(0);
+  });
 });
 
 describe("aviso del día", () => {
@@ -661,7 +681,11 @@ describe("Apple Pay", () => {
     expect(enviadas[0]!.cuerpo).toContain("¿Con cuál tarjeta pagaste: Revolut o Revolut crédito?");
     // Contesta (por voz o en la app, las dos pasan por editarMovimiento): fue la de crédito.
     const primero = db.select().from(movimientos).get()!;
+    const avisosAhora = async () => ((await (await pedir("/v1/avisos")).json()) as { avisos: { tipo: string }[] }).avisos;
+    expect((await avisosAhora()).map((a) => a.tipo)).toEqual(["pendiente"]);
     expect((await pedir(`/v1/movimientos/${primero.id}`, "PATCH", { cuenta: "Revolut crédito" })).status).toBe(200);
+    // Ya contestó con cuál pagó: el pendiente se va.
+    expect(await avisosAhora()).toHaveLength(0);
     expect(db.select().from(cuentas).where(eq(cuentas.id, ids["Revolut crédito"]!)).get()!.alias).toEqual(["Revolut Mastercard"]);
     await pedir("/v1/hablar", "POST", { origen: "apple_pay", client_id: "applepay-aprende-02", monto: "$64.00", comercio: "Oxxo", tarjeta: "Revolut Mastercard" });
     await hasta(() => enviadas.length > 1);
@@ -762,17 +786,60 @@ describe("Apple Pay", () => {
     expect(m.textoOriginal).toBe('Pagué 41 pesos en "GATORADE OXXO" (Apple Pay)');
   });
 
-  test("un pago de verdad sin monto legible no es una prueba: avisa para anotarlo a mano", async () => {
+  type AvisoLista = { avisos: { tipo: string; titulo: string; texto: string; enlace: string | null; id: string }[] };
+  const pendientes = async (pedir: ReturnType<typeof montar>["pedir"], todos = false) =>
+    ((await (await pedir(`/v1/avisos${todos ? "?todos=1" : ""}`)).json()) as AvisoLista).avisos.filter((a) => a.tipo === "pendiente");
+
+  test("un pago de verdad sin monto legible no es una prueba: le pregunta cuánto fue y queda pendiente", async () => {
     const { pedir, activar, enviadas, db } = montar([]);
     await activar();
     const r = (await (
-      await pedir("/v1/hablar", "POST", { origen: "apple_pay", client_id: "applepay-sinmonto-1", entrada: "Revolut", tipo: "Transacción" })
+      await pedir("/v1/hablar", "POST", { origen: "apple_pay", client_id: "applepay-sinmonto-1", comercio: "OXXO 1234", tipo: "Transacción" })
     ).json()) as { prueba: boolean; respuesta: string };
     expect(r.prueba).toBe(false);
-    expect(r.respuesta).toContain("no trae monto");
+    expect(r.respuesta).toBe('Pagaste con Apple Pay en "OXXO", pero no me llegó el monto. ¿Cuánto fue?');
     await hasta(() => enviadas.length > 0);
-    expect(enviadas[0]!.titulo).toBe("Pago con Apple Pay");
+    expect(enviadas[0]!.titulo).toBe("¿Cuánto pagaste con Apple Pay?");
+    expect(enviadas[0]!.url).toStartWith("/#chat?conversacion=");
     expect(db.select().from(movimientos).all()).toHaveLength(0);
+    const [pendiente] = await pendientes(pedir);
+    expect(pendiente!.enlace).toBe(enviadas[0]!.url.slice(1));
+    expect(pendiente!.texto).toEndWith("Si no pagaste nada, descártalo.");
+    // Reenviado por la cola del Atajo: no pregunta dos veces.
+    await pedir("/v1/hablar", "POST", { origen: "apple_pay", client_id: "applepay-sinmonto-1", comercio: "OXXO 1234", tipo: "Transacción" });
+    expect(db.select().from(entradasTabla).all()).toHaveLength(1);
+    expect(await pendientes(pedir)).toHaveLength(1);
+  });
+
+  test("la automatización sin datos, pasados los minutos de la prueba, es un pago: se pregunta y se contesta en el chat", async () => {
+    const vistos: string[] = [];
+    const respuestas = [
+      llamada("registrar_movimientos", { movimientos: [{ tipo: "gasto", monto: 49, comercio: "X24", categoria: "Antojos", cuenta: "Revolut crédito" }] }),
+      texto("Listo, X24 de $49 con Revolut crédito."),
+    ];
+    const { pedir, activar, enviadas, db } = montar(async (o) => (vistos.push(JSON.stringify(o.prompt)), respuestas.shift()!));
+    await activar();
+    // El Atajo de Apple Pay se bajó hace días: una corrida sin datos ya no es la prueba.
+    db.update(dispositivos).set({ creadoEn: new Date(Date.now() - 3 * 86_400_000).toISOString() }).run();
+    const r = (await (await pedir("/v1/hablar", "POST", { origen: "apple_pay", client_id: "applepay-sindatos-1", lat: 19.4 })).json()) as {
+      prueba: boolean;
+      respuesta: string;
+    };
+    expect(r.prueba).toBe(false);
+    expect(r.respuesta).toBe("Pagaste con Apple Pay, pero no me llegaron los datos del pago. ¿Cuánto fue y en dónde?");
+    await hasta(() => enviadas.length > 0);
+    const id = decodeURIComponent(enviadas[0]!.url.split("conversacion=")[1]!);
+    const chat = (await (await pedir(`/v1/conversaciones/${id}`)).json()) as { mensajes: { rol: string; texto: string }[] };
+    expect(chat.mensajes.at(-1)).toEqual(expect.objectContaining({ rol: "asistente", texto: r.respuesta }));
+    // Lo vio en Avisos pero no lo contestó: sigue ahí.
+    const [pendiente] = await pendientes(pedir);
+    await pedir(`/v1/avisos/${pendiente!.id}/leido`, "POST");
+    expect(await pendientes(pedir)).toHaveLength(1);
+    // Contesta en el chat: se anota, la IA tenía su pregunta y el pendiente se va.
+    await pedir("/v1/hablar", "POST", { texto: "fueron 49 en el X24 con la Revolut de crédito", client_id: "applepay-sindatos-2", conversacion_id: id, retomar: true, espera_ms: 5000 });
+    expect(vistos[0]).toContain("¿Cuánto fue y en dónde?");
+    expect(db.select().from(movimientos).all()).toHaveLength(1);
+    expect(await pendientes(pedir, true)).toHaveLength(0);
   });
 
   test("corrido a mano (sin pago) es una prueba que avisa por push", async () => {

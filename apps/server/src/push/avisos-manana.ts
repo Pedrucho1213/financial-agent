@@ -46,7 +46,7 @@ export async function enviarAvisosDelDia(
     // Su horario y los tipos que quiere (Ajustes › Notificaciones); los que apagó se quedan solo en la app.
     const preferencias = preferenciasDe(db, usuarioId);
     if (!enHorario(preferencias, hora)) continue;
-    const pendientes = todos.filter((a) => preferencias.tipos[GRUPO_DE_AVISO[a.tipo]] ?? true);
+    const pendientes = todos.filter((a) => a.tipo !== "pendiente" && (preferencias.tipos[GRUPO_DE_AVISO[a.tipo]] ?? true));
     const [principal] = pendientes;
     // Sin notificaciones activas se esperan: si las activa más tarde, todavía le llegan.
     if (!principal || !tieneSuscripciones(db, usuarioId)) continue;

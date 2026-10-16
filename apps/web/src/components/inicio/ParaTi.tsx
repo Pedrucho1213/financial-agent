@@ -32,7 +32,8 @@ export function ParaTi({ destacados, conAvisos, enLinea }: { destacados: Destaca
   const carril = useRef<HTMLDivElement>(null);
   const [pagina, setPagina] = useState(0);
 
-  const nuevos = conAvisos ? (avisos.data ?? []).filter((a) => !a.leidoEn).sort((a, b) => a.prioridad - b.prioridad) : [];
+  // Lo pendiente va en "Requiere tu atención", arriba.
+  const nuevos = conAvisos ? (avisos.data ?? []).filter((a) => !a.leidoEn && a.tipo !== "pendiente").sort((a, b) => a.prioridad - b.prioridad) : [];
   const items: Item[] = [
     ...nuevos.map((a): Item => {
       const [Icono, color] = ICONOS[a.tipo] ?? [TriangleAlert, "var(--tint)"];

@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { olvidarDeshacer } from "./acciones";
 import { api, ErrorApi, mensajeDeError } from "./api";
-import { refrescarDatos } from "./consultas";
+import { clienteConsultas, refrescarDatos } from "./consultas";
 import { alCerrarSesion } from "./sesion";
 import type { Accion, EstadoEntrada, RespuestaHablar } from "./tipos";
 
@@ -75,7 +75,11 @@ function adoptarConversacion(idMensaje: string, conversacionId: string | undefin
 }
 
 function refrescarSiHizoAlgo(acciones: Accion[] | undefined) {
-  if (!acciones?.length) return;
+  if (!acciones?.length) {
+    // Contestar lo que estaba pendiente lo quita de Inicio y de Avisos aunque no se haya anotado nada.
+    if (estado.retomada) void clienteConsultas.invalidateQueries({ queryKey: ["plan", "avisos"] });
+    return;
+  }
   // Lo que hizo el chat es ahora "lo último": el Deshacer de un aviso anterior desharía esto.
   if (acciones.some(accionCambiaDatos)) olvidarDeshacer();
   void refrescarDatos();

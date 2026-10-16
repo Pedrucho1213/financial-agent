@@ -20,8 +20,8 @@ import { Button } from "../ui/button";
 const MAXIMO = 3;
 
 /**
- * La campana de Inicio. Su número suma lo que espera algo de ti: pagos por confirmar, movimientos por revisar y avisos
- * nuevos. Al tocarla abre una burbuja con lo más reciente ("Se pagó" a un toque) y "Ver todas" lleva al centro de
+ * La campana de Inicio. Su número suma lo que espera algo de ti: lo pendiente de contestar, pagos por confirmar,
+ * movimientos por revisar y avisos nuevos. Al tocarla abre una burbuja con lo más reciente ("Se pagó" a un toque) y "Ver todas" lleva al centro de
  * notificaciones.
  */
 export function Campana({ porRevisar }: { porRevisar: number }) {
@@ -29,7 +29,10 @@ export function Campana({ porRevisar }: { porRevisar: number }) {
   const datos = cobrosParaMostrar(useCobros());
   const avisos = useAvisos();
   const porConfirmar = (datos?.porConfirmar ?? []).filter((c) => !c.pospuesto);
-  const nuevos = (avisos.data ?? []).filter((a) => !a.leidoEn).sort((a, b) => a.prioridad - b.prioridad);
+  // Lo pendiente cuenta (y va primero) hasta que lo contestes, aunque ya lo hayas visto.
+  const nuevos = (avisos.data ?? [])
+    .filter((a) => a.tipo === "pendiente" || !a.leidoEn)
+    .sort((a, b) => Number(b.tipo === "pendiente") - Number(a.tipo === "pendiente") || a.prioridad - b.prioridad);
   const n = porConfirmar.length + (porRevisar > 0 ? 1 : 0) + nuevos.length;
 
   // Al cambiar de pantalla (atrás del sistema, una notificación) se cierra.

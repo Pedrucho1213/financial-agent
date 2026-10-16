@@ -34,7 +34,7 @@ const deps = {
   monedaBase: config.moneda,
   razonamientoDificil: config.ia.razonamientoDificil,
   // Lo que se termina sin que nadie lo espere (también lo retomado al arrancar) llega por notificación.
-  alTerminarSinEspera: avisoDeDictado(db),
+  alTerminarSinEspera: avisoDeDictado(db, undefined, config.zonaHoraria),
   notificaSinEspera: (usuarioId: string) => tienePush(db, usuarioId),
   paralelo: config.ia.paralelo,
   limitesIa: config.limitesIa,
